@@ -113,7 +113,7 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
 # 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
 # Install must be fatal; the version probes stay non-fatal (grouped so a
 # non-zero `--version` can't mask an `npm install -g` failure).
-RUN npm install -g @earendil-works/pi-coding-agent@1.3.0 openspec \
+RUN npm install -g @earendil-works/pi-coding-agent@1.5.0 openspec \
  && { pi --version || true; } \
  && { openspec --version || true; }
 
@@ -133,7 +133,9 @@ ARG PI_FLOWS_VERSION=0.10.0
 # `progress.schedule(details)` into the tool's `onProgress` callback. Without it
 # the collapse scenarios (P2/F4) have no workload and pass vacuously.
 # See change: collapse-superseded-tool-execution-updates.
-ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.6.0
+# >= 0.7.0: background runs (`run_in_background`, `details.background`) for the
+# background-subagents L3 spec. See change: show-background-subagents-in-dock.
+ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.7.0
 RUN npm install -g \
       "@blackbelt-technology/pi-flows@${PI_FLOWS_VERSION}" \
       "@blackbelt-technology/pi-dashboard-subagents@${PI_DASHBOARD_SUBAGENTS_VERSION}" \

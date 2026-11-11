@@ -87,6 +87,13 @@ describe("registry from the real runtime (E1)", () => {
     }
   });
 
+  // test-plan #E67 (update-pi-core-1-5-adopt-apis): the 1.5.0 runtime (OAuth
+  // provider URL checks moved to pi-ai's `trustedHttpUrl`) still yields `meta`.
+  it("E67: the installed pi 1.5 runtime yields a non-empty registry including meta, no error", () => {
+    expect(getRegistryError()).toBeNull();
+    expect(getOAuthRegistry().map((e) => e.id)).toContain("meta");
+  });
+
   it("gives every entry a name and a callable login", () => {
     for (const entry of getOAuthRegistry()) {
       expect(entry.name, entry.id).toBeTruthy();

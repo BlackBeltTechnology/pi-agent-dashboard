@@ -449,6 +449,11 @@ never proceed to steps 9/10.
 removal. Run the harness teardown, then let `ship-change` archive → commit → PR →
 CI → CodeRabbit → (archive+sync gate) → squash-merge → remove worktree.
 
+**CI watching is fail-fast** (`ship-change` step 6): never block on
+`gh pr checks --watch` until every job ends. Poll in short bounded calls; the
+moment any check reports `fail`, diagnose it while the remaining jobs keep
+running, and batch the round's failures into one push.
+
 ## Situation brief for `ask_user`
 
 Every `ask_user` call this skill makes MUST carry a self-contained situation

@@ -10,7 +10,7 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { computeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
 import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createPluginSessionManager, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -4186,11 +4186,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               },
               onPiResourcesInvalidated: (handler: (cwd: string | undefined) => void) =>
                 directoryService.onPiResourcesInvalidated(handler),
-              sessionManager: {
+              // `isConnected` = open bridge socket, trusted plugins only (same
+              // gate as abortSpawnedRun). See change: polish-automation-board.
+              sessionManager: createPluginSessionManager({
                 listActive: () => sessionManager.listActive(),
                 listAll: () => sessionManager.listAll(),
                 getSession: (id: string) => sessionManager.get(id),
-              },
+                isSessionConnected: (id: string) => piGateway.isSessionConnected(id),
+                trusted: (plugin.manifest.priority ?? 1000) <= 100,
+              }),
               eventStore: {
                 getEvents: (sessionId) => eventStore.getEvents(sessionId, 0),
                 getLatestEvent: (sessionId) => {
@@ -5594,7 +5598,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       await new Promise<void>((resolve) => setImmediate(resolve));
       // SIGTERMs every dashboard-spawned pi: after this the sessions below are
       // GONE and can never reattach.
-      browserGateway.shutdownHeadlessProcesses();
+      // Awaited: restored entries are verified first (bounded 5 s). The stop's
+      // intent decides whether an unverifiable restored pid may be signalled.
+      // See change: guard-restored-headless-identity (D7).
+      await browserGateway.shutdownHeadlessProcesses({ exitIntent: opts.exitIntent ?? "idle" });
       // Record `exitIntent` (default "idle") instead of erasing the evidence.
       // `stop()` reaches here from the idle timer — the server chose to stop,
       // the user closed nothing — so the sessions it just killed stay

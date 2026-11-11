@@ -3,7 +3,8 @@
  * (pi's getShellConfig order over the augmented spawn env), never `sh.exe`.
  * Also covers the windowsBashSource state plumbing.
  *
- * See change: fix-windows-bundled-bash-exe (test-plan #E15 #E16 #E19 #X2–#X4).
+ * See change: fix-windows-bundled-bash-exe (test-plan #E15 #E16 #E19 #X2–#X4),
+ * update-pi-core-1-5-adopt-apis (test-plan #E59).
  */
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -95,6 +96,17 @@ describe("getGitSourceReadout — pi-order shell", () => {
     const present = [...bundle(false), WSL];
     const r = getGitSourceReadout(noHost, { ...opts(present), spawnEnv: spawnEnv(present) });
     expect(r?.shellPath).toBe(WSL);
+    expect(r?.shellIsWslLauncher).toBe(true);
+  });
+
+  // pi 1.4.0+: the launcher is `<SystemRoot>\\System32\\bash.exe` (test-plan #E59).
+  it("E59: SystemRoot=D:\\WINNT → the D:\\WINNT launcher is flagged (Doctor warns)", () => {
+    const winnt = "D:\\WINNT\\System32";
+    const wsl = win(winnt, "bash.exe");
+    const present = [...bundle(false), wsl];
+    const env = spawnEnv(present, `${winnt};C:\\Tools`, { SystemRoot: "D:\\WINNT" });
+    const r = getGitSourceReadout(noHost, { ...opts(present), spawnEnv: env });
+    expect(r?.shellPath).toBe(wsl);
     expect(r?.shellIsWslLauncher).toBe(true);
   });
 

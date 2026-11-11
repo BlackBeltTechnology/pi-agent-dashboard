@@ -191,6 +191,9 @@ function applyTheme(t: string) {
   }
 }
 const storedTheme = () => { const t = localStorage.getItem("mk-theme"); return THEMES.some((x) => x.id === t) ? t! : THEMES[0].id; };
+/** Ring highlights on/off: `mk-rings=off` in localStorage -> `mk-no-rings` on <html>; panes follow via `storage`. */
+const storedRings = () => localStorage.getItem("mk-rings") !== "off";
+const applyRings = (on: boolean) => document.documentElement.classList.toggle("mk-no-rings", !on);
 
 /** Content of `<side>` or `<side>/step-<k>` of a frame (undefined = no such pane). Script frames: either side. */
 function paneNode(f: Frame | undefined, side: string | undefined, step: string | undefined): ReactNode {
@@ -217,7 +220,7 @@ function PaneOnly({ spec }: { spec: string }): ReactElement {
   const committed = useRef<(() => void) | null>(null);
   useEffect(() => { committed.current?.(); committed.current = null; }, [gen]);
   useEffect(() => {
-    const apply = () => applyTheme(storedTheme());
+    const apply = () => { applyTheme(storedTheme()); applyRings(storedRings()); };
     apply(); addEventListener("storage", apply); dark.addEventListener("change", apply);
     document.body.classList.add("mk-pane-only", f?.phone ? "mk-pane-phone" : "mk-pane-wide");
     const post = () => parent.postMessage({ mkPane: spec, h: document.documentElement.scrollHeight }, location.origin);
@@ -341,6 +344,7 @@ function Shell(): ReactElement {
   const [q, setQ] = useState("");
   const [hash, setHash] = useState(() => location.hash.slice(1));
   const [theme, setTheme] = useState(storedTheme);
+  const [rings, setRings] = useState(storedRings);
   const [state, setState] = useState<DecisionsReply>({ decisions: {}, warnings: [], errors: [] });
   const [missing, setMissing] = useState<Missing>({});
   const [showClosed, setShowClosed] = useState(false);
@@ -365,6 +369,7 @@ function Shell(): ReactElement {
     applyTheme(theme); localStorage.setItem("mk-theme", theme);
     const on = () => applyTheme(theme); dark.addEventListener("change", on); return () => dark.removeEventListener("change", on);
   }, [theme]);
+  useEffect(() => { applyRings(rings); localStorage.setItem("mk-rings", rings ? "on" : "off"); }, [rings]);
   useEffect(() => {
     const on = (e: KeyboardEvent) => { if (e.key === "/" && document.activeElement?.id !== "mk-q") { e.preventDefault(); document.getElementById("mk-q")?.focus(); } };
     addEventListener("keydown", on); return () => removeEventListener("keydown", on);
@@ -428,6 +433,7 @@ function Shell(): ReactElement {
       <main className="mk-main">
         <div className="mk-bar">
           <span className="mk-sp" />
+          <label className="mk-rings-sw"><input type="checkbox" checked={rings} onChange={(e) => setRings(e.target.checked)} /> Highlights</label>
           <span className="mk-theme">
             {THEMES.map((t) => (
               <button key={t.id} type="button" aria-pressed={theme === t.id} onClick={() => setTheme(t.id)}>{t.label}</button>

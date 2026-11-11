@@ -307,6 +307,68 @@ describe("taint gate", () => {
     expect(await guard.onToolCall({ toolName: "read", input: {} }, { hasUI: false })).toBeUndefined();
   });
 
+  function selectCtx(pick: (options: string[]) => string | undefined) {
+    const confirm = vi.fn(async () => true);
+    const select = vi.fn(async (_title: string, options: string[]) => pick(options));
+    return { ctx: { hasUI: true, ui: { confirm, select } }, confirm, select };
+  }
+
+  it("offers Allow once / Always allow / Deny via select when available", async () => {
+    const guard = makeGuard();
+    guard.onMessageEnd(assistantCalling("web_search"));
+    const { ctx, confirm, select } = selectCtx((o) => o[0]);
+    expect(await guard.onToolCall({ toolName: "bash", input: { command: "ls" } }, ctx)).toBeUndefined();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(select.mock.calls[0]?.[0]).toContain("Allow bash(ls)?");
+    expect(select.mock.calls[0]?.[1]).toEqual(["Allow once", "Always allow bash this session", "Deny"]);
+  });
+
+  it.each([
+    ["Deny", (o: string[]) => o[2]],
+    ["dismissed", () => undefined],
+  ])("select → %s blocks", async (_label, pick) => {
+    const guard = makeGuard();
+    guard.onMessageEnd(assistantCalling("web_search"));
+    const res = await guard.onToolCall({ toolName: "bash", input: {} }, selectCtx(pick).ctx);
+    expect(res?.reason).toMatch(/^untrusted_taint: user denied/);
+  });
+
+  it("Allow once prompts again on the next call", async () => {
+    const guard = makeGuard();
+    guard.onMessageEnd(assistantCalling("web_search"));
+    const s = selectCtx((o) => o[0]);
+    await guard.onToolCall({ toolName: "bash", input: {} }, s.ctx);
+    await guard.onToolCall({ toolName: "bash", input: {} }, s.ctx);
+    expect(s.select).toHaveBeenCalledTimes(2);
+  });
+
+  it("Always allow skips prompts for that tool for the session, across taint resets, not for other tools", async () => {
+    const guard = makeGuard();
+    guard.onMessageEnd(assistantCalling("web_search"));
+    const s = selectCtx((o) => o[1]);
+    expect(await guard.onToolCall({ toolName: "bash", input: {} }, s.ctx)).toBeUndefined();
+    expect(await guard.onToolCall({ toolName: "bash", input: {} }, s.ctx)).toBeUndefined();
+    guard.onInput();
+    guard.onMessageEnd(assistantCalling("web_search"));
+    expect(await guard.onToolCall({ toolName: "bash", input: {} }, { hasUI: false })).toBeUndefined();
+    expect(s.select).toHaveBeenCalledTimes(1);
+
+    const deny = selectCtx((o) => o[2]);
+    expect((await guard.onToolCall({ toolName: "gmail_send", input: {} }, deny.ctx))?.block).toBe(true);
+    expect(deny.select).toHaveBeenCalledTimes(1);
+  });
+
+  it("onSessionStart forgets session allowances", async () => {
+    const guard = makeGuard();
+    guard.onMessageEnd(assistantCalling("web_search"));
+    await guard.onToolCall({ toolName: "bash", input: {} }, selectCtx((o) => o[1]).ctx);
+    guard.onSessionStart();
+    guard.onMessageEnd(assistantCalling("web_search"));
+    const s = selectCtx((o) => o[2]);
+    expect((await guard.onToolCall({ toolName: "bash", input: {} }, s.ctx))?.block).toBe(true);
+    expect(s.select).toHaveBeenCalledTimes(1);
+  });
+
   it("#X1 a throwing taint check blocks (fail-safe)", async () => {
     const registry = {
       get declarations(): never {

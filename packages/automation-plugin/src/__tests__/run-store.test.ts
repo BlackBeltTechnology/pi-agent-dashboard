@@ -10,13 +10,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   countFindings,
   finishParentRun,
+  finishParentRunIfRunning,
   finishRun,
+  finishRunIfRunning,
   isSafeRunId,
   listRuns,
   listStaleRunningRuns,
   makeRunId,
   pruneRuns,
   readChildRuns,
+  readRun,
   resolveRunDir,
   startChildRun,
   startParentRun,
@@ -177,5 +180,52 @@ describe("run-store — parent/child layout", () => {
     expect(stale.map((r) => r.runId)).toContain(child.runId);
     // The parent itself is never returned by the sweep.
     expect(stale.map((r) => r.runId)).not.toContain(parent.runId);
+  });
+});
+
+// test-plan #E11 — orphan finalize stays visible: compare-and-set finalize with
+// `prune:false` keeps the oldest of 101 terminal runs, non-empty result, not
+// archived. See change: polish-automation-board (design D6).
+describe("finishRunIfRunning / finishParentRunIfRunning", () => {
+  it("E11: an orphan that is the oldest of 101 terminal runs survives its own finalize", () => {
+    startRun(base, "nightly", { runId: "orphan-run", at: new Date(Date.UTC(2020, 0, 1)) });
+    for (let i = 0; i < 100; i++) {
+      const id = `done-${String(i).padStart(3, "0")}`;
+      startRun(base, "nightly", { runId: id, at: new Date(Date.UTC(2021, 0, 1, 0, 0, i)) });
+      finishRun(base, id, { status: "done", result: "- x", retention: 1000 });
+    }
+    const ok = finishRunIfRunning(
+      base,
+      "orphan-run",
+      { status: "stopped", error: "stopped by user", result: "_(stopped by user after the server lost track of this run)_", retention: 100 },
+      { prune: false },
+    );
+    expect(ok).toBe(true);
+    const rec = readRun(base, "orphan-run");
+    expect(rec?.status).toBe("stopped");
+    expect(rec?.archived).not.toBe(true);
+    const result = fs.readFileSync(path.join(resolveRunDir(base, "orphan-run")!, "result.md"), "utf-8");
+    expect(result.trim().length).toBeGreaterThan(0);
+  });
+
+  it("compare-and-set: a second finalize loses and leaves the first status", () => {
+    startRun(base, "nightly", { runId: "r1" });
+    expect(finishRunIfRunning(base, "r1", { status: "error", error: "reaper" })).toBe(true);
+    expect(finishRunIfRunning(base, "r1", { status: "stopped", result: "x" })).toBe(false);
+    expect(readRun(base, "r1")?.status).toBe("error");
+  });
+
+  it("parent compare-and-set finalizes once with summed findings", () => {
+    startParentRun(base, "fan", { runId: "p1" });
+    expect(finishParentRunIfRunning(base, "p1", { status: "stopped", findings: 3 }, { prune: false })).toBe(true);
+    expect(finishParentRunIfRunning(base, "p1", { status: "done", findings: 9 })).toBe(false);
+    const p = readRun(base, "p1");
+    expect(p?.status).toBe("stopped");
+    expect(p?.findings).toBe(3);
+  });
+
+  it("readRun returns null for an unsafe or unknown id", () => {
+    expect(readRun(base, "../x")).toBeNull();
+    expect(readRun(base, "nope")).toBeNull();
   });
 });

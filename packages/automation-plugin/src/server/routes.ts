@@ -29,7 +29,13 @@ import {
   sendRouteCwdRefusal,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-route-cwd.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import type { ActionDescriptor, AutomationConfig, AutomationScope } from "../shared/automation-types.js";
+import type {
+  ActionDescriptor,
+  AutomationConfig,
+  AutomationScope,
+  RunRecord,
+  StopOutcome,
+} from "../shared/automation-types.js";
 import { BUILTIN_ACTION_ALIASES } from "../shared/automation-types.js";
 
 /**
@@ -103,12 +109,22 @@ export interface AutomationRouteHooks {
     cwd?: string;
     name: string;
   }) => Promise<{ ok: boolean; runId?: string; error?: string }>;
-  /** Stop a `running` run (terminate its process + finalize the record). */
+  /**
+   * Stop a `running` run (terminate its process + finalize the record). A
+   * folder-scope call always carries the admitted `cwd`. An accepted Stop
+   * reports its honest `outcome`. See change: polish-automation-board (D3).
+   */
   stopRun?: (args: {
     scope: AutomationScope;
     cwd?: string;
     runId: string;
-  }) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
+  }) => Promise<StopHookResult> | StopHookResult;
+  /**
+   * Live facts for one run record, computed per listing and never persisted:
+   * orphaned / tracked / session connected. Absent → all false.
+   * See change: polish-automation-board (design D5).
+   */
+  runFacts?: (rec: RunRecord) => { orphaned: boolean; tracked: boolean; sessionConnected: boolean };
   /**
    * Registered automation actions resolved for a cwd (availability +
    * enum options). Reads the live action registry shared with the engine.
@@ -146,6 +162,8 @@ export interface AutomationRouteHooks {
    */
   readFileGuarded?: (absPath: string) => Promise<string | null>;
 }
+
+type StopHookResult = { ok: boolean; outcome?: StopOutcome; alreadyFinalized?: boolean; error?: string };
 
 export function mountAutomationRoutes(
   fastify: FastifyInstance,
@@ -205,7 +223,10 @@ export function mountAutomationRoutes(
 
   fastify.post("/api/plugins/automation/stop", async (req, reply) => {
     const body = (req.body ?? {}) as { scope?: AutomationScope; cwd?: unknown; runId?: string };
-    return withCwd(reply, body.cwd, false, async (cwd) => {
+    const scope: AutomationScope = body.scope === "global" ? "global" : "folder";
+    // A folder Stop acts only inside an admitted folder: no cwd → 400.
+    // See change: polish-automation-board (design D3).
+    return withCwd(reply, body.cwd, scope !== "global", async (cwd) => {
       if (!body.runId) {
         reply.code(400);
         return { error: "runId required" };
@@ -215,7 +236,7 @@ export function mountAutomationRoutes(
         return { error: "automation engine not ready" };
       }
       const res = await hooks.stopRun({
-        scope: body.scope ?? "folder",
+        scope,
         ...(cwd ? { cwd } : {}),
         runId: body.runId,
       });
@@ -223,7 +244,11 @@ export function mountAutomationRoutes(
         reply.code(400);
         return { error: res.error ?? "stop failed" };
       }
-      return { ok: true };
+      return {
+        ok: true,
+        ...(res.outcome ? { outcome: res.outcome } : {}),
+        ...(res.alreadyFinalized ? { alreadyFinalized: true } : {}),
+      };
     });
   });
 
@@ -292,8 +317,17 @@ export function mountAutomationRoutes(
       // Top-level records (parents + legacy flat). Attach child summaries so the
       // board can render a parent expandable to its children.
       // See change: add-automation-concurrent-spawn.
+      // Computed facts ALWAYS overwrite whatever `run.json` carries, so a
+      // crafted record cannot fake `orphaned` / `sessionConnected` / `scope`.
+      // See change: polish-automation-board (design D5).
+      const annotate = (rec: RunRecord): RunRecord => {
+        const facts = hooks.runFacts?.(rec) ?? { orphaned: false, tracked: false, sessionConnected: false };
+        return { ...rec, ...facts, scope: scope === "global" ? "global" : "folder" };
+      };
       const runs = listRuns(base, q.name).map((rec) =>
-        rec.children ? { ...rec, childRuns: readChildRuns(base, rec) } : rec,
+        rec.children
+          ? { ...annotate(rec), childRuns: readChildRuns(base, rec).map(annotate) }
+          : annotate(rec),
       );
       return { runs };
     });

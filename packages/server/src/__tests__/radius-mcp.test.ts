@@ -178,6 +178,14 @@ describe("GET responses (E14)", () => {
     writeMcp({ radius: { command: "x" } });
     expect(readRadiusMcpStatus(deps()).body.name).toBe("radius-mcp");
   });
+  // pi 1.4.0 strips a leading BOM; the offer reads through `readLayer`, which
+  // does the same. See change: update-pi-core-1-5-adopt-apis (test-plan #X4).
+  it("X4 a BOM global mcp.json is parsed, not reported unparseable", () => {
+    fs.writeFileSync(mcpFile(), `\uFEFF${JSON.stringify({ mcpServers: { radius: { command: "x" } } })}`);
+    const r = readRadiusMcpStatus(deps());
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ configured: false, name: "radius-mcp", path: mcpFile() });
+  });
 });
 
 describe("successful write (E15, E21)", () => {

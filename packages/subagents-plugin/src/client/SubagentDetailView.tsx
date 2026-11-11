@@ -72,12 +72,54 @@ function mapSubagentStatus(status: SubagentState["status"]): MinimalChatStatus {
   }
 }
 
-function mapSubagentEntries(entries?: SubagentTimelineEntry[]): MinimalChatEntry[] {
+/**
+ * Producer `retry` timeline entry (pi-dashboard-subagents ≥ 0.7.0). Widened
+ * locally: the shared `SubagentTimelineEntry` union does not carry it, and the
+ * fields are read defensively (a malformed entry still renders).
+ * See change: show-background-subagents-in-dock (D5).
+ */
+type RetryEntry = { kind: "retry"; attempt?: unknown; maxAttempts?: unknown; delayMs?: unknown; text?: unknown; ts?: number };
+
+type Translate = ReturnType<typeof useT>;
+
+/**
+ * Human-readable backoff delay — verbatim copy of the producer's
+ * `formatRetryDelay` (`extensions/events.ts:277-286`; the producer is not a
+ * client dependency): whole seconds, a positive delay under a second reads `1s`.
+ */
+export function formatRetryDelay(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "0s";
+  const total = Math.max(1, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
+  return `${sec}s`;
+}
+
+const isPositiveInt = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+
+/** `Retry {attempt}/{max} in {delay}: {text}`, each part only when its field is valid. */
+function retryText(e: RetryEntry, t: Translate): string {
+  let out = t("retryStep", undefined, "Retry");
+  if (isPositiveInt(e.attempt) && isPositiveInt(e.maxAttempts)) out += ` ${e.attempt}/${e.maxAttempts}`;
+  if (typeof e.delayMs === "number" && Number.isFinite(e.delayMs)) {
+    out += ` ${t("retryIn", { delay: formatRetryDelay(e.delayMs) }, "in {delay}")}`;
+  }
+  if (typeof e.text === "string" && e.text) out += `: ${e.text}`;
+  return out;
+}
+
+function mapSubagentEntries(entries: SubagentTimelineEntry[] | undefined, t: Translate): MinimalChatEntry[] {
   if (!entries) return [];
   // A streamed timeline can be sparse until every step has arrived (steps are
   // placed by index). See change: add-plugin-bridge-contributions (D7).
-  return entries.filter(Boolean).map((e) => {
+  return (entries as Array<SubagentTimelineEntry | RetryEntry>).filter(Boolean).map((e) => {
     switch (e.kind) {
+      case "retry":
+        // Rendered as the existing error step (MinimalChatView has no warning kind).
+        return { kind: "error", text: retryText(e, t) };
       case "tool":
         return {
           kind: "tool",
@@ -193,16 +235,36 @@ export function SubagentDetailView({
   let emptyMessage: string | undefined;
   let footer: React.ReactNode = undefined;
 
+  // Ended because its session no longer tracks it: a neutral, localized line
+  // instead of the synthetic error text. See change: fix-background-subagent-ghost-rows (D5 Copy).
+  const untracked = sub.status === "failed" && sub.healedBy === "untracked";
+  const errorText = untracked
+    ? t("subagentUntracked", undefined, "Ended — its session no longer tracks it")
+    : sub.error;
+
   if (hasEntries) {
     // Tier 1
-    entries = mapSubagentEntries(sub.entries);
+    entries = mapSubagentEntries(sub.entries, t);
+    // A failed run keeps its error visible under the timeline (e.g. the
+    // session-end heal's "parent session ended" for a background run).
+    // See change: show-background-subagents-in-dock (D6).
+    const errorNote = untracked ? (
+      <div data-testid="subagent-untracked-note" className="mt-3 text-sm text-[var(--text-tertiary)]">{errorText}</div>
+    ) : sub.status === "failed" && sub.error ? (
+      <div data-testid="subagent-error-note" className="mt-3 text-sm text-[var(--accent-red-text)]">{sub.error}</div>
+    ) : null;
     if (isComplete && sub.result) {
       footer = (
-        <div className="mt-3 pt-2 border-t border-[var(--border-subtle)]">
-          <div className="text-[11px] text-[var(--text-muted)] mb-1">{t("result", undefined, "Result")}</div>
-          <MarkdownContent content={sub.result} />
-        </div>
+        <>
+          {errorNote}
+          <div className="mt-3 pt-2 border-t border-[var(--border-subtle)]">
+            <div className="text-[11px] text-[var(--text-muted)] mb-1">{t("result", undefined, "Result")}</div>
+            <MarkdownContent content={sub.result} />
+          </div>
+        </>
       );
+    } else if (errorNote) {
+      footer = errorNote;
     }
   } else if (isComplete && (sub.result || sub.error)) {
     // Tier 3 — no entries; synthesize body from description / error / result.
@@ -212,7 +274,11 @@ export function SubagentDetailView({
         {sub.description && (
           <div className="text-[11px] text-[var(--text-secondary)]">"{sub.description}"</div>
         )}
-        {sub.error && <div className="text-sm text-red-400">{sub.error}</div>}
+        {untracked ? (
+          <div data-testid="subagent-untracked-note" className="text-sm text-[var(--text-tertiary)]">{errorText}</div>
+        ) : (
+          sub.error && <div className="text-sm text-red-400">{sub.error}</div>
+        )}
         {sub.result && (
           <div>
             <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">

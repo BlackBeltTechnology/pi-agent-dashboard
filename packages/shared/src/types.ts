@@ -583,9 +583,11 @@ export interface DashboardSession {
    * board visibility (per-automation `visibility` field ?? settings default,
    * default `"hidden"`) so the board filter can decide inclusion without
    * re-reading the automation config. Persisted to `.meta.json`.
-   * See change: add-automation-plugin.
+   * `scope` names the automation scope the run belongs to; orphan Stop
+   * requires it to match the request (stamps without it are refused).
+   * See change: add-automation-plugin, polish-automation-board.
    */
-  automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
+  automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown"; scope?: "folder" | "global" };
   /**
    * Owning goal id when this session was spawned under / linked to a
    * folder-scoped `GoalRecord`. Persisted to `.meta.json`. The session-card

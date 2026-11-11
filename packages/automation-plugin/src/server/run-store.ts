@@ -214,11 +214,22 @@ export function finishRun(
   scopeBase: string,
   runId: string,
   opts: { status: RunStatus; result?: string; error?: string; retention?: number; at?: Date },
+  write: { prune?: boolean } = {},
 ): RunRecord | null {
   const dir = resolveRunDir(scopeBase, runId);
   if (!dir) return null;
   const existing = readRecord(dir);
   if (!existing) return null;
+  return finishRecordAt(scopeBase, dir, existing, opts, write);
+}
+
+function finishRecordAt(
+  scopeBase: string,
+  dir: string,
+  existing: RunRecord,
+  opts: { status: RunStatus; result?: string; error?: string; retention?: number; at?: Date },
+  write: { prune?: boolean },
+): RunRecord {
 
   const result = (opts.result ?? "").trim();
   fs.writeFileSync(path.join(dir, "result.md"), result + (result ? "\n" : ""));
@@ -235,8 +246,36 @@ export function finishRun(
   };
   writeRecordAt(dir, rec);
 
-  pruneRuns(scopeBase, existing.name, opts.retention ?? DEFAULT_RETENTION);
+  if (write.prune !== false) pruneRuns(scopeBase, existing.name, opts.retention ?? DEFAULT_RETENTION);
   return rec;
+}
+
+/** Read one run record (top-level or child) by id; `null` when unsafe/absent. */
+export function readRun(scopeBase: string, runId: string): RunRecord | null {
+  const dir = resolveRunDir(scopeBase, runId);
+  return dir ? readRecord(dir) : null;
+}
+
+/**
+ * Compare-and-set {@link finishRun}: finalize ONLY when the on-disk record is
+ * still `running`. Read → check → write is synchronous (no `await`), so it is
+ * atomic within the server's event loop; a loser (another Stop, the reaper)
+ * gets `false` and writes nothing. `{ prune: false }` keeps a freshly
+ * finalized old orphan from being deleted by retention as it finalizes.
+ * See change: polish-automation-board (design D6).
+ */
+export function finishRunIfRunning(
+  scopeBase: string,
+  runId: string,
+  opts: { status: RunStatus; result?: string; error?: string; retention?: number; at?: Date },
+  write: { prune?: boolean } = {},
+): boolean {
+  const dir = resolveRunDir(scopeBase, runId);
+  if (!dir) return false;
+  const existing = readRecord(dir);
+  if (!existing || existing.status !== "running") return false;
+  finishRecordAt(scopeBase, dir, existing, opts, write);
+  return true;
 }
 
 /**
@@ -249,11 +288,39 @@ export function finishRun(
 export function finishParentRun(
   scopeBase: string,
   parentRunId: string,
-  opts: { status: RunStatus; findings: number; warning?: string; error?: string; retention?: number; at?: Date },
+  opts: ParentFinish,
+  write: { prune?: boolean } = {},
 ): RunRecord | null {
   const dir = runDir(scopeBase, parentRunId);
   const existing = readRecord(dir);
   if (!existing) return null;
+  return finishParentAt(scopeBase, dir, existing, opts, write);
+}
+
+type ParentFinish = { status: RunStatus; findings: number; warning?: string; error?: string; retention?: number; at?: Date };
+
+/** Compare-and-set {@link finishParentRun} (same contract as {@link finishRunIfRunning}). */
+export function finishParentRunIfRunning(
+  scopeBase: string,
+  parentRunId: string,
+  opts: ParentFinish,
+  write: { prune?: boolean } = {},
+): boolean {
+  if (!isSafeRunId(parentRunId)) return false;
+  const dir = runDir(scopeBase, parentRunId);
+  const existing = readRecord(dir);
+  if (!existing || existing.status !== "running") return false;
+  finishParentAt(scopeBase, dir, existing, opts, write);
+  return true;
+}
+
+function finishParentAt(
+  scopeBase: string,
+  dir: string,
+  existing: RunRecord,
+  opts: ParentFinish,
+  write: { prune?: boolean },
+): RunRecord {
   const rec: RunRecord = {
     ...existing,
     status: opts.status,
@@ -263,7 +330,7 @@ export function finishParentRun(
     ...(opts.error ? { error: opts.error } : {}),
   };
   writeRecordAt(dir, rec);
-  pruneRuns(scopeBase, existing.name, opts.retention ?? DEFAULT_RETENTION);
+  if (write.prune !== false) pruneRuns(scopeBase, existing.name, opts.retention ?? DEFAULT_RETENTION);
   return rec;
 }
 

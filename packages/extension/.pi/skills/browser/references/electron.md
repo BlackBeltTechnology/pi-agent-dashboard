@@ -1,7 +1,7 @@
 <!--
 Vendored from agent-browser upstream via `agent-browser skills get electron`
-at CLI version 0.27.0 (upstream tag v0.27.0,
-commit c830d1b67dc18b754e305859f0ae587f858a1447).
+at CLI version 0.41.2 (upstream tag v0.41.2,
+commit d52a5e90c372ec4710c69adc3837ac14bbd852aa).
 Frontmatter stripped — this is a reference doc, not a standalone skill.
 License: Apache-2.0 (see ../LICENSE).
 See ../UPSTREAM.md for refresh procedure.

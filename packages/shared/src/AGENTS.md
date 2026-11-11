@@ -14,10 +14,11 @@ Files in this directory. One row per source file.
 | `__tests__/client-no-node-subjects-import.test.ts` | Import guard: client never imports Node-only `forbidden-subjects`/`canonical-subject`. See change: ask-agent-file-access-in-chat. |
 | `__tests__/config-pi-trust-mirror.test.ts` | #E21: `piTrustMirror` loader defaults + partial merge → see `__tests__/config-pi-trust-mirror.test.ts.AGENTS.md` |
 | `__tests__/credential-encryption-remedy.test.ts` | #E96: every `CREDENTIAL_LOCK_REASONS` entry has a non-empty remedy; `key_missing`/`key_mismatch` name… → see `__tests__/credential-encryption-remedy.test.ts.AGENTS.md` |
+| `__tests__/local-native-abi.test.ts` | N1/N2 `preflightLocalNativeAbi` refuse/accept fixtures. → see `__tests__/local-native-abi.test.ts.AGENTS.md` |
 | `__tests__/loopback-host.test.ts` | #E25 loopback predicate forms. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter,… → see `__tests__/pi-trust-mirror.test.ts.AGENTS.md` |
-| `__tests__/pi-trust-resource-digest.test.ts` | #E15 #E16 #P1 digest equality, fail-closed set, caps, abort, p95 budget. See change: mirror-dashboard-trust-live-remote. |
+| `__tests__/pi-trust-resource-digest.test.ts` | #E15 #E16 #P1 digest equality, fail-closed set, caps, abort, p95 budget. See change: mirror-dashboard-trust-live-remote. User-skills exclusion under home (#E32), win32 casing via mocked `node:fs/promises` + `path.win32` (#E33). See change: update-pi-core-1-5-adopt-apis. |
 | `__tests__/pi-trust-resource-golden.test.ts` | #E17 our resource list vs installed pi `trust-manager.js`; verdict vs `hasTrustRequiringProjectResources`. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/project-root.test.ts` | `hasProjectRootMarker`: `.git` dir/file + `.pi` true; plain/missing false. See change: add-access-provisioning. |
 | `__tests__/session-ui-path.test.ts` | #E1: plain id with none/diff/editor view; `a/b c` percent-encoded. See change: add-session-ui-deep-links-for-agents. |
@@ -109,13 +110,14 @@ Files in this directory. One row per source file.
 | `pi-agent-settings-lock.ts` | NODE-ONLY pi `settings.json` lock + atomic write (`withPiSettingsLock`, `FsDeps.settingsPath`)… → see `pi-agent-settings-lock.ts.AGENTS.md` |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `pi-settings-keys.ts` | `PI_MANAGED_SETTINGS_KEYS` (`defaultProvider`,`defaultModel`,`defaultThinkingLevel`) — pi `settings.json`… → see `pi-settings-keys.ts.AGENTS.md` |
+| `pi-path-compare.ts` | Mirror of pi 1.5 `pathsEqual` (resolve; case-insensitive on win32), injectable path module. → see `pi-path-compare.ts.AGENTS.md` |
 | `pi-settings-schema.ts` | Typed key schema of pi's global `settings.json` (50 keys: bool/enum/mixed/int/string/`enabledModels`):… → see `pi-settings-schema.ts.AGENTS.md` |
 | `pi-trust-live-query.ts` | Browser-safe wire types for `POST /api/pi-trust/query`. `validatePiTrustQueryBody` (body ≤8 KiB, cwd… → see `pi-trust-live-query.ts.AGENTS.md` |
 | `pi-trust-mirror-snapshot.ts` | Snapshot + trust-store readers shared by bridge and server. → see `pi-trust-mirror-snapshot.ts.AGENTS.md` |
 | `pi-trust-mirror-types.ts` | Browser-safe types: `MirrorSourceKind`, `MirrorIgnoreReason`, `MirrorWithheldReason`, `MIRROR_REASON_LABELS`,… → see `pi-trust-mirror-types.ts.AGENTS.md` |
 | `pi-trust-mirror.ts` | Dashboard-trust → pi mirror shared core. `piTrustKey(path,{home})` = pi's trust-store key (realpath∘resolve,… → see `pi-trust-mirror.ts.AGENTS.md` |
 | `pi-trust-resource-digest.ts` | Remote folder proof, Node-only. `trustResourceManifest(cwd,{home,signal})` async walk of pi's trust-requiring… → see `pi-trust-resource-digest.ts.AGENTS.md` |
-| `pid-namespace.ts` | `buildPidNamespace(opts)`: single builder of pi process's pid-namespace report `{platform, kind:"host" \| "wsl", distro?, nsId?, hostId?}`. WSL from `WSL_DISTRO_NAME`. Linux `nsId` = `/proc/self/ns/pid` link, `hostId` = `/proc/sys/kernel/random/boot_id` (no hostname fallback). Non-Linux `hostId` = `os.hostname()`. Unreadable fields omitted; never throws; injectable `PidNamespaceOpts`. `processPidNamespace()` memoised per process. `buildServerPidContext()` → `ServerPidContext {platform, hostId?, nsId?}`. Node-only (fs/os): never import from client. See change: scope-pids-to-namespace. |
+| `pid-namespace.ts` | `buildPidNamespace(opts)`: single builder of pi pid-namespace report. → see `pid-namespace.ts.AGENTS.md` |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
 | `plugin-route-cwd.ts` | `admitRouteCwdParam(raw, {required, knownCwds, admitOptions})`: plugin-route cwd boundary — shape (non-string… → see `plugin-route-cwd.ts.AGENTS.md` |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |

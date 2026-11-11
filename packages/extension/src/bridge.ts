@@ -66,7 +66,7 @@ import { createPluginRequestClient, installPluginRequest } from "./plugin-reques
 import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
 import { getOwnPgid, } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
-import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
+import { activate as activateProviderRegister, awaitStartupProviderModels, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { createRemoteUpgradePreparer } from "./remote-upgrade-preparer.js";
 import { installPiAiDelayFn, RetryTracker } from "./retry-tracker.js";
 import { activate as activateRoleManager, resolveNamingModel } from "./role-manager.js";
@@ -117,7 +117,13 @@ function getBridgeState(): BridgeState {
   return (process as any)[BRIDGE_KEY];
 }
 
-export default function (pi: ExtensionAPI) {
+// Async: everything below runs synchronously up to the final `await`, so
+// callers that do not await still see every registration immediately. pi
+// awaits the factory before resolving `--model`, so the custom-provider models
+// registered (cache) or discovered (bounded, `--model` provider only) during
+// activation are flushed first. See change:
+// register-custom-provider-models-at-activation (D1).
+export default async function (pi: ExtensionAPI): Promise<void> {
   // Per-process opt-out, decided before ANY registration: an inert bridge
   // registers no tool/command/handler/MCP and never connects or auto-starts.
   // Dashboard spawns stamp PI_DASHBOARD_BRIDGE=on. See change: add-bridge-env-opt-out.
@@ -145,6 +151,11 @@ export default function (pi: ExtensionAPI) {
     // package when present. No local duplication here.
 
     initBridge(pi);
+
+    // LAST step: a rejection here would make pi discard every queued
+    // registration of this factory, so it is caught below (and the promise
+    // itself never rejects).
+    return await awaitStartupProviderModels();
   } catch (err) {
     // Never crash the host pi agent — dashboard is non-essential
     console.error("[dashboard] Bridge init failed:", err);

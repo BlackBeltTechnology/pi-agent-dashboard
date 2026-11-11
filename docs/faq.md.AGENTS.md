@@ -34,6 +34,8 @@ Gains "Why is my project `mcp.json` server ignored (inactive) in a folder?" → 
 
 Gains browser-E2E baseline section: #683 quarantine re-derive commands, cluster → owner change map, unquarantine rule (CANDIDATE clusters only), trust isolation (`narrowTrust`, scopes, refusal latch, fault specs), `OffBoxError` message. See change: triage-browser-e2e-offbox-poison.
 
+Gains "Desktop control (agent-desktop) says Accessibility denied on macOS — why?" → responsible process = `pi-dashboard.app` not Terminal/nodes; unsigned bundle → tccd `SecStaticCodeCheckValidity -67050` → grant never verifies; ad-hoc `codesign --sign -` + `tccutil reset Accessibility|ScreenCapture` + re-grant; TCC.db `auth_value` 2 vs 0; redo per app update (`macos-notarization` is the permanent fix). Full recipe: `packages/extension/.pi/skills/browser/references/desktop.md`.
+
 ## Change history (moved from docs/AGENTS.md row)
 
 See change: add-acp-session-driver, electron-runtime-overlay-updates, update-pi-core-1-0-adopt-apis, migrate-mcp-to-pi-builtin. host-gate default enforce; pairing revoke/approve operator-only. See change: harden-server-request-surfaces. `local_proof_required` FAQ. See change: harden-trust-and-credential-boundaries. Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. Gains TS-loader FAQ: PI_DASHBOARD_TS_LOADER no-longer-supported + booted-under-jiti warns → pi-dashboard stop && pi-dashboard start. See change: strip-only-native-ts-loader.

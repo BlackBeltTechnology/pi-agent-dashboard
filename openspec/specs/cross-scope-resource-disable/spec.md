@@ -337,7 +337,7 @@ The toggle SHALL NOT skip recording on the grounds that the folder currently has
 
 The order SHALL be: a recorded decision decides; otherwise the configured default decides, where `always` proceeds **without recording**, `never` refuses without prompting, and `ask` prompts and records the choice.
 
-When the outcome is a prompt, the toggle SHALL NOT write, and SHALL return a `trust_required` result carrying the offered options. A refusal recorded for the folder itself SHALL refuse as today; an inherited ancestor refusal SHALL prompt as today. When durable dashboard trust (`pi-trust-mirror`) covers the folder and nothing is recorded for it or an ancestor, the prompt SHALL also be returned when the configured default is `never`, SHALL pre-select the option that trusts the folder, SHALL name the dashboard source, and SHALL state that approving writes a lasting pi decision that terminal pi also honours and that unpinning does not remove; nothing SHALL be recorded until the operator chooses. On approval the decision SHALL be persisted through the dashboard's `persistTrustDecision` wrapper over pi's trust store and the toggle retried.
+When the outcome is a prompt, the toggle SHALL NOT write, and SHALL return a `trust_required` result carrying the offered options. A refusal recorded for the folder itself SHALL refuse as today; an inherited ancestor refusal SHALL prompt as today. Whether a recorded entry is for the folder itself SHALL be decided by comparing the entry's path with the cwd as pi's `pathsEqual` does (both canonicalized and resolved, and compared case-insensitively on Windows), because pi ≥ 1.5.0 reports the key spelling stored in `trust.json`, which on Windows may differ in casing from the cwd. When durable dashboard trust (`pi-trust-mirror`) covers the folder and nothing is recorded for it or an ancestor, the prompt SHALL also be returned when the configured default is `never`, SHALL pre-select the option that trusts the folder, SHALL name the dashboard source, and SHALL state that approving writes a lasting pi decision that terminal pi also honours and that unpinning does not remove; nothing SHALL be recorded until the operator chooses. On approval the decision SHALL be persisted through the dashboard's `persistTrustDecision` wrapper over pi's trust store and the toggle retried.
 
 #### Scenario: A folder with no trust-requiring resources still records a decision
 - **GIVEN** a cwd with no `.pi` directory, which pi currently loads as trusted
@@ -411,3 +411,9 @@ When the outcome is a prompt, the toggle SHALL NOT write, and SHALL return a `tr
 - **WHEN** a `local`-scope toggle is requested
 - **THEN** the response indicates trust is required, pre-selects trusting the folder, and names "pinned folder" as the reason
 - **AND** nothing is recorded and `<cwd>/.pi/settings.json` is not modified until the operator chooses
+
+#### Scenario: Windows own-folder refusal saved with different casing still refuses
+- **GIVEN** on Windows a cwd `c:\work\repo` whose refusal is recorded in `trust.json` under the key `C:\Work\Repo`
+- **WHEN** a `local`-scope toggle is requested
+- **THEN** the toggle is refused with an explanatory error and no trust prompt is returned
+- **AND** no settings file is written

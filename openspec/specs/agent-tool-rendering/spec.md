@@ -35,8 +35,9 @@ The `Agent` tool renderer SHALL display a card showing the agent's current state
 - **THEN** the card SHALL show: display name, description, duration, token stats, tool use count, turn count, prompt text, and result rendered as markdown (always visible, not collapsible)
 
 #### Scenario: Background agent launched
-- **WHEN** the Agent tool has status `complete` and `toolDetails.status` is `"background"`
-- **THEN** the card SHALL show: display name, description, agent ID, and a "running in background" indicator
+- **WHEN** `toolDetails.background` is `true` and `toolDetails.id` is a non-empty string, whatever the Agent tool status and `toolDetails.status` say (this scenario takes precedence over every other scenario of this requirement)
+- **THEN** the card SHALL show the started card defined by `background-subagent-display`: display name, description, "Started in background", the `bg-` id from `toolDetails.id`, and a pointer to the Processes lane
+- **AND** it SHALL NOT show a running spinner, elapsed time, activity or stats
 
 #### Scenario: Agent error
 - **WHEN** the Agent tool has status `error` or `toolDetails.status` is `"error"` or `"aborted"`
@@ -145,7 +146,7 @@ The `BashToolRenderer` (and any sibling renderer that displays bash-style stdout
 
 ### Requirement: Subagent detail opens in a dialog from the card
 
-The `AgentToolRenderer` detail affordance SHALL open the subagent timeline in the shell `ui:dialog` primitive, mirroring the `flow-agent-detail` dialog contract, instead of a `window.open(..., "_blank")` browser popout. The dialog body SHALL render `SubagentDetailView` in `popout` mode for the card's `agentId` and `sessionId`. Because `SubagentDetailView` (via `MinimalChatView` popout mode) renders its own header (title, status, model, tokens, duration), the dialog SHALL be opened without a duplicate `title` chrome, and the view's `onBack` SHALL map to closing the dialog. The subagent card SHALL NOT open a new browser tab/window for detail.
+The `AgentToolRenderer` detail affordance SHALL open the subagent timeline in the shell `ui:dialog` primitive, mirroring the `flow-agent-detail` dialog contract, instead of a `window.open(..., "_blank")` browser popout. The dialog body SHALL render `SubagentDetailView` in `popout` mode for the card's `agentId` and `sessionId`. Because `SubagentDetailView` (via `MinimalChatView` popout mode) renders its own header (title, status, model, tokens, duration), the dialog SHALL be opened without a duplicate `title` chrome, and the view's `onBack` SHALL map to closing the dialog. The subagent card SHALL NOT open a new browser tab/window for detail. A background started card SHALL render no detail affordance; its run is opened from the dock row.
 
 #### Scenario: Detail opens a dialog
 
@@ -163,6 +164,12 @@ The `AgentToolRenderer` detail affordance SHALL open the subagent timeline in th
 - **WHEN** the subagent card has no resolved `agentId` yet (or no resolved session state to render the timeline)
 - **THEN** the detail/popout affordance SHALL be disabled and SHALL NOT open a dialog
 - **AND** both `agentId` and the session state SHALL be resolved before the affordance is enabled
+
+#### Scenario: Background started card has no detail affordance
+
+- **WHEN** the card is a background started card (`toolDetails.background: true` with a non-empty string `toolDetails.id`)
+- **THEN** it SHALL render no Details or Popout control
+- **AND** the background run SHALL be openable from its Processes-lane row
 
 ### Requirement: Claim-provided row status
 

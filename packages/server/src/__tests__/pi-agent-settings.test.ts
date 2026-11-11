@@ -611,4 +611,24 @@ describe("pi-agent-settings", () => {
       expect(existsSync(`${file}.lock`)).toBe(false);
     });
   });
+
+  // pi-written / JSON-only keys stay out of the typed PATCH.
+  // See change: update-pi-core-1-5-adopt-apis (test-plan #E50 #E51).
+  it("E50 extensionChangelogVersions is not patchable", async () => {
+    seed({ extensionChangelogVersions: { "pkg-a": "1.0.0" } });
+    const before = onDisk();
+    const r = await applyPiSettingsPatch({ extensionChangelogVersions: {} }, token(), deps);
+    expect(r).toMatchObject({ ok: false, error: "invalid" });
+    expect(JSON.stringify(r)).toMatch(/extensionChangelogVersions.*JSON editor/);
+    expect(onDisk()).toBe(before);
+  });
+
+  it("E51 selfUpdateCommand typed PATCH is rejected with the JSON-editor pointer", async () => {
+    seed({ theme: "dark" });
+    const before = onDisk();
+    const r = await applyPiSettingsPatch({ selfUpdateCommand: ["x"] }, token(), deps);
+    expect(r).toMatchObject({ ok: false, error: "invalid" });
+    expect(JSON.stringify(r)).toContain("selfUpdateCommand is not a form field; use the JSON editor for this key");
+    expect(onDisk()).toBe(before);
+  });
 });

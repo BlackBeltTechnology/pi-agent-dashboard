@@ -85,6 +85,7 @@ describe("AgentToolRenderer — host surfaces via ui: primitives (E36)", () => {
       "ui:elapsed-badge",
       "ui:format-duration",
       "ui:markdown-content",
+      "ui:status-pill",
     ]);
   });
 

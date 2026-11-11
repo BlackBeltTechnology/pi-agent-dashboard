@@ -30,16 +30,21 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { nativePathApi, type PathApi, piPathsEqual } from "@blackbelt-technology/pi-dashboard-shared/pi-path-compare.js";
 import { MIRROR_SOURCE_LABELS } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror.js";
 import { coveringDashboardEntry } from "./host-project-trust.js";
 import { getPiCore, type PiSettingsManager } from "./pi-resource-activation.js";
 
-/** pi records trust under the canonicalized folder path; match that spelling. */
-export function canonical(p: string): string {
+/**
+ * pi records trust under the canonicalized folder path; match that spelling.
+ * `pathApi` (default native) resolves; a path the native fs cannot realpath
+ * (absent, or a win32 path on a posix host in tests) falls back to the resolved one.
+ */
+export function canonical(p: string, pathApi: PathApi = path): string {
   try {
-    return fs.realpathSync(path.resolve(p));
+    return fs.realpathSync(pathApi.resolve(p));
   } catch {
-    return path.resolve(p);
+    return pathApi.resolve(p);
   }
 }
 
@@ -115,12 +120,14 @@ const INHERITED_REFUSAL_NOTE =
 /**
  * Resolve trust for a project-scope toggle. Never writes settings; on `prompt`
  * the caller must return the options to the client and retry after the decision
- * has been persisted via `persistTrustDecision`.
+ * has been persisted via `persistTrustDecision`. `pathApi` (default native) is
+ * the path module for the own-folder comparison (injectable for win32 tests).
  */
 export async function resolveToggleTrust(
   cwd: string,
   agentDir: string,
   settingsManager: PiSettingsManager,
+  pathApi: PathApi = nativePathApi(),
 ): Promise<TrustGateResult> {
   const { ProjectTrustStore, hasTrustRequiringProjectResources } = await getPiCore();
   const entry = new ProjectTrustStore(agentDir).getEntry(cwd);
@@ -128,7 +135,11 @@ export async function resolveToggleTrust(
   // recorded for a parent folder. Only a refusal recorded for this folder
   // itself is final — an inherited one is overridable by trusting this folder,
   // exactly as pi's own prompt allows.
-  const recordedHere = entry && canonical(entry.path) === canonical(cwd) ? entry.decision : null;
+  // pi 1.5 `getEntry` returns the stored key spelling (matched with `pathsEqual`,
+  // case-insensitive on Windows), so compare the same way.
+  // See change: update-pi-core-1-5-adopt-apis (design D2).
+  const recordedHere =
+    entry && piPathsEqual(canonical(entry.path, pathApi), canonical(cwd, pathApi), pathApi) ? entry.decision : null;
   if (entry?.decision === true) return { outcome: "proceed" };
   if (recordedHere === false) {
     return {

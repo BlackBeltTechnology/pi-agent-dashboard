@@ -12,6 +12,7 @@ import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-
 import { AgentCardShell } from "@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell";
 import { formatDuration } from "@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { StatusPill } from "@blackbelt-technology/pi-dashboard-client-utils/StatusPill";
 import type { ToolRendererContext } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import type { UiPrimitiveMap } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type React from "react";
@@ -31,6 +32,7 @@ export const HOST_PRIMITIVES: Partial<UiPrimitiveMap> = {
   "ui:format-duration": formatDuration,
   "ui:markdown-content": StubMarkdown,
   "ui:elapsed-badge": StubElapsedBadge,
+  "ui:status-pill": StatusPill,
 };
 
 /** Wrap `ui` in a primitive provider carrying {@link HOST_PRIMITIVES} (plus overrides). */

@@ -12,9 +12,10 @@
  * tracker (a run is terminated once, not swept). The caller (server.ts) keeps
  * the plugin trust gate.
  *
- * See change: fix-session-reclaim-tmux (design D6), fix-automation-stop-zombie-runs.
+ * See change: fix-session-reclaim-tmux (design D6), fix-automation-stop-zombie-runs,
+ * polish-automation-board (`onResult`).
  */
-import type { Terminate } from "./session-terminator.js";
+import type { Terminate, TerminateOutcome } from "./session-terminator.js";
 
 export interface AbortSpawnedRunDeps {
   terminate: Terminate;
@@ -29,20 +30,38 @@ export interface AbortSpawnedRunArgs {
   sessionId?: string;
   spawnToken?: string;
   graceful?: boolean;
+  /**
+   * Detailed result, called exactly once on EVERY path: the terminator's
+   * outcome, `no-identity` on the early return (neither id given), and
+   * `unconfirmed` before rethrowing a `terminate` error. Lets a caller tell a
+   * verified kill from anything else without changing the boolean return.
+   * See change: polish-automation-board (design D4).
+   */
+  onResult?: (r: { outcome: TerminateOutcome; pid?: number }) => void;
 }
 
 export function createAbortSpawnedRun(
   deps: AbortSpawnedRunDeps,
 ): (args: AbortSpawnedRunArgs) => Promise<boolean> {
   const warn = deps.warn ?? ((m: string) => console.warn(m));
-  return async ({ sessionId, spawnToken, graceful }) => {
-    if (!sessionId && !spawnToken) return false;
+  return async ({ sessionId, spawnToken, graceful, onResult }) => {
+    if (!sessionId && !spawnToken) {
+      onResult?.({ outcome: "no-identity" });
+      return false;
+    }
     if (graceful && sessionId) deps.sendShutdownHint(sessionId);
-    const result = await deps.terminate(sessionId ?? "", {
-      spawnToken,
-      verifyIdentity: true,
-      stampManualClose: true,
-    });
+    let result: Awaited<ReturnType<Terminate>>;
+    try {
+      result = await deps.terminate(sessionId ?? "", {
+        spawnToken,
+        verifyIdentity: true,
+        stampManualClose: true,
+      });
+    } catch (e) {
+      onResult?.({ outcome: "unconfirmed" });
+      throw e;
+    }
+    onResult?.({ outcome: result.outcome, ...(result.pid !== undefined ? { pid: result.pid } : {}) });
     if (result.terminated) return true;
     const who = sessionId ? `session ${sessionId}` : `run token ${spawnToken}`;
     warn(

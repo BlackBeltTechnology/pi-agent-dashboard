@@ -38,6 +38,8 @@ Add settings under the key `untrusted-content-guard` in `~/.pi/agent/settings.js
 
 `/guard-clear` resets the taint by hand, in either scope.
 
+The confirmation offers **Allow once**, **Always allow `<tool>` this session** and **Deny**. "Always allow" is per tool name, kept in memory only, and forgotten at the next session start. It is not written to settings.
+
 ## Threat model, per layer
 
 The scanner is a pipeline of pure layers that always run in the same order: size cap → HTML → Unicode → ANSI → URL → phrases. The same input always gives the same output and findings. Each finding has a layer id, a severity (`high` / `low`), a count, and a sample of at most 80 characters in which invisible code points are shown as `U+XXXX`.

@@ -1,25 +1,38 @@
 /**
  * Automation board (shell-overlay-route `/folder/:encodedCwd/automations`).
  *
- * Per-automation definition cards now reuse the dashboard's session-status
- * visual language (status rail + dot, headless source icon, status pill,
- * barber-pole stripe overlay on a running card, neon glow + rim on the
- * selected card) via the local `automation-card-visuals` replica. Each valid
- * card shows a last-run summary (status pill + relative time + findings +
- * result/log link) and a Stop action while running; Edit/Delete live under a
- * `⋯` overflow. The recent-runs table surfaces a findings count + a
- * status-specific link (watch/result/log) and a stripe overlay on the running
- * row.
+ * Per-automation definition cards reuse the dashboard's session-status visual
+ * language (status rail + dot, headless source icon, status pill) via the
+ * local `automation-card-visuals` replica; the running stripe sits on the rail
+ * and running pill only. Selection uses the selected-chip recipe (accent
+ * border, accent-soft header row, bold name, `aria-current`), not the session
+ * card's neon. Each card owns:
+ *
+ *  - a humanised schedule (cron on hover), relative next fire, action summary;
+ *  - a visible Edit button (the name opens the editor too); only Delete stays
+ *    under `⋯` (popover portal);
+ *  - a last-run line and a collapsible run history grouped by (scope, name):
+ *    latest 3 + "Show all (N)", human start label (run id as tooltip),
+ *    duration or reason, findings chip only above 0, **Open session** and a
+ *    status link (Monitor / Result / Log); parents expand to child rows;
+ *  - an orphaned state (pill + warning notice + confirm-before-Stop) and one
+ *    honest Stop outcome notice (killed / not-found / unconfirmed).
+ *
+ * Result / Log render as markdown in the `ui:dialog` primitive.
  *
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing,
- * redesign-automation-editor-and-board, automation-ui-mockup-parity.
+ * redesign-automation-editor-and-board, automation-ui-mockup-parity,
+ * polish-automation-board, use-selector-style-for-automation-selection.
  */
 
-import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SettingsNotice, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { AutomationConfig, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
+import type React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
+import type { AutomationConfig, AutomationScope, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 import { nextFire } from "../shared/cron.js";
 import {
   deleteAutomation,
@@ -28,22 +41,24 @@ import {
   listAutomations,
   listRuns,
   runAutomationNow,
+  type StopRunResult,
   stopAutomationRun,
   updateAutomation,
 } from "./api.js";
 import {
+  cardButtonClass,
   deriveCardState,
   dotClass,
-  GLOW_FX_CLASS,
-  GLOW_FX_OUTER_CLASS,
   headlessSourceIcon,
   pillClass,
   pillLabel,
-  RING_FX_CLASS,
+  type RunPillStatus,
   railBgClass,
+  runPillClass,
   stripeFxClass,
 } from "./automation-card-visuals.js";
-import { CreateAutomationDialog } from "./CreateAutomationDialog.js";
+import { CreateAutomationDialog, type EditorSection } from "./CreateAutomationDialog.js";
+import { humanizeCron, relativeFire, runDuration, runStartLabel, sessionHref } from "./schedule-format.js";
 
 export interface AutomationBoardProps {
   params?: Record<string, string>;
@@ -52,35 +67,66 @@ export interface AutomationBoardProps {
   onBack?: () => void;
 }
 
-const STATUS_LABEL: Record<RunRecord["status"], string> = {
-  running: "running",
-  done: "done",
-  error: "error",
-  stopped: "stopped",
-};
+/** Runs shown per card before "Show all". */
+const HISTORY_PREVIEW = 3;
 
 interface EditTarget {
   name: string;
   scope: DiscoveredAutomation["scope"];
   config: AutomationConfig;
   promptBody?: string;
+  section: EditorSection;
+}
+
+/** A run's visible status: the listing's `orphaned` flag wins over `running`. */
+export function runPillStatus(r: RunRecord): RunPillStatus {
+  return r.orphaned ? "orphaned" : r.status;
+}
+
+const scopeOf = (r: RunRecord): AutomationScope => (r.scope === "global" ? "global" : "folder");
+const keyOf = (scope: AutomationScope, name: string) => `${scope}:${name}`;
+
+/**
+ * The run that carries the session for a top-level record. The engine wraps
+ * every action in a parent occurrence whose `sessionId` lives on a child, so
+ * the card's summary line + orphan notice resolve session/connectivity through
+ * the running child (or the first child). A flat/legacy record is its own
+ * bearer. See change: polish-automation-board.
+ */
+export function sessionBearer(run: RunRecord): RunRecord {
+  const kids = run.childRuns;
+  if (!kids || kids.length === 0) return run;
+  return kids.find((c) => c.status === "running") ?? kids[0] ?? run;
 }
 
 export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): React.ReactElement {
   const t = useT();
+  const [, setLocation] = useLocation();
+  const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
+  const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
   // The host decodes the folder segment; a route that carries one but yields no `cwd` is malformed.
   const invalidRoute = !!params?.encodedCwd && cwd === undefined;
   const repoCrumb = cwd ? cwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || cwd : undefined;
   const [automations, setAutomations] = useState<DiscoveredAutomation[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [runs, setRuns] = useState<RunRecord[]>([]);
-  const [showAll, setShowAll] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  // The control that opened the editor; focus returns there on close (or to + Create when it is gone).
+  const editorOpener = useRef<HTMLElement | null>(null);
+  const createBtnRef = useRef<HTMLButtonElement>(null);
+  function rememberOpener(): void {
+    editorOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+  function restoreOpenerFocus(): void {
+    const el = editorOpener.current;
+    editorOpener.current = null;
+    (el?.isConnected ? el : createBtnRef.current)?.focus();
+  }
   const [selected, setSelected] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  // Which parent occurrences are expanded to show their child rows.
-  const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
-  const [openResult, setOpenResult] = useState<{ runId: string; text: string } | null>(null);
+  const [openResult, setOpenResult] = useState<{ title: string; text: string } | null>(null);
 
   useEffect(() => {
     if (invalidRoute) return;
@@ -89,8 +135,12 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
       const a = await listAutomations(cwd);
       if (cancelled) return;
       setAutomations(a);
-      const folderRuns = await listRuns("folder", cwd);
-      const globalRuns = await listRuns("global", undefined);
+      setLoaded(true);
+      // The listing tags every record with its scope; older servers do not, so
+      // fill it from the request (same-named folder/global automations must
+      // keep separate histories).
+      const folderRuns = (await listRuns("folder", cwd)).map((r) => ({ ...r, scope: r.scope ?? ("folder" as const) }));
+      const globalRuns = (await listRuns("global", undefined)).map((r) => ({ ...r, scope: r.scope ?? ("global" as const) }));
       if (!cancelled) setRuns([...folderRuns, ...globalRuns]);
     }
     void load();
@@ -100,47 +150,38 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
   }, [cwd, reloadKey, invalidRoute]);
 
   const refresh = () => setReloadKey((k) => k + 1);
-  const toggleExpanded = (runId: string) =>
-    setExpandedRuns((prev) => {
-      const next = new Set(prev);
-      if (next.has(runId)) next.delete(runId);
-      else next.add(runId);
-      return next;
-    });
 
-  const visibleRuns = useMemo(() => {
-    const filtered = showAll ? runs : runs.filter((r) => !r.archived);
-    return [...filtered].sort((a, b) => b.startedAt - a.startedAt);
-  }, [runs, showAll]);
-
-  // Running run per automation (for the Stop action) + latest run per
-  // automation (for the per-card last-run summary).
-  const runningRunByName = useMemo(() => {
-    const m = new Map<string, RunRecord>();
-    for (const r of runs) if (r.status === "running") m.set(r.name, r);
-    return m;
-  }, [runs]);
-
-  const lastRunByName = useMemo(() => {
-    const m = new Map<string, RunRecord>();
+  /** Runs per (scope, name), newest first. */
+  const runsByKey = useMemo(() => {
+    const m = new Map<string, RunRecord[]>();
     for (const r of runs) {
-      const cur = m.get(r.name);
-      if (!cur || r.startedAt > cur.startedAt) m.set(r.name, r);
+      const k = keyOf(scopeOf(r), r.name);
+      const list = m.get(k) ?? [];
+      list.push(r);
+      m.set(k, list);
     }
+    for (const list of m.values()) list.sort((a, b) => b.startedAt - a.startedAt);
     return m;
   }, [runs]);
+
+  async function openEditor(a: DiscoveredAutomation, section: EditorSection): Promise<void> {
+    rememberOpener();
+    const def = await getAutomationDefinition(a.scope, a.scope === "folder" ? cwd : undefined, a.name);
+    if (!def) return;
+    setEditTarget({
+      name: a.name,
+      scope: a.scope,
+      config: def.config,
+      section,
+      ...(def.promptBody !== undefined ? { promptBody: def.promptBody } : {}),
+    });
+  }
 
   async function onDelete(a: DiscoveredAutomation): Promise<void> {
     const ok = typeof window !== "undefined" ? window.confirm(t("deleteConfirm", { name: a.name }, `Delete automation "${a.name}"?`)) : true;
     if (!ok) return;
     await deleteAutomation(a.scope, a.scope === "folder" ? cwd : undefined, a.name);
     refresh();
-  }
-
-  async function onEdit(a: DiscoveredAutomation): Promise<void> {
-    const def = await getAutomationDefinition(a.scope, a.scope === "folder" ? cwd : undefined, a.name);
-    if (!def) return;
-    setEditTarget({ name: a.name, scope: a.scope, config: def.config, ...(def.promptBody !== undefined ? { promptBody: def.promptBody } : {}) });
   }
 
   async function onToggleEnabled(a: DiscoveredAutomation): Promise<void> {
@@ -163,17 +204,37 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
     refresh();
   }
 
-  async function onStop(a: DiscoveredAutomation, run: RunRecord): Promise<void> {
-    await stopAutomationRun(a.scope, a.scope === "folder" ? cwd : undefined, run.runId);
-    refresh();
+  async function onStop(a: DiscoveredAutomation, run: RunRecord): Promise<StopRunResult> {
+    try {
+      return await stopAutomationRun(a.scope, a.scope === "folder" ? cwd : undefined, run.runId);
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      refresh();
+    }
   }
 
   async function onViewResult(r: RunRecord): Promise<void> {
-    // Run records don't carry scope; try folder (cwd) first, then global.
-    const text =
-      (await getRunResult("folder", cwd, r.runId)) ?? (await getRunResult("global", undefined, r.runId));
-    setOpenResult({ runId: r.runId, text: text ?? t("noResult", undefined, "(no result)") });
+    const scope = scopeOf(r);
+    const text = await getRunResult(scope, scope === "folder" ? cwd : undefined, r.runId);
+    setOpenResult({
+      title: `${r.actionLabel ?? r.name} · ${runStartLabel(r.startedAt, new Date())}`,
+      text: text ?? t("noResult", undefined, "(no result)"),
+    });
   }
+
+  const nav = {
+    session: (r: RunRecord) => {
+      const href = sessionHref(r);
+      if (href) setLocation(href);
+    },
+    monitor: (r: RunRecord) => {
+      if (cwd && r.sessionId) {
+        setLocation(`/folder/${encodeFolderPath(cwd)}/automations/run/${encodeURIComponent(r.sessionId)}`);
+      }
+    },
+    result: (r: RunRecord) => void onViewResult(r),
+  };
 
   if (invalidRoute) {
     return (
@@ -184,7 +245,7 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
               {t("back", undefined, "← Back")}
             </button>
           )}
-          <p className="text-xs text-[var(--danger,#ef4444)]" data-testid="automation-board-invalid">
+          <p className="text-xs text-[var(--severity-error-fg)]" data-testid="automation-board-invalid">
             {t("invalidRoute", undefined, "Invalid folder route.")}
           </p>
         </div>
@@ -194,7 +255,7 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
 
   return (
     <div data-testid="automation-board" className="flex flex-col gap-3 p-3 text-sm">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           {onBack && (
             <button type="button" data-testid="automation-board-back" onClick={onBack} className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
@@ -203,161 +264,117 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
           )}
           <h2 className="text-base font-semibold">{t("automations", undefined, "Automations")}</h2>
           {repoCrumb && (
-            <span className="text-xs text-[var(--text-muted)]" data-testid="automation-repo-crumb">
+            <span className="text-xs text-[var(--text-secondary)]" data-testid="automation-repo-crumb">
               {repoCrumb}
             </span>
           )}
         </div>
         <div className="flex items-center gap-3">
-          <button type="button" data-testid="automation-create-btn" onClick={() => setCreating(true)} className="text-xs px-2 py-1 rounded bg-[var(--accent-solid)] text-white">
+          <button type="button" ref={createBtnRef} data-testid="automation-create-btn" onClick={() => { rememberOpener(); setCreating(true); }} className={cardButtonClass("primary")}>
             {t("createAutomation", undefined, "+ Create Automation")}
           </button>
           <label className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
-            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} data-testid="automation-show-all" />
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} data-testid="automation-show-all" />
             {t("showArchived", undefined, "Show archived")}
           </label>
         </div>
       </div>
 
       {creating && (
-        <CreateAutomationDialog cwd={cwd} onClose={() => setCreating(false)} onCreated={refresh} />
+        <CreateAutomationDialog cwd={cwd} onClose={() => { setCreating(false); restoreOpenerFocus(); }} onCreated={refresh} />
       )}
       {editTarget && (
         <CreateAutomationDialog
           cwd={cwd}
-          onClose={() => setEditTarget(null)}
+          onClose={() => { setEditTarget(null); restoreOpenerFocus(); }}
           onCreated={refresh}
           initialName={editTarget.name}
           initialScope={editTarget.scope}
           initialConfig={editTarget.config}
+          initialSection={editTarget.section}
           {...(editTarget.promptBody !== undefined ? { initialPromptBody: editTarget.promptBody } : {})}
         />
       )}
 
       <section data-testid="automation-list">
-        <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">{t("definitions", undefined, "Definitions")}</h3>
+        <h3 className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">{t("definitions", undefined, "Definitions")}</h3>
         {automations.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]">{t("noAutomations", undefined, "No automations in this folder.")}</p>
+          loaded && (
+            <div data-testid="automation-empty" className="flex flex-col items-start gap-2 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-4">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">{t("noAutomations", undefined, "No automations in this folder.")}</p>
+              <p className="text-xs text-[var(--text-secondary)]">
+                {t(
+                  "emptyExplainer",
+                  undefined,
+                  "An automation runs a prompt, skill or flow in its own session on a schedule. Each run keeps its result here, one click from its session.",
+                )}
+              </p>
+              <button type="button" data-testid="automation-empty-create" onClick={() => { rememberOpener(); setCreating(true); }} className={cardButtonClass("primary")}>
+                {t("createAutomation", undefined, "+ Create Automation")}
+              </button>
+            </div>
+          )
         ) : (
           <ul className="space-y-2">
-            {automations.map((a) => (
-              <AutomationCard
-                key={`${a.scope}:${a.name}`}
-                automation={a}
-                runningRun={runningRunByName.get(a.name)}
-                lastRun={lastRunByName.get(a.name)}
-                selected={selected === `${a.scope}:${a.name}`}
-                onSelect={() => setSelected(`${a.scope}:${a.name}`)}
-                onRunNow={() => void onRunNow(a)}
-                onStop={(run) => void onStop(a, run)}
-                onEdit={() => void onEdit(a)}
-                onToggle={() => void onToggleEnabled(a)}
-                onDelete={() => void onDelete(a)}
-                onViewResult={(r) => void onViewResult(r)}
-              />
-            ))}
+            {automations.map((a) => {
+              const key = keyOf(a.scope, a.name);
+              return (
+                <AutomationCard
+                  key={key}
+                  automation={a}
+                  runs={runsByKey.get(key) ?? []}
+                  showArchived={showArchived}
+                  selected={selected === key}
+                  onSelect={() => setSelected(key)}
+                  onRunNow={() => void onRunNow(a)}
+                  onStop={(run) => onStop(a, run)}
+                  onEdit={(section) => void openEditor(a, section)}
+                  onToggle={() => void onToggleEnabled(a)}
+                  onDelete={() => void onDelete(a)}
+                  nav={nav}
+                />
+              );
+            })}
           </ul>
         )}
       </section>
 
-      <section data-testid="automation-triage">
-        <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">{t("recentRuns", undefined, "Recent runs")}</h3>
-        {visibleRuns.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]" data-testid="automation-triage-empty">
-            {t("noRunsYet", undefined, "No runs yet.")}
-          </p>
-        ) : (
-          <table className="w-full text-xs">
-            <tbody>
-              {visibleRuns.flatMap((r) => {
-                const kids = r.childRuns ?? [];
-                const isParent = kids.length > 0;
-                const expanded = expandedRuns.has(r.runId);
-                const rows: React.ReactElement[] = [
-                  <tr key={r.runId} data-testid={`automation-run-${r.runId}`} className="relative isolate border-b border-[var(--border-secondary)]/40">
-                    <td className="py-1 pr-2">
-                      {isParent && (
-                        <button
-                          type="button"
-                          data-testid={`run-expand-${r.runId}`}
-                          onClick={() => toggleExpanded(r.runId)}
-                          className="mr-1 text-[10px] text-[var(--text-muted)]"
-                          aria-expanded={expanded}
-                        >
-                          {expanded ? "▾" : "▸"}
-                        </button>
-                      )}
-                      <span className={statusClass(r.status)}>{STATUS_LABEL[r.status]}</span>
-                    </td>
-                    <td className="py-1 pr-2 font-mono">
-                      {r.runId}
-                      {isParent && (
-                        <span className="ml-1 text-[10px] text-[var(--text-muted)]" data-testid={`run-child-count-${r.runId}`}>
-                          ({kids.length})
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-1 pr-2 text-[var(--text-muted)]">{relativeTime(r.startedAt)}</td>
-                    <td className="py-1 pr-2 text-[var(--text-muted)]" data-testid={`run-findings-${r.runId}`}>
-                      {findingsLabel(r)}
-                    </td>
-                    <td className="py-1 pr-2">
-                      {r.warning ? (
-                        <span className="text-[10px] text-[#fcd34d]" data-testid={`run-warning-${r.runId}`}>{r.warning}</span>
-                      ) : r.archived ? (
-                        <span className="text-[10px] text-[var(--text-muted)]" data-testid={`run-archived-${r.runId}`}>{t("archived", undefined, "archived")}</span>
-                      ) : null}
-                    </td>
-                    <td className="py-1">
-                      {!isParent && (
-                        <button type="button" data-testid={`run-result-${r.runId}`} onClick={() => void onViewResult(r)} className="text-[10px] text-[var(--accent-text)] underline">
-                          {runLinkLabel(r.status)}
-                        </button>
-                      )}
-                    </td>
-                  </tr>,
-                ];
-                if (isParent && expanded) {
-                  for (const child of kids) {
-                    rows.push(
-                      <tr key={child.runId} data-testid={`automation-child-run-${child.runId}`} className="border-b border-[var(--border-secondary)]/20 bg-[var(--bg-tertiary)]">
-                        <td className="py-1 pr-2 pl-4"><span className={statusClass(child.status)}>{STATUS_LABEL[child.status]}</span></td>
-                        <td className="py-1 pr-2 text-[11px]" data-testid={`child-action-${child.runId}`}>{child.actionLabel ?? child.runId}</td>
-                        <td className="py-1 pr-2 text-[var(--text-muted)]">{relativeTime(child.startedAt)}</td>
-                        <td className="py-1 pr-2 text-[var(--text-muted)]" data-testid={`child-findings-${child.runId}`}>{findingsLabel(child)}</td>
-                        <td className="py-1 pr-2" />
-                        <td className="py-1">
-                          <button type="button" data-testid={`child-result-${child.runId}`} onClick={() => void onViewResult(child)} className="text-[10px] text-[var(--accent-text)] underline">
-                            {runLinkLabel(child.status)}
-                          </button>
-                        </td>
-                      </tr>,
-                    );
-                  }
-                }
-                return rows;
-              })}
-            </tbody>
-          </table>
-        )}
-      </section>
-
       {openResult && (
-        <div data-testid="run-result-panel" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpenResult(null)}>
-          <div className="w-full max-w-lg max-h-[80vh] overflow-auto rounded-lg bg-[var(--bg-primary)] p-4 text-xs" onClick={(e) => e.stopPropagation()}>
-            <div className="font-mono mb-2">{openResult.runId}</div>
-            <pre className="whitespace-pre-wrap">{openResult.text}</pre>
-          </div>
-        </div>
+        <Dialog open onClose={() => setOpenResult(null)} title={openResult.title} size="lg" testId="run-result-panel">
+          <MarkdownContent content={openResult.text} />
+        </Dialog>
       )}
     </div>
   );
 }
 
+interface RunNav {
+  session: (r: RunRecord) => void;
+  monitor: (r: RunRecord) => void;
+  result: (r: RunRecord) => void;
+}
+
+/** Honest Stop outcome (or a failed request) → notice tone + text. */
+function stopNotice(
+  t: ReturnType<typeof useT>,
+  res: StopRunResult,
+): { tone: "success" | "warning" | "error"; text: string } {
+  if (!res.ok) return { tone: "error", text: t("stopFailed", { error: res.error ?? "" }, `Stop failed: ${res.error ?? "unknown error"}`) };
+  const suffix = res.alreadyFinalized ? ` ${t("stopAlreadyFinalized", undefined, "The run had already been finalized.")}` : "";
+  switch (res.outcome) {
+    case "killed":
+      return { tone: "success", text: t("stopKilled", undefined, "Stopped. The process is gone.") + suffix };
+    case "not-found":
+      return { tone: "warning", text: t("stopNotFound", undefined, "Run marked stopped. No session was found to terminate.") + suffix };
+    default:
+      return { tone: "warning", text: t("stopUnconfirmed", undefined, "Stop requested, but the process may still be running.") + suffix };
+  }
+}
+
 function AutomationCard({
   automation: a,
-  runningRun,
-  lastRun,
+  runs,
+  showArchived,
   selected,
   onSelect,
   onRunNow,
@@ -365,188 +382,453 @@ function AutomationCard({
   onEdit,
   onToggle,
   onDelete,
-  onViewResult,
+  nav,
 }: {
   automation: DiscoveredAutomation;
-  runningRun?: RunRecord;
-  lastRun?: RunRecord;
+  runs: RunRecord[];
+  showArchived: boolean;
   selected: boolean;
   onSelect: () => void;
   onRunNow: () => void;
-  onStop: (run: RunRecord) => void;
-  onEdit: () => void;
+  onStop: (run: RunRecord) => Promise<StopRunResult>;
+  onEdit: (section: EditorSection) => void;
   onToggle: () => void;
   onDelete: () => void;
-  onViewResult: (r: RunRecord) => void;
+  nav: RunNav;
 }): React.ReactElement {
   const t = useT();
+  const Popover = useUiPrimitive(UI_PRIMITIVE_KEYS.popover);
   const cfg = a.config;
   const disabled = !!cfg?.disabled;
-  const running = !!runningRun;
-  const state = deriveCardState({ valid: a.valid, disabled, running });
-  const summary = cfg ? triggerSummary(cfg) : a.error ?? "invalid";
-  const next = cfg && cfg.on.kind === "schedule" && typeof cfg.on.cron === "string"
-    ? nextFire(cfg.on.cron, new Date())
-    : null;
+  const liveRun = runs.find((r) => r.status === "running");
+  const orphaned = !!liveRun?.orphaned;
+  const state = deriveCardState({ valid: a.valid, disabled, running: !!liveRun, orphaned });
+  const lastRun = runs[0];
+  const now = new Date();
+  const cron = cfg && cfg.on.kind === "schedule" && typeof cfg.on.cron === "string" ? cfg.on.cron : null;
+  const next = cron ? nextFire(cron, now) : null;
   const stripeFx = stripeFxClass(state);
-  const Popover = useUiPrimitive(UI_PRIMITIVE_KEYS.popover);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [stopPending, setStopPending] = useState(false);
+  const [notice, setNotice] = useState<{ tone: "success" | "warning" | "error"; text: string } | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(true);
+  const [historyAll, setHistoryAll] = useState(false);
   const overflowRef = useRef<HTMLButtonElement>(null);
+  const stopRef = useRef<HTMLButtonElement>(null);
+
+  const visibleRuns = showArchived ? runs : runs.filter((r) => !r.archived);
+  const shownRuns = historyAll ? visibleRuns : visibleRuns.slice(0, HISTORY_PREVIEW);
+
+  async function doStop(run: RunRecord): Promise<void> {
+    setConfirmOpen(false);
+    setStopPending(true);
+    setNotice(null);
+    const res = await onStop(run);
+    setStopPending(false);
+    setNotice(stopNotice(t, res));
+  }
 
   return (
     <li
       data-testid={`automation-def-${a.name}`}
       onClick={onSelect}
-      className={`relative isolate flex overflow-hidden rounded border ${
-        selected ? "border-blue-500/60 bg-blue-500/5" : "border-[var(--border-secondary)]"
+      aria-current={selected ? "true" : undefined}
+      className={`relative isolate flex overflow-hidden rounded-xl border bg-[var(--bg-secondary)] ${
+        selected ? "border-[var(--accent)]" : "border-[var(--border-secondary)]"
       }`}
     >
-      {selected && <div className={`${GLOW_FX_CLASS} ${GLOW_FX_OUTER_CLASS}`} aria-hidden="true" />}
-      {selected && <div className={GLOW_FX_CLASS} aria-hidden="true" />}
-      {stripeFx && <div className={stripeFx} aria-hidden="true" />}
-      {selected && <div className={RING_FX_CLASS} aria-hidden="true" />}
+      <div className={`relative isolate w-1 self-stretch overflow-hidden ${railBgClass(state)}`} data-testid={`automation-rail-${a.name}`} aria-hidden="true">
+        {stripeFx && <div className={stripeFx} data-testid={`automation-rail-stripe-${a.name}`} />}
+      </div>
 
-      <div className={`w-1 self-stretch ${railBgClass(state)}`} data-testid={`automation-rail-${a.name}`} aria-hidden="true" />
-
-      <div className="flex-1 p-2 flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <Icon path={headlessSourceIcon} size={0.5} className="text-[var(--text-muted)]" data-testid={`automation-source-icon-${a.name}`} />
+      <div className="flex-1 min-w-0 p-3 flex flex-col gap-1.5">
+        {/* Header row stays the column's first child: when selected it bleeds
+            out of the column padding so the accent-soft band spans rail → right
+            edge. The body (with --accent-text links) keeps --bg-secondary.
+            The -mx-3/-mt-3/px-3/pt-3 bleed mirrors the column's p-3; change both together. */}
+        <div
+          data-testid={`automation-header-${a.name}`}
+          className={`flex flex-wrap items-center gap-2 ${selected ? "-mx-3 -mt-3 px-3 pt-3 pb-1.5 bg-[var(--accent-soft)]" : ""}`}
+        >
+          <Icon path={headlessSourceIcon} size={0.5} className="text-[var(--text-secondary)]" data-testid={`automation-source-icon-${a.name}`} />
           <span className={`inline-block w-2 h-2 rounded-full ${dotClass(state)}`} data-testid={`automation-dot-${a.name}`} />
-          <span className="font-mono font-medium">{a.name}</span>
-          <span className="text-[10px] rounded px-1 bg-[var(--bg-subtle,rgba(0,0,0,0.06))]">{a.scope}</span>
+          <button
+            type="button"
+            data-testid={`automation-name-${a.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit("identity");
+            }}
+            className={`focus-ring rounded font-mono text-[13px] ${selected ? "font-bold" : "font-semibold"} text-[var(--text-primary)] hover:underline`}
+            title={t("editName", { name: a.name }, `Edit ${a.name}`)}
+          >
+            {a.name}
+          </button>
+          <span className="text-[11px] rounded px-1 bg-[var(--bg-surface)] text-[var(--text-secondary)]">{a.scope}</span>
           <span className={pillClass(state)} data-testid={`automation-enabled-${a.name}`}>
+            {stripeFx && <span className={stripeFx} data-testid={`automation-pill-stripe-${a.name}`} aria-hidden="true" />}
             {pillLabel(state)}
           </span>
+          <span className="flex-1" />
+          <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            {a.valid && (liveRun ? (
+              <button
+                ref={stopRef}
+                type="button"
+                data-testid={`stop-${a.name}`}
+                disabled={stopPending}
+                onClick={() => (orphaned ? setConfirmOpen((v) => !v) : void doStop(liveRun))}
+                className={cardButtonClass("danger")}
+              >
+                {stopPending ? t("stopping", undefined, "Stopping…") : t("stop", undefined, "⏹ Stop")}
+              </button>
+            ) : (
+              <>
+                <button type="button" data-testid={`run-now-${a.name}`} onClick={onRunNow} className={cardButtonClass()}>
+                  {t("runNow", undefined, "▶ Run now")}
+                </button>
+                <button type="button" data-testid={`toggle-${a.name}`} onClick={onToggle} className={cardButtonClass()}>
+                  {disabled ? t("enable", undefined, "Enable") : t("disable", undefined, "Disable")}
+                </button>
+              </>
+            ))}
+            <button type="button" data-testid={`edit-${a.name}`} onClick={() => onEdit("identity")} className={cardButtonClass()}>
+              {t("edit", undefined, "Edit")}
+            </button>
+            <button
+              ref={overflowRef}
+              type="button"
+              data-testid={`overflow-${a.name}`}
+              aria-label={t("moreActions", undefined, "More actions")}
+              onClick={() => setMenuOpen((v) => !v)}
+              className={cardButtonClass()}
+            >
+              ⋯
+            </button>
+            {menuOpen && overflowRef.current && (
+              // Body portal so the card's `overflow-hidden` (which clips the
+              // header fill to the rounded corners) does not clip the menu.
+              // See change: fix-automation-overflow-menu-clip.
+              <Popover anchorEl={overflowRef.current} onDismiss={() => setMenuOpen(false)}>
+                <div
+                  data-testid={`overflow-menu-${a.name}`}
+                  className="flex min-w-[160px] flex-col rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-1"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid={`delete-${a.name}`}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete();
+                    }}
+                    className="focus-ring flex items-center min-h-[36px] max-sm:min-h-[44px] px-3 rounded text-sm text-[var(--severity-error-fg)] hover:bg-[var(--bg-hover)]"
+                  >
+                    {t("delete", undefined, "Delete")}
+                  </button>
+                </div>
+              </Popover>
+            )}
+            {confirmOpen && liveRun && stopRef.current && (
+              <Popover anchorEl={stopRef.current} onDismiss={() => setConfirmOpen(false)}>
+                <div
+                  data-testid={`stop-confirm-${a.name}`}
+                  role="dialog"
+                  aria-label={t("stopConfirmTitle", undefined, "Stop this run?")}
+                  className="flex max-w-[320px] flex-col gap-2 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-3 text-xs text-[var(--text-secondary)]"
+                >
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">{t("stopConfirmTitle", undefined, "Stop this run?")}</p>
+                  <p>
+                    {sessionBearer(liveRun).sessionConnected
+                      ? t("stopConfirmConnected", undefined, "Its session is still connected. Stop kills it only if it is this run's own session in this folder, then marks the run stopped.")
+                      : t("stopConfirmDisconnected", undefined, "Its session is not connected, so nothing can be killed. Stop marks the run stopped; the process may still be running.")}
+                  </p>
+                  <div className="flex justify-end gap-2">
+                    <button type="button" data-testid={`stop-confirm-cancel-${a.name}`} onClick={() => setConfirmOpen(false)} className={cardButtonClass()}>
+                      {t("cancel", undefined, "Cancel")}
+                    </button>
+                    <button type="button" data-testid={`stop-confirm-yes-${a.name}`} onClick={() => void doStop(liveRun)} className={cardButtonClass("danger")}>
+                      {t("stopRun", undefined, "Stop run")}
+                    </button>
+                  </div>
+                </div>
+              </Popover>
+            )}
+          </div>
         </div>
+
         {a.valid ? (
-          <div className="text-[11px] text-[var(--text-muted)] flex flex-wrap gap-x-3">
-            <span data-testid={`automation-summary-${a.name}`}>{summary}</span>
-            {next && <span>{t("cardNext", undefined, "next:")} {next.toLocaleString()}</span>}
-            <span>{t("cardModel", undefined, "model:")} {cfg?.model ?? "?"}</span>
-            <span>{t("cardAction", undefined, "action:")} {actionSummary(cfg)}</span>
+          <div className="text-xs text-[var(--text-secondary)] flex flex-wrap gap-x-3 gap-y-0.5">
+            <button
+              type="button"
+              data-testid={`automation-summary-${a.name}`}
+              title={cron ?? undefined}
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit("trigger");
+              }}
+              className="focus-ring rounded font-semibold text-[var(--text-primary)] hover:underline"
+            >
+              {cfg ? triggerSummary(cfg) : ""}
+            </button>
+            {next && (
+              <span data-testid={`automation-next-${a.name}`}>
+                {t("cardNext", undefined, "next")} {relativeFire(next, now)}
+              </span>
+            )}
+            <span data-testid={`automation-action-${a.name}`}>{actionSummary(cfg)}</span>
+            <span>{cfg?.model ?? "?"}</span>
             <span data-testid={`automation-mode-${a.name}`}>{t("cardMode", undefined, "mode:")} {cfg?.mode ?? "?"}</span>
           </div>
         ) : (
-          <p className="text-[11px] text-[var(--danger,#ef4444)]" data-testid={`automation-error-${a.name}`}>{a.error}</p>
+          <p className="text-xs text-[var(--severity-error-fg)]" data-testid={`automation-error-${a.name}`}>{a.error}</p>
         )}
 
-        {lastRun && (
-          <div className="text-[11px] flex flex-wrap items-center gap-2" data-testid={`automation-last-run-${a.name}`}>
-            <span className={statusClass(lastRun.status)}>{STATUS_LABEL[lastRun.status]}</span>
-            <span className="text-[var(--text-muted)]">{relativeTime(lastRun.startedAt)}</span>
-            <span className="text-[var(--text-muted)]">{findingsLabel(lastRun)}</span>
-            <button
-              type="button"
-              data-testid={`last-run-link-${a.name}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewResult(lastRun);
-              }}
-              className="text-[10px] text-[var(--accent-text)] underline"
-            >
-              {runLinkLabel(lastRun.status)} ▸
-            </button>
+        {orphaned && liveRun && (() => {
+          const bearer = sessionBearer(liveRun);
+          return (
+            <div onClick={(e) => e.stopPropagation()}>
+              <SettingsNotice tone="warning" testId={`automation-orphan-notice-${a.name}`}>
+                <p>
+                  <b>{t("orphanTitle", undefined, "Lost track of this run.")}</b>{" "}
+                  {t("orphanBody", undefined, "The server restarted while it was running, so its completion was not recorded.")}{" "}
+                  {bearer.sessionId
+                    ? bearer.sessionConnected
+                      ? t("orphanConnected", undefined, "Its session is still connected.")
+                      : t("orphanDisconnected", undefined, "Its session is not connected.")
+                    : t("orphanNoSession", undefined, "It never registered a session.")}
+                </p>
+                {bearer.sessionId && (
+                  <button type="button" data-testid={`orphan-session-${a.name}`} onClick={() => nav.session(bearer)} className="mt-1 text-xs font-semibold text-[var(--accent-text)] underline">
+                    {t("openSession", undefined, "Open session ↗")}
+                  </button>
+                )}
+              </SettingsNotice>
+            </div>
+          );
+        })()}
+
+        {notice && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <SettingsNotice tone={notice.tone} testId={`automation-stop-notice-${a.name}`}>
+              {notice.text}
+            </SettingsNotice>
           </div>
         )}
 
-        <div className="flex items-center gap-2 pt-0.5" onClick={(e) => e.stopPropagation()}>
-          {a.valid && (
-            running ? (
-              <CardBtn testid={`stop-${a.name}`} onClick={() => onStop(runningRun!)} label={t("stop", undefined, "⏹ Stop")} danger />
-            ) : (
-              <>
-                <CardBtn testid={`run-now-${a.name}`} onClick={onRunNow} label={t("runNow", undefined, "▶ Run now")} />
-                <CardBtn testid={`toggle-${a.name}`} onClick={onToggle} label={disabled ? t("enable", undefined, "Enable") : t("disable", undefined, "Disable")} />
-              </>
-            )
-          )}
-          <CardBtn ref={overflowRef} testid={`overflow-${a.name}`} onClick={() => setMenuOpen((v) => !v)} label="⋯" />
-          {menuOpen && overflowRef.current && (
-            // Render the menu in the popover primitive's body portal so it is
-            // not clipped by the card <li>'s `overflow-hidden` (which exists
-            // to clip the decorative FX layers). See change:
-            // fix-automation-overflow-menu-clip.
-            <Popover anchorEl={overflowRef.current} onDismiss={() => setMenuOpen(false)}>
-              <div
-                data-testid={`overflow-menu-${a.name}`}
-                className="flex flex-col rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] p-1 shadow"
-              >
-                <CardBtn testid={`edit-${a.name}`} onClick={() => { setMenuOpen(false); onEdit(); }} label={t("edit", undefined, "Edit")} />
-                <CardBtn testid={`delete-${a.name}`} onClick={() => { setMenuOpen(false); onDelete(); }} label={t("delete", undefined, "Delete")} danger />
+        {lastRun && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md bg-[var(--bg-tertiary)] px-2 py-1 text-xs text-[var(--text-secondary)]"
+            data-testid={`automation-last-run-${a.name}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <RunPill run={lastRun} />
+            <span title={lastRun.runId} className="text-[var(--text-primary)]">{runStartLabel(lastRun.startedAt, now)}</span>
+            <span>{runSub(lastRun, now.getTime())}</span>
+            <FindingsChip run={lastRun} testid={`last-run-findings-${a.name}`} />
+            <span className="flex-1" />
+            <RunLinks run={lastRun} sessionRun={sessionBearer(lastRun)} nav={nav} sessionTestid={`last-run-session-${a.name}`} linkTestid={`last-run-link-${a.name}`} />
+          </div>
+        )}
+
+        {runs.length > 0 && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              data-testid={`run-history-toggle-${a.name}`}
+              aria-expanded={historyOpen}
+              onClick={() => setHistoryOpen((v) => !v)}
+              className="focus-ring inline-flex items-center gap-1 min-h-[32px] text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              <span aria-hidden="true">{historyOpen ? "▾" : "▸"}</span>
+              {t("runsCount", { count: visibleRuns.length }, `Runs (${visibleRuns.length})`)}
+            </button>
+            {historyOpen && (
+              <div data-testid={`run-history-${a.name}`} className="rounded-lg border border-[var(--border-primary)]">
+                {shownRuns.map((r) => (
+                  <RunRow key={r.runId} run={r} now={now} nav={nav} />
+                ))}
+                {visibleRuns.length > HISTORY_PREVIEW && (
+                  <button
+                    type="button"
+                    data-testid={`run-history-all-${a.name}`}
+                    onClick={() => setHistoryAll((v) => !v)}
+                    className="focus-ring w-full min-h-[32px] px-2 text-left text-xs text-[var(--accent-text)] hover:bg-[var(--bg-hover)]"
+                  >
+                    {historyAll
+                      ? t("showLatest", undefined, "Show latest")
+                      : t("showAllRuns", { count: visibleRuns.length }, `Show all (${visibleRuns.length})`)}
+                  </button>
+                )}
               </div>
-            </Popover>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
     </li>
   );
 }
 
-const CardBtn = React.forwardRef<
-  HTMLButtonElement,
-  { testid: string; onClick: () => void; label: string; danger?: boolean }
->(function CardBtn({ testid, onClick, label, danger }, ref): React.ReactElement {
+function RunPill({ run, testid }: { run: RunRecord; testid?: string }): React.ReactElement {
+  const status = runPillStatus(run);
+  const stripe = stripeFxClass(status);
   return (
-    <button
-      ref={ref}
-      type="button"
-      data-testid={testid}
-      onClick={onClick}
-      className={`text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] ${danger ? "text-[var(--danger,#ef4444)]" : "text-[var(--text-secondary)]"}`}
-    >
-      {label}
-    </button>
+    <span className={runPillClass(status)} data-testid={testid} data-status={status}>
+      {stripe && <span className={stripe} aria-hidden="true" />}
+      {status}
+    </span>
   );
-});
+}
 
-/** Action summary for a card: single kind, or "N actions" for a fan-out. */
+function FindingsChip({ run, testid }: { run: RunRecord; testid: string }): React.ReactElement | null {
+  const n = run.findings ?? 0;
+  if (run.archived || n <= 0) return null;
+  return (
+    <span data-testid={testid} className="rounded px-1.5 text-[11px] bg-[var(--bg-surface)] text-[var(--text-secondary)]">
+      {n === 1 ? "1 finding" : `${n} findings`}
+    </span>
+  );
+}
+
+/** Duration, plus the error / stop reason for a run that did not complete. */
+function runSub(r: RunRecord, now: number): string {
+  const d = runDuration(r.startedAt, r.status === "running" ? undefined : (r.endedAt ?? r.startedAt), now);
+  if ((r.status === "error" || r.status === "stopped") && r.error) return `${d}, ${r.error}`;
+  return d;
+}
+
+/** Status-specific secondary link label (non-parent runs). */
+function secondaryLink(r: RunRecord): "Monitor" | "Result" | "Log" {
+  if (r.status === "running") return "Monitor";
+  if (r.status === "error") return "Log";
+  return "Result";
+}
+
+function RunLinks({
+  run: r,
+  sessionRun,
+  nav,
+  sessionTestid,
+  linkTestid,
+}: {
+  run: RunRecord;
+  /** The run that carries the session link (defaults to `run`; a parent passes its bearer child). */
+  sessionRun?: RunRecord;
+  nav: RunNav;
+  sessionTestid: string;
+  linkTestid: string;
+}): React.ReactElement {
+  const t = useT();
+  const sr = sessionRun ?? r;
+  const isParent = (r.childRuns?.length ?? 0) > 0 || (r.children?.length ?? 0) > 0;
+  const link = secondaryLink(r);
+  const linkLabel =
+    link === "Monitor" ? t("monitor", undefined, "Monitor") : link === "Log" ? t("log", undefined, "Log") : t("result", undefined, "Result");
+  const cls = "focus-ring rounded text-xs text-[var(--accent-text)] hover:underline";
+  return (
+    <span className="flex items-center gap-3">
+      {sr.sessionId && (
+        <button type="button" data-testid={sessionTestid} onClick={() => nav.session(sr)} className={cls}>
+          {t("openSession", undefined, "Open session ↗")}
+        </button>
+      )}
+      {!isParent && !(link === "Monitor" && !r.sessionId) && (
+        <button
+          type="button"
+          data-testid={linkTestid}
+          onClick={() => (link === "Monitor" ? nav.monitor(r) : nav.result(r))}
+          className={cls}
+        >
+          {linkLabel}
+        </button>
+      )}
+    </span>
+  );
+}
+
+function RunRow({ run: r, now, nav }: { run: RunRecord; now: Date; nav: RunNav }): React.ReactElement {
+  const t = useT();
+  const kids = r.childRuns ?? [];
+  const isParent = kids.length > 0;
+  const [expanded, setExpanded] = useState(false);
+  const row = "flex flex-wrap items-center gap-2 border-b border-[var(--border-primary)] px-2 py-1.5 text-xs last:border-b-0";
+  return (
+    <>
+      <div data-testid={`automation-run-${r.runId}`} className={row}>
+        {isParent && (
+          <button
+            type="button"
+            data-testid={`run-expand-${r.runId}`}
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-label={t("expandChildren", undefined, "Show child runs")}
+            className="focus-ring min-h-[24px] px-1 text-[var(--text-secondary)]"
+          >
+            {expanded ? "▾" : "▸"}
+          </button>
+        )}
+        <RunPill run={r} />
+        <span title={r.runId} className="text-[var(--text-primary)]" data-testid={`run-label-${r.runId}`}>
+          {runStartLabel(r.startedAt, now)}
+        </span>
+        {isParent && (
+          <span className="text-[var(--text-secondary)]" data-testid={`run-child-count-${r.runId}`}>
+            ({kids.length})
+          </span>
+        )}
+        <span className="text-[var(--text-secondary)]">{runSub(r, now.getTime())}</span>
+        <FindingsChip run={r} testid={`run-findings-${r.runId}`} />
+        {r.warning && (
+          <span className="text-[11px] text-[var(--severity-warning-fg)]" data-testid={`run-warning-${r.runId}`}>
+            {r.warning}
+          </span>
+        )}
+        {r.archived && (
+          <span className="text-[11px] text-[var(--text-secondary)]" data-testid={`run-archived-${r.runId}`}>
+            {t("archived", undefined, "archived")}
+          </span>
+        )}
+        <span className="flex-1" />
+        <RunLinks run={r} nav={nav} sessionTestid={`run-session-${r.runId}`} linkTestid={`run-result-${r.runId}`} />
+      </div>
+      {isParent &&
+        expanded &&
+        kids.map((c) => (
+          <div key={c.runId} data-testid={`automation-child-run-${c.runId}`} className={`${row} pl-8 bg-[var(--bg-tertiary)]`}>
+            <RunPill run={c} />
+            <span className="text-[var(--text-primary)]" data-testid={`child-action-${c.runId}`} title={c.runId}>
+              {c.actionLabel ?? c.runId}
+            </span>
+            <span className="text-[var(--text-secondary)]">{runSub(c, now.getTime())}</span>
+            <FindingsChip run={c} testid={`child-findings-${c.runId}`} />
+            <span className="flex-1" />
+            <RunLinks run={c} nav={nav} sessionTestid={`child-session-${c.runId}`} linkTestid={`child-result-${c.runId}`} />
+          </div>
+        ))}
+    </>
+  );
+}
+
+/** Action summary: "flow <name>" for flows.run, "N actions" for a fan-out, else the kind. */
 function actionSummary(cfg: AutomationConfig | undefined): string {
   if (!cfg) return "?";
   if (cfg.actions && cfg.actions.length > 0) return `${cfg.actions.length} actions`;
-  return cfg.action?.kind ?? "?";
+  const kind = cfg.action?.kind;
+  if (kind === "flows.run") {
+    const p = cfg.action?.payload as Record<string, unknown> | undefined;
+    const flow = typeof p?.flow === "string" ? p.flow : typeof p?.flowName === "string" ? p.flowName : undefined;
+    if (flow) return `flow ${flow}`;
+  }
+  return kind ?? "?";
 }
 
+/** Humanised schedule (raw cron as fallback); event triggers list their events. */
 function triggerSummary(cfg: AutomationConfig): string {
-  if (cfg.on.kind === "schedule") return `schedule: ${cfg.on.cron ?? "?"}`;
+  if (cfg.on.kind === "schedule") {
+    const cron = typeof cfg.on.cron === "string" ? cfg.on.cron : "?";
+    return humanizeCron(cron) ?? cron;
+  }
   const events = (cfg.on.events as string[] | undefined) ?? [];
   return `${cfg.on.kind}: ${events.join(", ")}`;
-}
-
-/** Findings label: "N findings" when >0, "empty" for an archived run, else "0 findings". */
-function findingsLabel(r: RunRecord): string {
-  if (r.archived) return "empty";
-  const n = r.findings ?? 0;
-  return n > 0 ? `${n} findings` : "0 findings";
-}
-
-/** Status-specific link label: running→watch, error→log, else result. */
-function runLinkLabel(status: RunRecord["status"]): string {
-  if (status === "running") return "watch";
-  if (status === "error") return "log";
-  return "result";
-}
-
-function relativeTime(ms: number): string {
-  const diff = Date.now() - ms;
-  const s = Math.round(diff / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
-function statusClass(status: RunRecord["status"]): string {
-  const base = "text-[10px] rounded px-1 font-medium ";
-  switch (status) {
-    case "running":
-      return base + "bg-[rgba(234,179,8,0.16)] text-[#fcd34d]";
-    case "error":
-      return base + "bg-[rgba(239,68,68,0.15)] text-[var(--danger,#ef4444)]";
-    case "stopped":
-      return base + "bg-[rgba(148,163,184,0.18)] text-[var(--text-secondary)]";
-    default:
-      return base + "bg-[var(--bg-subtle,rgba(0,0,0,0.06))] text-[var(--text-secondary)]";
-  }
 }

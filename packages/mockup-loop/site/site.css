@@ -21,6 +21,7 @@ html body { margin: 0; background: var(--mk-page); color: var(--mk-fg); }
 /* bar sits above any app z-index (portaled overlays included); only the tip is higher */
 .mk-bar { position: sticky; top: 0; z-index: 2147483000; display: flex; align-items: center; gap: 8px; padding: 12px 0; background: var(--mk-page); }
 .mk-sp { flex: 1; }
+.mk-rings-sw { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--mk-muted); margin-right: 8px; }
 .mk-theme button { min-height: 32px; padding: 4px 12px; border: 1px solid var(--mk-line-2); background: var(--mk-panel); color: var(--mk-muted); border-radius: 6px; font: inherit; font-size: 12.5px; cursor: pointer; margin-left: 4px; }
 .mk-theme button[aria-pressed="true"] { color: var(--mk-fg); border-color: var(--mk-accent); }
 .mk-empty { color: var(--mk-muted); }
@@ -146,5 +147,8 @@ body.mk-pane-only .mk-ring-n { left: 0; top: -22px; } /* above the ring, never o
 .mk-ref { font: 500 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mk-muted); text-decoration: none; vertical-align: middle; }
 .mk-ref:hover { text-decoration: underline; }
 .mk-ring-n:hover { filter: brightness(1.15); }
+/* Highlights switch off: rings keep layout (refs + deep links still resolve), drop outline/badges/tips */
+.mk-no-rings .mk-ring { outline-color: transparent; cursor: inherit; }
+.mk-no-rings .mk-ring-n, .mk-no-rings .mk-ring > .mk-long { visibility: hidden; }
 @keyframes mk-hit { 0%, 60% { box-shadow: 0 0 0 6px var(--mk-accent); } 100% { box-shadow: 0 0 0 6px transparent; } }
 .mk-hit { animation: mk-hit 1.6s ease-out; border-radius: 12px; }

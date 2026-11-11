@@ -48,9 +48,22 @@ function toFormString(v: unknown): string {
   return JSON.stringify(v);
 }
 
+/**
+ * A stored string pi parses as "disabled" (trimmed, case-insensitive) on a
+ * `disabledLiteral` key shows as `0`, which also disables the timeout. The row
+ * is not rewritten unless the user edits it (`0` is then the baseline too).
+ * See change: update-pi-core-1-5-adopt-apis (design D4).
+ */
+function isStoredDisabled(def: PiSettingDef, v: unknown): boolean {
+  return def.disabledLiteral === true && typeof v === "string" && v.trim().toLowerCase() === "disabled";
+}
+
 export function toForm(settings: Record<string, unknown>): FormState {
   const f: FormState = {};
-  for (const def of FORM_DEFS) f[def.key] = toFormString(getSettingValue(settings, def.key));
+  for (const def of FORM_DEFS) {
+    const v = getSettingValue(settings, def.key);
+    f[def.key] = isStoredDisabled(def, v) ? "0" : toFormString(v);
+  }
   return f;
 }
 
@@ -168,4 +181,10 @@ export const EXTRA_ROWS: readonly ExtraRow[] = [
 ];
 
 /** Dashboard-managed keys shown in a collapsed read-only list. */
-export const DASHBOARD_MANAGED_KEYS = ["dashboardPluginBridges", "_dashboardManagedPackages", "lastChangelogVersion"] as const;
+export const DASHBOARD_MANAGED_KEYS = [
+  "dashboardPluginBridges",
+  "_dashboardManagedPackages",
+  "lastChangelogVersion",
+  // pi-written (1.5.0): per-extension changelog versions. See change: update-pi-core-1-5-adopt-apis.
+  "extensionChangelogVersions",
+] as const;

@@ -30,7 +30,7 @@ describe("POST /api/plugins/automation/stop", () => {
 
   it("503 when the engine stop hook is not wired", async () => {
     const app = await appWith({});
-    const res = await app.inject({ method: "POST", url: "/api/plugins/automation/stop", payload: { runId: "r1" } });
+    const res = await app.inject({ method: "POST", url: "/api/plugins/automation/stop", payload: { runId: "r1", cwd: "/r" } });
     expect(res.statusCode).toBe(503);
     await app.close();
   });
@@ -55,7 +55,7 @@ describe("POST /api/plugins/automation/stop", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/plugins/automation/stop",
-      payload: { runId: "r-prereg" },
+      payload: { runId: "r-prereg", cwd: "/r" },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
@@ -64,7 +64,7 @@ describe("POST /api/plugins/automation/stop", () => {
 
   it("400 when the hook reports the run is not running", async () => {
     const app = await appWith({ stopRun: () => ({ ok: false, error: "not running" }) });
-    const res = await app.inject({ method: "POST", url: "/api/plugins/automation/stop", payload: { runId: "r1" } });
+    const res = await app.inject({ method: "POST", url: "/api/plugins/automation/stop", payload: { runId: "r1", cwd: "/r" } });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("not running");
     await app.close();
@@ -121,7 +121,7 @@ describe("engine stopRun cascade", () => {
     await flushSpawn();
     kidsOf("cascade", r.runId).forEach((k, i) => engine.onSessionRegisteredForRun(`s${i}`, k.runId));
 
-    expect(await engine.stopRun(r.runId)).toBe(true);
+    expect(await engine.stopRun(r.runId)).toBe("unconfirmed");
     expect(terminations).toHaveLength(3);
     const parent = parentOf("cascade", r.runId);
     expect(parent.status).toBe("stopped");
@@ -137,7 +137,7 @@ describe("engine stopRun cascade", () => {
     const kids = kidsOf("single", r.runId);
     kids.forEach((k, i) => engine.onSessionRegisteredForRun(`s${i}`, k.runId));
 
-    expect(await engine.stopRun(kids[1]!.runId)).toBe(true);
+    expect(await engine.stopRun(kids[1]!.runId)).toBe("unconfirmed");
     const after = kidsOf("single", r.runId);
     expect(after[1]!.status).toBe("stopped");
     expect(after[0]!.status).toBe("running");
@@ -207,6 +207,72 @@ describe("GET /api/plugins/automation/result?sessionId=", () => {
     const app = await appWith({});
     const res = await app.inject({ method: "GET", url: `/api/plugins/automation/result?cwd=${encodeURIComponent(base)}` });
     expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+});
+
+// ── Honest outcome forwarding + computed listing facts ──────────────────────
+// See change: polish-automation-board (design D3, D5).
+import { startRun as storeStartRun, setSessionId as storeSetSessionId } from "../server/run-store.js";
+
+describe("POST /stop forwards the honest outcome", () => {
+  it("forwards outcome and alreadyFinalized on a 200", async () => {
+    const app = await appWith({ stopRun: async () => ({ ok: true, outcome: "unconfirmed" as const, alreadyFinalized: true }) });
+    const res = await app.inject({ method: "POST", url: "/api/plugins/automation/stop", payload: { runId: "r1", cwd: "/r" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, outcome: "unconfirmed", alreadyFinalized: true });
+    await app.close();
+  });
+});
+
+describe("GET /runs computed facts", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "auto-runs-facts-")));
+    admittedCwds.push(dir);
+  });
+  afterEach(() => {
+    admittedCwds.splice(admittedCwds.indexOf(dir), 1);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // test-plan #E2 — forged fields in run.json never reach the response.
+  it("E2: recomputes orphaned/tracked/sessionConnected/scope and leaves run.json byte-identical", async () => {
+    const BOOT = Date.UTC(2026, 10, 6, 10);
+    storeStartRun(dir, "nightly", { runId: "forged", at: new Date(BOOT - 60_000) });
+    storeSetSessionId(dir, "forged", "s-forged");
+    const file = path.join(dir, ".pi", "automation", "runs", "forged", "run.json");
+    const rec = JSON.parse(fs.readFileSync(file, "utf-8"));
+    fs.writeFileSync(file, JSON.stringify({ ...rec, orphaned: false, tracked: true, sessionConnected: true, scope: "global" }));
+    const before = fs.readFileSync(file);
+
+    const engine = createEngine({
+      spawnSession: async () => ({ success: true }),
+      listScopes: () => [],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false, maxRunAgeMs: 0 }),
+      now: () => BOOT,
+      warn: () => {},
+    });
+    const app = await appWith({
+      runFacts: (r) => ({ orphaned: engine.isOrphaned(r), tracked: engine.isTracked(r.runId), sessionConnected: false }),
+    });
+    const res = await app.inject({ method: "GET", url: `/api/plugins/automation/runs?scope=folder&cwd=${encodeURIComponent(dir)}` });
+    expect(res.statusCode).toBe(200);
+    const run = res.json().runs.find((r: RunRecord) => r.runId === "forged");
+    expect(run).toMatchObject({ orphaned: true, tracked: false, sessionConnected: false, scope: "folder" });
+    expect(fs.readFileSync(file).equals(before)).toBe(true);
+    engine.dispose();
+    await app.close();
+  });
+
+  it("without a facts hook every computed field is false (never the stored value)", async () => {
+    storeStartRun(dir, "nightly", { runId: "plain" });
+    const file = path.join(dir, ".pi", "automation", "runs", "plain", "run.json");
+    const rec = JSON.parse(fs.readFileSync(file, "utf-8"));
+    fs.writeFileSync(file, JSON.stringify({ ...rec, orphaned: true, sessionConnected: true }));
+    const app = await appWith({});
+    const res = await app.inject({ method: "GET", url: `/api/plugins/automation/runs?scope=folder&cwd=${encodeURIComponent(dir)}` });
+    expect(res.json().runs[0]).toMatchObject({ orphaned: false, tracked: false, sessionConnected: false, scope: "folder" });
     await app.close();
   });
 });

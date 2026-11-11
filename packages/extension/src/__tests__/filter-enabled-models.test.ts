@@ -174,3 +174,37 @@ describe("late-discovered in-scope models (E13)", () => {
     expect(ids(pushed)).toEqual(["myprovider/fast-1", "myprovider/smart-2"]);
   });
 });
+
+/**
+ * minimatch moves 10 → 11.0.3 in lockstep with pi 1.5 (`resolveModelScope`,
+ * model-resolver.js:268-269). The shared matcher resolves the named export, and
+ * patterns whose meaning changed in 11 give minimatch 11.0.3's sets.
+ * See change: update-pi-core-1-5-adopt-apis (test-plan #E60 #E61).
+ */
+describe("minimatch 11 lockstep (#E60 #E61)", () => {
+  it("E60 the resolved minimatch is 11.x and exports a named `minimatch`", async () => {
+    const { createRequire } = await import("node:module");
+    const req = createRequire(require.resolve("@blackbelt-technology/pi-dashboard-shared/enabled-models-match.js"));
+    const version = (req("minimatch/package.json") as { version: string }).version;
+    expect(version.startsWith("11.")).toBe(true);
+    const ns = await import("minimatch");
+    expect(typeof (ns as { minimatch?: unknown }).minimatch).toBe("function");
+  });
+
+  it("E61 changed-semantics patterns match as minimatch 11.0.3 does", async () => {
+    const { matchesPattern } = await import("@blackbelt-technology/pi-dashboard-shared/enabled-models-match.js");
+    const models = [
+      "anthropic/claude-sonnet-4-5",
+      "anthropic/claude-opus-4-1",
+      "openai/gpt-5",
+      "openrouter/anthropic/claude-sonnet-4-5",
+      "provider/model",
+    ].map((s) => ({ provider: s.slice(0, s.indexOf("/")), id: s.slice(s.indexOf("/") + 1) }));
+    const scope = (p: string) => models.filter((m) => matchesPattern(m, p)).map((m) => `${m.provider}/${m.id}`);
+    const anthropic = ["anthropic/claude-sonnet-4-5", "anthropic/claude-opus-4-1", "openrouter/anthropic/claude-sonnet-4-5"];
+    expect(scope("provider//model")).toEqual(["provider/model"]);
+    expect(scope("**/**/model")).toEqual(["provider/model"]);
+    expect(scope("anthropic/**")).toEqual(anthropic);
+    expect(scope("*/claude-*")).toEqual(anthropic);
+  });
+});

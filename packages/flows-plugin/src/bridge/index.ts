@@ -35,6 +35,8 @@ import { startFlowCatalogPublisher } from "./flow-catalog-publisher.js";
 import { startFlowEventForward } from "./flow-event-forward.js";
 import { startFlowFilesReporter } from "./flow-files-reporter.js";
 import { FlowQuestionAdapter } from "./flow-question-adapter.js";
+import { clearFlowTools, publishFlowTools } from "./flow-tool-registry.js";
+import { startFlowToolsGuideline } from "./flow-tools-guideline.js";
 
 // Switch value the dashboard extension mirrors process-globally on
 // `preferences_update` (`packages/extension/src/bridge.ts` BRIDGE_KEY). Flow
@@ -62,6 +64,17 @@ export default function activate(ctx: unknown): void {
   announceAgentFactory(events);
   const piOn = pi as { on?: (name: string, handler: () => void) => unknown };
   if (typeof piOn.on === "function") piOn.on("session_start", () => announceAgentFactory(events));
+
+  // Tool-registry facade for pi-flows code nodes: publish on activate + every
+  // session_start, clear on session_shutdown. Never throws.
+  // See change: add-flow-code-node-tools (D1, D6).
+  publishFlowTools();
+  if (typeof piOn.on === "function") {
+    piOn.on("session_start", () => publishFlowTools());
+    piOn.on("session_shutdown", () => clearFlowTools());
+  }
+  // Teach flow_write how code handlers reach the facade (dashboard-only guideline).
+  startFlowToolsGuideline(pi as Parameters<typeof startFlowToolsGuideline>[0]);
 
   // Report this session's flow / agent / handler files to the plugin server so
   // the UI can open them. See change: attach-flow-before-run.

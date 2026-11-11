@@ -143,6 +143,11 @@ describe("GET /api/health — shape", () => {
     // Fresh server: no drops yet.
     expect(dropped.serverToBrowser.total).toBe(0);
     expect(dropped.bridgeToServer).toBe(0);
+    // Deferred subagent frames: numeric and present before any deferral.
+    // See change: fix-background-subagent-ghost-rows (D6).
+    const deferred = dropped as unknown as { deferredSubagentFrames: unknown; serverToBrowser: { deferredSubagentFrames: unknown } };
+    expect(deferred.deferredSubagentFrames).toBe(0);
+    expect(deferred.serverToBrowser.deferredSubagentFrames).toBe(0);
   });
 
   // T5 — the byte counters are ADDITIVE on `storeTrim`: present, and every

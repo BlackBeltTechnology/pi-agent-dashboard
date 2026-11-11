@@ -43,6 +43,34 @@ export interface PluginSessionManager {
   listActive(): unknown[];
   listAll(): unknown[];
   getSession(id: string): unknown;
+  /**
+   * `true` only while the session's bridge socket is OPEN (live connection,
+   * not a status restored from `.meta.json`). Trusted plugins only: an
+   * untrusted context always answers `false`. Optional so older hosts degrade
+   * to "not connected". See change: polish-automation-board (design D2).
+   */
+  isConnected?(id: string): boolean;
+}
+
+/**
+ * Build the per-plugin {@link PluginSessionManager}. `isConnected` follows the
+ * gateway's open sockets for a trusted plugin and is constant `false` for an
+ * untrusted one (same trust gate as `abortSpawnedRun`).
+ * See change: polish-automation-board.
+ */
+export function createPluginSessionManager(deps: {
+  listActive: () => unknown[];
+  listAll: () => unknown[];
+  getSession: (id: string) => unknown;
+  isSessionConnected: (id: string) => boolean;
+  trusted: boolean;
+}): PluginSessionManager {
+  return {
+    listActive: deps.listActive,
+    listAll: deps.listAll,
+    getSession: deps.getSession,
+    isConnected: (id) => deps.trusted && deps.isSessionConnected(id),
+  };
 }
 
 /** Minimal event store surface exposed to plugins. */
@@ -791,6 +819,16 @@ export type AbortSpawnedRunFn = (args: {
   sessionId?: string;
   spawnToken?: string;
   graceful?: boolean;
+  /**
+   * Detailed termination result, called once on every path (`no-identity` on
+   * the early return, `unconfirmed` before a rethrow). Only `confirmed-dead`
+   * proves the process is gone. An untrusted no-op never calls it — callers
+   * treat a missing call as unconfirmed. See change: polish-automation-board.
+   */
+  onResult?: (r: {
+    outcome: "confirmed-dead" | "unconfirmed" | "refused-identity" | "no-identity" | "not-local";
+    pid?: number;
+  }) => void;
 }) => Promise<boolean>;
 
 /**

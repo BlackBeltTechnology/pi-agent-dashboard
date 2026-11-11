@@ -65,6 +65,11 @@
         "module": "./src/client/SubagentDockGroup.tsx"
       },
       {
+        "slot": "composer-dock-process-group",
+        "component": "BackgroundSubagentDockGroup",
+        "module": "./src/client/SubagentDockGroup.tsx"
+      },
+      {
         "slot": "shell-overlay-route",
         "component": "SubagentPopoutClaim",
         "module": "./src/client/SubagentPopoutClaim.tsx",

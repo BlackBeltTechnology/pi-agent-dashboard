@@ -48,7 +48,40 @@ type Reduce = (state: SubagentSessionSlice, data: Data, timestamp: number) => Su
 const detailsOf = (data: Data): Record<string, unknown> | undefined =>
   (data.details as Record<string, unknown> | undefined) ?? undefined;
 
-const created: Reduce = (state, data) => {
+/**
+ * Plugin-local subagent state: the shared `SubagentState` plus the producer's
+ * background mark (≥ 0.7.0). The shared `readSubagentDetails` whitelist drops
+ * `details.background`, so this slice keeps it itself. Stored in the same map.
+ * See change: show-background-subagents-in-dock (D1).
+ */
+export type PluginSubagentState = SubagentState & {
+  background?: true;
+  /**
+   * Pi-host time (`event.timestamp`) of the newest live frame that proved this
+   * subagent alive: `created` / `started` / `entry` / `delta` here, and the Agent
+   * tool's `tool_execution_update` in the finalizer. A reconcile frame changes
+   * the subagent only when this is absent or not later than the frame's
+   * `takenAt` / `answeredAt`. See change: fix-background-subagent-ghost-rows (D5).
+   */
+  lastFrameAt?: number;
+};
+
+/** `{ lastFrameAt }` when the frame carries a numeric time, else nothing. */
+const stamp = (timestamp: number): { lastFrameAt?: number } =>
+  typeof timestamp === "number" && Number.isFinite(timestamp) ? { lastFrameAt: timestamp } : {};
+
+/** True when the subagent was started with `run_in_background`. */
+export const isBackgroundSubagent = (sub: SubagentState | undefined): boolean =>
+  (sub as PluginSubagentState | undefined)?.background === true;
+
+/**
+ * Sticky background reader: `{ background: true }` only when the frame says so,
+ * otherwise nothing — a frame without (or with a false) flag never clears it.
+ */
+const readBackground = (details: Record<string, unknown> | undefined): { background?: true } =>
+  details?.background === true ? { background: true } : {};
+
+const created: Reduce = (state, data, timestamp) => {
   const id = data.id as string;
   return withSubagents(state, (subagents) => {
     setSubagentState(subagents, {
@@ -57,7 +90,9 @@ const created: Reduce = (state, data) => {
       description: (data.description as string) ?? "",
       status: "created",
       ...readSubagentDetails(detailsOf(data)),
-    });
+      ...readBackground(detailsOf(data)),
+      ...stamp(timestamp),
+    } as PluginSubagentState);
   });
 };
 
@@ -71,7 +106,9 @@ const started: Reduce = (state, data, timestamp) => {
       healedBy: undefined,
       startedAt: existing?.startedAt ?? (typeof timestamp === "number" ? timestamp : Date.now()),
       ...readSubagentDetails(detailsOf(data)),
-    });
+      ...readBackground(detailsOf(data)),
+      ...stamp(timestamp),
+    } as PluginSubagentState);
   });
 };
 
@@ -79,7 +116,7 @@ const started: Reduce = (state, data, timestamp) => {
 // forwarded by this plugin's bridge declaration. Placed at its stable `index`
 // (duplicate index ignored); a `blockId` closes that in-progress block.
 // See change: add-plugin-bridge-contributions (D7).
-const entryFrame: Reduce = (state, data) => {
+const entryFrame: Reduce = (state, data, timestamp) => {
   const { agentId, index, entry } = data;
   if (typeof agentId !== "string" || typeof index !== "number" || !Number.isInteger(index) || index < 0) return state;
   if (!entry || typeof entry !== "object") return state;
@@ -100,7 +137,8 @@ const entryFrame: Reduce = (state, data) => {
       entries,
       liveBlock,
       closedBlockMax,
-    });
+      ...stamp(timestamp),
+    } as PluginSubagentState);
   });
 };
 
@@ -108,7 +146,7 @@ const isIndex = (v: unknown): v is number => typeof v === "number" && Number.isI
 
 // One append-only piece of the subagent's in-progress block (producer ≥ 0.4.0).
 // See change: add-plugin-bridge-contributions (D7).
-const deltaFrame: Reduce = (state, data) => {
+const deltaFrame: Reduce = (state, data, timestamp) => {
   const { agentId, blockId, offset, kind } = data;
   if (typeof agentId !== "string" || !isIndex(blockId) || !isIndex(offset)) return state;
   if (kind !== "thinking" && kind !== "text") return state;
@@ -120,7 +158,8 @@ const deltaFrame: Reduce = (state, data) => {
     setSubagentState(subagents, {
       ...(existing ?? { id: agentId, type: "unknown", description: "", status: "running" }),
       liveBlock,
-    });
+      ...stamp(timestamp),
+    } as PluginSubagentState);
   });
 };
 
@@ -133,7 +172,15 @@ const ARMS: Record<string, Reduce> = {
 
 export const sessionEventReducer: SessionEventReducerSlice<SubagentSessionSlice> = {
   // `subagent_completed|failed`: owned for the plugin-off group row; the finalizer writes them.
-  eventTypes: [...Object.keys(ARMS), "subagent_completed", "subagent_failed"],
+  // `subagent_stop_result|registry_snapshot`: listed so the shell asks the finalizer, which
+  // claims them (liveness reconcile). See change: fix-background-subagent-ghost-rows (D5).
+  eventTypes: [
+    ...Object.keys(ARMS),
+    "subagent_completed",
+    "subagent_failed",
+    "subagent_stop_result",
+    "subagent_registry_snapshot",
+  ],
   reduce: (state, event) =>
     Object.hasOwn(ARMS, event.eventType) ? ARMS[event.eventType](state, event.data, event.timestamp) : state,
 };

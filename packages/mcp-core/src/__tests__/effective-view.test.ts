@@ -178,3 +178,42 @@ describe("auth mode and pi validation on rows", () => {
     expect(rows[4].piError).toMatch(/url must be an http or https URL/);
   });
 });
+
+/**
+ * pi strips one leading UTF-8 BOM from `mcp.json` (1.4.0, #11191); the layer
+ * reader does the same and leaves the bytes alone.
+ * See change: update-pi-core-1-5-adopt-apis (test-plan #E62 #E63 #E64).
+ */
+describe("E62–E64 — a leading BOM is stripped like pi does", () => {
+  const BOM = "\uFEFF";
+
+  it("E62 a BOM global layer reads ok, its bytes unchanged", () => {
+    const raw = `${BOM}{"mcpServers":{"docs":{"url":"https://x"}}}`;
+    const io = makeIO({ [GLOBAL]: raw });
+    const v = makeService(io).getEffectiveView(g);
+    expect(v.layers.find((l) => l.layer === "pi-global")?.ok).toBe(true);
+    expect(v.servers.map((s) => s.name)).toEqual(["docs"]);
+    expect(io.files.get(GLOBAL)).toBe(raw);
+    expect(io.writes).toEqual([]);
+  });
+
+  it("E63 a BOM trusted project layer is active", () => {
+    const io = makeIO({ [PROJECT]: `${BOM}{"mcpServers":{"local":{"command":"l"}}}` });
+    const v = makeService(io, { isProjectTrusted: () => true }).getEffectiveView(p);
+    expect(v.servers.find((s) => s.name === "local")).toMatchObject({ active: true });
+  });
+
+  it("E64 two BOMs, a BOM alone and a truncated file are skipped; no BOM is unchanged", () => {
+    for (const bad of [`${BOM}${BOM}{"mcpServers":{}}`, BOM, `${BOM}{"mcpServers":`]) {
+      const io = makeIO({ [GLOBAL]: bad, [PROJECT]: { mcpServers: { f: { command: "f" } } } });
+      const v = makeService(io).getEffectiveView(p);
+      const gl = v.layers.find((l) => l.layer === "pi-global");
+      expect(gl?.ok, JSON.stringify(bad)).toBe(false);
+      expect(gl?.message).toContain(GLOBAL);
+      expect(v.servers.map((s) => s.name)).toEqual(["f"]);
+    }
+    const io = makeIO({ [GLOBAL]: '{"mcpServers":{"docs":{"url":"https://x"}}}' });
+    expect(makeService(io).getEffectiveView(g).servers.map((s) => s.name)).toEqual(["docs"]);
+  });
+});
+

@@ -201,6 +201,12 @@ export interface MessageHandlerSetters {
    */
   setArchivedCountMap?: React.Dispatch<React.SetStateAction<Map<string, number>>>;
   /**
+   * Platform the server folds archive keys with (`sessions_snapshot.pathKeyPlatform`),
+   * replaced unconditionally on every snapshot so a reconnect to an older
+   * server clears a stale value. See change: fix-archive-fold-key-and-filter-chips.
+   */
+  setPathKeyPlatform?: (platform: NodeJS.Platform | undefined) => void;
+  /**
    * Non-window ended sessions already paged per group key — the next
    * `sessions_page` offset. Reset by every snapshot.
    * See change: fix-connect-snapshot-frame-loss (D9).
@@ -332,7 +338,7 @@ export function useMessageHandler(
     setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev,
-    setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration,
+    setEndedTotalsMap, setArchivedCountMap, setPathKeyPlatform, setPagedCount, setSnapshotGeneration,
     setPageReplyGen, setPageExhausted, setLookupOnlyIds,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, onSpawnFailed, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed } = deps;
@@ -1779,6 +1785,9 @@ export function useMessageHandler(
         // the rest of the snapshot. `?? {}` tolerates a pre-change server
         // omitting the field at runtime.
         setArchivedCountMap?.(new Map(Object.entries(msg.archivedCountByCwd ?? {})));
+        // Unconditional (undefined included): an older server must clear a
+        // stale platform. See change: fix-archive-fold-key-and-filter-chips.
+        setPathKeyPlatform?.(msg.pathKeyPlatform);
         setPagedCount?.(new Map());
         // D3: a snapshot resets the paging offset, so the exhausted mark is
         // cleared UNCONDITIONALLY here (not on a value diff): a reconnect whose

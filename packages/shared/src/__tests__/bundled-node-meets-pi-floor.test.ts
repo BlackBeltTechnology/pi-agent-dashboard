@@ -108,6 +108,9 @@ const PI_MIN_TO_NODE_FLOOR: Record<string, { major: number; minor: number }> = {
   // 1.3.0 keeps `engines.node` at `>=22.19.0` (verified against the published
   // manifest). See change: update-pi-core-1-3-adopt-apis.
   "1.3.0": { major: 22, minor: 19 },
+  // 1.5.0 keeps `engines.node` at `>=22.19.0` (verified against the published
+  // manifest). See change: update-pi-core-1-5-adopt-apis (test-plan #E3).
+  "1.5.0": { major: 22, minor: 19 },
 };
 
 function parseSemver(v: string): [number, number, number] | null {
@@ -211,5 +214,40 @@ describe("BUNDLED_NODE_VERSION meets both floors", () => {
     expect(msg).toContain("v24.15.0");
     expect(msg).toContain("26.0.0");
     expect(msg).toContain("_node-version.sh");
+  });
+});
+
+/**
+ * test-plan #E7 — the extension's `typebox` devDependency is a test-fidelity
+ * pin: it matches the TypeBox that pi's extension loader aliases for an
+ * extension's `import "typebox"` (pi-coding-agent's own `dependencies.typebox`),
+ * not pi's tool-argument validator (pi-schema since 1.5.0).
+ * See change: update-pi-core-1-5-adopt-apis.
+ */
+const normaliseVersion = (v: string | undefined): string | undefined =>
+  v?.match(/(\d+\.\d+\.\d+)/)?.[1];
+
+function checkTypeboxFidelity(devRange: string | undefined, piTypebox: string | undefined): string | null {
+  const dev = normaliseVersion(devRange);
+  const pi = normaliseVersion(piTypebox);
+  if (!dev || !pi) return `typebox fidelity pin unreadable (devDependency "${devRange}", pi "${piTypebox}")`;
+  return dev === pi
+    ? null
+    : `packages/extension devDependencies.typebox = "${devRange}" — must match pi-coding-agent's typebox ${pi}`;
+}
+
+describe("typebox test-fidelity pin = pi's loader alias (E7)", () => {
+  const extPkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "packages/extension/package.json"), "utf8"));
+  const piPkg = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, "node_modules/@earendil-works/pi-coding-agent/package.json"), "utf8"),
+  );
+
+  it("the extension devDependency equals the installed pi's typebox", () => {
+    expect(normaliseVersion(piPkg.dependencies.typebox)).toBe("1.3.27");
+    expect(checkTypeboxFidelity(extPkg.devDependencies.typebox, piPkg.dependencies.typebox)).toBeNull();
+  });
+
+  it("a drifted fixture devDependency is reported", () => {
+    expect(checkTypeboxFidelity("^1.4.0", "1.3.27")).toContain("must match pi-coding-agent's typebox 1.3.27");
   });
 });

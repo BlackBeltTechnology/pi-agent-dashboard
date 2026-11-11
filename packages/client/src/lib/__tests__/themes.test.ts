@@ -269,6 +269,23 @@ describe("accent ramp", () => {
     }
   });
 
+  // test-plan #E6 (use-selector-style-for-automation-selection) — the selected
+  // automation card paints its header row with --accent-soft; the row carries
+  // --text-primary (name) and --text-secondary (icon, scope). Both must stay AA
+  // in every palette, with the scope's --accent-soft unless a palette overrides it.
+  it("E6: header-row text pairs on --accent-soft stay AA in every palette", () => {
+    for (const theme of THEMES) {
+      for (const mode of ["dark", "light"] as const) {
+        const vars = theme[mode];
+        const soft = vars["--accent-soft"] ?? (tokenIn(scopes[mode], "--accent-soft") as string);
+        for (const fg of ["--text-primary", "--text-secondary"] as const) {
+          const ratio = contrast(soft, vars[fg] as string);
+          expect(ratio, `${theme.id} ${mode} ${fg}/accent-soft = ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
   // E21 — the survivor. Declaring `--accent: #3b82f6` and merely stripping the
   // inline literal leaves white on it at 3.68:1, which IS the reported defect.
   // Every solid fill under white text must bind `--accent-solid`.

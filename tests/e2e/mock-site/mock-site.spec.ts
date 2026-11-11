@@ -160,6 +160,24 @@ test("sticky bar colour equals page colour in every theme (F7)", async ({ page }
   }
 });
 
+test("Highlights switch hides rings in shell and phone panes, persists", async ({ page }) => {
+  await page.goto(url(PILLS_MOCK)); await ready(page);
+  const f = (await (await page.locator("iframe.mk-phone").first().elementHandle())!.contentFrame())!;
+  await expect.poll(() => f.locator(".mk-ring-n").count()).toBeGreaterThan(0);
+  let loads = 0; page.on("load", () => loads++);
+  const sw = page.getByRole("checkbox", { name: "Highlights" });
+  await expect(sw).toBeChecked();
+  await sw.uncheck();
+  await expect(page.locator(".mk-ring-n").first()).toBeHidden();
+  await expect.poll(() => f.evaluate(() => getComputedStyle(document.querySelector(".mk-ring-n")!).visibility)).toBe("hidden");
+  await expect.poll(() => f.evaluate(() => getComputedStyle(document.querySelector(".mk-ring")!).outlineColor)).toBe("rgba(0, 0, 0, 0)");
+  expect(loads).toBe(0);
+  await page.reload(); await ready(page);
+  await expect(page.getByRole("checkbox", { name: "Highlights" })).not.toBeChecked();
+  await page.getByRole("checkbox", { name: "Highlights" }).check();
+  await expect(page.locator(".mk-ring-n").first()).toBeVisible();
+});
+
 test("no decision controls; CLI decisions show read-only; decide endpoint gone (F11 add-mock-site-exact-env)", async ({ page }) => {
   expect(cli("accept", FIXTURE_MOCK, "fine").status).toBe(0);
   await page.goto(url(PILLS_MOCK)); await ready(page);

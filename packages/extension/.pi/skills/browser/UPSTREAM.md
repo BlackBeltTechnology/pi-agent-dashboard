@@ -9,18 +9,19 @@ section in `electron.md` are project-specific and not from upstream.
 `references/own-browser.md` and `scripts/check-panerelay.sh` are authored
 for this repo (the Panerelay / own-logged-in-browser recipe).
 `references/challenge.md` is authored for this repo too — the pause / resume
-discipline for interactive anti-bot challenges. None of them has an upstream
-counterpart.
+discipline for interactive anti-bot challenges. `references/desktop.md` is
+authored too — agent-desktop install + macOS TCC permission recipe. None of
+them has an upstream counterpart.
 
 | Field                  | Value                                                              |
 |------------------------|--------------------------------------------------------------------|
 | Upstream repo          | https://github.com/vercel-labs/agent-browser                       |
-| Upstream tag           | `v0.27.0`                                                          |
-| Upstream commit SHA    | `c830d1b67dc18b754e305859f0ae587f858a1447`                         |
-| `agent-browser` CLI    | `0.27.0`                                                           |
+| Upstream tag           | `v0.41.2`                                                          |
+| Upstream commit SHA    | `d52a5e90c372ec4710c69adc3837ac14bbd852aa`                         |
+| `agent-browser` CLI    | `0.41.2`                                                           |
 | Source-of-truth files  | `skills/agent-browser/SKILL.md` (discovery stub) + CLI-served `core` and `electron` skills |
 | Capture commands       | `agent-browser skills get core --full`<br>`agent-browser skills get electron` |
-| Refreshed              | `2026-05-28`                                                       |
+| Refreshed              | `2026-11-07`                                                       |
 | License                | Apache-2.0 (see [`LICENSE`](LICENSE))                              |
 
 ## How to refresh

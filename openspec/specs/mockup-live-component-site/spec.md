@@ -90,6 +90,10 @@ top bar. The tip SHALL show on hover or focus above all content and close on
 scroll. A tip over 40 characters SHALL show a `TIP > 40` badge. A ring SHALL NOT
 wrap the items it encloses onto new lines, and in a phone pane the badge SHALL sit
 above the ring rather than over the ringed content.
+The top bar SHALL carry a `Highlights` switch (default on, persisted in
+`localStorage` key `mk-rings`) that hides every ring's outline, badge and tip in the
+shell and in every isolated pane without a reload; rings keep their layout and DOM
+ids so references still resolve.
 
 #### Scenario: Scroll
 - **WHEN** the page scrolls
@@ -110,6 +114,10 @@ above the ring rather than over the ringed content.
 #### Scenario: Long tip
 - **WHEN** a ring's tip has 41 characters
 - **THEN** the ring shows a `TIP > 40` badge
+
+#### Scenario: Highlights switched off
+- **WHEN** the user unchecks `Highlights` in the top bar
+- **THEN** no ring outline, badge or tip is visible in the shell or in any phone iframe, no pane reloads, and the choice survives a page reload
 
 ### Requirement: Page-level accept and reject
 Decisions SHALL apply to a whole mock page, never one frame. The site SHALL show a

@@ -282,3 +282,16 @@ describe("rename onto an existing name is refused", () => {
     expect(makeService(io).saveServer("beta", { command: "b2" }, g)).toEqual({ ok: true });
   });
 });
+
+// pi 1.4.0 strips a leading BOM; a write after such a read keeps the servers and
+// writes plain JSON. See change: update-pi-core-1-5-adopt-apis (test-plan #X3).
+describe("X3 — write after a BOM read", () => {
+  it("adds `new`, keeps `docs`, and the file starts with `{`", () => {
+    const io = makeIO({ [GLOBAL]: '\uFEFF{"mcpServers":{"docs":{"url":"https://docs.example/mcp"}}}' });
+    expect(makeService(io).saveServer("new", { url: "https://new.example/mcp" }, g)).toEqual({ ok: true });
+    const raw = io.files.get(GLOBAL) as string;
+    expect(raw.charCodeAt(0)).toBe(0x7b);
+    expect(Object.keys(json(io, GLOBAL).mcpServers).sort()).toEqual(["docs", "new"]);
+  });
+});
+

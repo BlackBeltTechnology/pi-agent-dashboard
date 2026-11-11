@@ -54,7 +54,8 @@ The dashboard SHALL accept a typed PATCH limited to the following keys and types
 - Booleans: `hideThinkingBlock`, `showCacheMissNotices`, `compaction.enabled`, `branchSummary.skipPrompt`, `showHardwareCursor`, `terminal.showImages`, `terminal.clearOnShrink`, `terminal.showTerminalProgress`, `images.autoResize`, `images.blockImages`, `enableSkillCommands`, `collapseChangelog`, `enableInstallTelemetry`, `enableAnalytics`, `warnings.anthropicExtraUsage`.
 - Enumerations: `cacheWarming` (`"off"` | `"streaming"` | `"idle"`); `steeringMode`, `followUpMode` (`"all"` | `"one-at-a-time"`); `doubleEscapeAction` (`"tree"` | `"fork"` | `"none"`); `treeFilterMode` (`"default"` | `"no-tools"` | `"user-only"` | `"labeled-only"` | `"all"`); `defaultProjectTrust` (`"ask"` | `"always"` | `"never"`); `codemode.mode` (`"on"` | `"only"`); `markdown.mermaid` (`"off"` | `"final"` | `"streaming"`); `transport` (`"auto"` | `"sse"` | `"websocket"` | `"websocket-cached"`); `sessionShareDestination` (`"auto"` | `"gist"` | `"radius"`).
 - Mixed values: `quietStartup` (`true` | `false` | `"header"`); `terminal.hyperlinks`, `terminal.trueColor` (`true` | `false` | `"auto"`); `terminal.images` (`"kitty"` | `"iterm2"` | `"auto"` | `false`).
-- Non-negative integers: `compaction.reserveTokens`, `compaction.keepRecentTokens`, `branchSummary.reserveTokens`, `codemode.inlineBudget`, `httpIdleTimeoutMs`, `websocketConnectTimeoutMs`, `thinkingBudgets.minimal`, `thinkingBudgets.low`, `thinkingBudgets.medium`, `thinkingBudgets.high`.
+- Non-negative integers: `compaction.reserveTokens`, `compaction.keepRecentTokens`, `branchSummary.reserveTokens`, `codemode.inlineBudget`, `thinkingBudgets.minimal`, `thinkingBudgets.low`, `thinkingBudgets.medium`, `thinkingBudgets.high`.
+- Non-negative integer or exactly the string `"disabled"`, the canonical spelling the dashboard writes: `httpIdleTimeoutMs`, `websocketConnectTimeoutMs`. pi 1.5.0 documents both `0` and `"disabled"` as disabling the timeout; pi's runtime parser has accepted `"disabled"` (trimmed, case-insensitive) since 1.3.0 or earlier. Other spellings, and `"disabled"` on any other integer key, are rejected.
 - Bounded integers: `terminal.imageWidthCells` (≥ 1), `editorPaddingX` (0 to 3), `autocompleteMaxVisible` (3 to 20).
 - Strings: `externalEditor`, `sessionDir`, `shellPath`, `shellCommandPrefix`, `httpProxy`, `markdown.codeBlockIndent`, and `theme` (non-empty).
 - `enabledModels`: an array of non-empty strings.
@@ -101,6 +102,12 @@ The default-model keys (`defaultProvider`, `defaultModel`, `defaultThinkingLevel
 - **WHEN** a client patches `steeringMode = "all"` with the matching token
 - **THEN** the response SHALL be `400` with a `parseError`
 - **AND** the file SHALL be byte-identical to before
+
+#### Scenario: Timeout keys accept the disabled literal
+- **WHEN** a client patches `httpIdleTimeoutMs = "disabled"` and `websocketConnectTimeoutMs = 0`
+- **THEN** the write SHALL succeed and the file SHALL contain both values as sent
+- **AND** a patch of `compaction.reserveTokens = "disabled"` SHALL be rejected with `400` naming `compaction.reserveTokens`
+- **AND** a patch of `httpIdleTimeoutMs = "Disabled"` SHALL be rejected with `400` naming `httpIdleTimeoutMs`
 
 ### Requirement: Raw replacement of the whole file
 The dashboard SHALL accept the full file text as a raw replacement. A body larger than 256 KiB SHALL be rejected with `413`. Before any write it SHALL verify:
@@ -355,7 +362,7 @@ The settings rail SHALL show a `pi settings` entry that opens a page editing pi'
 - **THEN** the page SHALL show a notice that the key is managed by the Default model control and will not be written
 
 ### Requirement: Form rows for every typed key
-Form mode SHALL render one row per typed-patch key, grouped into the categories Model and thinking, Interaction, Tools, Sessions and context, Terminal and display, Network, Shell, Resources, and Updates and privacy. Each row SHALL show a label, the raw dotted key, a control, and a hint. The control SHALL offer an explicit "default" choice that leaves the key unset and SHALL display pi's documented default value. Boolean keys and enumerations with at most three values SHALL use a segmented control; longer enumerations SHALL use a select. A stored value outside the known options SHALL be shown as an extra, selected option in either control, and SHALL NOT be changed unless the user changes it. A key that is set SHALL show a "Changed" marker that carries text, not only colour, and a reset action that returns it to unset. An integer outside its range SHALL show an inline error tied to the control as soon as it is entered. A Save attempted while any field error remains SHALL fail with those errors, write nothing, and keep the draft dirty. Keys with their own editor elsewhere SHALL render as link rows instead of editable controls: the default-model keys (read-only values plus a link to the Default model control), `retry.*` (link to the Retry editor), `packages` (link to Add-ons), and `extensions` and `skills` (link to Skills). The object- or array-valued keys `modelThinkingLevels`, `compaction.modelOverrides`, `defaultTools`, `npmCommand`, `prompts` and `themes`, and the TUI-only keys `tuiMode`, `fullscreenExitOutput`, `fullscreenScrollbar`, `fullscreenCopyOnSelect`, `fullscreenWheelScrollLines` and `outputPad` (documented no-ops with no dashboard surface), SHALL render as rows whose action switches to JSON mode and that offer no editable control. The keys `dashboardPluginBridges`, `_dashboardManagedPackages` and `lastChangelogVersion` SHALL render as a collapsed, read-only list.
+Form mode SHALL render one row per typed-patch key, grouped into the categories Model and thinking, Interaction, Tools, Sessions and context, Terminal and display, Network, Shell, Resources, and Updates and privacy. Each row SHALL show a label, the raw dotted key, a control, and a hint. The control SHALL offer an explicit "default" choice that leaves the key unset and SHALL display pi's documented default value. Boolean keys and enumerations with at most three values SHALL use a segmented control; longer enumerations SHALL use a select. A stored value outside the known options SHALL be shown as an extra, selected option in either control, and SHALL NOT be changed unless the user changes it. A key that is set SHALL show a "Changed" marker that carries text, not only colour, and a reset action that returns it to unset. An integer outside its range SHALL show an inline error tied to the control as soon as it is entered. A stored string on `httpIdleTimeoutMs` or `websocketConnectTimeoutMs` that pi parses as disabled (`"disabled"`, trimmed and case-insensitive) SHALL be shown as `0` (both disable the timeout in pi), with the Changed marker, and SHALL NOT be rewritten unless the user edits that row. Any other stored string on those keys SHALL be shown as an empty number input with the Changed marker and no extra text, SHALL be kept as stored in the file, SHALL NOT be rewritten unless the user edits that row, and SHALL NOT block saving other rows. A Save attempted while any field error remains SHALL fail with those errors, write nothing, and keep the draft dirty. Keys with their own editor elsewhere SHALL render as link rows instead of editable controls: the default-model keys (read-only values plus a link to the Default model control), `retry.*` (link to the Retry editor), `packages` (link to Add-ons), and `extensions` and `skills` (link to Skills). The object- or array-valued keys `modelThinkingLevels`, `compaction.modelOverrides`, `defaultTools`, `npmCommand`, `prompts` and `themes`, and the TUI-only keys `tuiMode`, `fullscreenExitOutput`, `fullscreenScrollbar`, `fullscreenCopyOnSelect`, `fullscreenWheelScrollLines` and `outputPad` (documented no-ops with no dashboard surface), SHALL render as rows whose action switches to JSON mode and that offer no editable control. The keys `dashboardPluginBridges`, `_dashboardManagedPackages`, `lastChangelogVersion` and `extensionChangelogVersions` (the last two written by pi) SHALL render as a collapsed, read-only list. A stored key that is in none of these lists, such as `selfUpdateCommand`, SHALL render no row in Form mode; it is shown and edited only in JSON mode.
 
 #### Scenario: Unset key shows pi's default
 - **GIVEN** the file does not contain `compaction.reserveTokens`
@@ -381,6 +388,24 @@ Form mode SHALL render one row per typed-patch key, grouped into the categories 
 #### Scenario: Retry is a link, not a second editor
 - **WHEN** Form mode renders the Network category
 - **THEN** it SHALL show a Retry row linking to the Retry editor and SHALL NOT render retry inputs
+
+#### Scenario: Stored disabled timeout is shown as 0 and preserved
+- **GIVEN** the file contains `httpIdleTimeoutMs: "disabled"`
+- **WHEN** Form mode renders and the user saves after editing an unrelated key
+- **THEN** the HTTP idle timeout row SHALL show `0` with the Changed marker, not pi's default
+- **AND** the patch SHALL NOT contain `httpIdleTimeoutMs`
+
+#### Scenario: Disabled spellings show as 0 and other stored strings do not block Save
+- **GIVEN** the file contains `httpIdleTimeoutMs: " Disabled "` and `websocketConnectTimeoutMs: "soon"`
+- **WHEN** Form mode renders and the user saves after editing an unrelated key
+- **THEN** the HTTP idle timeout row SHALL show `0` with the Changed marker
+- **AND** the save SHALL succeed, and the patch SHALL contain neither `httpIdleTimeoutMs` nor `websocketConnectTimeoutMs`
+
+#### Scenario: Non-numeric stored timeout string shows an empty input
+- **GIVEN** the file contains `websocketConnectTimeoutMs: "soon"`
+- **WHEN** Form mode renders
+- **THEN** the WebSocket connect timeout row SHALL show an empty number input with the Changed marker and no field error or extra hint text
+- **AND** the file SHALL still hold `"soon"` until the user edits that row
 
 ### Requirement: Filtering the settings page
 Form mode SHALL provide a text filter that matches a row's label, dotted key, or hint case-insensitively, a "Set or changed only" toggle that shows only keys set in the file or changed in the draft, and a jump link per visible category. Categories with no matching rows SHALL be hidden, each category heading SHALL show its matching and total row counts while a filter is active, and no match SHALL show a message naming the query.

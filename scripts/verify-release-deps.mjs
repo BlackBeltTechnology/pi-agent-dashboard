@@ -93,8 +93,11 @@ const RULES = [
       "See change: update-pi-core-1-1-adopt-apis. 1.3.0 moves it again " +
       "(the follow-up drain keys on agent_settled, the busy `!cmd` send uses " +
       "deliverAs followUp, the Retry turn carries the context fragment, the " +
-      "`sessionShareDestination` setting). See change: update-pi-core-1-3-adopt-apis.",
-    minVersion: "1.3.0",
+      "`sessionShareDestination` setting). See change: update-pi-core-1-3-adopt-apis. " +
+      "1.5.0 moves it again (trust precedence and pathsEqual trust keys, " +
+      "tool arguments validated by pi-schema, `\"disabled\"` timeouts). " +
+      "See change: update-pi-core-1-5-adopt-apis.",
+    minVersion: "1.5.0",
   },
   {
     pkgPath: "packages/server/package.json",

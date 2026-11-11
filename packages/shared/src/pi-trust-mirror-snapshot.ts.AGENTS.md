@@ -4,3 +4,4 @@ Snapshot + trust-store readers shared by bridge and server. `piTrustMirrorSnapsh
 
 - `isProjectRoot` (private) = canonical-absolute check + shared `hasProjectRootMarker` (`project-root.ts`). See change: add-access-provisioning.
 `readPiTrustMirrorSnapshot` returns `liveCount` (missing/negative/non-integer → 0). See change: mirror-dashboard-trust-live-remote.
+`nearestRecordedEntry(data, cwdKey, pathApi?)` matches every trust-file key with `piPathsEqual` (pi 1.5 `findNearestTrustEntry`), returns the stored key spelling. See change: update-pi-core-1-5-adopt-apis.

@@ -295,3 +295,139 @@ describe("SubagentDetailView tail hand-off", () => {
     expect(getAllByTestId("tb").map((e) => e.getAttribute("data-expanded"))).toEqual(["false", "true"]);
   });
 });
+
+// See change: show-background-subagents-in-dock (group 5, design D5, test-plan #E8–#E10).
+describe("SubagentDetailView — retry timeline entries", () => {
+  afterEach(() => cleanup());
+
+  const withEntries = (entries: unknown[], over: Partial<SubagentState> = {}) =>
+    makeSession({ id: "r1", type: "Explore", description: "d", status: "running", entries: entries as SubagentState["entries"], ...over });
+
+  /** Producer `formatRetryDelay` (pi-dashboard-subagents 0.7.0, extensions/events.ts:277-286), verbatim. */
+  function producerFormatRetryDelay(ms: number): string {
+    if (!Number.isFinite(ms) || ms <= 0) return "0s";
+    const total = Math.max(1, Math.round(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const sec = total % 60;
+    if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    if (m > 0) return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
+    return `${sec}s`;
+  }
+
+  const DELAYS: Array<[number, string]> = [
+    [-5, "0s"], [Number.NaN, "0s"], [0, "0s"], [400, "1s"], [4500, "5s"], [60_000, "1m"],
+    [150_000, "2m 30s"], [3_600_000, "1h"], [3_660_000, "1h 1m"],
+  ];
+
+  it.each(DELAYS)("#E8 formatRetryDelay(%s) = %s, same as the producer", async (ms, expected) => {
+    const { formatRetryDelay } = await import("../SubagentDetailView.js");
+    expect(formatRetryDelay(ms)).toBe(expected);
+    expect(formatRetryDelay(ms)).toBe(producerFormatRetryDelay(ms));
+  });
+
+  it.each(DELAYS.filter(([ms]) => Number.isFinite(ms)))("#E8 renders delay %s as `in %s`", (ms, expected) => {
+    renderWithPrimitives(
+      <SubagentDetailView session={withEntries([{ kind: "retry", attempt: 1, maxAttempts: 18, delayMs: ms, text: "x", ts: 1 }])} agentId="r1" />,
+    );
+    expect(screen.getByText(`Retry 1/18 in ${expected}: x`)).toBeTruthy();
+  });
+
+  it.each([
+    [{ delayMs: 4000 }, "Retry in 4s"],
+    [{ attempt: 2, maxAttempts: 18, text: "" }, "Retry 2/18"],
+    [{ attempt: 0, maxAttempts: 18, delayMs: 4000, text: "x" }, "Retry in 4s: x"],
+    [{ attempt: "1", maxAttempts: 18, text: "503" }, "Retry: 503"],
+    [{}, "Retry"],
+  ])("#E9 malformed retry %j → %s", (fields, expected) => {
+    renderWithPrimitives(<SubagentDetailView session={withEntries([{ kind: "retry", ts: 1, ...fields }])} agentId="r1" />);
+    expect(screen.getByText(expected)).toBeTruthy();
+    expect(screen.queryByText("(unknown entry)")).toBeNull();
+  });
+
+  it("#E10 the retry step keeps its streamed position, before and after completion", () => {
+    const entries = [
+      { kind: "tool", toolName: "ToolA", input: {}, output: "a", ts: 1 },
+      { kind: "retry", attempt: 1, maxAttempts: 18, delayMs: 4000, text: "503 service unavailable", ts: 2 },
+      { kind: "tool", toolName: "ToolB", input: {}, output: "b", ts: 3 },
+    ];
+    const order = (container: HTMLElement) => {
+      const text = container.textContent ?? "";
+      return [text.indexOf("ToolA"), text.indexOf("Retry 1/18 in 4s: 503 service unavailable"), text.indexOf("ToolB")];
+    };
+    const running = renderWithPrimitives(<SubagentDetailView session={withEntries(entries)} agentId="r1" />);
+    const [a, r, b] = order(running.container);
+    expect(a).toBeGreaterThanOrEqual(0);
+    expect(r).toBeGreaterThan(a);
+    expect(b).toBeGreaterThan(r);
+    running.unmount();
+    const done = renderWithPrimitives(
+      <SubagentDetailView session={withEntries(entries, { status: "completed", result: "ok" })} agentId="r1" />,
+    );
+    const [a2, r2, b2] = order(done.container);
+    expect(a2).toBeGreaterThanOrEqual(0);
+    expect(r2).toBeGreaterThan(a2);
+    expect(b2).toBeGreaterThan(r2);
+  });
+
+  it("#E10 a pending backoff shows on the inspector's activity line", () => {
+    renderWithPrimitives(
+      <SubagentDetailView session={withEntries([{ kind: "text", text: "hi", ts: 1 }], { activity: "retrying (attempt 1/18) in 4s…" })} agentId="r1" />,
+    );
+    expect(screen.getByText("retrying (attempt 1/18) in 4s…")).toBeTruthy();
+  });
+});
+
+// See change: show-background-subagents-in-dock (spec background-subagent-display
+// "Session ends while a background subagent runs": the view shows "parent session ended").
+describe("SubagentDetailView — failed run with a timeline shows its error", () => {
+  afterEach(() => cleanup());
+
+  it("a failed subagent with entries shows the error under the timeline", () => {
+    const session = makeSession({
+      id: "f1",
+      type: "Explore",
+      description: "d",
+      status: "failed",
+      error: "parent session ended",
+      healedBy: "session_ended",
+      entries: [{ kind: "tool", toolName: "bash", input: { command: "echo tick-one" }, output: "tick-one", ts: 1 }],
+    });
+    renderWithPrimitives(<SubagentDetailView session={session} agentId="f1" />);
+    expect(screen.getByTestId("subagent-error-note").textContent).toBe("parent session ended");
+  });
+
+  it("a completed subagent with entries shows no error note", () => {
+    const session = makeSession({
+      id: "c1", type: "Explore", description: "d", status: "completed", result: "ok",
+      entries: [{ kind: "text", text: "hi", ts: 1 }],
+    });
+    renderWithPrimitives(<SubagentDetailView session={session} agentId="c1" />);
+    expect(screen.queryByTestId("subagent-error-note")).toBeNull();
+  });
+});
+
+// See change: fix-background-subagent-ghost-rows (test-plan #F5): an untracked
+// end reads "no longer tracks it", never "parent session ended".
+describe("SubagentDetailView — untracked end (#F5)", () => {
+  afterEach(() => cleanup());
+
+  it.each([
+    ["with a timeline", [{ kind: "text" as const, text: "hi", ts: 1 }]],
+    ["without a timeline", undefined],
+  ])("%s shows the no-longer-tracked line", (_label, entries) => {
+    const session = makeSession({
+      id: "u1",
+      type: "Explore",
+      description: "d",
+      status: "failed",
+      error: "no longer tracked by its session",
+      healedBy: "untracked",
+      ...(entries ? { entries } : {}),
+    });
+    renderWithPrimitives(<SubagentDetailView session={session} agentId="u1" />);
+    expect(screen.getByTestId("subagent-untracked-note").textContent).toBe("Ended — its session no longer tracks it");
+    expect(screen.queryByText(/parent session ended/)).toBeNull();
+    expect(screen.queryByTestId("subagent-error-note")).toBeNull();
+  });
+});

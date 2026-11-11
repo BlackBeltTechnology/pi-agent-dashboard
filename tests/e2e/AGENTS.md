@@ -39,6 +39,7 @@ One row per file.
 | `electron-pages-trusted-types.spec.ts` | F6: Electron bundled pages (`file://`, stubbed preload bridges) render hostile data as text under the enforced TT meta CSP, 0 violations; loading page hands off to the loopback server. See change: harden-client-sinks. |
 | `first-run-create-project.spec.ts` | → `first-run-create-project.spec.ts.AGENTS.md` |
 | `first-run-skip-providers.spec.ts` | → `first-run-skip-providers.spec.ts.AGENTS.md` |
+| `flow-code-node-tools.spec.ts` | → `flow-code-node-tools.spec.ts.AGENTS.md` |
 | `folder-banner-contrast.spec.ts` | L3 retrust banner on untrusted `sample-hook-ok`: #F1 contrast (text 4.5, glyph 3), #F2 action colour = region over base/nord dark/light, #F7 44/32 px + focus ring. Observe-only (never trusts; sorts before `worktree-init-feedback`). See change: fix-folder-card-pill-contrast. |
 | `hermes-model-override.spec.ts` | → `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | → `kb-settings-sources-search.spec.ts.AGENTS.md` |
@@ -200,7 +201,7 @@ One row per file.
 | `security-pair-link.spec.ts` | → `security-pair-link.spec.ts.AGENTS.md` |
 | `paging-empty-reply-exhausted.spec.ts` | → `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
 | `paging-exhausted-reconnect-rearm.spec.ts` | → `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
-| `pi-1-3-floor-smoke.spec.ts` | → `pi-1-3-floor-smoke.spec.ts.AGENTS.md` |
+| `pi-1-5-floor-smoke.spec.ts` | → `pi-1-5-floor-smoke.spec.ts.AGENTS.md` |
 | `pi-runtime.spec.ts` | → `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | → `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-hash-parity.spec.ts` | → `plugin-hash-parity.spec.ts.AGENTS.md` |
