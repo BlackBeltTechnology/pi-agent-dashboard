@@ -1,6 +1,6 @@
 ---
 name: browser
-description: 'Browser automation via the `agent-browser` CLI. Use when the user needs to drive websites or Electron apps — navigating, forms, clicks, screenshots, data extraction, testing web apps, UI checks, the dashboard Electron shell, or the user''s own logged-in Chrome via the browser relay or Panerelay (SSO/2FA); native desktop apps route to agent-desktop (macOS Accessibility setup). Triggers: "open a website", "take a screenshot", "test this web app", "use my own browser", "control my desktop".'
+description: 'Browser automation via the `agent-browser` CLI: drive websites or Electron apps (forms, clicks, screenshots, scraping, web-app/UI tests, the dashboard Electron shell) or the user''s own logged-in Chrome via browser relay/Panerelay (SSO/2FA); native desktop apps route to agent-desktop. Triggers: "open a website", "take a screenshot", "test this web app", "use my own browser", "control my desktop".'
 license: Apache-2.0
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(npx @panerelay/setup:*), Bash(curl:*), Bash(pi-dashboard:*)
 metadata:
