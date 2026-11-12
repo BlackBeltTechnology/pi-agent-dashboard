@@ -72,9 +72,9 @@ describe("browser skill — SKILL.md frontmatter", () => {
     expect(src).toMatch(/pi install npm:pi-agent-browser/);
   });
 
-  it("declares metadata.version \"1.2\"", () => {
+  it("declares metadata.version \"1.3\"", () => {
     // test-plan #E2
-    expect(src).toMatch(/^\s*version:\s*"1\.2"\s*$/m);
+    expect(src).toMatch(/^\s*version:\s*"1\.3"\s*$/m);
   });
 
   it("names references/challenge.md somewhere", () => {
