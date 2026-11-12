@@ -20,11 +20,15 @@ openspec-based pipeline and avoid trigger collisions.
   this package                  upstream source
   ----------------------------  --------------------------------------
   interview-me                  skills/interview-me
-  doubt-driven-review           skills/doubt-driven-development
+  doubt-driven-review           skills/doubt-driven-development (*)
   code-simplification           skills/code-simplification
   security-hardening            skills/security-and-hardening
   performance-optimization      skills/performance-optimization
   observability-instrumentation skills/observability-and-instrumentation
+
+  (*) Body substantially modified beyond the frontmatter: reviewer spawn via
+      the package's agents/doubt-reviewer.md, the @propose-review-N cross-model
+      role series, structured findings output, and repo-local cross-references.
 
 The following skills are derived works of NousResearch/hermes-agent
 (`skills/software-development/`, MIT). Skill prose was ported and adapted to
