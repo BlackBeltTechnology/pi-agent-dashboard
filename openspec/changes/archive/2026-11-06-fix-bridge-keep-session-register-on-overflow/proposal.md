@@ -16,7 +16,7 @@ the register never arrives.
 - On ring overflow, the bridge evicts the oldest frame that is not a session
   lifecycle frame (`session_register` or `session_unregister`); a buffered
   lifecycle frame is evicted only when every buffered frame is a lifecycle
-  frame (not reachable in practice). The unregister is protected too: a session
+  frame (only after ~`maxBufferSize / 2` session switches while offline). The unregister is protected too: a session
   switch sends `session_unregister` for the old session before the new
   `session_register`, and losing it would leave the old session routable.
 - Drop counting and the rate-limited `bridge→server` warning are unchanged.

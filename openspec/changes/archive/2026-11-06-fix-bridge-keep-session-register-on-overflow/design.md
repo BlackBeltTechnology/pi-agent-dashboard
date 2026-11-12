@@ -10,8 +10,13 @@ on a large replay the register is the oldest frame and the first evicted.
 
 **Goals:** buffered `session_register` and `session_unregister` frames reach
 the server, in order, whenever the ring holds at least one non-lifecycle frame
-to evict instead. The degenerate all-lifecycle ring (D1 fallback, reachable
-only with a tiny `maxBufferSize`) still evicts the oldest frame.
+to evict instead. The all-lifecycle ring (D1 fallback) still evicts the oldest
+frame. It is reached only after sustained offline session switching: each
+switch adds one unregister + one register, non-lifecycle frames are evicted
+first, so after about `maxBufferSize / 2` offline switches (~5000 at the
+default 10000) the ring holds only lifecycle frames. A lost early lifecycle
+frame can leave an earlier session routable; the current session re-registers
+on reconnect.
 
 **Non-Goals:** lossless replay (the server re-replays from the JSONL after
 register), a larger default ring, a protocol change.
@@ -22,7 +27,8 @@ register), a larger default ring, a protocol change.
 
 On overflow, evict the oldest frame whose `type` is neither `session_register`
 nor `session_unregister`. If every
-buffered frame is a lifecycle frame (not reachable in practice), evict the
+buffered frame is a lifecycle frame (only after ~`maxBufferSize / 2` session
+switches while offline; see Goals), evict the
 oldest.
 
 `session_unregister` is included because a session switch
