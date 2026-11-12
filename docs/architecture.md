@@ -5494,6 +5494,69 @@ flowchart LR
   List --> Fold["Archive (N) fold"]
 ```
 
+## Mid-turn prompt queue (steer + follow-up)
+
+- Follow-ups: bridge-owned `bridgeFollowUp` (`packages/extension/src/followup-buffer.ts`).
+- pi never sees held follow-ups until `drainOneFollowup` (`followup-drain.ts`) ships one per `agent_settled` as fresh prompt.
+- Steers: bridge holds dashboard steers sent while streaming in `inst.bridgeSteer` (`packages/extension/src/steer-buffer.ts`, `createSteerBuffer(instanceNonce)`).
+- Steer ids `<nonce>:<seq>`; entries `{id,text,images?,promptId?}`.
+- Steer buffer: cap 20 + byte ceiling 32 MiB, same as follow-ups, accounted independently.
+- `admitSteer` validates images. Refusal → `command_feedback` for `send_prompt`.
+- Routing (`command-handler.ts` passthrough + `bridge.ts` `sessionPrompt` fallback):
+  - flags `bufferFollowUp` / `bufferSteer`.
+  - streaming steer → steer buffer, no pi call, `prompt_received` ack without `promptId`.
+  - idle steer → direct `pi.sendUserMessage`.
+- Hand-off: `handOffHeldSteers` (`bridge-handlers/lifecycle.ts`) runs inside awaited `turn_end` handler, `outcome === "completed"` only.
+- pi awaits extension `turn_end` handlers before `getSteeringMessages()` (`pi-agent-core` `agent-loop.js`).
+- Hand-off takes oldest (`steeringMode` `"one-at-a-time"`, default) or all (`"all"`).
+- Hand-off removes entries + emits `queue_update` synchronously BEFORE sends.
+- Hand-off per entry: `pi.sendUserMessage(content,{deliverAs:"steer"})` → `prompt_received{fresh:false,promptId}` → one macrotask yield.
+- After hand-off: not cancellable. Bubble gone. pi renders user message.
+- Settle drain: `drainOneFollowup` ships oldest held steer BEFORE follow-ups, one per `agent_settled`, same gates, acks `promptId`.
+- Settle drain covers steer after last turn and aborted/error runs.
+- Cancel: browser → server → bridge `remove_steering_entry{sessionId,id}` / `clear_steering_entries{sessionId}`.
+- Cancel handlers: `bridge-handlers/dispatch.ts`. No pi call.
+- Unknown id → `command_feedback` "Steer already sent or cancelled".
+- Server relay: `session-action-handler.ts` `handleRemoveSteeringEntry` / `handleClearSteeringEntries`.
+- ACP sessions ignore cancel (`acp-bridge/server-requests.ts`).
+- `clear_steering_queue` stays deleted (pi exposes no queue removal).
+- Wire: `queue_update.steering` / `pendingQueues.steering` = `(SteerEntryView | string)[]`.
+- `SteerEntryView{id,text,imageCount}`.
+- Plain strings = legacy bridges (one release), no cancel.
+- `message_start` matcher touches follow-ups only.
+- Re-announce `queue_update` (empty included) on:
+  - register: `lifecycle.ts`, after `sessionReady = true`.
+  - re-register: `bridge.ts` `onReconnect`, after `sendStateSync`.
+- Trade-off: held steers live in bridge memory. Bridge reload mid-turn drops them.
+- Client: `PendingSteerCard.tsx`.
+  - ✕ `pending-steer-cancel-<id>`.
+  - image badge.
+  - `PendingSteerClearAll` from 2 entries.
+  - no confirmation.
+
+```mermaid
+sequenceDiagram
+  participant D as Dashboard
+  participant S as Server
+  participant B as Bridge
+  participant P as pi
+  D->>S: send_prompt (streaming, steer)
+  S->>B: send_prompt
+  B->>B: held in inst.bridgeSteer (cancellable)
+  B-->>S: prompt_received (no promptId)
+  B-->>S: queue_update
+  Note over B,P: turn_end (outcome completed)
+  B->>B: handOffHeldSteers: remove + queue_update
+  B->>P: sendUserMessage(deliverAs steer)
+  B-->>S: prompt_received{fresh:false,promptId}
+  Note over B: cancel path
+  D->>S: remove_steering_entry{id}
+  S->>B: remove_steering_entry{sessionId,id}
+  B->>B: drop entry (no pi call)
+  B-->>S: queue_update
+  S-->>D: queue_update
+```
+
 ## Persistence
 
 | Data | Storage | Details |

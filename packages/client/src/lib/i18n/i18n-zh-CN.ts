@@ -1211,6 +1211,8 @@ export const zhCNCatalog: Record<string, string> = {
   "session.spawnsASessionRunningTheNew": "启动一个运行 new-change 流程的会话。创建的变更将归入所选分组。",
   "session.startingNewSession": "正在启动新会话…",
   "session.steering": "引导",
+  "session.cancelSteer": "取消引导",
+  "session.clearAllSteering": "清除所有引导",
   "session.thinking": "思考中…",
   "session.setAsGlobal": "设为全局",
   "session.setAsGlobalFailed": "无法保存为全局设置。",

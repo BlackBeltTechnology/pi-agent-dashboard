@@ -428,10 +428,11 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
   // The OLD pi-mutation handler set from Phase 3 (clear_steering_queue,
   // clear_followup_slot, edit_followup_slot) is GONE forever — pi's
   // ExtensionAPI exposes no clear*Queue primitives (verified through
-  // pi 0.76.0). Steer mutation will never be exposed (steer drains too
-  // fast for it to matter; user direction).
+  // pi 1.5.0). Steers are cancellable only while the BRIDGE holds them
+  // (`remove_steering_entry` / `clear_steering_entries` below).
   //
-  // See change: rework-mid-turn-prompt-queue (design.md D3).
+  // See change: rework-mid-turn-prompt-queue (design.md D3),
+  // bridge-owned-cancellable-steer.
   if (msg.type === "edit_followup_entry") {
     const { index, text } = msg as { type: string; index: number; text: string };
     // Text-only edit: the entry's images are PRESERVED (design D5). Gated
@@ -466,6 +467,23 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
     const mutated =
       indices === "all" ? inst.bridgeFollowUp.clearAll() : inst.bridgeFollowUp.clearIndices(indices);
     if (mutated) inst.emitQueueUpdate();
+    return;
+  }
+  // ── Steer buffer mutation (bridge-held steers only) ─────────────────
+  // A steer handed to pi left the buffer in the same synchronous step, so an
+  // unknown id means "already sent or cancelled" — refused with feedback,
+  // never silently ignored. No pi call. See change: bridge-owned-cancellable-steer.
+  if (msg.type === "remove_steering_entry") {
+    const { id } = msg as { type: string; id?: unknown };
+    if (typeof id !== "string" || !inst.bridgeSteer.removeById(id)) {
+      inst.sendCommandFeedback("remove_steering_entry", "Steer already sent or cancelled");
+      return;
+    }
+    inst.emitQueueUpdate();
+    return;
+  }
+  if (msg.type === "clear_steering_entries") {
+    if (inst.bridgeSteer.clear()) inst.emitQueueUpdate();
     return;
   }
   const response = await inst.commandHandler.handle(msg);

@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PidNamespace, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PidNamespace, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, SteerEntryView, TurnUsage } from "./types.js";
 import type { UsageTotals } from "./usage-totals.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
@@ -18,7 +18,8 @@ export type { NotifyLevel };
 export interface QueueUpdateToServerMessage {
   type: "queue_update";
   sessionId: string;
-  steering: string[];
+  /** Bridge-held steer views; a plain string is a legacy bridge entry (one release). See change: bridge-owned-cancellable-steer. */
+  steering: (SteerEntryView | string)[];
   /** Entry views: text + image COUNT. Image bytes never cross the wire (design D2). */
   followUp: FollowUpEntryView[];
 }
@@ -1576,6 +1577,19 @@ export interface RemoveFollowupEntryToExtensionMessage {
   index: number;
 }
 
+/** Cancel one bridge-held steer by id. See change: bridge-owned-cancellable-steer. */
+export interface RemoveSteeringEntryToExtensionMessage {
+  type: "remove_steering_entry";
+  sessionId: string;
+  id: string;
+}
+
+/** Cancel every bridge-held steer. See change: bridge-owned-cancellable-steer. */
+export interface ClearSteeringEntriesToExtensionMessage {
+  type: "clear_steering_entries";
+  sessionId: string;
+}
+
 export interface PromoteFollowupEntryToExtensionMessage {
   type: "promote_followup_entry";
   sessionId: string;
@@ -1726,6 +1740,8 @@ export type ServerToExtensionMessage =
   | ClearFollowupEntriesToExtensionMessage
   | EditFollowupEntryToExtensionMessage
   | RemoveFollowupEntryToExtensionMessage
+  | RemoveSteeringEntryToExtensionMessage
+  | ClearSteeringEntriesToExtensionMessage
   | PromoteFollowupEntryToExtensionMessage
   | AttachProposalChangedExtensionMessage
   | PluginEmitEventExtensionMessage

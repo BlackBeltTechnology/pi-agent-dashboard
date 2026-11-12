@@ -131,6 +131,17 @@ describe("ArrivalTracker", () => {
     expect(readded.steering).toEqual([false, true]);
   });
 
+  it("steering keyed by id: a same-text steer that replaces a handed-off one still animates (bridge-owned-cancellable-steer #E34)", () => {
+    const t = new ArrivalTracker();
+    // ChatView feeds steer KEYS (bridge entry ids), not texts.
+    step(t, input({ steering: ["n:1"] }));
+    // `n:1` handed off; a new steer with the SAME text arrives as `n:2`.
+    const next = step(t, input({ steering: ["n:2"] }));
+    expect(next.steering).toEqual([true]);
+    const both = step(t, input({ steering: ["n:2", "n:3"] }));
+    expect(both.steering).toEqual([false, true]);
+  });
+
   it("edge-detects the pending card, the answer tail and live reasoning against the previous commit", () => {
     const t = new ArrivalTracker();
     step(t, input());

@@ -145,6 +145,22 @@ const SLOW_TEXT = Array.from(
 ).join(" ");
 
 /**
+ * Held-steer fixtures (change: bridge-owned-cancellable-steer). `slow-stream`
+ * lasts ~2 s at the default `FAUX_TPS=50`, too short for a spec to observe a
+ * held steer bubble and act on it. faux sizes tokens as chars/4, so ~4.4k
+ * chars (~1.1k tokens) stream for ~22 s.
+ */
+const STEER_HOLD_WORDS = 500;
+/** Streamed body of the single-turn `steer-hold-stream` scenario. */
+const STEER_HOLD_TEXT = Array.from({ length: STEER_HOLD_WORDS }, (_unused, index) => `hold-${index}`).join(" ");
+/** Last streamed word of `steer-hold-stream` (the turn is over once it renders). */
+export const STEER_HOLD_LAST = `hold-${STEER_HOLD_WORDS - 1}`;
+/** Streamed body of the `slow-tool-steer` tool turn. */
+const SLOW_TOOL_TEXT = Array.from({ length: 300 }, (_unused, index) => `tool-chunk-${index}`).join(" ");
+/** Final assistant text of the `slow-tool-steer` scenario. */
+export const SLOW_TOOL_FINAL = "slow-tool final answer";
+
+/**
  * Pull the most recent `ask_user` answer out of the agent context.
  *
  * The factory step for `ask-select-roundtrip` reads the toolResult the dashboard
@@ -728,6 +744,28 @@ export const SCENARIOS: Record<string, Scenario> = {
     // Long body so a mid-stream abort (with FAUX_TPS=2) lands before `done`.
     script: [fauxAssistantMessage([fauxText(SLOW_TEXT)])],
     expect: { text: "slow-chunk-0" },
+  },
+
+  // One long text turn (~25 s): a steer sent mid-stream stays held long
+  // enough to observe and cancel. See change: bridge-owned-cancellable-steer.
+  "steer-hold-stream": {
+    script: [fauxAssistantMessage([fauxText(STEER_HOLD_TEXT)])],
+    expect: { text: "hold-0" },
+  },
+
+  // A slow tool-call turn followed by a text turn: a steer sent while the first
+  // turn streams is held by the bridge and handed to pi at that turn's
+  // completed `turn_end`, so it lands BEFORE the final answer (same boundary).
+  // See change: bridge-owned-cancellable-steer (test-plan #F4).
+  "slow-tool-steer": {
+    script: [
+      fauxAssistantMessage(
+        [fauxText(SLOW_TOOL_TEXT), fauxToolCall("bash", { command: "echo slow-tool-done" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(SLOW_TOOL_FINAL)]),
+    ],
+    expect: { text: SLOW_TOOL_FINAL },
   },
 
   "model-error": {

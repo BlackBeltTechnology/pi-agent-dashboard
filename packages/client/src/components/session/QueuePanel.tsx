@@ -37,6 +37,7 @@ import {
 import Icon from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { QUEUE_ATTACHMENTS_CLASS, QUEUE_REMOVE_BUTTON_CLASS } from "../chat/queue-control-classes.js";
 
 interface Props {
   /** The follow-up queue entries from `Session.pendingQueues.followUp`, normalised. */
@@ -260,7 +261,7 @@ function FollowupCycler({
               <span
                 data-testid="queue-followup-attachments"
                 title={i18nT("session.attachedImages", undefined, "Attached images")}
-                className="inline-flex items-center gap-1 self-start text-[10px] text-[var(--text-tertiary)]"
+                className={QUEUE_ATTACHMENTS_CLASS}
               >
                 <Icon path={mdiImageMultipleOutline} size={0.55} />
                 {imageCount}
@@ -295,7 +296,7 @@ function FollowupCycler({
               data-testid="queue-followup-remove"
               aria-label={i18nT("session.removeFollowUpEntry", undefined, "Remove follow-up entry")}
               title={i18nT("common.remove2", undefined, "Remove")}
-              className="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-red-400 hover:bg-[var(--bg-hover)] transition-colors"
+              className={QUEUE_REMOVE_BUTTON_CLASS}
             >
               <Icon path={mdiClose} size={0.65} />
             </button>

@@ -1,34 +1,3 @@
 # bridge.ts — index
 
-Main bridge extension entry (default export, now `async`). Synchronous body + order unchanged (inert early return, `activateProviderRegister` → role manager → claude-compat → `initBridge`, re-entry guard); its LAST statement is `return await awaitStartupProviderModels()` INSIDE the existing `try`, so a custom-provider `--model` resolves at startup (pi awaits the factory before resolving `--model`) and a rejection is caught/logged (never escapes, else pi discards queued registrations). Callers that do not await still see every synchronous registration. See change: register-custom-provider-models-at-activation (D1). Connects to dashboard server, forwards pi events via… → see `bridge.ts.AGENTS.md` `applyDefaultModel()` success branch also applies `config.defaultThinkingLevel` via `pi.setThinkingLevel(level)` (synchronous, before the model-update push) when non-empty; empty defers to pi's own resolution. Single site covers both the gate call and the pending-provider retry. See change: add-default-thinking-level. Carries the auto-namer's `PersistedNamerState` across reload via `prev.namerState` (VALUES, never the namer object — its closures would hold a stale connection/ctx), adopts the server's `auto_name_state_restore` STOP fields only (provenance deliberately untouched), and no longer gates the naming call site on the toggle so `disabled` is reportable. See change: fix-auto-naming-reasoning-model. pi does NOT dispatch `entry_appended` to extensions, and idle-path sendMessage emits internally only — so `wrapCustomPersistenceForCtx(ctx)` (session_start) wraps `sessionManager.appendCustomMessageEntry`/`appendCustomEntry` (the persistence chokepoint, same pattern as wrapAppendMessageForCtx) forwarding `message_end` role=custom + `custom_entry`; the enriched loop SKIPS role=custom message_start/end (no double-forward of the agent-loop path). See change: render-inline-reasoning-and-custom-entries. | Handles `mcp_token_minted`: `createMcpDashboardRegistrar` (mcp-token-delivery.ts) registers `pi-dashboard` with pi's built-in MCP on `onMinted` (token + `/mcp` url), re-arms on `session_start`, unregisters on `session_shutdown`; NEVER `pi.events`. Sends `plugin_pi_message` `mcp/mint-token` right after `session_register` on every (re)register (D3). See change: migrate-mcp-to-pi-builtin.
-
-Creates `PluginForwardRegistry` after `registerEventBusForwarding` (`isCoreChannel` = channel in `EVENT_BUS_MAP`), attaches it, flushes in `flushPendingSubagentFrames`, disposes on shutdown; heartbeat gains `pluginForwardDeclared/Rejected/Conflicts/Retained/Dropped`. See change: add-plugin-bridge-contributions.
-`credentials_updated` refresh delegates to `refreshAfterCredentialsReload` (empty diff -> local full refresh). Wires `reloadProviders: () => reloadProviders(pi)` into `createCommandHandler`. See change: refresh-models-on-provider-change.
-
-- Wires `onSystemRename`/`onUserRename` into command-handler; `auto_name_state_restore` routed via `applyAutoNameRestore` (provenance applied even to a live namer). See change: investigate-auto-name-provenance-relabel.
-
-`ConnectionManager` gets `planDial: localCredentialPlan` (per-dial proof + pre-connected socket + marked-endpoint server verification) and `onIdentityFailure → appendIdentityLog`. See change: loopback-credential-proof (D6, D8).
-
-- Handler bodies live in `bridge-handlers/` (`lifecycle`, `dispatch`, `forwarders`, `ui-prompt-patch`, `instance`). `initBridge` keeps process-global `BridgeState` adoption, the subagent re-entry guard, generation bump, `EVENT_BUS_MAP` + `registerEventBusForwarding` call, thin `pi.on` delegators (registration order load-bearing), `pi.registerCommand` wiring, connection setup. Builds one `BridgeInstance` via `createInstance` after the bump; reassigned closure variables are `inst.<name>`, the rest are mirrored onto `inst` after their declaration. See change: test-trust-audit.
-
-- Creates `vaultDelivery` + `createVaultRedaction` + forward filter (`outboundFilter` on both connections); registers `tool_result`/`message_end`/`user_bash` redaction handlers (fail closed). See change: add-credential-vault.
-
-See change: fix-replay-fabricates-orphan-end-for-live-calls — onReconnect replays with `{liveTailOpen: isLive(cachedCtx, isAgentStreaming)}`; synthetic reconnect `agent_start` carries `synthetic:true`. Wrapper `replaySessionEntries(opts?)`. Pinned by `__tests__/bridge-replay-live-tail.test.ts`.
-Activation captures `dashboardSpawned` via `captureSpawnTokenAtActivation()` (scrubs env). See change: mirror-dashboard-trust-to-pi.
-
-Follow-up drain: `drainFollowupQueue()` (no `retryCount`, no idle-retry loop) keeps the `isDraining` lock and wires the pure `drainOneFollowup` (`followup-drain.ts`); a false `isIdle()` returns, the next `agent_settled` drains (trigger in `bridge-handlers/forwarders.ts`). `enqueueSystemFollowup` ships at once when idle, else on the next settle. See change: update-pi-core-1-3-adopt-apis.
-
-- Registers the credential guard as a `tool_call` handler right BEFORE the path gate (`createCredentialGuardToolCallHandler(createCredentialGuard({env,homedir,log}), isActive)`); not `safe()`-wrapped, no config/switch; a blocked call never reaches the gate prompt. Order pinned by `__tests__/credential-guard-wiring.test.ts` (E54). See change: encrypt-credentials-at-rest.
-Declares `certValidation: "enforced"` on `session_register` and `vault_sync_request` when the TLS checks applied. See change: prove-vault-bridge-tls.
-
-Inits `inst.claudeSubscriptionCompat = false`; registers `registerCompatPreferenceProbe` next to the context injector. See change: retire-anthropic-messages-bridge.
-
-## seed-claude-compat-on-upgrade
-
-Default export registers shared `claudeCompatExtension(() => getBridgeState().claudeSubscriptionCompat === true)` on EVERY pi, before `initBridge` and its subagent re-entry guard → main sessions + subagent children get the rewrite; no plugin opts in. `registerCompatPreferenceProbe` removed. See change: seed-claude-compat-on-upgrade.
-
-`getFlowsList`/`sendFlowsList` + `/<flow-name>` sessionPrompt fast-path removed; typed flow commands ride extension dispatch. See change: flows-dock-chip-and-panel-actions.
-
-Provisional move `session_register` carries `pidNamespace: processPidNamespace()` (same value as every register). See change: scope-pids-to-namespace.
-
-See change: add-spawn-model-choice. `spawnNew` sends `buildSpawnNewSessionMessage(...)` (inherits current model + thinking level).
+Main bridge extension entry (default export). Connects to dashboard server, forwards pi events via… → see… → see `bridge.ts.AGENTS.md` `onReconnect` computes `liveTailOpen` once, passes it to `sendStateSync({liveTailOpen})` and the replay. See change: fix-large-session-resume-replay.

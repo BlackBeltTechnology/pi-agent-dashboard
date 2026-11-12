@@ -44,6 +44,11 @@ pi exposes no confirmation for an extension send. Cycles 1–3 showed every way 
 - **Trade-off**: a hand-off pi rejects (send during compaction, another extension's `input` handler consuming it) is lost with only pi's own error — the same as any steer today. A slow `input` handler can make the steer land one boundary later; it is still delivered.
 - The accepted mockup's "turn_end commit / Delivering / late cancel note" steps collapse to: bubble disappears; a late cancel gets a `command_feedback` toast.
 
+#### Spike results (tasks 1.1, 1.2)
+- Enqueue path (pi-coding-agent 1.5.0): `pi.sendUserMessage` → `sendUserMessage` → `prompt()` → `_queueUserInput` awaits `_runInputHandlers`, then `_queueSteer` pushes synchronously (`agent-session.js:1769-1825`). No input handler → enqueued within microtasks; one macrotask yield per send covers it, and keeps `"all"`-mode sends in order (each send's chain settles before the next starts).
+- Ordering: `finishTurn` (extension `turn_end` handlers) is awaited before `getSteeringMessages()` on completed turns; aborted/error turns return without polling (`pi-agent-core/dist/agent-loop.js:148-191`). Locked by contract test `packages/extension/src/__tests__/pi-steer-drain-contract.test.ts` (#E25), which enqueues after a macrotask inside `finishTurn` and sees the steer in the 2nd LLM call. Live check: e2e #F4 (`tests/e2e/steer-cancel.spec.ts`).
+- Slow `input` handler (1.2): an input handler awaiting longer than one macrotask enqueues AFTER pi's post-`turn_end` poll → the steer lands one boundary later (next turn's loop-top poll; on the last turn, pi's own queue handling for the next run). Not lost; the trade-off above stands.
+
 ### D5. Leftovers drain at settle, ahead of follow-ups
 Generalise `drainFollowupQueue` (`bridge.ts:644`): on settle, ship the oldest held steer first (fresh prompt, images, ack with `promptId`), else the oldest follow-up — one per settle, same lock, idle/pending gates and abort behaviour. Covers: steer sent after the last completed `turn_end`, aborted/errored run, skipped handler, `action: "end"`.
 - **Rejected — move into `bridgeFollowUp` head**: no prepend; admission can refuse on cap/bytes → silent loss.
