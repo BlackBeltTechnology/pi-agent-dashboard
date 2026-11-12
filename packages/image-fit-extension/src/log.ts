@@ -32,6 +32,17 @@ export const STATUS_KEY = "pi-image-fit";
 /** Upper bound on load-time messages held before the first ctx. */
 export const MAX_HELD = 50;
 
+/**
+ * How long a resize report stays in the footer before the sink takes it down.
+ *
+ * pi keeps a status until its owner clears it, and this one reports an event
+ * that is already over by the time it renders. Left pinned, it reads as "the
+ * extension is working right now" for the rest of the session. Ten seconds is
+ * long enough to read a one-line report and short enough that the footer
+ * describes the present.
+ */
+export const STATUS_TTL_MS = 10_000;
+
 interface UiChannel {
   ui: object;
   notify: (msg: string, level?: Level) => void;
@@ -40,7 +51,9 @@ interface UiChannel {
 
 let channel: UiChannel | null = null;
 let held: Array<{ msg: string; level: Level }> | null = null;
+let expiry: ReturnType<typeof setTimeout> | null = null;
 
+/** Whether `PI_IMAGE_FIT_QUIET` is set: drops every message, info and warning alike. */
 function quiet(): boolean {
   return parseBool(process.env.PI_IMAGE_FIT_QUIET);
 }
@@ -94,15 +107,69 @@ export function deferUntilContext(): void {
 
 /** Test seam: forget the UI channel and any held messages. */
 export function resetUiSink(): void {
+  cancelExpiry();
   channel = null;
   held = null;
 }
 
-function toUi(c: UiChannel, msg: string, level: Level): void {
-  if (level === "info" && c.setStatus) c.setStatus.call(c.ui, STATUS_KEY, msg);
-  else c.notify.call(c.ui, msg, level);
+/**
+ * Disarm a pending status takedown, if any. Called before arming a new one and
+ * from `resetUiSink()`, so a timer can never fire at a channel that has been
+ * replaced or torn down in the meantime.
+ */
+function cancelExpiry(): void {
+  if (expiry) {
+    clearTimeout(expiry);
+    expiry = null;
+  }
 }
 
+/**
+ * Arm the takedown for the status just written. Re-arming on every report keeps
+ * the newest one visible for a full window instead of inheriting its
+ * predecessor's deadline. The timer is unref'd: a print-mode run that resizes
+ * one image must still exit when its work is done, not linger for the TTL.
+ *
+ * The takedown goes through whichever channel is current when it fires, not the
+ * one captured when it was armed. pi replaces ctx on reload / newSession /
+ * fork, and a stale ctx throws from its getters — clearing through the captured
+ * channel would therefore throw into the catch below and leave the status
+ * pinned in the very footer it was meant to free. The captured channel stays as
+ * the fallback for when the sink has since gone console-only.
+ */
+function scheduleStatusClear(armed: UiChannel): void {
+  cancelExpiry();
+  const timer = setTimeout(() => {
+    expiry = null;
+    const live = channel ?? armed;
+    try {
+      live.setStatus?.call(live.ui, STATUS_KEY, undefined);
+    } catch {
+      // Nothing left to clear through: a footer line that outlives its session
+      // is not worth throwing over.
+    }
+  }, STATUS_TTL_MS);
+  timer.unref?.();
+  expiry = timer;
+}
+
+/**
+ * Route one message to the channel that fits its level: `info` takes the footer
+ * status slot (and arms its own takedown), `warning` goes to a transient
+ * notification, which needs no expiry because the host drops it on its own.
+ */
+function toUi(c: UiChannel, msg: string, level: Level): void {
+  if (level === "info" && c.setStatus) {
+    c.setStatus.call(c.ui, STATUS_KEY, msg);
+    scheduleStatusClear(c);
+  } else c.notify.call(c.ui, msg, level);
+}
+
+/**
+ * The single funnel every message passes through, in order: the quiet switch,
+ * the load-time hold buffer, the host UI, and finally the console for hosts
+ * that have none (print/JSON mode, unit tests).
+ */
 function emit(msg: string, level: Level): void {
   if (quiet()) return;
   if (held) {
