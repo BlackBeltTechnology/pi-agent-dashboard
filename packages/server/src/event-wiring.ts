@@ -40,6 +40,7 @@ import type { PiGateway } from "./pi/pi-gateway.js";
 import { computePiBelowFloor, serverPiMinimum } from "./pi/pi-version-skew.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
+import { scheduleProjectSeed } from "./project-seed.js";
 import {
   customEventTypeOfEvent,
   isGroupableCustomEvent,
@@ -511,6 +512,10 @@ export function wireEvents(deps: EventWiringDeps): void {
     // registration is reflected. See change: archive-sessions-lazy-load.
     sessionArchive?.onBridgeRegister(sessionId);
     dispatchSessionRegisteredCwd?.(cwd);
+    // A session's cwd is a project the dashboard now knows about: seed the pi
+    // project defaults it lacks (deferred, gap-fill only, memoized per config
+    // root). See change: auto-seed-project-defaults.
+    scheduleProjectSeed(cwd);
     // ── attachProposal arm ───────────────────────────────────────────────
     let attachConsumed = false;
     if (pendingAttachRegistry) {

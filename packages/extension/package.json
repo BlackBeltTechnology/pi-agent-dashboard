@@ -12,6 +12,11 @@
   "publishConfig": {
     "access": "public"
   },
+  "exports": {
+    "./package.json": "./package.json",
+    "./*.js": "./src/*.ts",
+    "./*": "./src/*"
+  },
   "pi": {
     "extensions": [
       "src/bridge.ts"

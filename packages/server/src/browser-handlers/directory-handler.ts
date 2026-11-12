@@ -8,6 +8,7 @@ import { archiveCompleted as openspecArchiveCompleted } from "@blackbelt-technol
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import { isGroupByMode } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
+import { scheduleProjectSeed } from "../project-seed.js";
 import { safeRealpathSync } from "../resolve-path.js";
 import { gateRemoteFolder } from "./folder-gate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
@@ -83,6 +84,10 @@ export function pinDirectorySideEffects(
   // parent repo) and broadcasts the changed folder counts.
   // See change: archive-sessions-lazy-load.
   ctx.sessionArchive?.rekey();
+  // A newly known folder gains the pi project defaults it lacks, so it never
+  // renders as "not initialized". Deferred + gap-fill only.
+  // See change: auto-seed-project-defaults.
+  scheduleProjectSeed(resolved);
   broadcast({ type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
   if (directoryService) {
     directoryService.onDirectoryAdded(resolved).then(({ sessions, openspecData }) => {

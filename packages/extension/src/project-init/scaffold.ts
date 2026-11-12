@@ -20,7 +20,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { writeDoxKbConfig } from "./dox-kb-config.js";
+import { kbConfigPath, writeDoxKbConfig } from "./dox-kb-config.js";
 import type { Profile } from "./profiles.js";
 import { seedDoctrine } from "./seed-doctrine.js";
 
@@ -37,6 +37,20 @@ export interface ScaffoldOptions {
   substitutions?: Record<string, string>;
   /** Overwrite existing files. Default false (throws on conflict). */
   overwrite?: boolean;
+  /**
+   * Gap-fill mode: write only the artifacts that are ABSENT and leave every
+   * existing file byte-identical, instead of the default all-or-nothing
+   * behavior (`overwrite: false` throws on any conflict, `true` clobbers all).
+   *
+   * Used by the server's unattended auto-seed, where a half-configured project
+   * must gain its missing artifacts without the user's own AGENTS.md /
+   * settings.json ever being touched. Implies no throw on conflict. The DOX
+   * doctrine block is appended only to an AGENTS.md this call CREATED — a
+   * pre-existing one is never mutated. Default false.
+   *
+   * See change: auto-seed-project-defaults.
+   */
+  skipExisting?: boolean;
 }
 
 export interface ScaffoldPlan {
@@ -114,12 +128,57 @@ export function planScaffold(opts: ScaffoldOptions): ScaffoldPlan {
 }
 
 export interface ScaffoldResult extends ScaffoldPlan {
+  /** Paths left untouched because they already existed (`skipExisting` only). */
+  skipped: string[];
   /** True when the DOX doctrine was appended (false = already present or not dox). */
   doctrineSeeded: boolean;
   /** True when the worktreeInit hook rendered is structurally valid. */
   hookValid: boolean;
   /** `{{KEY}}` placeholders left unfilled across the written templates (should be empty). */
   leftover: string[];
+}
+
+/**
+ * Render `.pi/settings.json` from the profile template. Substitutions are
+ * JSON-escaped so a stack command or project name containing `"`/`\` cannot
+ * corrupt the file, and the rendered text is validated as JSON BEFORE any write
+ * so corruption surfaces as a thrown error rather than a broken settings file.
+ */
+function renderSettings(
+  profileDir: string,
+  subs: Record<string, string>,
+): { text: string; hookValid: boolean; leftover: string[] } {
+  const raw = fs.readFileSync(path.join(profileDir, "settings.json.tmpl"), "utf8");
+  const text = render(raw, subs, jsonEscape);
+  let parsed: { worktreeInit?: unknown };
+  try {
+    parsed = JSON.parse(text) as { worktreeInit?: unknown };
+  } catch (err) {
+    throw new Error(
+      `rendered .pi/settings.json is not valid JSON (check the profile template + substitutions): ${(err as Error).message}`,
+    );
+  }
+  return {
+    text,
+    hookValid: isValidWorktreeInit(parsed.worktreeInit),
+    leftover: leftoverPlaceholders(text),
+  };
+}
+
+/** Copy the profile's prompt files, honoring the caller's write guard. */
+function copyPrompts(
+  profileDir: string,
+  targetDir: string,
+  shouldWrite: (target: string) => boolean,
+): void {
+  const prompts = listPrompts(profileDir);
+  if (prompts.length === 0) return;
+  const promptsDir = path.join(targetDir, ".pi", "prompts");
+  fs.mkdirSync(promptsDir, { recursive: true });
+  for (const f of prompts) {
+    const target = path.join(promptsDir, f);
+    if (shouldWrite(target)) fs.copyFileSync(path.join(profileDir, "prompts", f), target);
+  }
 }
 
 /**
@@ -130,13 +189,23 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   const { profile, targetDir } = opts;
   const projectName = opts.projectName ?? path.basename(targetDir);
   const overwrite = opts.overwrite ?? false;
+  const skipExisting = opts.skipExisting ?? false;
   const subs = { PROJECT_NAME: projectName, ...(opts.substitutions ?? {}) };
   const leftover: string[] = [];
+  const skipped: string[] = [];
 
   const plan = planScaffold(opts);
-  if (!overwrite && plan.conflicts.length > 0) {
+  if (!overwrite && !skipExisting && plan.conflicts.length > 0) {
     throw new Error(`refusing to overwrite existing files: ${plan.conflicts.join(", ")}`);
   }
+  /** Gap-fill guard: in `skipExisting` mode an existing target is recorded, not written. */
+  const shouldWrite = (target: string): boolean => {
+    if (skipExisting && fs.existsSync(target)) {
+      skipped.push(target);
+      return false;
+    }
+    return true;
+  };
 
   // AGENTS.md
   const agentsMd = path.join(targetDir, "AGENTS.md");
@@ -144,46 +213,34 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   const agentsText = render(agentsTmpl, subs);
   leftover.push(...leftoverPlaceholders(agentsText));
   fs.mkdirSync(targetDir, { recursive: true });
-  fs.writeFileSync(agentsMd, agentsText, "utf8");
+  const wroteAgentsMd = shouldWrite(agentsMd);
+  if (wroteAgentsMd) fs.writeFileSync(agentsMd, agentsText, "utf8");
 
-  // .pi/settings.json. Substitutions are JSON-escaped so a stack command or
-  // project name containing `"`/`\` cannot corrupt the file; the rendered text
-  // is validated as JSON BEFORE writing so corruption surfaces as a thrown
-  // error rather than a silently-broken settings file.
-  const settingsRaw = fs.readFileSync(path.join(profile.dir, "settings.json.tmpl"), "utf8");
-  const settingsText = render(settingsRaw, subs, jsonEscape);
-  leftover.push(...leftoverPlaceholders(settingsText));
-  let parsedSettings: { worktreeInit?: unknown };
-  try {
-    parsedSettings = JSON.parse(settingsText) as { worktreeInit?: unknown };
-  } catch (err) {
-    throw new Error(
-      `rendered .pi/settings.json is not valid JSON (check the profile template + substitutions): ${(err as Error).message}`,
-    );
-  }
+  // .pi/settings.json
+  const settings = renderSettings(profile.dir, subs);
+  leftover.push(...settings.leftover);
   const settingsDir = path.join(targetDir, ".pi");
-  fs.mkdirSync(settingsDir, { recursive: true });
-  fs.writeFileSync(path.join(settingsDir, "settings.json"), settingsText, "utf8");
-  const hookValid = isValidWorktreeInit(parsedSettings.worktreeInit);
-
-  // prompts/*.md
-  const prompts = listPrompts(profile.dir);
-  if (prompts.length > 0) {
-    const promptsDir = path.join(targetDir, ".pi", "prompts");
-    fs.mkdirSync(promptsDir, { recursive: true });
-    for (const f of prompts) {
-      fs.copyFileSync(path.join(profile.dir, "prompts", f), path.join(promptsDir, f));
-    }
+  const settingsTarget = path.join(settingsDir, "settings.json");
+  if (shouldWrite(settingsTarget)) {
+    fs.mkdirSync(settingsDir, { recursive: true });
+    fs.writeFileSync(settingsTarget, settings.text, "utf8");
   }
 
-  // DOX: seed doctrine + kb toolset.
+  copyPrompts(profile.dir, targetDir, shouldWrite);
+
+  // DOX: seed doctrine + kb toolset. In gap-fill mode the doctrine block is
+  // appended only to an AGENTS.md this call created — a pre-existing one is the
+  // user's file and stays byte-identical.
   let doctrineSeeded = false;
   if (profile.dox) {
-    doctrineSeeded = seedDoctrine(agentsMd).seeded;
+    if (!skipExisting || wroteAgentsMd) doctrineSeeded = seedDoctrine(agentsMd).seeded;
     // Honor overwrite for the kb config too, so the plan/conflict UX (which
     // lists knowledge_base.json as a conflict) matches actual write behavior.
-    writeDoxKbConfig(targetDir, { overwrite });
+    // `writeDoxKbConfig` is already idempotent without `overwrite`, so gap-fill
+    // only needs to record the untouched file.
+    const kb = writeDoxKbConfig(targetDir, { overwrite: overwrite && !skipExisting });
+    if (!kb.written) skipped.push(kbConfigPath(targetDir));
   }
 
-  return { ...plan, doctrineSeeded, hookValid, leftover };
+  return { ...plan, skipped, doctrineSeeded, hookValid: settings.hookValid, leftover };
 }
