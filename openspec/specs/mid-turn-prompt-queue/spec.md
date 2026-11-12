@@ -794,7 +794,14 @@ In its `turn_end` handler, which pi awaits before draining its steer queue, the 
 
 #### Scenario: Handed-off steer is delivered in the same boundary
 - **WHEN** the bridge hands `"a"` to pi during a completed `turn_end`
+- **AND** no extension `input` handler delays pi's enqueue past the bridge's one-macrotask yield
 - **THEN** pi SHALL deliver `"a"` as a user message before its next LLM call
+
+#### Scenario: A slow input handler defers the hand-off by one boundary
+- **WHEN** the bridge hands `"a"` to pi during a completed `turn_end`
+- **AND** another extension's `input` handler awaits longer than one macrotask
+- **THEN** pi SHALL enqueue `"a"` after its post-`turn_end` steering poll
+- **AND** `"a"` SHALL be delivered at a later boundary, not lost
 
 #### Scenario: Images ride the hand-off
 - **WHEN** a held entry carries two images

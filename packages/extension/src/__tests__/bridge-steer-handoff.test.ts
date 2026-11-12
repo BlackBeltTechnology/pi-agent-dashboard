@@ -231,6 +231,16 @@ describe("steer buffer mutations (dispatch)", () => {
     expect(r.sendUserMessage).not.toHaveBeenCalled();
   });
 
+  it("a steer mutation addressed to another session (stale frame after a switch) changes nothing", async () => {
+    const r = makeRig();
+    r.steer.push({ text: "held for S1" });
+    await r.dispatch({ type: "clear_steering_entries", sessionId: "OLD" });
+    await r.dispatch({ type: "remove_steering_entry", sessionId: "OLD", id: "n:1" });
+    expect(r.steer.views().map((v) => v.text)).toEqual(["held for S1"]);
+    expect(r.emitQueueUpdate).not.toHaveBeenCalled();
+    expect(r.feedback).not.toHaveBeenCalled();
+  });
+
   it("E22: abort leaves both buffers alone and emits no queue_update", async () => {
     const r = makeRig();
     r.steer.push({ text: "a" });

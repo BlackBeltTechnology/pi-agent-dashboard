@@ -472,7 +472,15 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
   // ── Steer buffer mutation (bridge-held steers only) ─────────────────
   // A steer handed to pi left the buffer in the same synchronous step, so an
   // unknown id means "already sent or cancelled" — refused with feedback,
-  // never silently ignored. No pi call. See change: bridge-owned-cancellable-steer.
+  // never silently ignored. No pi call. A frame addressed to another session
+  // (stale, processed after a session switch) is dropped: the buffer now holds
+  // the new session's steers. See change: bridge-owned-cancellable-steer.
+  if (
+    (msg.type === "remove_steering_entry" || msg.type === "clear_steering_entries") &&
+    msg.sessionId !== inst.sessionId
+  ) {
+    return;
+  }
   if (msg.type === "remove_steering_entry") {
     const { id } = msg as { type: string; id?: unknown };
     if (typeof id !== "string" || !inst.bridgeSteer.removeById(id)) {
