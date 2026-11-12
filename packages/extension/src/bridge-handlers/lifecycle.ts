@@ -1014,13 +1014,20 @@ interface SteerHandOffApi {
 export async function handOffHeldSteers(inst: BridgeInstance, outcome: unknown): Promise<void> {
   if (outcome !== "completed" || inst.bridgeSteer.length === 0) return;
   const api = inst.pi as unknown as SteerHandOffApi;
+  // A session switch during the yields below must not deliver the rest into
+  // the new session (the reset clears only the buffer, not `taken`).
+  const originSessionId = inst.sessionId;
   let mode: SteeringMode = "one-at-a-time";
   try {
     if (api.getSettings?.()?.steeringMode === "all") mode = "all";
   } catch { /* settings probe failure → pi's default */ }
   const taken = inst.bridgeSteer.take(mode);
   inst.emitQueueUpdate();
-  for (const entry of taken) {
+  for (const [index, entry] of taken.entries()) {
+    if (inst.sessionId !== originSessionId) {
+      console.warn(`[dashboard] steer hand-off: session changed mid-hand-off — ${taken.length - index} steer(s) dropped`);
+      break;
+    }
     try {
       const result = api.sendUserMessage(
         buildUserMessageContent(entry.text, entry.images),

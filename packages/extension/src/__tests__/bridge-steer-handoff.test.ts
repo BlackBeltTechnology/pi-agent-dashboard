@@ -150,6 +150,19 @@ describe("held-steer hand-off at turn_end", () => {
     expect(r.sendUserMessage.mock.calls.map((c) => c[0])).toEqual(["1", "2"]);
   });
 
+  it("a session switch during the hand-off yields stops the remaining sends", async () => {
+    const r = makeRig({ mode: "all" });
+    r.steer.push({ text: "1", promptId: "p1" });
+    r.steer.push({ text: "2", promptId: "p2" });
+    const done = r.turnEnd("completed");
+    await Promise.resolve();
+    expect(r.log).toEqual(["queue:", "send:1"]);
+    r.inst.sessionId = "NEW";
+    await settle(done);
+    expect(r.sendUserMessage.mock.calls.map((c) => c[0])).toEqual(["1"]);
+    expect(r.acks().map((m: { promptId?: string }) => m.promptId)).toEqual(["p1"]);
+  });
+
   it("X1: an asynchronously rejecting send does not escape; buffer already empty, no retry", async () => {
     vi.useRealTimers();
     const unhandled = vi.fn();
