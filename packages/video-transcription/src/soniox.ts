@@ -67,7 +67,7 @@ export class SonioxClient {
       method: "POST",
       headers: { ...this.authHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "stt-async-v3",
+        model: "stt-async-v6",
         enable_speaker_diarization: true,
         enable_language_identification: true,
         file_id: fileId,
