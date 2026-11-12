@@ -15,6 +15,7 @@ import { Icon } from "@mdi/react";
 import { t } from "../../lib/i18n/i18n.js";
 import { QueuePanel } from "../session/QueuePanel.js";
 import { type DockLane, dockLaneLabel } from "./composer-dock-model.js";
+import { QUEUE_CLEAR_ALL_CLASS } from "./queue-control-classes.js";
 
 export interface QueueLaneInput {
   /** `normalizeFollowUpEntries(session.pendingQueues?.followUp)`. */
@@ -52,7 +53,7 @@ export function buildQueueLane({ followUp, onEdit, onRemove, onPromote, onClearA
           onClick={onClearAll}
           aria-label={clearLabel}
           title={clearLabel}
-          className="focus-ring inline-flex min-h-6 min-w-6 items-center gap-1 rounded px-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] max-md:min-h-11 max-md:min-w-11 max-md:justify-center"
+          className={QUEUE_CLEAR_ALL_CLASS}
         >
           <Icon path={mdiCloseCircleOutline} size={0.6} aria-hidden="true" />
           {t("dock.queue.clearAll", undefined, "Clear all")}

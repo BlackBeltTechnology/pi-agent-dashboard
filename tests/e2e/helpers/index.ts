@@ -86,6 +86,12 @@ export const TESTIDS = {
   queueFollowupEditor: "queue-followup-editor",
   queueFollowupEditorSubmit: "queue-followup-editor-submit",
   queueFollowupPosition: "queue-followup-position",
+  // Held-steer bubbles (bridge-owned, cancellable until hand-off): the card
+  // wrapper, its bubble, the image-count badge and the bulk clear.
+  // Per-entry cancel is `pending-steer-cancel-<id>`. See change: bridge-owned-cancellable-steer.
+  pendingSteerCard: "pending-steer-card",
+  pendingSteerAttachments: "pending-steer-attachments",
+  pendingSteerClearAll: "pending-steer-clear-all",
   // VCS panels (scenario backlog).
   composerGitGroup: "composer-git-group",
   composerStatusGroup: "composer-status-group",

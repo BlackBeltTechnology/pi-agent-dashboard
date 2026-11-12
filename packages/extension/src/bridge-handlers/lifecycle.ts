@@ -17,6 +17,7 @@ import { extractFirstMessage, filterHiddenCommands, getCurrentModelString, isHea
 import { hasExplicitModelArg, shouldApplyDefaultModel } from "../bridge-default-model-gate.js";
 import { drainDisposables } from "../bridge-polling.js";
 import { registerCanvasTool } from "../canvas-tool.js";
+import { buildUserMessageContent } from "../command-handler.js";
 import { DashboardDefaultAdapter } from "../dashboard-default-adapter.js";
 import { decideRetarget } from "../endpoint-resolution.js";
 import { mapEventToProtocol } from "../event-forwarder.js";
@@ -43,6 +44,7 @@ import { loadServerPins, notePinEndpoint, serverPinsPath } from "../server-pin-s
 import { verifyDiscoveredCandidate } from "../server-proof-probe.js";
 import { handleSessionChange as _handleSessionChange, branchFingerprint, consumeSpawnToken, filterByEnabledModels, isLive } from "../session-sync.js";
 import { detectSessionSource } from "../source-detector.js";
+import type { SteeringMode } from "../steer-buffer.js";
 import { consumePendingReloadOnSessionStart, releaseBridgeOwnerOnShutdown, reloadCompletedFeedback } from "../terminal-reload.js";
 import { refreshUiModules, subscribeUiInvalidate } from "../ui-modules.js";
 import { runUiSafely } from "../ui-stale-guard.js";
@@ -119,11 +121,12 @@ function handleSessionChange(inst: BridgeInstance, ctx: any, usageSeed?: ReturnT
   inst.autoNamer = undefined;
   inst.namerState = undefined;
   inst.shared.namerState = undefined;
-  // Bridge shadow queues reset on session change so the new session
-  // starts with empty chips. See change: add-followup-edit-and-steer-cancel.
-  if (inst.bridgeSteering.length > 0 || inst.bridgeFollowUp.length > 0) {
-    inst.bridgeSteering = [];
-    // Drops every entry AND its image bytes, releasing the byte budget.
+  // Bridge-owned queues reset on session change so the new session
+  // starts with empty chips. See change: add-followup-edit-and-steer-cancel,
+  // bridge-owned-cancellable-steer.
+  if (inst.bridgeSteer.length > 0 || inst.bridgeFollowUp.length > 0) {
+    // Both drop every entry AND its image bytes, releasing the byte budgets.
+    inst.bridgeSteer.clear();
     inst.bridgeFollowUp.reset();
     inst.emitQueueUpdate();
   }
@@ -638,6 +641,10 @@ export function registerSessionStart(inst: BridgeInstance): void {
 
     // Allow event forwarding now that session_register is buffered
     inst.sessionReady = true;
+    // Re-announce the bridge's queues (empty included) on every register so
+    // the server cache never shows a previous bridge's held steers.
+    // See change: bridge-owned-cancellable-steer (D7).
+    inst.emitQueueUpdate();
 
     // D3: mint-on-registration. Ask the mcp-server plugin for this session's
     // /mcp credential now that the socket is (re)registered — the reply
@@ -984,7 +991,61 @@ export function registerSessionStart(inst: BridgeInstance): void {
   }));
 }
 
-/** `turn_end`: stop-after-turn latch, auto-name, usage drain. */
+/**
+ * Hand held steers to pi inside the awaited `turn_end` handler — pi awaits
+ * extension `turn_end` handlers BEFORE it polls its steering queue on a
+ * completed turn (`pi-agent-core` agent-loop), so this is the single race-free
+ * hand-off point. Aborted / errored turns never drain in pi; held steers then
+ * wait for the settle drain.
+ *
+ * Remove-first (design D2): the entries leave the buffer and `queue_update`
+ * goes out in ONE synchronous step, BEFORE any send, so a cancel processed
+ * during the yields below finds nothing ("already sent or cancelled"). One
+ * macrotask yield after each send lets pi's async `prompt()` chain (input
+ * handlers → `_queueSteer`) enqueue before the next send / before pi drains.
+ * See change: bridge-owned-cancellable-steer (D1, D2, D3).
+ */
+/** The slice of pi 1.5's ExtensionAPI the hand-off uses (`getSettings`, two-arg `sendUserMessage`). */
+interface SteerHandOffApi {
+  getSettings?: () => { steeringMode?: string } | undefined;
+  sendUserMessage: (content: ReturnType<typeof buildUserMessageContent>, options: { deliverAs: "steer" }) => unknown;
+}
+
+export async function handOffHeldSteers(inst: BridgeInstance, outcome: unknown): Promise<void> {
+  if (outcome !== "completed" || inst.bridgeSteer.length === 0) return;
+  const api = inst.pi as unknown as SteerHandOffApi;
+  // A session switch during the yields below must not deliver the rest into
+  // the new session (the reset clears only the buffer, not `taken`).
+  const originSessionId = inst.sessionId;
+  let mode: SteeringMode = "one-at-a-time";
+  try {
+    if (api.getSettings?.()?.steeringMode === "all") mode = "all";
+  } catch { /* settings probe failure → pi's default */ }
+  const taken = inst.bridgeSteer.take(mode);
+  inst.emitQueueUpdate();
+  for (const [index, entry] of taken.entries()) {
+    if (inst.sessionId !== originSessionId) {
+      console.warn(`[dashboard] steer hand-off: session changed mid-hand-off — ${taken.length - index} steer(s) dropped`);
+      break;
+    }
+    try {
+      const result = api.sendUserMessage(
+        buildUserMessageContent(entry.text, entry.images),
+        { deliverAs: "steer" },
+      );
+      // pi's wrapper already swallows async failures; guard a raw promise too.
+      if (result instanceof Promise) result.catch(() => {});
+      // Ack only a steer pi accepted (same as the settle drain).
+      inst.ackSteerDelivered(entry.promptId);
+    } catch (err) {
+      // INTENTIONAL: no re-push (double delivery is worse than a drop), no ack.
+      console.warn("[dashboard] steer hand-off: pi.sendUserMessage threw — entry lost:", err);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+/** `turn_end`: stop-after-turn latch, auto-name, usage drain, steer hand-off. */
 export function registerTurnEnd(inst: BridgeInstance): void {
   const pi = inst.pi;
   pi.on("turn_end", inst.safe(async (event: any, ctx: any) => {
@@ -1008,6 +1069,8 @@ export function registerTurnEnd(inst: BridgeInstance): void {
       }
     }
 
+    // Last: every other turn_end duty has run even if the hand-off yields.
+    await handOffHeldSteers(inst, event?.outcome);
   }));
 }
 

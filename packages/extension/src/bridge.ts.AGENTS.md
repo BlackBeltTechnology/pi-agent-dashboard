@@ -32,3 +32,5 @@ Default export registers shared `claudeCompatExtension(() => getBridgeState().cl
 Provisional move `session_register` carries `pidNamespace: processPidNamespace()` (same value as every register). See change: scope-pids-to-namespace.
 
 See change: add-spawn-model-choice. `spawnNew` sends `buildSpawnNewSessionMessage(...)` (inherits current model + thinking level).
+
+`inst.bridgeSteer = createSteerBuffer(randomUUID().slice(0,8))` replaces `bridgeSteering`/`recordSteerSent`. `bufferSteerSend(text, images?, promptId?)` → `admitSteer`; `ackSteerDelivered(promptId)` emits `prompt_received{fresh:false,promptId}`. `sessionPrompt` fallback splits `bufferFollowUp` / `bufferSteer`; streaming steer held, ack w/o `promptId`. `emitQueueUpdate` sends `steering: bridgeSteer.views()`. `onReconnect` re-announces queues after `sendStateSync`. Drain passes `steerBuffer` + `ackSteer`. See change: bridge-owned-cancellable-steer.

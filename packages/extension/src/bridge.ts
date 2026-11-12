@@ -5,6 +5,7 @@
  * forwards all pi events, and relays commands back.
  */
 
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -47,6 +48,7 @@ import {
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
+import { admitSteer, createSteerBuffer } from "./steer-buffer.js";
 import { drainOneFollowup } from "./followup-drain.js";
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
 import { createInboundLimits } from "./inbound-limits.js";
@@ -511,10 +513,11 @@ function initBridge(pi: ExtensionAPI) {
 
   // Bridge-owned queue structures with TWO different ownership models:
   //
-  // • bridgeSteering (pi-OWNED + SHADOW) — mirrors pi's Agent.steeringQueue.
-  //   Mutated only by `recordSteerSent` (on bridge-originated steer sends) +
-  //   drain-by-message_start-matcher (when pi delivers a queued steer entry,
-  //   the matching text is spliced).
+  // • bridgeSteer (BRIDGE-OWNED BUFFER) — dashboard-originated steers held
+  //   while the agent streams, cancellable until handed to pi. Handed off in
+  //   the awaited `turn_end` handler on completed turns (before pi drains its
+  //   steering queue), else shipped by the settle drain ahead of follow-ups.
+  //   State lives in `steer-buffer.ts`. See change: bridge-owned-cancellable-steer.
   //
   // • bridgeFollowUp (BRIDGE-OWNED BUFFER) — authoritative store for
   //   dashboard-originated follow-up entries while the agent is streaming.
@@ -530,11 +533,12 @@ function initBridge(pi: ExtensionAPI) {
   //
   // Both feed the same `queue_update` ExtensionToServerMessage.
   //
-  // Steer is permanently pi-owned + display-only (steer drains too fast at
-  // turn_end for mutation UI to matter; user direction).
-  //
-  // See change: rework-mid-turn-prompt-queue (spec mid-turn-prompt-queue).
-  inst.bridgeSteering = [];
+  // See change: rework-mid-turn-prompt-queue (spec mid-turn-prompt-queue),
+  // bridge-owned-cancellable-steer.
+  // Fresh nonce per bridge instance: steer ids are never reused across
+  // bridge lifetimes (a reload mints a new nonce).
+  inst.bridgeSteer = createSteerBuffer(randomUUID().slice(0, 8));
+  const bridgeSteer = inst.bridgeSteer;
   const bridgeFollowUp = createFollowupBuffer();
   inst.bridgeFollowUp = bridgeFollowUp;
   function emitQueueUpdate(): void {
@@ -542,7 +546,7 @@ function initBridge(pi: ExtensionAPI) {
     inst.connection.send({
       type: "queue_update",
       sessionId: inst.sessionId,
-      steering: [...inst.bridgeSteering],
+      steering: bridgeSteer.views(),
       // Views only: text + image COUNT. Image bytes never cross the wire.
       followUp: bridgeFollowUp.views(),
     });
@@ -566,14 +570,23 @@ function initBridge(pi: ExtensionAPI) {
     });
   }
   inst.sendCommandFeedback = sendCommandFeedback;
-  function recordSteerSent(text: string): void {
-    // Only record when the agent was actually streaming at send time. Idle
-    // sends start a new turn directly — pi doesn't queue them, so the
-    // shadow queue must not show a chip. See change: add-followup-edit-and-steer-cancel.
-    if (!getBridgeState().isAgentStreaming) return;
-    inst.bridgeSteering.push(text);
-    emitQueueUpdate();
+  /**
+   * Hold a streaming steer in the bridge-owned steer buffer INSTEAD of
+   * handing it to pi. Callers gate on the capture-before-send streaming
+   * verdict; idle steers go to pi directly. `admitSteer` validates images
+   * (follow-up path + feedback); refusal is whole-entry. `promptId` rides the
+   * entry and is acked only when the steer reaches pi.
+   * See change: bridge-owned-cancellable-steer (D1, D3, D6).
+   */
+  function bufferSteerSend(text: string, images?: unknown, promptId?: string): void {
+    admitSteer(bridgeSteer, { text, images, promptId }, { sendCommandFeedback, emitQueueUpdate });
   }
+  /** Ack a steer's `promptId` once it has been handed to pi. */
+  function ackSteerDelivered(promptId: string | undefined): void {
+    if (!promptId || !isActive() || !inst.sessionReady) return;
+    inst.connection.send({ type: "prompt_received", sessionId: inst.sessionId, fresh: false, promptId });
+  }
+  inst.ackSteerDelivered = ackSteerDelivered;
   /**
    * Push a follow-up entry into the bridge-owned buffer.
    *
@@ -647,9 +660,11 @@ function initBridge(pi: ExtensionAPI) {
     try {
       drainOneFollowup({
         buffer: bridgeFollowUp,
+        steerBuffer: bridgeSteer,
         ctx: inst.cachedCtx,
         emitQueueUpdate,
         sendUserMessage: (content) => (pi.sendUserMessage as any)(content),
+        ackSteer: ackSteerDelivered,
       });
     } finally {
       isDraining = false;
@@ -1284,6 +1299,10 @@ function initBridge(pi: ExtensionAPI) {
       // same value. See change: fix-large-session-resume-replay (D7).
       const liveTailOpen = isLive(inst.cachedCtx, getBridgeState().isAgentStreaming);
       sendStateSync({ liveTailOpen });
+      // Re-announce the bridge's queues on every re-register so the server
+      // cache never shows a previous bridge's steers. See change:
+      // bridge-owned-cancellable-steer (D7).
+      emitQueueUpdate();
       // The server does not persist `piVersion` / `piBelowFloor`; re-send now
       // rather than on the next poll tick. See change: update-pi-core-1-0-adopt-apis.
       sendPiVersionIfChanged();
@@ -1534,8 +1553,9 @@ function initBridge(pi: ExtensionAPI) {
       //   delivery="followUp" + streaming → buffer in bridgeFollowUp ONLY
       //                                      (pi never sees it until drain on
       //                                      agent_settled).
-      //   delivery="steer"    + streaming → pi.sendUserMessage({deliverAs:"steer"})
-      //                                      + shadow append via recordSteerSent.
+      //   delivery="steer"    + streaming → buffer in bridgeSteer ONLY (handed
+      //                                      to pi at a completed turn_end or
+      //                                      the settle drain; cancellable until).
       //   any delivery        + idle      → pi.sendUserMessage with {deliverAs}
       //                                      (pi ignores it when idle and starts
       //                                      a fresh turn). No buffer push.
@@ -1555,25 +1575,30 @@ function initBridge(pi: ExtensionAPI) {
       // buffered, and the non-turn routes above returned already.
       // See change: optimistic-prompt-progress,
       //             fix-spawn-correlation-ttl-coupling (D7).
-      const buffered = wasStreaming && deliverAs === "followUp";
+      // Two separate routing flags (design D3): extending one `buffered` flag
+      // would route steers into bridgeFollowUp.
+      const bufferFollowUp = wasStreaming && deliverAs === "followUp";
+      const bufferSteer = wasStreaming && deliverAs === "steer";
       inst.connection.send({
         type: "prompt_received",
         sessionId: inst.sessionId,
         fresh: !wasStreaming,
-        ...(promptId && !buffered ? { promptId } : {}),
+        ...(promptId && !bufferFollowUp && !bufferSteer ? { promptId } : {}),
       });
       const expanded = expandPromptTemplateFromDisk(text, process.cwd(), pi);
-      if (buffered) {
+      if (bufferFollowUp) {
         // Bridge-owned buffer path — do NOT call pi.sendUserMessage. The
         // drain on agent_settled will ship the entry as a fresh turn.
         bufferFollowupSend(expanded);
+      } else if (bufferSteer) {
+        // Held, cancellable; the hand-off acks `promptId`.
+        bufferSteerSend(expanded, undefined, promptId);
       } else {
-        // Idle send or steer send — forward to pi directly.
+        // Idle send — forward to pi directly (fresh turn).
         (pi.sendUserMessage as any)(expanded, { deliverAs });
-        if (wasStreaming && deliverAs === "steer") recordSteerSent(expanded);
       }
     },
-    onSteerSent: recordSteerSent,
+    onSteerBuffered: bufferSteerSend,
     onFollowupSent: bufferFollowupSend,
     isStreaming: () => getBridgeState().isAgentStreaming === true,
     // Clear only the abort latch before prompt routing. A streaming follow-up

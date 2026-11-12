@@ -1693,13 +1693,14 @@ describe("CommandHandler — ack handle and dropped-message reporting", () => {
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
   });
 
-  it("echoes the promptId on a steer send, which does reach pi", async () => {
+  it("holds a streaming steer: ack carries no promptId, the entry keeps it (bridge-owned-cancellable-steer D3)", async () => {
     const events: any[] = [];
     const pi = mockPi();
+    const onSteerBuffered = vi.fn();
     const handler = createCommandHandler(pi as any, "s1", {
       eventSink: (m) => events.push(m),
       isStreaming: () => true,
-      onSteerSent: () => {},
+      onSteerBuffered,
     });
 
     await handler.handle({
@@ -1710,8 +1711,12 @@ describe("CommandHandler — ack handle and dropped-message reporting", () => {
       promptId: "p-steer",
     } as ServerToExtensionMessage);
 
-    expect(events.find((e) => e.type === "prompt_received").promptId).toBe("p-steer");
-    expect(pi.sendUserMessage).toHaveBeenCalled();
+    const ack = events.find((e) => e.type === "prompt_received");
+    expect(ack.fresh).toBe(false);
+    expect(ack).not.toHaveProperty("promptId");
+    expect(onSteerBuffered).toHaveBeenCalledWith("hello", undefined, "p-steer");
+    // Held in the bridge: pi is not called until hand-off.
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
   });
 
   // A slash command that falls through to `pi.sendUserMessage` DID reach pi, so
@@ -1852,7 +1857,7 @@ describe("extension slash dispatch precedence (test-plan E15–E20)", () => {
     const src = readBridgeSource("bridge.ts");
     const start = src.indexOf("sessionPrompt: async (text, delivery, promptId) => {");
     expect(start, "sessionPrompt closure not found in bridge.ts").toBeGreaterThan(-1);
-    const end = src.indexOf("onSteerSent: recordSteerSent,", start);
+    const end = src.indexOf("onSteerBuffered: bufferSteerSend,", start);
     expect(end, "sessionPrompt closure end not found").toBeGreaterThan(start);
     return src.slice(start, end);
   }

@@ -76,4 +76,14 @@ describe("handleServerMessage", () => {
     expect(() => handleServerMessage(m({ type: "brand_new_member" }), c)).not.toThrow();
     expect(c.send).not.toHaveBeenCalled();
   });
+
+  it("X4: steer mutations are dropped for ACP sessions (no bridge steer buffer)", () => {
+    const c = ctx();
+    handleServerMessage(m({ type: "remove_steering_entry", id: "n:1" }), c);
+    handleServerMessage(m({ type: "clear_steering_entries" }), c);
+    expect(c.ignored.mock.calls).toEqual([["remove_steering_entry"], ["clear_steering_entries"]]);
+    expect(c.removeFollowup).not.toHaveBeenCalled();
+    expect(c.clearFollowups).not.toHaveBeenCalled();
+    expect(c.send).not.toHaveBeenCalled();
+  });
 });

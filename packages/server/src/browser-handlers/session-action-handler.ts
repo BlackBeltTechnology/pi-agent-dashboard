@@ -1178,9 +1178,12 @@ export function handleStopAfterTurn(
 // session's bridge. The bridge mutates `bridgeFollowUp` locally; nothing
 // touches pi. The OLD pi-mutation message types from Phase 3
 // (`clear_steering_queue`, `clear_followup_slot`, `edit_followup_slot`)
-// remain permanently deleted. Steer mutation is never exposed.
+// remain permanently deleted.
 //
-// See change: rework-mid-turn-prompt-queue.
+// Steer mutation (`remove_steering_entry` / `clear_steering_entries`) targets
+// the bridge-owned steer buffer — held steers not yet handed to pi.
+//
+// See change: rework-mid-turn-prompt-queue, bridge-owned-cancellable-steer.
 
 export function handleClearFollowupEntries(
   msg: Extract<BrowserToServerMessage, { type: "clear_followup_entries" }>,
@@ -1233,6 +1236,29 @@ export function handlePromoteFollowupEntry(
 
 
 
+
+export function handleRemoveSteeringEntry(
+  msg: Extract<BrowserToServerMessage, { type: "remove_steering_entry" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (!ctx.sessionManager.get(msg.sessionId)) return;
+  ctx.piGateway.sendToSession(msg.sessionId, {
+    type: "remove_steering_entry",
+    sessionId: msg.sessionId,
+    id: msg.id,
+  });
+}
+
+export function handleClearSteeringEntries(
+  msg: Extract<BrowserToServerMessage, { type: "clear_steering_entries" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (!ctx.sessionManager.get(msg.sessionId)) return;
+  ctx.piGateway.sendToSession(msg.sessionId, {
+    type: "clear_steering_entries",
+    sessionId: msg.sessionId,
+  });
+}
 
 export function handleKillProcess(
   msg: Extract<BrowserToServerMessage, { type: "kill_process" }>,
