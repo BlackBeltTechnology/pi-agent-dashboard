@@ -1028,11 +1028,12 @@ export async function handOffHeldSteers(inst: BridgeInstance, outcome: unknown):
       );
       // pi's wrapper already swallows async failures; guard a raw promise too.
       if (result instanceof Promise) result.catch(() => {});
+      // Ack only a steer pi accepted (same as the settle drain).
+      inst.ackSteerDelivered(entry.promptId);
     } catch (err) {
-      // INTENTIONAL: no re-push (double delivery is worse than a drop).
+      // INTENTIONAL: no re-push (double delivery is worse than a drop), no ack.
       console.warn("[dashboard] steer hand-off: pi.sendUserMessage threw — entry lost:", err);
     }
-    inst.ackSteerDelivered(entry.promptId);
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }

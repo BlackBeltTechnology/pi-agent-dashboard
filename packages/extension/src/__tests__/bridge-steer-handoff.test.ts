@@ -167,6 +167,19 @@ describe("held-steer hand-off at turn_end", () => {
     expect(unhandled).not.toHaveBeenCalled();
   });
 
+  it("X1b: a send that throws synchronously loses the entry without acking its promptId", async () => {
+    const r = makeRig({
+      sendImpl: () => {
+        throw new Error("pi refused");
+      },
+    });
+    r.steer.push({ text: "a", promptId: "p-lost" });
+    await settle(r.turnEnd("completed"));
+    expect(r.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(r.steer.length).toBe(0);
+    expect(r.acks().filter((m: { promptId?: string }) => m.promptId === "p-lost")).toHaveLength(0);
+  });
+
   it("X2: getSettings throwing falls back to one-at-a-time; the usage drain still ran", async () => {
     const r = makeRig({ getSettingsThrows: true });
     r.steer.push({ text: "a" });
