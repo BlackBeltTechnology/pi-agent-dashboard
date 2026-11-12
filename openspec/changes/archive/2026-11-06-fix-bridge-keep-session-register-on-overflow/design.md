@@ -8,8 +8,10 @@ on a large replay the register is the oldest frame and the first evicted.
 
 ## Goals / Non-Goals
 
-**Goals:** buffered `session_register` and `session_unregister` frames always
-reach the server, in order.
+**Goals:** buffered `session_register` and `session_unregister` frames reach
+the server, in order, whenever the ring holds at least one non-lifecycle frame
+to evict instead. The degenerate all-lifecycle ring (D1 fallback, reachable
+only with a tiny `maxBufferSize`) still evicts the oldest frame.
 
 **Non-Goals:** lossless replay (the server re-replays from the JSONL after
 register), a larger default ring, a protocol change.

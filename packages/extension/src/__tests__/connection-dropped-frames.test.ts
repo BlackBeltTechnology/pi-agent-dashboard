@@ -2,7 +2,8 @@
  * Task 3.4 (bridge side) for change: fix-stuck-tool-card-on-dropped-event.
  *
  * The bridge buffers outgoing messages while the WS is not OPEN in a bounded
- * ring; on overflow `buffer.shift()` evicts the oldest. This suite proves the
+ * ring; on overflow `bufferMessage` evicts the oldest non-lifecycle frame
+ * (`session_register` / `session_unregister` are kept). This suite proves the
  * eviction is now COUNTED (`getDroppedBufferedCount`) and rate-limited-LOGGED
  * with `hop:"bridge→server"` + the dropped message type.
  */
