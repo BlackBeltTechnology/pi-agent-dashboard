@@ -76,7 +76,7 @@
 - [x] 5.12 Test (test-plan #F4), exemplar `tests/e2e/followup-settle-drain.spec.ts`: new faux slow-tool→text scenario in `qa/fixtures/faux-scenarios.ts` · steer `s-mid` during tool turn · card gone; `s-mid` bubble before final assistant text in DOM order
 - [x] 5.13 Test (test-plan #F5), exemplar `tests/e2e/composer-liveness-reload.spec.ts`: steer held during slow stream · reload the bridge · converges to 0 `pending-steer-card`
 - [x] 5.14 Test (test-plan #F6), exemplar `tests/e2e/followup-image-queue.spec.ts`: 2 held steers, one with images · render · each ✕ right edge within 1 px of its bubble's right padding edge, same offset in both
-- [ ] 5.15 Manual check (test-plan: manual-only, #F7): compare the chat tail with 2 steers + dock in dark and light against `mockups/2026-11-12-steer-cancel-images`; controls read as the follow-up controls
+- [x] 5.15 Manual check (test-plan: manual-only, #F7): compare the chat tail with 2 steers + dock in dark and light against `mockups/2026-11-12-steer-cancel-images`; controls read as the follow-up controls
 
 ## 6. Docs + integration
 

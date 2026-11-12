@@ -6,39 +6,6 @@ Surface per-session pending-prompt state typed while the agent is mid-turn. User
 
 ## Requirements
 
-### Requirement: Typed-during-streaming prompts are forwarded to pi's native queues
-
-When the bridge receives a `send_prompt` message AND `getBridgeState().isAgentStreaming === true` for the target session AND the prompt is not a slash, bash, compact, reload, new, model, or mgmt command, the bridge SHALL route based on `msg.delivery` — follow-up goes to the bridge-owned buffer, steer goes to pi's queue:
-
-- If `delivery === "followUp"` (or absent — backward-compat default), the bridge SHALL push a `{ text, images? }` entry into its in-memory `bridgeFollowUp` buffer AND emit `queue_update { sessionId, steering, followUp }` carrying the entry VIEWS (`{ text, imageCount }`), never image bytes. The bridge SHALL NOT call `pi.sendUserMessage(text, { deliverAs: "followUp" })`. Pi does not receive the message until the drain loop ships it later (see "Bridge follow-up drain loop runs on agent_settled").
-
-- If `delivery === "steer"`, the bridge SHALL call `pi.sendUserMessage(text, { deliverAs: "steer" })` directly. Steer remains pi-owned; the bridge tracks shadow steering via `recordSteerSent` + drain-by-`message_start`-matcher (unchanged from prior architecture).
-
-The bridge SHALL NOT call `pi.clearSteeringQueue()`, `pi.clearFollowUpQueue()`, or `pi.clearAllQueues()` from any code path. None of these methods are exposed on pi's ExtensionAPI through pi 1.3.0 (re-verified: `dist/core/extensions/types.d.ts` declares none of them).
-
-When `getBridgeState().isAgentStreaming === false` (idle session), the bridge SHALL call `pi.sendUserMessage(text, { deliverAs })` directly, with `deliverAs` defaulting to `"followUp"`. pi ignores `deliverAs` when idle and starts a fresh turn; when pi is already busy (a run starting, pi ≥ 1.2.0, before the bridge sees `agent_start`), pi queues the message natively instead of rejecting it. Idle sends bypass the buffer entirely (no chip appears).
-
-#### Scenario: Follow-up send while streaming buffers in bridge
-- **WHEN** the agent is streaming
-- **AND** `bridgeFollowUp` is `["original"]`
-- **AND** the bridge receives `send_prompt { text: "second", delivery: "followUp" }`
-- **THEN** the bridge SHALL push to `bridgeFollowUp`, making it `[{text:"original"}, {text:"second"}]`
-- **AND** the bridge SHALL emit `queue_update { followUp: [{text:"original", imageCount:0}, {text:"second", imageCount:0}] }`
-- **AND** the bridge SHALL NOT call `pi.sendUserMessage` at all for this message
-
-#### Scenario: Steer send during streaming routes to pi directly
-- **WHEN** the agent is streaming
-- **AND** the bridge receives `send_prompt { text: "focus on auth", delivery: "steer" }`
-- **THEN** the bridge SHALL call `pi.sendUserMessage("focus on auth", { deliverAs: "steer" })`
-- **AND** the bridge SHALL push to `bridgeSteering` via `recordSteerSent`
-- **AND** the bridge SHALL emit `queue_update`
-
-#### Scenario: Idle send bypasses the buffer
-- **WHEN** the agent is idle
-- **AND** the bridge receives `send_prompt { text: "hi" }`
-- **THEN** the bridge SHALL call `pi.sendUserMessage("hi", { deliverAs: "followUp" })`
-- **AND** the bridge SHALL NOT touch `bridgeFollowUp` or `bridgeSteering`
-
 ### Requirement: Protocol `send_prompt` messages carry optional delivery field
 
 `SendPromptToExtensionMessage` and `SendPromptToBrowserMessage` SHALL include an optional `delivery?: "steer" | "followUp"` field. When absent, the receiver SHALL treat the message as `delivery: "followUp"`. The server SHALL pass `delivery` through transparently from browser → bridge without inspection or modification.
@@ -54,21 +21,20 @@ When `getBridgeState().isAgentStreaming === false` (idle session), the bridge SH
 
 ### Requirement: Server caches per-session queue state from `queue_update` events
 
-The server SHALL maintain a per-session `pendingQueues: { steering: string[]; followUp: FollowUpEntryView[] }` field inside `SessionUiState`, where `FollowUpEntryView = { text: string; imageCount: number }`. The field SHALL be updated whenever a `queue_update` ExtensionToServerMessage arrives from a bridge for that session. The server SHALL include `pendingQueues` in every `session_updated` broadcast and in the initial-state replay sent on browser subscribe.
+The server SHALL maintain a per-session `pendingQueues: { steering: SteerEntryView[]; followUp: FollowUpEntryView[] }` field inside `SessionUiState`, where `FollowUpEntryView = { text: string; imageCount: number }` and `SteerEntryView = { id: string; text: string; imageCount: number }`. The field SHALL be updated whenever a `queue_update` ExtensionToServerMessage arrives from a bridge for that session. The server SHALL include `pendingQueues` in every `session_updated` broadcast and in the initial-state replay sent on browser subscribe.
 
-The server SHALL forward `followUp` entries verbatim and SHALL NOT inspect, rewrite, or validate their fields. `steering` remains `string[]` (pi-owned, display-only, never image-bearing).
+The server SHALL forward `steering` and `followUp` entries verbatim and SHALL NOT inspect, rewrite, or validate their fields; a bridge older than this change sends `steering` as plain strings, which the server forwards unchanged. Image bytes SHALL NOT appear in either array.
 
 This replaces the prior `queue.pending: PendingPrompt[]` cache, which was sourced from the deleted `queue_state` event.
 
 #### Scenario: queue_update populates the cache
-- **WHEN** a bridge sends `queue_update { sessionId: "S", steering: ["a", "b"], followUp: [{ text: "c", imageCount: 0 }] }`
-- **THEN** the server SHALL set `SessionUiState[S].pendingQueues = { steering: ["a", "b"], followUp: [{ text: "c", imageCount: 0 }] }`
+- **WHEN** a bridge sends `queue_update { sessionId: "S", steering: [{ id: "1", text: "a", imageCount: 0 }], followUp: [{ text: "c", imageCount: 0 }] }`
+- **THEN** the server SHALL set `SessionUiState[S].pendingQueues` to exactly that `steering` and `followUp`
 - **AND** the server SHALL broadcast `session_updated` with the new value to subscribers
 
 #### Scenario: Image-bearing entry round-trips its count
-- **WHEN** a bridge sends `queue_update { sessionId: "S", steering: [], followUp: [{ text: "describe", imageCount: 2 }] }`
-- **THEN** the server SHALL set `pendingQueues.followUp` to `[{ text: "describe", imageCount: 2 }]`
-- **AND** the broadcast SHALL carry `imageCount: 2` unmodified
+- **WHEN** a bridge sends `queue_update { sessionId: "S", steering: [{ id: "2", text: "see", imageCount: 2 }], followUp: [{ text: "describe", imageCount: 2 }] }`
+- **THEN** the broadcast SHALL carry `imageCount: 2` on both entries unmodified
 - **AND** no image `data` field SHALL be present anywhere in the broadcast payload
 
 #### Scenario: Empty arrays clear the cache slot
@@ -159,117 +125,34 @@ The client SHALL NOT maintain an optimistic `pendingPrompt` slot when sending a 
 - **THEN** no stale optimistic chip SHALL be visible
 - **AND** the user retypes if they want to retry
 
-### Requirement: Bridge maintains shadow steering and follow-up queues
-
-Pi's ExtensionAPI does not forward `queue_update` events to extensions (re-verified through pi 1.3.0: neither `types.d.ts` nor `runner.js` mentions `queue_update`). The bridge SHALL maintain two distinct per-session in-memory structures with different ownership semantics:
-
-- **`bridgeSteering: string[]` (pi-OWNED + SHADOW)** — mirrors pi's `Agent.steeringQueue`. Mutated only by `recordSteerSent` (on bridge-originated steer sends) + drain-by-`message_start`-matcher (when pi delivers a queued steer entry, the matching text is spliced).
-- **`bridgeFollowUp: FollowUpEntry[]` (BRIDGE-OWNED BUFFER)** — authoritative store for dashboard-originated follow-up entries while the agent is streaming, where `FollowUpEntry = { text: string; images?: ImageContent[] }`. Pi never sees these entries until the drain loop ships them on `agent_settled`. Mutated by `bufferFollowupSend` (on push), `enqueueSystemFollowup` (on system push), `drainFollowupQueue` (on pop), and the four mutation handlers (`edit_followup_entry`, `remove_followup_entry`, `promote_followup_entry`, `clear_followup_entries`).
-
-An entry's images SHALL be stored on the entry itself, never in a parallel index-keyed structure, so that every splice/unshift/shift preserves the text↔images association structurally.
-
-Both structures feed the same `queue_update { sessionId, steering: [...], followUp: [...] }` ExtensionToServerMessage, where each `followUp` element is projected to `{ text, imageCount }`. Image bytes SHALL NOT be included in `queue_update`. The server caches the snapshot and broadcasts to subscribed browsers.
-
-**Session-change reset:** session-change events (new / fork / resume) SHALL reset both arrays to `[]` and emit `queue_update` once. Different session — old state is meaningless. Buffered image bytes are released with the entries.
-
-**Bridge restart:** both structures are in-memory only; bridge process restart (`/reload`, dashboard restart, pi crash) loses them, including any buffered image bytes. Symmetric with pi's own queue behavior.
-
-#### Scenario: Bridge records a steer mid-stream
-- **WHEN** the agent is streaming
-- **AND** the bridge sends `pi.sendUserMessage("focus on X", {deliverAs:"steer"})`
-- **THEN** the bridge SHALL append `"focus on X"` to `bridgeSteering`
-- **AND** the bridge SHALL emit `queue_update { steering: [...], followUp: [...] }`
-
-#### Scenario: Per-entry steering drain via message_start matcher
-- **WHEN** `bridgeSteering` is `["a", "b", "c"]`
-- **AND** pi drains `"a"` by emitting user `message_start` with content `"a"` at `turn_end`
-- **THEN** the bridge SHALL set `bridgeSteering` to `["b", "c"]`
-- **AND** the bridge SHALL emit `queue_update`
-
-#### Scenario: Steering matcher checked before follow-up matcher
-- **WHEN** `bridgeSteering` is `["hello"]` and `bridgeFollowUp` is `[{ text: "hello" }]`
-- **AND** pi delivers user `message_start` with content `"hello"`
-- **THEN** the bridge SHALL remove the steering entry first (matches pi's emit order)
-- **AND** `bridgeSteering` SHALL become `[]` while `bridgeFollowUp` SHALL still contain `[{ text: "hello" }]`
-
-#### Scenario: Follow-up matcher is a no-op for buffered entries
-- **WHEN** `bridgeFollowUp` is `[{ text: "queued by dashboard" }]` (buffered, not yet drained)
-- **AND** the agent finishes its turn and the drain loop pops that entry and sends it via `pi.sendUserMessage` with no `deliverAs`
-- **AND** pi emits user `message_start` with content `"queued by dashboard"` for the fresh turn
-- **THEN** the matcher SHALL look up `"queued by dashboard"` among `bridgeFollowUp` entry texts and find `-1` (already popped by the drain loop)
-- **AND** the splice SHALL be a no-op; no `queue_update` emitted from the matcher path
-
-#### Scenario: Session-change resets both structures
-- **WHEN** the bridge handles `session_start` with `reason ∈ {"new", "fork", "resume"}`
-- **AND** either `bridgeSteering` or `bridgeFollowUp` is non-empty
-- **THEN** the bridge SHALL set both to `[]`
-- **AND** the bridge SHALL emit `queue_update { steering: [], followUp: [] }` once
-
-#### Scenario: Session-change releases buffered image bytes
-- **WHEN** `bridgeFollowUp` holds an entry carrying images
-- **AND** the bridge handles `session_start` with `reason: "resume"`
-- **THEN** `bridgeFollowUp` SHALL become `[]`
-- **AND** the buffer's accounted byte total SHALL return to zero
-
 ### Requirement: Capture-before-send streaming gate prevents idle-message false-chip
 
-Pi flips `isAgentStreaming` synchronously inside `pi.sendUserMessage` on an idle session (via `agent_start` emission to the extension runner). Therefore the bridge SHALL capture `wasStreaming = isAgentStreaming` **before** calling `pi.sendUserMessage`, and SHALL only record to the shadow queue when `wasStreaming === true`.
+Pi flips `isAgentStreaming` synchronously inside `pi.sendUserMessage` on an idle session (via `agent_start` emission to the extension runner). Therefore the bridge SHALL capture `wasStreaming = isAgentStreaming` **before** any routing decision, and SHALL only add to a bridge buffer when `wasStreaming === true`.
 
 Call sites:
 
-- `command-handler.ts` passthrough branch: capture before `sendUserMessageWithImages`, fire `onSteerSent` / `onFollowupSent` only if captured-true.
+- `command-handler.ts` passthrough branch: capture before routing; streaming steer → steer buffer, streaming follow-up → follow-up buffer, idle → `sendUserMessageWithImages`.
 - the bridge's `sessionPrompt` fallback (slash-route follow-up/steer): same pattern.
-- the bridge's `edit_followup_slot` / `edit_followup_entry` handler: same pattern.
+- the bridge's `edit_followup_entry` handler: same pattern.
 
-The internal gate inside `recordSteerSent` / `recordFollowupSent` SHALL also check `isAgentStreaming` as defense-in-depth.
+The internal admission into either buffer SHALL also check `isAgentStreaming` as defense-in-depth.
 
 #### Scenario: Initial idle send produces no chip
 - **WHEN** the agent is idle (`isAgentStreaming === false`)
 - **AND** the bridge receives `send_prompt { text: "hello", delivery: "steer" }`
 - **AND** pi flips `isAgentStreaming` to `true` synchronously inside `pi.sendUserMessage` (via agent_start)
-- **THEN** the bridge SHALL NOT append to `bridgeSteering`
+- **THEN** the bridge SHALL NOT add to the steer buffer
 - **AND** the bridge SHALL NOT emit `queue_update` with a chip
 - **AND** the message SHALL be processed by pi as a fresh turn
 
 #### Scenario: Mid-stream steer produces a chip
 - **WHEN** `isAgentStreaming === true` at the moment of `send_prompt {delivery:"steer"}`
-- **THEN** the bridge SHALL append to `bridgeSteering`
+- **THEN** the bridge SHALL add an entry to the steer buffer
 - **AND** the bridge SHALL emit `queue_update` with the new entry
 
-### Requirement: Pending steer entries render inline in chat as user-style bubbles
-
-The client SHALL render each entry of `Session.pendingQueues.steering[]` as a user-message-style bubble inside `ChatView`, positioned **at the bottom of the message list** (after the last assistant turn and any streaming text). Each rendered bubble SHALL:
-
-- Use the same visual style as a real user message (`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md`).
-- Display a `STEERING` header (uppercase, tertiary text) with an animated spinner.
-- Disappear when `pendingQueues.steering[]` is empty (the bridge clears the shadow on `turn_end`). At that point pi's `message_end` will have already rendered the corresponding user message in chat, so the chat surface looks coherent.
-
-The per-entry ✕ cancel button is REMOVED. Pi's `ExtensionAPI` (verified through pi 0.75.5) does NOT expose `clearSteeringQueue` or `clearFollowUpQueue`; the bridge's previous `(pi as any).clearSteeringQueue?.()` call was a silent no-op via the `typeof === "function"` guard. Clicking ✕ cleared the bridge shadow but pi still delivered the queued message at the next drain — a misleading UI. Until pi exposes queue mutation on `ExtensionContext`, the steer cards remain visible (so the user knows what's queued) but offer no cancel affordance.
-
-The `QueuePanel.SteerSection` component SHALL be removed.
-
-#### Scenario: Pending steer appears at the bottom of chat
-- **WHEN** `Session.pendingQueues.steering` is `["focus on X"]`
-- **AND** the message list ends with an assistant message
-- **THEN** `ChatView` SHALL render "focus on X" as a user-style bubble after the assistant message, with `STEERING` header + spinner
-- **AND** the bubble SHALL NOT render a ✕ cancel button
-
-#### Scenario: Multiple pending steers render in order without cancel buttons
-- **WHEN** `Session.pendingQueues.steering` is `["a", "b", "c"]`
-- **THEN** `ChatView` SHALL render three bubbles in array order, all positioned at the bottom
-- **AND** no `data-testid="pending-steer-cancel"` element SHALL be present in the DOM
-
-#### Scenario: Steer chip disappears when shadow clears
-- **WHEN** `Session.pendingQueues.steering` transitions from `["a"]` to `[]` (because pi emitted turn_end and the bridge per-entry drain matcher removed the entry)
-- **THEN** the inline `STEERING` bubble SHALL disappear
-- **AND** the chat SHALL show "a" as a real user message once pi emits `message_end` for that user message
-
-#### Scenario: Bridge `clear_steering_queue` handler still clears shadow (for stale clients)
-- **WHEN** the bridge receives `clear_steering_queue { sessionId }` (e.g. from a stale client that still has the ✕ button)
-- **THEN** the bridge SHALL set `bridgeSteering = []`
-- **AND** the bridge SHALL emit `queue_update { steering: [], followUp: <unchanged> }`
-- **AND** the bridge SHALL NOT log a warning about the missing pi method (silent no-op)
-- **AND** pi's internal `_steeringMessages` queue SHALL still deliver at the next drain (known limitation — see upstream pi feature request)
+#### Scenario: Slash-route steer fallback buffers when streaming
+- **WHEN** a slash-route `sessionPrompt` fallback delivers a steer while `isAgentStreaming === true`
+- **THEN** the bridge SHALL add it to the steer buffer and SHALL NOT call `pi.sendUserMessage`
 
 ### Requirement: User abort preserves shadow queues and never clears pi's native queues
 
@@ -279,9 +162,9 @@ When the bridge's `abort` extension command is invoked (via a browser `abort { s
 2. Invoke `cachedCtx.abort()`.
 3. Call `retryTracker.noteAbort(sessionId)` (clears the in-flight attempt counter). The bridge SHALL NOT call `usageLimitOrderer.noteRetryEnd(sessionId)`; the orderer's `pending` flag MUST survive user-initiated abort so that pi's eventual terminal `agent_end` can still surface the real provider `errorMessage` via the orderer's `maybeSynthesize` path.
 
-The bridge SHALL NOT reset `bridgeSteering` or `bridgeFollowUp` on abort, and SHALL NOT emit a `queue_update` from the abort path. Pi's ExtensionAPI exposes no queue-clear primitive, so the shadows continue to mirror pi's actual retained queues; emptying them would make the dashboard claim a state pi is not in.
+The bridge SHALL NOT reset the steer buffer or `bridgeFollowUp` on abort, and SHALL NOT emit a `queue_update` from the abort path. Held steers stay held (an aborted turn never hands steers to pi, see "Bridge hands held steers to pi at turn_end before pi drains") and follow the settle rule.
 
-Because the follow-up buffer survives abort, its retained bytes also survive. The aggregate byte ceiling is unaffected: the accounted total is derived from the live entries at each check, so a surviving buffer simply continues to be accounted.
+Because both buffers survive abort, their retained bytes also survive. The aggregate byte ceilings are unaffected: the accounted totals are derived from the live entries at each check.
 
 The wrapper-abort SHALL run exactly ONCE on the initial `abort` command. Subsequent persistent-abort scheduler ticks (see `provider-retry-state` "Bridge persistent-abort scheduler closes retry race") SHALL invoke `cachedCtx.abort()` directly (raw), NOT the wrapper.
 
@@ -291,6 +174,11 @@ The wrapper-abort SHALL run exactly ONCE on the initial `abort` command. Subsequ
 - **THEN** the bridge SHALL invoke `cachedCtx.abort()`
 - **AND** `bridgeFollowUp` SHALL still hold both entries with their images
 - **AND** the bridge SHALL NOT emit `queue_update` from the abort path
+
+#### Scenario: Abort does not clear held steers
+- **WHEN** the steer buffer holds one held entry
+- **AND** the bridge's `abort` extension command is invoked
+- **THEN** the steer buffer SHALL still hold that entry
 
 #### Scenario: Abort latches before invoking abort
 - **WHEN** the user dispatches `abort`
@@ -516,36 +404,6 @@ The bridge buffer is in-memory and SHALL NOT persist across bridge restart. On `
 - **AND** "important task" SHALL be lost (user must re-type)
 - **AND** the QueuePanel SHALL render nothing for that session until the user re-queues
 
-### Requirement: Steer queue is permanently pi-owned + display-only — no bridge-owned-steer
-
-The steer queue SHALL remain pi-owned for the indefinite future. The dashboard SHALL NOT introduce a bridge-owned steer buffer, steer mutation surface, or per-steer-entry edit/remove/promote/pull affordances. Steer entries render inline in `ChatView` as ghost user-message bubbles (not in the follow-up `QueuePanel`).
-
-**Rationale**: Steer drains every 1-15 seconds at every `turn_end`. The window in which a user could meaningfully cancel/edit a steer entry is too short to justify the UI surface. Pi-TUI also has no per-steer edit. This is a permanent design decision, not a tracked future change.
-
-The bridge SHALL track `bridgeSteering` as a SHADOW (mirrors pi's `Agent.steeringQueue`) via:
-
-- `recordSteerSent(text)`: bridge-originated steer pushes append to `bridgeSteering` only when `getBridgeState().isAgentStreaming === true` (capture-before-send pattern; mid-flight `pi.sendUserMessage` flips `isAgentStreaming` synchronously on idle sends, so we capture pre-send to avoid false chips).
-- Drain-by-`message_start`-matcher: when pi delivers a queued steer at `turn_end`, the matching text is spliced from `bridgeSteering` (FIFO first-occurrence removal).
-
-The dashboard SHALL NOT expose any client-side action that mutates `bridgeSteering` or pi's steer queue. The Stop button calls `cachedCtx.abort()` only — pi's steer queue persists across abort by design.
-
-#### Scenario: No steer mutation messages exist in the wire protocol
-- **WHEN** the wire protocol (`packages/shared/src/browser-protocol.ts`) is examined for steer-mutation message types
-- **THEN** there SHALL be no `clear_steering_queue`, `edit_steering_entry`, `remove_steering_entry`, or `promote_steering_entry` types
-- **AND** the bridge SHALL NOT handle any such messages
-
-#### Scenario: Steer renders inline as ghost bubbles, never in QueuePanel
-- **WHEN** `pendingQueues.steering` is `["focus on X"]`
-- **THEN** `ChatView` SHALL render "focus on X" as a ghost user-message bubble at the bottom of the message list with a STEERING header + animated spinner
-- **AND** `QueuePanel` SHALL NOT render any steer chip or steer section
-
-#### Scenario: Stop does NOT clear pi's steer queue
-- **WHEN** `pendingQueues.steering` is `["a", "b"]`
-- **AND** the user clicks Stop
-- **THEN** the bridge SHALL call `cachedCtx.abort()` only
-- **AND** the bridge SHALL NOT call `pi.clearSteeringQueue` (it's not on the ExtensionAPI; the call is deleted from this codebase)
-- **AND** pi's steer queue SHALL persist; the entries will drain at the next `turn_end` of the next turn (when the user re-prompts)
-
 ### Requirement: Pi ExtensionAPI does not expose queue-mutation methods
 
 The bridge SHALL NOT call `pi.clearSteeringQueue()`, `pi.clearFollowUpQueue()`, or `pi.clearAllQueues()` from any code path. These methods exist on the inner `pi-agent-core` Agent class but are NOT exposed on the ExtensionAPI handed to extensions (verified through pi-coding-agent 0.76.0 at `node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts:1076-1099`).
@@ -740,15 +598,15 @@ The bridge SHALL schedule `drainFollowupQueue()` via `setTimeout(_, 0)` from its
 The drain function SHALL enforce the following invariants in order:
 
 1. **Re-entrancy lock**: a boolean `isDraining` SHALL prevent overlapping drain frames. Set true after gates pass; cleared in `finally`. Re-entrant calls early-return.
-2. **Empty-buffer gate**: if `bridgeFollowUp.length === 0`, drain bails immediately.
+2. **Empty-buffer gate**: if the steer buffer and `bridgeFollowUp` are both empty, drain bails immediately.
 3. **TUI-coexistence gate**: if `ctx.hasPendingMessages()` returns true, drain bails.
 4. **Single idle check**: if `ctx.isIdle()` returns false (a run has already started, e.g. a TUI prompt or another extension's settle action), drain SHALL return without popping and without re-scheduling itself. The next `agent_settled` drains.
-5. **Pop FIRST**: `bridgeFollowUp.shift()` captures the front entry BEFORE any pi call.
+5. **Pop FIRST**: the drain SHALL take the oldest held steer when the steer buffer is non-empty, else `bridgeFollowUp.shift()`, BEFORE any pi call. A drained steer that carries a `promptId` SHALL be acknowledged with `prompt_received { fresh: false, promptId }`.
 6. **Emit BEFORE send**: `emitQueueUpdate()` SHALL fire reflecting the popped state BEFORE calling pi.
 7. **Fresh-turn send, NO deliverAs**: the drain SHALL call `pi.sendUserMessage(content)` with NO options, where `content` is the entry's text alone when it carries no images, or a content array `[{type:"text"}, {type:"image"}...]` when it does.
 8. **Catch + drop on pi error**: any synchronous exception from `pi.sendUserMessage` SHALL be caught, logged as `console.warn` containing "drainFollowupQueue" and "entry lost", and the entry SHALL NOT be re-pushed. pi's extension `sendUserMessage` is fire-and-forget: an asynchronous rejection (e.g. compaction started) goes to pi's extension error channel, not to this catch, so it is not logged here.
 
-The drain SHALL handle at most one entry per `agent_settled`; multiple queued entries drain across successive runs in FIFO order. Draining an entry SHALL release its accounted bytes. A system follow-up (`enqueueSystemFollowup`) SHALL keep scheduling the same drain via `setTimeout(_, 0)`: shipped at once when idle, otherwise by the next `agent_settled`.
+The drain SHALL handle at most one entry per `agent_settled`, held steers before follow-ups; multiple queued entries drain across successive runs in FIFO order within each buffer. Draining an entry SHALL release its accounted bytes. A system follow-up (`enqueueSystemFollowup`) SHALL keep scheduling the same drain via `setTimeout(_, 0)`: shipped at once when idle, otherwise by the next `agent_settled`.
 
 #### Scenario: agent_settled drains one entry, leaves the rest
 - **WHEN** `bridgeFollowUp` is `[{ text: "a" }, { text: "b" }, { text: "c" }]`
@@ -809,3 +667,228 @@ The drain SHALL handle at most one entry per `agent_settled`; multiple queued en
 #### Scenario: Re-entrancy lock prevents double-drain
 - **WHEN** the drain is mid-execution for entry "a" and a second drain call arrives re-entrantly
 - **THEN** the second call SHALL early-return without popping
+
+#### Scenario: Held steer drains before follow-ups
+- **WHEN** the steer buffer holds `"s"` and `bridgeFollowUp` holds `"f"`
+- **AND** pi emits `agent_settled` with the session idle and no pending messages
+- **THEN** the drain SHALL send `"s"` with no `deliverAs` and keep `"f"`
+
+#### Scenario: Held steer alone is not blocked by the empty-buffer gate
+- **WHEN** the steer buffer holds `"s"` and `bridgeFollowUp` is empty
+- **AND** pi emits `agent_settled` with the session idle and no pending messages
+- **THEN** the drain SHALL send `"s"`
+
+### Requirement: Bridge maintains steer and follow-up buffers
+
+The bridge SHALL keep two per-session in-memory buffers: held dashboard steers `{ id, text, images?, promptId? }` and `bridgeFollowUp` `{ text, images? }` (unchanged). A steer leaves its buffer only when handed to pi, cancelled, or shipped by the settle drain; `message_start` never changes it. Both feed one `queue_update` of views without image bytes. Session change (new / fork / resume) resets both and emits `queue_update` once.
+
+#### Scenario: Bridge records a steer mid-stream
+- **WHEN** the agent is streaming
+- **AND** the bridge receives a steer `"focus on X"`
+- **THEN** the steer buffer SHALL hold one entry with text `"focus on X"`
+- **AND** the bridge SHALL emit `queue_update`
+
+#### Scenario: message_start never touches held steers
+- **WHEN** the steer buffer holds `"hello"`
+- **AND** pi emits user `message_start` with content `"hello"` (for example a TUI-typed message)
+- **THEN** the steer buffer SHALL still hold `"hello"`
+
+#### Scenario: Follow-up matcher is a no-op for buffered entries
+- **WHEN** `bridgeFollowUp` is `[{ text: "queued by dashboard" }]` (buffered, not yet drained)
+- **AND** the drain loop pops that entry and sends it via `pi.sendUserMessage` with no `deliverAs`
+- **AND** pi emits user `message_start` with content `"queued by dashboard"`
+- **THEN** the follow-up matcher SHALL find no entry and SHALL NOT emit `queue_update`
+
+#### Scenario: Session-change resets both structures
+- **WHEN** the bridge handles `session_start` with `reason ∈ {"new", "fork", "resume"}`
+- **AND** either buffer is non-empty
+- **THEN** the bridge SHALL empty both buffers
+- **AND** the bridge SHALL emit `queue_update { steering: [], followUp: [] }` once
+
+#### Scenario: Session-change releases buffered image bytes
+- **WHEN** either buffer holds an entry carrying images
+- **AND** the bridge handles `session_start` with `reason: "resume"`
+- **THEN** both buffers SHALL become empty
+- **AND** each buffer's accounted byte total SHALL return to zero
+
+### Requirement: Steer ids are unique across bridge lifetimes
+
+Each held steer SHALL get an `id` that is never reused within a session, including across bridge restarts (for example an instance nonce plus a sequence number), so a cancel sent before a restart can never match a new entry.
+
+#### Scenario: Id from before a reload never matches
+- **WHEN** the browser holds steer id `X` from a bridge instance that has since reloaded
+- **AND** the new bridge instance holds a new steer
+- **THEN** the new steer's id SHALL differ from `X`
+
+### Requirement: Bridge re-announces its queues on register
+
+On every register or re-register with the server, the bridge SHALL emit `queue_update` with its current buffers, including when both are empty, so no stale steer bubble survives a bridge restart.
+
+#### Scenario: Reload clears stale bubbles
+- **WHEN** the server cached `pendingQueues.steering` with one entry
+- **AND** the bridge reloads with empty buffers and re-registers
+- **THEN** the bridge SHALL emit `queue_update { steering: [], followUp: [] }`
+
+### Requirement: Streaming steers are buffered in the bridge
+
+When the agent is streaming and the bridge receives a non-command `send_prompt` with `delivery: "steer"`, it SHALL validate its images as follow-ups do, push `{ id, text, images?, promptId? }` into the steer buffer, and emit `queue_update`. It SHALL NOT call `pi.sendUserMessage` at send time. Follow-up routing is unchanged. Idle sends of either delivery go straight to pi and bypass both buffers.
+
+#### Scenario: Steer send during streaming buffers in bridge
+- **WHEN** the agent is streaming
+- **AND** the bridge receives `send_prompt { text: "focus on auth", delivery: "steer", images: [img] }`
+- **THEN** the bridge SHALL push `{ id, text: "focus on auth", images: [img] }` to the steer buffer
+- **AND** the bridge SHALL emit `queue_update` whose `steering` holds `{ id, text: "focus on auth", imageCount: 1 }`
+- **AND** the bridge SHALL NOT call `pi.sendUserMessage` for this message
+
+#### Scenario: Follow-up send while streaming still buffers as before
+- **WHEN** the agent is streaming
+- **AND** the bridge receives `send_prompt { text: "second", delivery: "followUp" }`
+- **THEN** the bridge SHALL push `{ text: "second" }` to `bridgeFollowUp`
+- **AND** the steer buffer SHALL stay unchanged
+
+#### Scenario: Idle steer bypasses the steer buffer
+- **WHEN** the agent is idle
+- **AND** the bridge receives `send_prompt { text: "hi", delivery: "steer" }`
+- **THEN** the bridge SHALL call `pi.sendUserMessage("hi", { deliverAs: "steer" })`
+- **AND** the steer buffer SHALL stay unchanged
+
+#### Scenario: Invalid image dropped and reported at admission
+- **WHEN** a streaming steer carries one valid and one oversized image
+- **THEN** the steer buffer entry SHALL carry only the valid image
+- **AND** the bridge SHALL send command feedback for `send_prompt` naming the dropped image
+
+### Requirement: A steer's promptId is acknowledged when it reaches pi
+
+The `prompt_received` ack sent when a streaming steer is buffered SHALL carry `fresh: false` and no `promptId`. When the bridge later hands that steer to pi (at `turn_end` or by the settle drain), it SHALL emit `prompt_received { fresh: false, promptId }` with the entry's `promptId`, if it had one.
+
+#### Scenario: promptId follows the hand-off
+- **WHEN** the agent is streaming
+- **AND** the bridge receives `send_prompt { text: "x", delivery: "steer", promptId: "p1" }`
+- **THEN** the bridge SHALL emit `prompt_received { fresh: false }` without `promptId`
+- **AND** when it hands `"x"` to pi it SHALL emit `prompt_received { fresh: false, promptId: "p1" }`
+
+#### Scenario: Cancelled steer never acks its promptId
+- **WHEN** a held steer with `promptId: "p1"` is cancelled
+- **THEN** the bridge SHALL NOT emit `prompt_received` carrying `promptId: "p1"`
+
+### Requirement: Bridge hands held steers to pi at turn_end before pi drains
+
+In its `turn_end` handler, which pi awaits before draining its steer queue, the bridge SHALL hand off held steers only when the event's `outcome` is `"completed"`: `"one-at-a-time"` (pi's default `steeringMode`) takes the oldest entry, `"all"` takes every entry. It SHALL remove the taken entries from the buffer and emit `queue_update` in one synchronous step, then call `pi.sendUserMessage(content, { deliverAs: "steer" })` for each, oldest first, yielding one macrotask after each send.
+
+#### Scenario: One-at-a-time hands off the head only
+- **WHEN** `steeringMode` is `"one-at-a-time"` and the steer buffer holds `"a"`, `"b"`
+- **AND** pi fires `turn_end` with `outcome: "completed"`
+- **THEN** the bridge SHALL remove `"a"` and send it with `deliverAs: "steer"`
+- **AND** `"b"` SHALL stay held
+
+#### Scenario: All mode hands off every entry in order
+- **WHEN** `steeringMode` is `"all"` and the steer buffer holds `"a"`, `"b"`
+- **AND** pi fires `turn_end` with `outcome: "completed"`
+- **THEN** the bridge SHALL remove both in one step, then send `"a"` before `"b"`
+
+#### Scenario: Aborted or errored turn hands nothing off
+- **WHEN** the steer buffer holds `"a"`
+- **AND** pi fires `turn_end` with `outcome: "aborted"` or `"error"`
+- **THEN** `"a"` SHALL stay held
+- **AND** the bridge SHALL NOT call `pi.sendUserMessage`
+
+#### Scenario: Handed-off steer is delivered in the same boundary
+- **WHEN** the bridge hands `"a"` to pi during a completed `turn_end`
+- **THEN** pi SHALL deliver `"a"` as a user message before its next LLM call
+
+#### Scenario: Images ride the hand-off
+- **WHEN** a held entry carries two images
+- **AND** the bridge hands it off
+- **THEN** the content passed to `pi.sendUserMessage` SHALL hold the text and both images
+
+#### Scenario: Cancel during a hand-off cannot reach a taken entry
+- **WHEN** `"all"` mode takes entries `1` and `2` and a `remove_steering_entry { id: "2" }` is handled during the yield after sending `1`
+- **THEN** the remove SHALL be refused as already sent
+- **AND** `2` SHALL be sent
+
+### Requirement: Held steers are cancellable until hand-off
+
+The bridge SHALL handle `remove_steering_entry { sessionId, id }` by removing the held entry with that `id`, and `clear_steering_entries { sessionId }` by removing every held entry; each SHALL emit `queue_update`. A remove whose `id` is not held SHALL change nothing and SHALL send command feedback that the steer was already sent or cancelled. No path SHALL call a pi method.
+
+#### Scenario: Cancel one held steer
+- **WHEN** the steer buffer holds entries `1` and `2`
+- **AND** the bridge receives `remove_steering_entry { id: "2" }`
+- **THEN** the buffer SHALL hold entry `1` only
+- **AND** the bridge SHALL emit `queue_update`
+
+#### Scenario: Late cancel after hand-off is refused
+- **WHEN** entry `1` was handed to pi at `turn_end`
+- **AND** the bridge receives `remove_steering_entry { id: "1" }`
+- **THEN** both buffers SHALL be unchanged
+- **AND** the bridge SHALL send command feedback for `remove_steering_entry` saying the steer was already sent or cancelled
+
+#### Scenario: Clear all empties the steer buffer
+- **WHEN** the steer buffer holds `1`, `2`, `3`
+- **AND** the bridge receives `clear_steering_entries`
+- **THEN** the steer buffer SHALL be empty
+- **AND** `bridgeFollowUp` SHALL be unchanged
+
+#### Scenario: Server relays steer mutations
+- **WHEN** a browser sends `remove_steering_entry { sessionId: "S", id: "2" }`
+- **THEN** the server SHALL forward it unchanged to the bridge of session `S`
+
+### Requirement: Held steers drain as fresh prompts when the run settles
+
+On `agent_settled`, if held steers remain (sent after the last completed `turn_end`, no handler ran, or the run aborted or failed), the settle drain SHALL ship the oldest one as a fresh prompt with its images, ahead of any follow-up, one entry per settle, under the follow-up drain's lock and idle/pending gates.
+
+#### Scenario: Steer sent after the last turn_end drains first
+- **WHEN** the steer buffer holds `"a"` and `bridgeFollowUp` holds `"b"`
+- **AND** pi emits `agent_settled` and the session is idle with no pending messages
+- **THEN** the bridge SHALL send `"a"` as a fresh prompt and remove it from the steer buffer
+- **AND** `"b"` SHALL stay in `bridgeFollowUp` for a later settle
+
+#### Scenario: Held steer after abort drains at settle
+- **WHEN** the steer buffer holds `"a"`
+- **AND** the user aborts the run and pi emits `agent_settled` with `aborted: true`
+- **THEN** the drain SHALL treat `"a"` exactly as it treats a follow-up after an abort
+
+### Requirement: Steer buffer enforces the follow-up bounds
+
+The steer buffer SHALL apply the same entry cap and aggregate byte ceiling as the follow-up buffer, independently. A steer that would exceed either bound SHALL be refused whole, never stripped of images, and the refusal SHALL be reported as command feedback for `send_prompt`.
+
+#### Scenario: Oversized steer refused whole
+- **WHEN** a streaming steer's images would push the steer buffer past its byte ceiling
+- **THEN** the bridge SHALL NOT add the entry
+- **AND** the bridge SHALL send command feedback for `send_prompt` naming the limit
+
+### Requirement: Pending steer bubbles offer cancel, clear-all and an image marker
+
+Each `pendingQueues.steering[]` entry SHALL render as a user-style bubble at the bottom of `ChatView`, keyed by `id`, with a `STEERING` header and spinner. Each bubble SHALL show the follow-up ✕ remove control in its body row; `imageCount > 0` SHALL show the follow-up image badge. From two entries, the follow-up lane's `Clear all` SHALL render below the stack. No confirmation.
+
+#### Scenario: Pending steer appears at the bottom of chat
+- **WHEN** `pendingQueues.steering` is `[{ id: "1", text: "focus on X", imageCount: 0 }]`
+- **AND** the message list ends with an assistant message
+- **THEN** `ChatView` SHALL render "focus on X" as a bubble after the assistant message with a `STEERING` header and spinner
+- **AND** the bubble SHALL render a `pending-steer-cancel-1` control
+
+#### Scenario: Image count badge on a steer with images
+- **WHEN** a steering entry has `imageCount: 2`
+- **THEN** its bubble SHALL render `pending-steer-attachments` showing `2`
+
+#### Scenario: Clear all from two entries
+- **WHEN** `pendingQueues.steering` holds two entries
+- **THEN** `pending-steer-clear-all` SHALL render below the stack
+- **AND** with one entry it SHALL NOT render
+
+#### Scenario: Cancel sends a remove by id
+- **WHEN** the user clicks `pending-steer-cancel-1`
+- **THEN** the client SHALL send `remove_steering_entry { sessionId, id: "1" }`
+- **AND** no confirmation dialog SHALL open
+
+#### Scenario: Steer chip disappears when the buffer clears
+- **WHEN** `pendingQueues.steering` transitions from one entry to `[]`
+- **THEN** the inline bubble SHALL disappear
+
+### Requirement: Client tolerates legacy string steering entries
+
+For one release the client SHALL accept `pendingQueues.steering` elements that are plain strings, rendering each as a `STEERING` bubble with `imageCount: 0` and no cancel control (no `id` to target).
+
+#### Scenario: Legacy string entry renders without cancel
+- **WHEN** `pendingQueues.steering` is `["focus on X"]`
+- **THEN** `ChatView` SHALL render a `STEERING` bubble for "focus on X"
+- **AND** the bubble SHALL NOT render a cancel control
