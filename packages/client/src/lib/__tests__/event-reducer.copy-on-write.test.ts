@@ -4,8 +4,7 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { __resetSessionReducersForTests } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { afterEach, describe, expect, it } from "vitest";
-import { type AgentFinalizerState, toolRowFinalizers } from "../../../../subagents-plugin/src/client/toolRowFinalizer.js";
-import { disableSubagentsPlugin, registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
+import { type AgentFinalizerState, disableSubagentsPlugin, registerSubagentsReducerSlice, toolRowFinalizers } from "../../test-support/subagents-reducer-slice.js";
 import {
   createInitialState, finalizeBackfillSegment, reduceEvent, type SessionState,
   SUBAGENT_STOPPED_SENTINEL_BODY, seedRunningToolCall,
