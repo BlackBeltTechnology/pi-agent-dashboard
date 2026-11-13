@@ -12,6 +12,7 @@ import { StreamBuilder } from "./fixtures/replay-streams.js";
 // optimization is present in this checkout. No production flags are needed.
 // See openspec/streaming-performance-comparison.md for preparation and results.
 const compare = process.env.REPLAY_PERFORMANCE_COMPARE === "1";
+const LIVE_THINKING = "Continue from replay into live reasoning.";
 const historicalSizes = [0, 1000, 10000];
 const workloadNames = ["text", "interleaved", "write-heavy"] as const;
 type WorkloadName = typeof workloadNames[number];
@@ -67,6 +68,9 @@ function workload(name: WorkloadName) {
   const b = new StreamBuilder().push("message_start", { message: assistant([]) });
   const finalContent = name === "text" ? textWorkload(b) : name === "interleaved" ? interleavedWorkload(b) : writeHeavyWorkload(b);
   const events = b.build().slice();
+  b.push("message_update", { assistantMessageEvent: { type: "thinking_start" } });
+  b.push("message_update", { assistantMessageEvent: { type: "thinking_delta", delta: LIVE_THINKING } });
+  b.push("message_update", { assistantMessageEvent: { type: "thinking_end" } });
   b.push("message_update", { message: assistant(finalContent) });
   b.push("message_end", { message: assistant(finalContent), entryId: "benchmark-final" });
   return { events, continuation: b.build().slice(events.length) };
@@ -190,9 +194,10 @@ function checkAndReportCell(variant: Variant, index: number, results: ReturnType
   const result = results[index];
   verifyValues(result.state, name, size);
   expect(result.state).toEqual(reference);
-  const completed = continuation.reduce((s, e) => variant.reducer.reduceEvent(s, e.event), result.state);
+  const completed = continuation.reduce((s, e) => variant.reducer.reduceEvent(s, e.event, { isLive: true }), result.state);
   expect(completed).toEqual(completedReference);
   expect(completed.messages.find(m => m.entryId === "benchmark-final")?.content).toContain("::live");
+  expect(completed.messages.find(m => m.role === "thinking" && m.content === LIVE_THINKING)?.streamedLive).toBe(true);
   const counts = countCopies(variant, events, size);
   if (compare && name === "text") {
     expect(result.projected).toHaveLength(variant.collapse ? 2 : 101);
@@ -221,7 +226,7 @@ describe("replay performance: shared P2", () => {
         const { events, continuation } = workload(name);
         const results = variants.map(variant => pipeline(variant, events, size));
         const reference = results[0].state;
-        const completedReference = continuation.reduce((s, e) => variants[0].reducer.reduceEvent(s, e.event), reference);
+        const completedReference = continuation.reduce((s, e) => variants[0].reducer.reduceEvent(s, e.event, { isLive: true }), reference);
         const samples = sampleVariants(variants, events, size, warmups, repetitions);
         for (const [index, variant] of variants.entries()) {
           checkAndReportCell(variant, index, results, reference, completedReference, continuation, events, name, size, samples, cells);

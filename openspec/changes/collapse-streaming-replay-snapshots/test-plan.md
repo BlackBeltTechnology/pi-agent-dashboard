@@ -40,6 +40,7 @@ P1 checks event/byte counts over one complete fixture, not a latency target.
 | F3 | Replay-only storage; raw high-water cursor | State-convergence | L1 | automated | Stored message_start at seq 1 and 100 eligible updates at seqs 2..101 | Subscribe through the existing handler fixture | Replay retains seqs [1,101], raw store remains unchanged, and the handler passes raw cursor 101 to clearReplaying |
 | F4 | Backfill boundary and loaded-history splice | State-convergence | L1 | automated | A middle range serving a previously untracked tool start reported open by the server, with no map entry in the loaded tail; separate variant serves an empty superseded slice | Check the server backfill response, then feed it through the existing client history-gap hook harness | Server prefix matches the old-policy reference; client adds the previously untracked running tool; servedFrom/gap credit advances for the empty-slice variant; loaded transcript matches the reference splice |
 | F5 | Rendered replay non-regression | State-convergence | L3 | automated | A completed faux coalesce-multiparagraph session with eight numbered paragraphs | Reopen in a second browser context with empty IndexedDB using the docker harness | Each paragraph marker and coalesce stream complete appears once; no settled live-text bubble remains |
+| F6 | Unfinished replay reduction and live continuation | State-convergence | L3 | automated | An unfinished faux response with observed adjacent eligible snapshots, paused in the owned session process | Open a cold browser while paused, then resume generation | Cold replay omits the superseded sequence and retains a later snapshot; partial text appears once; continuation completes once without a ghost bubble; process resumes on failure |
 
 ### Error-handling
 
@@ -79,15 +80,15 @@ Canonical contract and measured results: [shared comparison](../../streaming-per
 - Replay pass and exemptions: E5, F2, F3.
 - Unfinished reconstruction: E1, F1.
 - Sequences/order: E8, F3.
-- Client-state equivalence: F1, F2, F4, F5.
+- Client-state equivalence: F1, F2, F4, F5, F6.
 - Explicit boundaries: E6, F4.
 - Adjacent eligible snapshots: E1–E4, E7, X1.
 - Input immutability and payload reduction: E8, P1, F3.
 - Generated structural/consumer properties: E9, E10.
 - Shared four-way comparison: P2.
-- Scenarios by class: edge 10 · performance 2 · frontend 5 · error 1.
-- Scenarios by level: L1 17 · L3 1.
-- Scenarios by disposition: automated 18 · manual-only 0.
+- Scenarios by class: edge 10 · performance 2 · frontend 6 · error 1.
+- Scenarios by level: L1 17 · L3 2.
+- Scenarios by disposition: automated 19 · manual-only 0.
 
 ## Harness routing
 
@@ -95,7 +96,7 @@ Canonical contract and measured results: [shared comparison](../../streaming-per
 - `packages/server/src/__tests__/replay-compaction-equivalence.test.ts`: P1, P2, E10, F1, F2.
 - `packages/server/src/__tests__/subscription-handler-compaction.test.ts`: F3.
 - `packages/server/src/__tests__/subscription-handler-backfill.test.ts` and `packages/client/src/hooks/__tests__/useMessageHandler.history-gap.test.tsx`: F4.
-- `tests/e2e/coalesced-streaming.spec.ts`: F5.
+- `tests/e2e/coalesced-streaming.spec.ts`: F5, F6.
 
 ## New infra needed
 

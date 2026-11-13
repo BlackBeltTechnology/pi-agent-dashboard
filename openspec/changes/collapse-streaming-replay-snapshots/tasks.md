@@ -37,6 +37,8 @@ Each scenario below maps to exactly one row in [test-plan.md](test-plan.md).
 - [ ] 3.3 Run strict OpenSpec validation and the repository's changed-file quality checks; review the final diff for replay-only scope, original cursors, and absence of protocol/store/live-delivery changes.
 - [x] 3.4 L1: extend the existing coverage (see `packages/server/src/__tests__/replay-compaction-equivalence.test.ts`); input: Identical raw workloads and initial states across baseline, collapse-only, copy-on-write-only and both, using the shared comparison contract in test-plan.md; trigger: Execute the same benchmark harness against all four pinned disposable source variants; observable: All four cells report phase timings, replay counts/bytes and core map work; complete state equals baseline and fixture expectations; performance acceptance remains open until the complete comparison exists (test-plan #P2).
 
+- [x] 3.5 L3: extend `tests/e2e/coalesced-streaming.spec.ts`; input: An unfinished faux response with observed adjacent eligible snapshots paused in its owned process; trigger: Open a cold browser while paused, then resume generation; observable: Replay drops the superseded sequence, partial text appears once, continuation completes once without a ghost bubble, and failure cleanup resumes the process (test-plan #F6).
+
 ## Workflow follow-up
 
 - Run implementation only after separate authorization, in an isolated implementation worktree.
