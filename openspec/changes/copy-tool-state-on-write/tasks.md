@@ -1,7 +1,7 @@
 # Tasks
 
 Implementation evidence: [shared four-way results](../../streaming-performance-comparison.md).
-Rendered acceptance and baseline-only repository quality failures remain open there.
+Current browser results and remaining validation limits are recorded there.
 Each scenario below maps to exactly one row in [test-plan.md](test-plan.md).
 
 ## 1. Core ownership, every writer, and local acceptance
@@ -28,8 +28,8 @@ Each scenario below maps to exactly one row in [test-plan.md](test-plan.md).
 ## 2. Replay/render integration and final checks
 
 - [x] 2.1 L1: extend the existing coverage (see `packages/client/src/lib/__tests__/event-reducer.batch-fold-invariant.test.ts`); input: Extend the existing mixed text/thinking/read burst with Agent tc-agent linked to ag-fold and subagent_completed with result R; retain legal batch split points; trigger: Fold in one pass and split passes, with live/replay options where existing semantics agree; observable: Complete states equal a reviewed pre-change fixture, with tc-agent complete and ag-fold terminal with result R; whole/split folds agree and retained earlier maps/nested entries stay unchanged (test-plan #F4).
-- [ ] 2.2 L3: extend the existing coverage (see `tests/e2e/replay-live-tool-not-orphaned.backfill.spec.ts`); input: Existing faux subagent-long-stream-hold scenario with Agent start outside the replay window; trigger: Load earlier history, receive live progress and completion in the docker harness; observable: Prove start arrived in backfill; card stays running rather than elided, then completes once; final transcript contains long stream hold complete once (test-plan #F5).
-- [ ] 2.3 Run affected reducer, nested-tool, heal/revive and plugin suites through normal Vitest discovery, then the rendered scenario with the isolated local-changes docker harness; always tear it down.
+- [x] 2.2 L3: extend the existing coverage (see `tests/e2e/replay-live-tool-not-orphaned.backfill.spec.ts`); input: Existing faux subagent-long-stream-hold scenario with Agent start outside the replay window; trigger: Load earlier history, receive live progress and completion in the docker harness; observable: Prove start arrived in backfill; card stays running rather than elided, then completes once; final transcript contains long stream hold complete once (test-plan #F5).
+- [x] 2.3 Run affected reducer, nested-tool, heal/revive and plugin suites through normal Vitest discovery, then the rendered scenario with the isolated local-changes docker harness; always tear it down.
 - [ ] 2.4 Run strict OpenSpec validation and changed-file quality checks; review the final diff for allocation-only scope, unchanged callback/API/state shapes, and unchanged reset, reorder and truncation policies.
 - [x] 2.5 Confirm the required [shared four-way comparison](../../streaming-performance-comparison.md#shared-four-way-comparison-p2) records baseline, collapse-only, copy-on-write-only and both with the specified metrics and state checks; reference the same maintained result before closing performance acceptance.
 
