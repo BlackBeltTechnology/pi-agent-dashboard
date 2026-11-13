@@ -145,6 +145,18 @@ describe("sendEventBatches — high-water mark and fault paths", () => {
 });
 
 describe("handleSubscribe — replayed seq contract", () => {
+  it("F3: unfinished snapshots collapse without changing store or raw cursor", async () => {
+    const ctx = createMockContext();
+    ctx.eventStore.insertEvent("s1", makeEvent("message_start"));
+    for (let i = 0; i < 100; i++) ctx.eventStore.insertEvent("s1", assistantUpdate(`${i}`));
+    const before = ctx.eventStore.getEvents("s1", 0);
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 0 }, new Set(), ctx);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(replayBatches(ctx).flatMap(b => b.events.map(e => e.seq))).toEqual([1, 101]);
+    expect(ctx.eventStore.getEvents("s1", 0)).toEqual(before);
+    expect(ctx.clearReplaying).toHaveBeenCalledWith(ctx.ws, "s1", 101);
+  });
+
   it("5.1: cold subscribe over a large window replays strictly increasing, duplicate-free seqs", async () => {
     const ctx = createMockContext();
     ctx.eventStore.insertEvent("s1", makeEvent("message_start"));
