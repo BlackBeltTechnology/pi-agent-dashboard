@@ -149,6 +149,33 @@ test.describe("bridge coalesced streaming (L3)", () => {
     await expect(liveTail).toHaveCount(0);
   });
 
+  test("replay F5: a cold browser replays all paragraphs exactly once", async ({ page, browser }) => {
+    test.setTimeout(300_000);
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    expect(sessionId).toBeTruthy();
+    await card.click();
+    await sendPrompt(page, "[[faux:coalesce-multiparagraph]] go");
+    await expect(page.getByText(STREAM_TAIL).first()).toBeVisible({ timeout: 180_000 });
+    await expect(page.locator(".chat-stream-live")).toHaveCount(0);
+
+    // A separate context starts without the first browser's IndexedDB replay cache.
+    const context = await browser.newContext({ baseURL: BASE_URL });
+    try {
+      const coldPage = await context.newPage();
+      await coldPage.goto(BASE_URL);
+      await openSession(coldPage, sessionId as string);
+      await expect(coldPage.getByText(STREAM_TAIL).first()).toBeVisible({ timeout: 60_000 });
+      await expect(coldPage.locator(".chat-stream-live")).toHaveCount(0);
+      const text = await transcriptText(coldPage);
+      for (const marker of [...PARAGRAPH_MARKERS, STREAM_TAIL]) {
+        expect(occurrences(text, marker), `replayed occurrences of ${marker}`).toBe(1);
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
   test("F2: reasoning renders in full with the tool row after it", async ({ page }) => {
     test.setTimeout(300_000);
     await enableToolSurfaces(page);

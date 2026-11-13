@@ -33,8 +33,8 @@
  *      Because snapshots are CUMULATIVE, keeping only the last update before
  *      the tool start reproduces `streamingText` exactly.
  *
- * Everything after the last `message_end` is the still-streaming tail and is
- * kept verbatim. Non-`message_update` events always pass through untouched.
+ * After the boundary, retain only the last of each originally adjacent run of
+ * full assistant text snapshots. Other events delimit runs and pass through.
  *
  * Seq values are NEVER rewritten — the client's `getEvents` filter tolerates
  * gaps, and monotonicity is what the reset rule depends on. The caller must
@@ -53,14 +53,27 @@ function isThinkingUpdate(event: StoredEvent["event"]): boolean {
   return typeof ame?.type === "string" && ame.type.startsWith("thinking");
 }
 
+function isTextSnapshot(event: StoredEvent["event"]): boolean {
+  if (event.eventType !== "message_update") return false;
+  const message = event.data?.message as { role?: unknown; content?: unknown } | null | undefined;
+  if (message?.role !== "assistant") return false;
+  const content = message.content;
+  if (typeof content !== "string" && !(Array.isArray(content) && content.every(
+    (block) => block !== null && typeof block === "object" && block.type === "text" && typeof block.text === "string",
+  ))) return false;
+  const metadata = event.data?.assistantMessageEvent;
+  return metadata === undefined || (metadata !== null && typeof metadata === "object" &&
+    ["text_start", "text_delta", "text_end"].includes((metadata as { type: string }).type));
+}
+
 /**
  * Compact a replay window. Pure: returns a NEW array, never mutates the input
  * or any event object (survivors are passed through by reference).
  *
  * `supersessionBoundaryIdx` (optional) is the index BEFORE which non-exempt
  * `message_update` events are considered superseded. Omitted, it defaults to
- * this array's own last `message_end` — exactly today's behaviour, so every
- * existing caller is unchanged.
+ * this array's own last `message_end`. Indices refer to the original input.
+ * At or after the boundary, adjacent eligible text snapshots collapse to the last.
  *
  * A caller MUST supply it when compacting a SLICE of a larger stream: the
  * derived boundary is array-relative, so a gap slice would keep updates whose
@@ -105,7 +118,6 @@ export function compactEventsForReplay(
   // nothing-finalized-yet short-circuit: a slice with no `message_end` of its
   // own is exactly the case the caller is correcting for.
   const boundary = supersessionBoundaryIdx ?? lastMessageEndIdx;
-  if (boundary < 0) return stored.slice(); // nothing finalized yet
 
   // Pass 2 — emit.
   const out: StoredEvent[] = [];
@@ -119,6 +131,7 @@ export function compactEventsForReplay(
     ) {
       continue;
     }
+    if (i >= boundary && i + 1 < stored.length && isTextSnapshot(entry.event) && isTextSnapshot(stored[i + 1].event)) continue;
     out.push(entry);
   }
   return out;

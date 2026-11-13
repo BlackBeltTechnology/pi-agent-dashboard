@@ -6,6 +6,7 @@ Files in this directory. One row per source file.
 |------|---------|
 | `__tests__/device-nonce-store.test.ts` | `DeviceNonceStore` (single-use, 60 s TTL, 10 000 bound, consumed on any proof) + `verifyNonceProof` (E4). See change: device-key-mutual-check. |
 | `__tests__/device-status-limiter.test.ts` | `DeviceStatusLimiter` (60/min/peer, 1024 peers) + `RevokedAnswerLog` throttle (E5, E17). See change: device-key-mutual-check. |
+| `__tests__/replay-performance.test.ts` | Controlled replay/reducer four-way timings, map-copy counts, and complete-state equivalence. |
 | `__tests__/event-wiring-preferences-before-initial-prompt.test.ts` | #E10: real server + fake bridge WS; compat on + queued initial prompt → `preferences_update {claudeSubscriptionCompat:true}` arrives before `send_prompt`. See change: retire-anthropic-messages-bridge. |
 | `__tests__/host-project-trust.test.ts` | Legacy decision table + real pi, plus shared decision, #E24 agent dir, #X10 boot log, #E27 no trust.json writes. See change: mirror-dashboard-trust-to-pi. pi 1.5 order: recorded entry read for every folder (#E17 #E18 #X1), real-pi lock held → undecided ≤250 ms (#X2 #P2). See change: update-pi-core-1-5-adopt-apis. |
 | `__tests__/paired-devices-keys.test.ts` | Registry key + companion API: bind/replace/held, cap, `deviceKeyStatus`. See change: device-key-mutual-check. |
