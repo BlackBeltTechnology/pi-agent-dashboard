@@ -1,6 +1,8 @@
 # Shared streaming-performance comparison
 
-**Browser acceptance remains open.** Both F5 browser scenarios are implemented but unexecuted: Docker’s forwarded build service was unavailable. No build VM was provisioned, deployment performed, or publication attempted.
+**Full replay acceptance remains open.** The new cold-browser replay scenario and both live-tool backfill scenarios pass on the host.
+An existing mid-turn reconnect scenario instead reaches the sign-in page; its cause and baseline behavior remain unverified.
+No phone or network speedup is measured.
 
 The shared P2 four-way comparison is complete. These are synthetic in-process timings, not network, rendering, or phone reconnect measurements.
 
@@ -172,11 +174,38 @@ Each ratio is reference median total / row median total. Values above 1 mean the
 | Independent code review | No concrete contract violation; final correction/benchmark/browser-test review: no findings |
 | Repository-wide quality dependencies | Team-app typecheck: 8 errors; z-layer check: 10 diagnostic entries. Candidate output byte-identical to unchanged baseline |
 | Broad repository test run | Partial only; interrupted with exit 130 after overlong Unix-socket paths in deeply nested temporary storage; real-process phase never started |
-| Rendered replay/backfill F5 checks | Not run; Docker build service unavailable |
+| Host replay browser suite | `coalesced-streaming.spec.ts`: 5 passed, 1 failed; new cold-browser F5 passed |
+| Host reducer browser suite | `replay-live-tool-not-orphaned.backfill.spec.ts`: F15 and F16 passed; both verify a backfilled live Agent remains running, then completes once |
 
 Replay E1–E9/P1/X1 live in `replay-compaction.test.ts`; F1/F2/E10 and payload reduction live in `replay-compaction-equivalence.test.ts`; F3 uses `subscription-handler-compaction.test.ts`; F4 connects the real server backfill response to `useMessageHandler.history-gap.test.tsx`. Reducer E1–E8/P1/P2/F1–F4/X1 live in `event-reducer.copy-on-write.test.ts` with independent lifecycle fixtures and the reviewed pre-change full-state snapshot.
 
-P2 performance evidence is complete for the pair of optimized source modules. Each independent PR preserves only its own scenarios and task statuses. Rendered acceptance and baseline-only repository quality failures remain open. Neither change is archived or landed.
+P2 performance evidence is complete for the pair of optimized source modules.
+Each independent PR preserves only its own scenarios and task statuses.
+The broader replay reconnect failure, fresh-checkout typecheck and baseline-only repository quality failures remain open.
+Neither change is archived or landed.
+
+### Host browser acceptance, 2026-11-13
+
+Replay source: `3c5bfb4be5defd79733ac8d972d271de8d1c7ad0`; reducer source: `386cfeebf2187466059ee3c4825131a594bf50a8`.
+Their feature-module hashes match the table above; later PR commit-message changes do not change these patches.
+Host runtime: Node 24.21.0, Chromium 156.0.8078.79, Docker Engine 29.8.0, Compose 5.7.1.
+Both PR images build from their own source in separate disposable checkouts.
+A temporary config imports the unchanged Playwright config and selects its first project's device settings, clears `channel`, and sets `launchOptions.executablePath=/usr/bin/chromium`.
+`PW_CHANNEL=chromium` enables system-browser preflight mode.
+
+The replay suite passes F1, new F5, F2, F3 and X4.
+F4 at `tests/e2e/coalesced-streaming.spec.ts:250` waits 180 seconds for `coalesce stream complete` after `dropSocket(page)`.
+Its captured page contains `Sign in to pi-dashboard` and `No sign-in method installed` instead.
+No unchanged-baseline browser control was run; the failure is not attributed to compaction.
+The reducer suite passes both dashboard-restart F15 and browser-reload F16 scenarios in `tests/e2e/replay-live-tool-not-orphaned.backfill.spec.ts`.
+Both prove the Agent start arrives through backfill, preserve running status and finish with one completion.
+
+Managed setup passes `--build` to `docker/test-up.sh`; it does not reuse an unbuilt candidate.
+Replay uses foreground attach mode after its managed harness reaches health, with ports 18045/19045 and project `pi-dash-test-1112965045`.
+The attach run sets `PW_E2E_USE_RUNNING=1`, `PW_E2E_PORT`, `PW_GATEWAY_PORT` and `PW_E2E_PROJECT`; an EXIT trap invokes scoped teardown from the owning temporary workspace.
+Reducer runs in foreground managed mode with `PW_E2E_BOOT_TIMEOUT_MS=900000`, project `pi-dash-test-4061708999`.
+Each run removes its own container, volumes, network and image; scoped Docker listings confirm no remaining test containers.
+Supplementary logs/screenshots live under `target/streaming-performance-prs/host-browser/`; this section preserves the decisive facts without those artifacts.
 
 ## Reproduction and artifacts
 
