@@ -1,7 +1,7 @@
 # Tasks
 
 Implementation evidence: [shared four-way results](../../streaming-performance-comparison.md).
-Rendered acceptance and baseline-only repository quality failures remain open there.
+Current browser results and remaining validation limits are recorded there.
 Each scenario below maps to exactly one row in [test-plan.md](test-plan.md).
 
 ## 1. Adjacent-run compaction and local acceptance
@@ -32,7 +32,7 @@ Each scenario below maps to exactly one row in [test-plan.md](test-plan.md).
 
 ## 3. Rendered replay and final integration
 
-- [ ] 3.1 L3: extend the existing coverage (see `tests/e2e/coalesced-streaming.spec.ts`); input: A completed faux coalesce-multiparagraph session with eight numbered paragraphs; trigger: Reopen in a second browser context with empty IndexedDB using the docker harness; observable: Each paragraph marker and coalesce stream complete appears once; no settled live-text bubble remains (test-plan #F5).
+- [x] 3.1 L3: extend the existing coverage (see `tests/e2e/coalesced-streaming.spec.ts`); input: A completed faux coalesce-multiparagraph session with eight numbered paragraphs; trigger: Reopen in a second browser context with empty IndexedDB using the docker harness; observable: Each paragraph marker and coalesce stream complete appears once; no settled live-text bubble remains (test-plan #F5).
 - [ ] 3.2 Run the affected unit suites through normal Vitest discovery and the rendered scenario through the isolated local-changes docker harness; always tear down the harness and verify no personal Dashboard state changed.
 - [ ] 3.3 Run strict OpenSpec validation and the repository's changed-file quality checks; review the final diff for replay-only scope, original cursors, and absence of protocol/store/live-delivery changes.
 - [x] 3.4 L1: extend the existing coverage (see `packages/server/src/__tests__/replay-compaction-equivalence.test.ts`); input: Identical raw workloads and initial states across baseline, collapse-only, copy-on-write-only and both, using the shared comparison contract in test-plan.md; trigger: Execute the same benchmark harness against all four pinned disposable source variants; observable: All four cells report phase timings, replay counts/bytes and core map work; complete state equals baseline and fixture expectations; performance acceptance remains open until the complete comparison exists (test-plan #P2).
