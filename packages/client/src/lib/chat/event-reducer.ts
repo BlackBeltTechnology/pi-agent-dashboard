@@ -631,17 +631,17 @@ function findEligibleAgentRows(state: SessionState, agentId?: string): number[] 
  * end). Restore the row and its `toolCalls` entry to `running`. Real terminals
  * and every other heal are left alone. This is the ROW half: the subagents
  * plugin's Agent finalizer reopens a subagent the same heal failed (it is asked
- * right after, with the pre-event state). Mutates `next` (messages array and
- * toolCalls map are already copies).
+ * right after, with the pre-event state). Mutates `next` (messages array is
+ * already a copy); acquire map ownership only if reopening writes.
  * See change: fix-replay-fabricates-orphan-end-for-live-calls (D6), decouple-plugins-from-core (4.6).
  */
-function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: string): void {
+function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: string, writeToolCalls: () => SessionState["toolCalls"]): void {
   const row = next.messages[idx];
   if (row.toolStatus === "running" || row.toolDetails?.healedBy !== "session_ended") return;
   const { healedBy: _h, resultMissing: _m, error: _e, ...restDetails } = row.toolDetails;
   next.messages[idx] = { ...row, toolStatus: "running", duration: undefined, toolDetails: { ...restDetails, status: "running" } };
   const tc = next.toolCalls.get(toolCallId);
-  if (tc) next.toolCalls.set(toolCallId, { ...tc, status: "running" });
+  if (tc) writeToolCalls().set(toolCallId, { ...tc, status: "running" });
 }
 
 /**
@@ -652,6 +652,8 @@ function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: stri
  * strictly later assistant inference — genuine evidence the end was lost.
  * Returns `toolCalls` unchanged (same Map) when a RUNNING entry already exists;
  * a terminal entry is restored to running with a refreshed inference stamp.
+ * Changed cases copy the map and replace the entry; input maps, rows and nested
+ * values stay immutable. Backfill callers can use this without reducer ownership.
  * See change: fix-backfill-elides-live-tools (D2, D3).
  */
 export function seedRunningToolCall(
@@ -1701,11 +1703,12 @@ function writeNested(
   next: SessionState,
   rootId: string,
   list: NestedCallState[],
+  writeToolCalls: () => SessionState["toolCalls"],
   complete?: boolean,
 ): void {
   const patch = { nested: list, ...(complete !== undefined ? { nestedComplete: complete } : {}) };
   const tc = next.toolCalls.get(rootId);
-  if (tc) next.toolCalls.set(rootId, { ...tc, ...patch });
+  if (tc) writeToolCalls().set(rootId, { ...tc, ...patch });
   const idx = findToolRowIndex(next.messages, rootId);
   if (idx !== -1) {
     next.messages = [...next.messages];
@@ -1714,16 +1717,16 @@ function writeNested(
 }
 
 /** Merge a `nestedCalls` record into its root, then enforce the terminal-root invariant. */
-function mergeRecordIntoRoot(next: SessionState, rootId: string, record: unknown): void {
+function mergeRecordIntoRoot(next: SessionState, rootId: string, record: unknown, writeToolCalls: () => SessionState["toolCalls"]): void {
   const env = readNestedCallsEnvelope(record);
   if (!env || !isKnownRoot(next, rootId)) return;
   let list = mergeNestedRecord(nestedListOf(next, rootId), env.calls);
   if (isRootTerminal(next, rootId)) list = closeRunningNested(list);
-  writeNested(next, rootId, list, env.complete);
+  writeNested(next, rootId, list, writeToolCalls, env.complete);
 }
 
 /** Reduce a nested `tool_execution_*` event into its root's list. Never touches top-level state. */
-function reduceNestedToolEvent(next: SessionState, event: DashboardEvent): void {
+function reduceNestedToolEvent(next: SessionState, event: DashboardEvent, writeToolCalls: () => SessionState["toolCalls"]): void {
   const data = event.data;
   const id = data.toolCallId;
   const parentId = data.parentToolCallId as string;
@@ -1739,13 +1742,14 @@ function reduceNestedToolEvent(next: SessionState, event: DashboardEvent): void 
         next,
         rootId,
         applyNestedStart(list, { id, parentId, name, args, startedAt: event.timestamp }, isRootTerminal(next, rootId)),
+        writeToolCalls,
       );
       return;
     }
     case "tool_execution_update": {
       const partial = data.partialResult;
       const text = partial == null ? undefined : truncateOutputForDisplay(partial);
-      writeNested(next, rootId, applyNestedUpdate(list, id, text));
+      writeNested(next, rootId, applyNestedUpdate(list, id, text), writeToolCalls);
       return;
     }
     case "tool_execution_end": {
@@ -1754,6 +1758,7 @@ function reduceNestedToolEvent(next: SessionState, event: DashboardEvent): void 
         next,
         rootId,
         applyNestedEnd(list, { id, parentId, name, isError: data.isError === true, result, endedAt: event.timestamp }),
+        writeToolCalls,
       );
       return;
     }
@@ -1849,7 +1854,22 @@ export function reduceEvent(
   opts?: { isLive?: boolean },
 ): SessionState {
   const isLive = opts?.isLive === true;
-  const next = { ...state, toolCalls: new Map(state.toolCalls) };
+  const next = { ...state };
+  let ownedToolCalls: SessionState["toolCalls"] | undefined;
+  // Ownership belongs only to this reduction. Publishing a state to a plugin,
+  // prior snapshot or nested reducer ends exclusivity, even if it returns that
+  // same map. Helpers replace entries/nested arrays, never mutate shared values.
+  const writeToolCalls = () => {
+    if (ownedToolCalls !== next.toolCalls) {
+      next.toolCalls = new Map(next.toolCalls);
+      ownedToolCalls = next.toolCalls;
+    }
+    return next.toolCalls;
+  };
+  const shareToolCalls = () => {
+    ownedToolCalls = undefined;
+    return next;
+  };
   const data = event.data;
 
   switch (event.eventType) {
@@ -1930,7 +1950,7 @@ export function reduceEvent(
       // finalize-agent-card-on-subagent-stop (D4), decouple-plugins-from-core (D5 item 9).
       {
         let healed: SessionState =
-          findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(next, event, finalizerOpts(isLive)) ?? next;
+          findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(shareToolCalls(), event, finalizerOpts(isLive)) ?? next;
         for (const idx of findEligibleAgentRows(healed)) {
           healed = neutralSettleAgentRow(healed, idx, event.timestamp);
         }
@@ -2060,7 +2080,7 @@ export function reduceEvent(
       // Live nested-call record rides the root's toolResult message.
       // See change: render-nested-tool-calls (D1).
       if (msg?.role === "toolResult" && typeof msg.toolCallId === "string" && msg.nestedCalls !== undefined) {
-        mergeRecordIntoRoot(next, msg.toolCallId, msg.nestedCalls);
+        mergeRecordIntoRoot(next, msg.toolCallId, msg.nestedCalls, writeToolCalls);
       }
       if (msg?.role === "assistant") {
         // Reset the per-message flush flag at the start of every assistant
@@ -2268,7 +2288,7 @@ export function reduceEvent(
       // Live nested-call record rides the root's toolResult message.
       // See change: render-nested-tool-calls (D1).
       if (msg?.role === "toolResult" && typeof msg.toolCallId === "string" && msg.nestedCalls !== undefined) {
-        mergeRecordIntoRoot(next, msg.toolCallId, msg.nestedCalls);
+        mergeRecordIntoRoot(next, msg.toolCallId, msg.nestedCalls, writeToolCalls);
       }
       if (msg?.role === "custom") {
         // Custom MESSAGE row (pi.sendMessage) — change:
@@ -2512,7 +2532,7 @@ export function reduceEvent(
       // Nested call: attach to its root; no row, no flush, no currentTool.
       // See change: render-nested-tool-calls (D1).
       if (isNestedToolEvent(data)) {
-        reduceNestedToolEvent(next, event);
+        reduceNestedToolEvent(next, event, writeToolCalls);
         break;
       }
       const toolCallId = data.toolCallId as string;
@@ -2540,7 +2560,7 @@ export function reduceEvent(
         );
       }
       const args = data.args as Record<string, unknown> | undefined;
-      next.toolCalls.set(toolCallId, {
+      writeToolCalls().set(toolCallId, {
         toolCallId,
         toolName,
         args,
@@ -2603,21 +2623,21 @@ export function reduceEvent(
 
     case "tool_execution_update": {
       if (isNestedToolEvent(data)) {
-        reduceNestedToolEvent(next, event);
+        reduceNestedToolEvent(next, event, writeToolCalls);
         break;
       }
       const toolCallId = data.toolCallId as string;
       const partialResult = data.partialResult;
       const rowIdx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
       // Agent rows: the registered finalizer owns the subagent half of this tick. It
-      // gets the pre-event state (`prior`, own `toolCalls` copy) so it can tell a row
+      // gets the pre-event state (`prior`, shared immutable `toolCalls`) so it can tell a row
       // the reopen/revive below restored from one that was already running, and undo
       // the revive for a subagent it records as terminal.
       const finalizer =
         rowIdx !== -1 && next.messages[rowIdx].toolName === "Agent"
           ? findToolRowFinalizer<SessionState>("Agent")
           : undefined;
-      const prior: SessionState | undefined = finalizer ? { ...next, toolCalls: new Map(next.toolCalls) } : undefined;
+      const prior: SessionState | undefined = finalizer ? { ...shareToolCalls() } : undefined;
       // Any top-level tick — with or without a partial result — revives an elided row.
       // See change: fix-backfill-elides-live-tools (D3).
       if (rowIdx !== -1 && next.messages[rowIdx].toolStatus === "elided") {
@@ -2627,7 +2647,7 @@ export function reduceEvent(
         // finalizer, yet a revive for a subagent it records as terminal must still be
         // undone (missing or plain-string `partialResult`).
         if (!partialResult || typeof partialResult !== "object") {
-          const finalized = finalizer?.onToolExecution?.(next, event, { ...finalizerOpts(isLive), prior });
+          const finalized = finalizer?.onToolExecution?.(shareToolCalls(), event, { ...finalizerOpts(isLive), prior });
           if (finalized) return finalized;
         }
       }
@@ -2635,7 +2655,7 @@ export function reduceEvent(
         const idx = rowIdx;
         if (idx !== -1) {
           next.messages = [...next.messages];
-          reopenSessionEndedRow(next, idx, toolCallId);
+          reopenSessionEndedRow(next, idx, toolCallId, writeToolCalls);
           // Structured partialResult (e.g. Agent tool sends { content, details })
           if (typeof partialResult === "object" && partialResult !== null) {
             const structured = partialResult as Record<string, unknown>;
@@ -2673,7 +2693,7 @@ export function reduceEvent(
             // stopped subagent) are the Agent finalizer's. None registered, or it declines
             // → `SessionState.subagents` is untouched.
             // See change: fix-subagent-live-detail-durable-hydration, decouple-plugins-from-core (4.6).
-            const finalized = finalizer?.onToolExecution?.(next, event, { ...finalizerOpts(isLive), prior });
+            const finalized = finalizer?.onToolExecution?.(shareToolCalls(), event, { ...finalizerOpts(isLive), prior });
             if (finalized) return finalized;
           } else {
             // Plain string partialResult (standard tools)
@@ -2689,7 +2709,7 @@ export function reduceEvent(
 
     case "tool_execution_end": {
       if (isNestedToolEvent(data)) {
-        reduceNestedToolEvent(next, event);
+        reduceNestedToolEvent(next, event, writeToolCalls);
         break;
       }
       const toolCallId = data.toolCallId as string;
@@ -2709,7 +2729,7 @@ export function reduceEvent(
         break;
       }
       if (existing) {
-        next.toolCalls.set(toolCallId, {
+        writeToolCalls().set(toolCallId, {
           ...existing,
           status: (data.isError as boolean) ? "error" : "complete",
         });
@@ -2799,11 +2819,11 @@ export function reduceEvent(
       // nested record, then close any still-running nested entry. An orphan end
       // (no row, no map entry) creates nothing.
       // See change: render-nested-tool-calls (D1, D3).
-      if (data.nestedCalls !== undefined) mergeRecordIntoRoot(next, toolCallId, data.nestedCalls);
+      if (data.nestedCalls !== undefined) mergeRecordIntoRoot(next, toolCallId, data.nestedCalls, writeToolCalls);
       {
         const nestedList = nestedListOf(next, toolCallId);
         const closed = closeRunningNested(nestedList);
-        if (closed !== nestedList) writeNested(next, toolCallId, closed);
+        if (closed !== nestedList) writeNested(next, toolCallId, closed, writeToolCalls);
       }
 
       // Subagent backfill: a `tool_execution_end` of a completed Agent run
@@ -2819,7 +2839,7 @@ export function reduceEvent(
       {
         const toolName = data.toolName as string | undefined;
         const finalized = toolName
-          ? findToolRowFinalizer<SessionState>(toolName)?.onToolExecution?.(next, event, finalizerOpts(isLive))
+          ? findToolRowFinalizer<SessionState>(toolName)?.onToolExecution?.(shareToolCalls(), event, finalizerOpts(isLive))
           : undefined;
         if (finalized) return finalized;
       }
@@ -3114,8 +3134,8 @@ export function reduceEvent(
       // the Agent row) and declines the rest; a decline leaves the slice to reduce.
       const slice = findSessionEventReducer<SessionState>(event.eventType);
       if (slice) {
-        const settled = findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(next, event, finalizerOpts(isLive));
-        return settled ?? slice.reduce(next, event, { isLive });
+        const settled = findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(shareToolCalls(), event, finalizerOpts(isLive));
+        return settled ?? slice.reduce(shareToolCalls(), event, { isLive });
       }
       const owner = ownerOfEventType(event.eventType);
       if (owner) {
