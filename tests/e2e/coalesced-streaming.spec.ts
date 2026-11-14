@@ -1,5 +1,9 @@
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "./fixtures.js";
-import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { resolveContainer } from "./helpers/container-proc.js";
+import { gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 // L3 (docker harness) rows for change: coalesce-bridge-message-update-snapshots.
@@ -147,6 +151,163 @@ test.describe("bridge coalesced streaming (L3)", () => {
 
     // No ghost streaming bubble survives the settle (R4/R6).
     await expect(liveTail).toHaveCount(0);
+  });
+
+  test("replay F5: a cold browser replays all paragraphs exactly once", async ({ page, browser }) => {
+    test.setTimeout(300_000);
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    expect(sessionId).toBeTruthy();
+    await card.click();
+    await sendPrompt(page, "[[faux:coalesce-multiparagraph]] go");
+    await expect(page.getByText(STREAM_TAIL).first()).toBeVisible({ timeout: 180_000 });
+    await expect(page.locator(".chat-stream-live")).toHaveCount(0);
+
+    // A separate context starts without the first browser's IndexedDB replay cache.
+    const context = await browser.newContext({ baseURL: BASE_URL });
+    try {
+      const coldPage = await context.newPage();
+      await coldPage.goto(BASE_URL);
+      await openSession(coldPage, sessionId as string);
+      await expect(coldPage.getByText(STREAM_TAIL).first()).toBeVisible({ timeout: 60_000 });
+      await expect(coldPage.locator(".chat-stream-live")).toHaveCount(0);
+      const text = await transcriptText(coldPage);
+      for (const marker of [...PARAGRAPH_MARKERS, STREAM_TAIL]) {
+        expect(occurrences(text, marker), `replayed occurrences of ${marker}`).toBe(1);
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("replay F6: a cold browser joins an unfinished response", async ({ page, browser }) => {
+    test.setTimeout(300_000);
+    const container = resolveContainer();
+    page.setDefaultTimeout(30_000);
+    // tmux resumes stopped pane leaders. Use the existing independent RPC
+    // session pattern so SIGSTOP remains in force while the cold client opens.
+    const cwd = `/fixtures/replay-cold-${randomUUID()}`;
+    const processScript = readFileSync(new URL("../fixtures/replay-cold-process.sh", import.meta.url), "utf8");
+    const inContainer = (action: string, ...args: string[]) => execFileSync(
+      "docker", ["exec", "-i", container, "bash", "-s", "--", action, ...args],
+      { encoding: "utf8", input: processScript },
+    );
+    let sessionId: string | undefined;
+    let pid: number | undefined;
+    let stopped = false;
+    const context = await browser.newContext({ baseURL: BASE_URL });
+    try {
+      inContainer("start", cwd);
+      await expect.poll(async () => {
+        const response = await page.request.get("/api/sessions");
+        const sessions = await response.json() as { data: Array<{ id: string; cwd: string; pid?: number }> };
+        const session = sessions.data.find((item) => item.cwd === cwd);
+        sessionId = session?.id;
+        pid = session?.pid;
+        return Boolean(sessionId && Number.isSafeInteger(pid) && (pid as number) > 1);
+      }, { timeout: 90_000 }).toBe(true);
+      const signal = (name: "STOP" | "CONT") => inContainer("signal", name, String(pid));
+
+      // Observe the live sequence before opening the cold replay.
+      type Event = { eventType?: string; data?: { nonce?: string; message?: { role?: string; content?: unknown }; assistantMessageEvent?: { type?: string } } };
+      const liveEvents: Array<{ seq: number; event: Event }> = [];
+      page.on("websocket", (socket) => socket.on("framereceived", ({ payload }) => {
+        try {
+          const frame = JSON.parse(payload.toString()) as { type?: string; sessionId?: string; seq?: number; event?: Event };
+          if (frame.type === "event" && frame.sessionId === sessionId && frame.event && typeof frame.seq === "number") {
+            liveEvents.push({ seq: frame.seq, event: frame.event });
+          }
+        } catch { /* unrelated frame */ }
+      }));
+      await gotoDashboard(page, `/session/${sessionId}`);
+      const eligible = (event: Event) => {
+        const message = event.data?.message;
+        const content = message?.content;
+        const metadata = event.data?.assistantMessageEvent;
+        return event.eventType === "message_update" && message?.role === "assistant" &&
+          (typeof content === "string" || (Array.isArray(content) && content.every(
+            (block) => block && block.type === "text" && typeof block.text === "string",
+          ))) && (metadata === undefined || ["text_start", "text_delta", "text_end"].includes(metadata.type ?? ""));
+      };
+
+      await sendPrompt(page, "[[faux:coalesce-multiparagraph]] go");
+      await expect(page.getByText(PARAGRAPH_MARKERS[0]).first()).toBeVisible({ timeout: 60_000 });
+      await expect.poll(() => liveEvents.some(({ event }, index) => index > 0 && eligible(liveEvents[index - 1].event) && eligible(event)), { timeout: 30_000 }).toBe(true);
+      signal("STOP");
+      stopped = true;
+      const state = () => inContainer("state", String(pid)).trim();
+      await expect.poll(state, { timeout: 10_000 }).toBe("T");
+      const boundaries = (events: Array<{ seq: number; event: Event }>) => events
+        .filter(({ event }) => event.eventType === "message_start" || event.eventType === "message_end")
+        .map(({ seq, event }) => ({
+          seq, type: event.eventType, role: event.data?.message?.role, nonce: event.data?.nonce,
+          textTail: JSON.stringify(event.data?.message?.content ?? "").slice(-100),
+        }));
+      const pairIndex = liveEvents.findIndex(({ event }, index) => index > 0 && eligible(liveEvents[index - 1].event) && eligible(event));
+      expect(pairIndex).toBeGreaterThan(0);
+      const assistantStart = liveEvents.slice(0, pairIndex).findLastIndex(({ event }) => event.eventType === "message_start" && event.data?.message?.role === "assistant");
+      expect(assistantStart, JSON.stringify(boundaries(liveEvents))).toBeGreaterThanOrEqual(0);
+      // User message_end is deferred and can land after assistant message_start.
+      expect(liveEvents.slice(assistantStart).some(({ event }) => event.eventType === "message_end" && event.data?.message?.role === "assistant"), JSON.stringify(boundaries(liveEvents))).toBe(false);
+      const supersededSeq = liveEvents[pairIndex - 1].seq;
+      const nextSeq = liveEvents[pairIndex].seq;
+      await expect(page.locator(".chat-stream-live")).toHaveCount(1);
+      await expect(page.getByText(STREAM_TAIL)).toHaveCount(0);
+
+      const coldPage = await context.newPage();
+      coldPage.setDefaultTimeout(30_000);
+      let replayFinished = false;
+      const replayed: Array<{ seq: number; event: Event }> = [];
+      coldPage.on("websocket", (socket) => socket.on("framereceived", ({ payload }) => {
+        try {
+          const frame = JSON.parse(payload.toString()) as { type?: string; sessionId?: string; isLast?: boolean; events?: Array<{ seq: number; event: Event }> };
+          if (frame.type === "event_replay" && frame.sessionId === sessionId) {
+            replayed.push(...(frame.events ?? []));
+            if (frame.isLast) replayFinished = true;
+          }
+        } catch { /* unrelated frame */ }
+      }));
+      await gotoDashboard(coldPage, `/session/${sessionId}`);
+      await expect.poll(() => replayFinished, { timeout: 60_000 }).toBe(true);
+      expect(state()).toBe("T");
+      const replayStart = replayed.findLastIndex(({ event }) => event.eventType === "message_start" && event.data?.message?.role === "assistant");
+      expect(replayStart, JSON.stringify(boundaries(replayed))).toBeGreaterThanOrEqual(0);
+      expect(replayed.slice(replayStart).some(({ event }) => event.eventType === "message_end" && event.data?.message?.role === "assistant"), JSON.stringify(boundaries(replayed))).toBe(false);
+      // The first member of an observed adjacent pair must be absent, while a
+      // later eligible snapshot survives. The old pass-through tail fails this.
+      expect(replayed.some(({ seq }) => seq === supersededSeq)).toBe(false);
+      expect(replayed.some(({ seq, event }) => seq >= nextSeq && eligible(event))).toBe(true);
+      await expect(coldPage.locator(".chat-stream-live")).toHaveCount(1);
+      // Wait for either view's paced rendering to converge to the same frozen
+      // snapshot, then check that snapshot occurs exactly once in the transcript.
+      await expect.poll(async () => {
+        const original = await page.locator(".chat-stream-live").innerText();
+        const cold = await coldPage.locator(".chat-stream-live").innerText();
+        return original.length > 0 && original === cold;
+      }, { timeout: 30_000 }).toBe(true);
+      const partial = await page.locator(".chat-stream-live").innerText();
+      expect(occurrences(await transcriptText(coldPage), partial)).toBe(1);
+      expect(await transcriptText(coldPage)).not.toContain(STREAM_TAIL);
+
+      signal("CONT");
+      stopped = false;
+      await expect.poll(state, { timeout: 10_000 }).not.toBe("T");
+      await expect(coldPage.getByText(STREAM_TAIL).first()).toBeVisible({ timeout: 180_000 });
+      await expect(coldPage.locator(".chat-stream-live")).toHaveCount(0);
+      const text = await transcriptText(coldPage);
+      expect(occurrences(text, partial), "completed transcript retains the partial text once").toBe(1);
+      for (const marker of [...PARAGRAPH_MARKERS, STREAM_TAIL]) {
+        expect(occurrences(text, marker), `replayed occurrences of ${marker}`).toBe(1);
+      }
+    } finally {
+      try {
+        if (stopped && pid) inContainer("signal", "CONT", String(pid));
+      } finally {
+        // The group contains the RPC pi and its stdin feeder, not the harness.
+        inContainer("cleanup", cwd);
+        await context.close();
+      }
+    }
   });
 
   test("F2: reasoning renders in full with the tool row after it", async ({ page }) => {

@@ -18,6 +18,9 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { handleHistoryBackfill, handleSubscribe } from "../../../../server/src/browser-handlers/subscription-handler.js";
+import { createMemoryEventStore } from "../../../../server/src/persistence/memory-event-store.js";
+import { createMemorySessionManager } from "../../../../server/src/session/memory-session-manager.js";
 import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
 import { createHistoryGapState, HISTORY_GAP_ROW_ID, type HistoryGapState, historyGapTerminus, nextBackfillRange, shouldAutoLoadHistory } from "../../lib/chat/history-gap.js";
 import { createReplayCache } from "../../lib/replay/replay-cache.js";
@@ -1041,5 +1044,51 @@ describe("history_backfill_result — server-reported open calls (#F10–#F13, #
     } as ServerToBrowserMessage);
     // Live events fold once per animation frame — poll the observable.
     await waitFor(() => expect(rowOf(h, "c1")?.toolStatus).toBe("running"));
+  });
+});
+
+
+function createBackfillFixture(empty: boolean) {
+    const sent: ServerToBrowserMessage[] = [];
+    const ctx: any = {
+      ws: { readyState: 1, OPEN: 1, bufferedAmount: 0 }, sessionManager: createMemorySessionManager(),
+      eventStore: createMemoryEventStore(() => false), piGateway: { sendToSession: vi.fn() },
+      headlessPidRegistry: {}, pendingResumeRegistry: {}, sendTo: (_: unknown, m: ServerToBrowserMessage) => sent.push(m),
+      broadcast: vi.fn(), getSubscribers: () => [], trackUiRequest: vi.fn(), replayPendingUiRequests: vi.fn(),
+      replayNotifyLog: vi.fn(), markReplaying: vi.fn(), clearReplaying: vi.fn(), maxReplayEvents: 500,
+    };
+    for (let seq = 1; seq <= 1500; seq++) {
+      const middle = seq >= 551 && seq <= 1050;
+      const event: DashboardEvent = !empty && seq === 800
+        ? { eventType: "tool_execution_start", timestamp: 800, data: { toolCallId: "open", toolName: "read", args: {} } }
+        : { eventType: empty && middle ? "message_update" : "stats_update", timestamp: seq, data: {} };
+      ctx.eventStore.insertEvent(SID, event);
+    }
+  return { ctx, sent };
+}
+
+describe("F4: server backfill to client history splice", () => {
+  it.each([false, true])("preserves open tool and empty-slice credit (empty=%s)", async (empty) => {
+    const { ctx, sent } = createBackfillFixture(empty);
+    const subs = new Set<string>(); handleSubscribe({ type: "subscribe", sessionId: SID, lastSeq: 0 }, subs, ctx);
+    await waitFor(() => expect(sent.some(m => m.type === "event_replay" && m.isLast)).toBe(true));
+    const window = sent.find(m => m.type === "history_window") as Extract<ServerToBrowserMessage, {type: "history_window"}>;
+    const h = mount();
+    for (const message of sent) if (message.type === "history_window" || message.type === "event_replay") h.fire(message);
+    expect(h.get().states.get(SID)!.toolCalls.has("open")).toBe(false);
+    await handleHistoryBackfill({ type: "history_backfill", sessionId: SID, fromSeq: window.headMaxSeq + 1, toSeq: window.tailMinSeq - 1 }, subs, ctx);
+    const result = sent.find(m => m.type === "history_backfill_result") as Extract<ServerToBrowserMessage, {type:"history_backfill_result"}>;
+    expect(result.servedFrom).toBe(551);
+    if (empty) expect(result.events).toEqual([]);
+    else {
+      expect(result.events.map(e => e.seq)).toEqual(Array.from({length: 500}, (_, i) => i + 551));
+      expect(result.openToolCallIds).toEqual(["open"]);
+    }
+    h.fire(result);
+    expect(h.get().gaps.get(SID)?.tailMinSeq).toBe(551);
+    if (!empty) {
+      expect(h.get().states.get(SID)!.toolCalls.get("open")?.status).toBe("running");
+      expect(h.get().states.get(SID)!.messages.filter(m => m.id !== HISTORY_GAP_ROW_ID).map(m => m.toolCallId)).toEqual(["open"]);
+    }
   });
 });
