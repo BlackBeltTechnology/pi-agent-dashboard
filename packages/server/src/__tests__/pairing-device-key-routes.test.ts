@@ -233,7 +233,7 @@ describe("E14 operator routes for held devices", () => {
     expect(reg.list().some((x) => x.id === d.device.id)).toBe(true);
     expect((await op("POST", `/api/paired-devices/${d.device.id}/restore`)).statusCode).toBe(409);
     expect((await op("POST", "/api/paired-devices/nope/restore")).statusCode).toBe(404);
-    expect(reg.verify(d.token)).not.toBeNull(); // the same bearer works again
+    expect(reg.verify(d.token, "plain")).not.toBeNull(); // the same bearer works again
   });
 
   it("delete-now: revoked → 200; after restore → 409; after delete → restore 404; active → 409; unknown → 404", async () => {

@@ -358,8 +358,8 @@ describe("E13 only a device credential authenticates", () => {
     const companion = newDeviceKey();
     const { device } = pairWithKey(owner);
     reg.addCompanion(device.id, { pub: companion.pub, origin: "http://192.168.16.31:8000" });
-    expect(reg.verify(companion.pub)).toBeNull();
-    expect(reg.verifyDetailed(companion.pub).status).toBe("invalid");
+    expect(reg.verify(companion.pub, "plain")).toBeNull();
+    expect(reg.verifyDetailed(companion.pub, "plain").status).toBe("invalid");
 
     for (const headers of [{ authorization: `Bearer ${companion.pub}` }, { cookie: `${DEVICE_COOKIE}=${companion.pub}` }]) {
       for (const [method, url] of [
