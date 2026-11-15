@@ -7,3 +7,5 @@ Exports `PendingSpawnEntry` `{cwd, kind, placeholderCwd?, focus?}` — single ty
 redesign-directory-home-split: `handleSpawnSession` opts gain `model?`/`thinkingLevel?` (sent on `spawn_session`) and now RETURNS the minted `requestId`. New dep `getResumePick(sessionId)`: an ENDED target's pick rides `send_prompt`; `handleResumeSession(..., "continue")` rides `resume_session`; never on fork / live sessions.
 
 Request ids minted via `randomUuid()` instead of `crypto.randomUUID` (non-secure LAN origins have no `randomUUID`). See change: add-lan-knock-pairing.
+
+`removeSteeringEntry(id)` → `remove_steering_entry{sessionId,id}`; `clearSteeringEntries()` → `clear_steering_entries{sessionId}`. No confirm. Test: `useSessionActions.steer-cancel.test.tsx`. See change: bridge-owned-cancellable-steer.

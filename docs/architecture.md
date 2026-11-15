@@ -787,6 +787,8 @@ Status-based dispatch rests on invariant: `register()` is only path to non-ended
 
 **Health.** `/api/health#droppedFrames` counters `statusReconcileQueued` (entries recorded owed) + `statusReconcileSent` (reconcile frames re-sent) count every registry kind. No new `/api/health` field. Accepted health-counter shift: shed reorders move from `droppedFrames.total` to `coalescedState`. `/api/health#socketBufferOccupancy` = `{ max, p95, msAboveThreshold }` over browser-socket `bufferedAmount`; typed-zero fallback `EMPTY_SOCKET_BUFFER_OCCUPANCY`. Sampled at the send-decision sites, which already read `bufferedAmount` for the shed predicate — **not** on a timer. A periodic sampler was implemented first and rejected: it breaks the "zero timers on an unsaturated socket" invariant (`browser-gateway-critical-frames` P3/E9). Time-above-threshold uses a per-socket entry/exit span (`occupancyAboveSince`); the hot exit branch is gated on `size > 0`.
 
+**Subagent end / liveness frames are deferred, not shed** (change: fix-background-subagent-ghost-rows). `deferKeyOfEvent(msg)` keys `subagent_completed` / `subagent_failed` (real end `subagent_end:<sid>:<id>`, heal `subagent_heal:<sid>:<id>`), `subagent_stop_result` (`subagent_stop_result:<sid>:<agentId>`) and `subagent_registry_snapshot` (`subagent_registry_snapshot:<sid>`); no string id → no key → shed. `frameClassOf` is unchanged (still `transcript`). Healthy socket → full frame. Where `sendTo` would shed, a bounded projection (`projectDeferredSubagentFrame`: no timeline, `result`/`error` ≤ 8 KB, `deferredProjection:true`) goes to `sendState` under its key. Counted `/api/health#droppedFrames.deferredSubagentFrames` (also under `serverToBrowser`) — not a drop. The client replay persister never caches a `deferredProjection` event.
+
 **`msAboveThreshold` is OBSERVATION-based, not continuous wall-clock.** Sampling happens at send decisions, so a crossing that starts and ends between two decisions is never observed, and a reported duration is bounded by the samples that delimit it. `getSocketBufferOccupancy()` adds spans still open at read time (else an in-progress stall reports 0), and SETTLES a span whose socket has since drained or closed — without that, an event-driven sampler leaves such a span open forever and it grows on every health read (unbounded over-report). Settling deletes the entry, so a later exit cannot accrue it twice.
 
 **Test-only injector.** `POST /api/test/force-shed { enabled }` forces transcript-class frames to shed while leaving `bufferedAmount` untouched. Registered ONLY under `PI_E2E_FORCE_SHED=1` (set in `docker/compose.test.yml`, never a real image); still `networkGuard`-gated. Returns the effective state, so an unflagged server reports refusal instead of a silent no-op. Exists because real saturation is a browser failing to drain its own socket, which Playwright cannot induce. Drives `tests/e2e/status-reconcile.spec.ts`.
@@ -5533,6 +5535,69 @@ flowchart LR
   Index --> List["GET /api/sessions/archived"]
   Index --> Open["read-only open\n?archived=1"]
   List --> Fold["Archive (N) fold"]
+```
+
+## Mid-turn prompt queue (steer + follow-up)
+
+- Follow-ups: bridge-owned `bridgeFollowUp` (`packages/extension/src/followup-buffer.ts`).
+- pi never sees held follow-ups until `drainOneFollowup` (`followup-drain.ts`) ships one per `agent_settled` as fresh prompt.
+- Steers: bridge holds dashboard steers sent while streaming in `inst.bridgeSteer` (`packages/extension/src/steer-buffer.ts`, `createSteerBuffer(instanceNonce)`).
+- Steer ids `<nonce>:<seq>`; entries `{id,text,images?,promptId?}`.
+- Steer buffer: cap 20 + byte ceiling 32 MiB, same as follow-ups, accounted independently.
+- `admitSteer` validates images. Refusal → `command_feedback` for `send_prompt`.
+- Routing (`command-handler.ts` passthrough + `bridge.ts` `sessionPrompt` fallback):
+  - flags `bufferFollowUp` / `bufferSteer`.
+  - streaming steer → steer buffer, no pi call, `prompt_received` ack without `promptId`.
+  - idle steer → direct `pi.sendUserMessage`.
+- Hand-off: `handOffHeldSteers` (`bridge-handlers/lifecycle.ts`) runs inside awaited `turn_end` handler, `outcome === "completed"` only.
+- pi awaits extension `turn_end` handlers before `getSteeringMessages()` (`pi-agent-core` `agent-loop.js`).
+- Hand-off takes oldest (`steeringMode` `"one-at-a-time"`, default) or all (`"all"`).
+- Hand-off removes entries + emits `queue_update` synchronously BEFORE sends.
+- Hand-off per entry: `pi.sendUserMessage(content,{deliverAs:"steer"})` → `prompt_received{fresh:false,promptId}` → one macrotask yield.
+- After hand-off: not cancellable. Bubble gone. pi renders user message.
+- Settle drain: `drainOneFollowup` ships oldest held steer BEFORE follow-ups, one per `agent_settled`, same gates, acks `promptId`.
+- Settle drain covers steer after last turn and aborted/error runs.
+- Cancel: browser → server → bridge `remove_steering_entry{sessionId,id}` / `clear_steering_entries{sessionId}`.
+- Cancel handlers: `bridge-handlers/dispatch.ts`. No pi call.
+- Unknown id → `command_feedback` "Steer already sent or cancelled".
+- Server relay: `session-action-handler.ts` `handleRemoveSteeringEntry` / `handleClearSteeringEntries`.
+- ACP sessions ignore cancel (`acp-bridge/server-requests.ts`).
+- `clear_steering_queue` stays deleted (pi exposes no queue removal).
+- Wire: `queue_update.steering` / `pendingQueues.steering` = `(SteerEntryView | string)[]`.
+- `SteerEntryView{id,text,imageCount}`.
+- Plain strings = legacy bridges (one release), no cancel.
+- `message_start` matcher touches follow-ups only.
+- Re-announce `queue_update` (empty included) on:
+  - register: `lifecycle.ts`, after `sessionReady = true`.
+  - re-register: `bridge.ts` `onReconnect`, after `sendStateSync`.
+- Trade-off: held steers live in bridge memory. Bridge reload mid-turn drops them.
+- Client: `PendingSteerCard.tsx`.
+  - ✕ `pending-steer-cancel-<id>`.
+  - image badge.
+  - `PendingSteerClearAll` from 2 entries.
+  - no confirmation.
+
+```mermaid
+sequenceDiagram
+  participant D as Dashboard
+  participant S as Server
+  participant B as Bridge
+  participant P as pi
+  D->>S: send_prompt (streaming, steer)
+  S->>B: send_prompt
+  B->>B: held in inst.bridgeSteer (cancellable)
+  B-->>S: prompt_received (no promptId)
+  B-->>S: queue_update
+  Note over B,P: turn_end (outcome completed)
+  B->>B: handOffHeldSteers: remove + queue_update
+  B->>P: sendUserMessage(deliverAs steer)
+  B-->>S: prompt_received{fresh:false,promptId}
+  Note over B: cancel path
+  D->>S: remove_steering_entry{id}
+  S->>B: remove_steering_entry{sessionId,id}
+  B->>B: drop entry (no pi call)
+  B-->>S: queue_update
+  S-->>D: queue_update
 ```
 
 ## Persistence

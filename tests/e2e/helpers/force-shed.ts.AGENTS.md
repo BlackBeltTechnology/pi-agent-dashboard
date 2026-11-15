@@ -1,0 +1,3 @@
+# force-shed.ts — index
+
+`setForceShed(page, enabled)`: toggles the server's test-only back-pressure injector `POST /api/test/force-shed` (registered only under `PI_E2E_FORCE_SHED=1`, `docker/compose.test.yml`); asserts the reply reports `forceShed === enabled`, so a harness without the flag fails instead of passing vacuously. Process-wide: release in `afterEach`. `droppedFrameCounters(page)` reads `/api/health#droppedFrames` `serverToBrowser.total` + `deferredSubagentFrames`. Used instead of CDP `Network.emulateNetworkConditions`, which does not reliably throttle WebSocket frames. See change: fix-background-subagent-ghost-rows (task 5.1).

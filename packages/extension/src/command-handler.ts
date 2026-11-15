@@ -539,15 +539,13 @@ export function createCommandHandler(
       promptId?: string,
     ) => void | Promise<void>;
     /**
-     * Bridge-shadow-queue hooks: called AFTER pi accepts the user message,
-     * gated by `isStreaming()` captured BEFORE the send. The capture order
-     * matters — `pi.sendUserMessage` on an idle session synchronously
-     * triggers `agent_start`, which flips bridge state to streaming. Checking
-     * AFTER the send would mis-record idle sends as chip entries.
-     * Pi doesn't expose `queue_update` to extensions, so the bridge is the
-     * source of truth. See change: add-followup-edit-and-steer-cancel.
+     * Bridge steer-buffer hook: called INSTEAD of a pi send for a steer that
+     * arrives while streaming, gated by `isStreaming()` captured BEFORE any pi
+     * call (an idle send flips streaming synchronously). The bridge holds the
+     * steer (cancellable) and acks `promptId` at hand-off.
+     * See change: bridge-owned-cancellable-steer.
      */
-    onSteerSent?: (text: string) => void;
+    onSteerBuffered?: (text: string, images?: unknown, promptId?: string) => void;
     /**
      * `images` carries the attachments sent with a buffered follow-up. Passing
      * them is what makes the bridge buffer able to deliver them on drain;
@@ -930,7 +928,10 @@ export function createCommandHandler(
           //                                      (pi never sees it until
           //                                      drainFollowupQueue ships it
           //                                      on agent_settled as a fresh turn).
-          //   delivery="steer"    + streaming → forward to pi + shadow-record.
+          //   delivery="steer"    + streaming → ONLY notify the bridge steer
+          //                                      buffer (held, cancellable; handed
+          //                                      to pi at a completed turn_end or
+          //                                      the settle drain).
           //   any delivery        + idle      → forward to pi (fresh turn).
           //
           // Capture pre-send streaming state BEFORE any pi call — pi flips
@@ -946,7 +947,10 @@ export function createCommandHandler(
           // fresh:false → drop (raced mid-turn). Emitted BEFORE any pi call so
           // the snapshot is authoritative. See change: optimistic-prompt-progress.
           const da = msg.delivery ?? "followUp";
-          const buffered = wasStreaming && da === "followUp";
+          // Separate routing flags (design D3, bridge-owned-cancellable-steer):
+          // one shared flag would route steers into the follow-up buffer.
+          const bufferFollowUp = wasStreaming && da === "followUp";
+          const bufferSteer = wasStreaming && da === "steer";
           // The streaming-verdict ack is unchanged and still emitted BEFORE any
           // pi call, so the snapshot stays authoritative. It carries the
           // `promptId` ONLY on the branch that actually hands the prompt to pi;
@@ -958,17 +962,20 @@ export function createCommandHandler(
             type: "prompt_received",
             sessionId,
             fresh: !wasStreaming,
-            ...(msg.promptId && !buffered ? { promptId: msg.promptId } : {}),
+            ...(msg.promptId && !bufferFollowUp && !bufferSteer ? { promptId: msg.promptId } : {}),
           });
-          if (buffered) {
+          if (bufferFollowUp) {
             // Bridge-owned buffer path — do NOT call pi.sendUserMessage. The
             // images ride into the buffer so the drain can deliver them.
             // See change: fix-bridge-followup-image-drop.
             options?.onFollowupSent?.(outgoing, msg.images);
+          } else if (bufferSteer) {
+            // Bridge-held steer: no pi call; the hand-off acks `promptId`.
+            // See change: bridge-owned-cancellable-steer.
+            options?.onSteerBuffered?.(outgoing, msg.images, msg.promptId);
           } else {
-            // Idle or steer — forward to pi directly.
+            // Idle — forward to pi directly (fresh turn).
             sendUserMessageWithImages(pi, outgoing, msg.images, msg.delivery);
-            if (wasStreaming && da === "steer") options?.onSteerSent?.(outgoing);
           }
           return undefined;
         }

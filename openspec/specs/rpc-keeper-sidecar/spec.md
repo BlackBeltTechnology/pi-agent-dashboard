@@ -88,9 +88,9 @@ socket / pipe found:
 1. Read the keeper PID from the corresponding `.pid` sidecar.
 2. Verify the keeper PID is alive (`isProcessAlive`).
 3. Verify the pi PID (read from the keeper's pi-PID sidecar) is alive.
-4. If both alive: register the session as RPC-dispatch-ready. The server SHALL connect to
+4. If both alive, and the keeper pid does not fail verification as a mismatch (`headless-spawn` *Headless spawn cleanup tracks keeper PIDs*): register the session as RPC-dispatch-ready. The server SHALL connect to
    the socket lazily on first `dispatch_extension_command` for that session.
-5. If keeper alive but pi dead: kill the keeper and unlink the socket + PID files.
+5. If keeper alive but pi dead: kill the keeper and unlink the socket + PID files, only after the keeper pid verifies against its pid sidecar's mtime (`headless-spawn` *Headless spawn cleanup tracks keeper PIDs*); otherwise log and leave the files.
 6. If keeper dead but pi alive: kill pi, unlink files (this state is unreachable in normal
    operation but defensive).
 7. If both dead: unlink files.
@@ -107,7 +107,7 @@ present, parseable PID that is not live. Step 3 gates a destructive branch (kill
 unlink its files); a keeper whose sidecar write failed, or which predates this change, is healthy
 and SHALL NOT be terminated on the basis of a missing file.
 
-During the scan the server SHALL populate the registry entry's `piPid` from the pi-PID sidecar
+During the scan the server SHALL populate the registry entry's `piPid` from the pi-PID sidecar, only when that pid verifies against the sidecar's mtime,
 when the entry has none, SHALL leave an existing `piPid` untouched, and SHALL leave the entry
 unchanged when the sidecar is absent or unparseable. The server SHALL NOT derive pi's PID from a
 process-tree enumeration, a cwd, or a process name.
@@ -166,6 +166,13 @@ recorded, left unchanged, or unavailable.
 - **THEN** the server SHALL leave the entry's `piPid` unchanged
 - **AND** the diagnostic SHALL record the pi PID as unavailable
 - **AND** the session SHALL otherwise be handled exactly as before this change
+
+#### Scenario: A recycled keeper pid is not registered dispatch-ready
+
+- **GIVEN** a keeper pid sidecar whose pid is alive but fails verification as a mismatch, and a live pi pid
+- **WHEN** discovery runs
+- **THEN** the session SHALL NOT be registered as RPC-dispatch-ready
+- **AND** no signal SHALL be sent and the sidecars SHALL stay in place
 
 ### Requirement: Keeper failure modes
 The keeper SHALL handle these failure modes:

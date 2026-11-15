@@ -162,7 +162,7 @@ The header badge SHALL expose the session's original `startedAt` as a native bro
 
 ### Requirement: Sessions snapshot replaces client state atomically
 
-The browser message handler (`useMessageHandler`) SHALL handle `sessions_snapshot` by REPLACING the `sessions` Map, the `sessionOrderMap` Map and the `archivedCountByCwd` map with the payload contents. It SHALL NOT merge with existing state. `payload.sessions` SHALL never contain archived sessions.
+The browser message handler (`useMessageHandler`) SHALL handle `sessions_snapshot` by REPLACING the `sessions` Map, the `sessionOrderMap` Map, the `archivedCountByCwd` map and the archive key platform (`pathKeyPlatform`, cleared when the payload omits it) with the payload contents. It SHALL NOT merge with existing state. `payload.sessions` SHALL never contain archived sessions.
 
 After replacement, ids that were present in the previous `sessions` Map but are absent from `payload.sessions` SHALL no longer be in `sessions`. Cwds that were present in the previous `sessionOrderMap` but are absent from `payload.orders` SHALL no longer be in `sessionOrderMap`.
 
@@ -202,6 +202,11 @@ After replacement, ids that were present in the previous `sessions` Map but are 
 - **GIVEN** the client has `archivedCountByCwd = { "/repoA": 5 }`
 - **WHEN** a `sessions_snapshot` arrives with `archivedCountByCwd: { "/repoB": 312 }`
 - **THEN** after processing, `/repoA` SHALL have no archived count and `/repoB` SHALL have `312`
+
+#### Scenario: Snapshot replaces the archive key platform
+- **GIVEN** the client holds `pathKeyPlatform = "darwin"` from a previous snapshot
+- **WHEN** a `sessions_snapshot` arrives without `pathKeyPlatform`
+- **THEN** after processing, the client SHALL hold no archive key platform and SHALL fall back to its own platform inference
 
 ### Requirement: A session that is ended always has an end timestamp
 Every entry point that places a session into the session map SHALL guarantee that

@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFollowupBuffer } from "../followup-buffer.js";
 import { type DrainContext, drainOneFollowup } from "../followup-drain.js";
+import { createSteerBuffer } from "../steer-buffer.js";
 
 function makeDrain(opts: {
   initial?: Array<{ text: string; images?: Array<{ type: "image"; data: string; mimeType: string }> }>;
@@ -130,5 +131,47 @@ describe("drainOneFollowup — synchronous send failure (X2)", () => {
     expect(d.drain()).toBe("empty");
     expect(d.sendUserMessage).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+});
+
+describe("drainOneFollowup — held steers (bridge-owned-cancellable-steer)", () => {
+  function steerDrain(ctx: DrainContext, held = ["s"]) {
+    const steer = createSteerBuffer("n");
+    for (const text of held) steer.push({ text });
+    const buffer = createFollowupBuffer();
+    const sendUserMessage = vi.fn();
+    const acks: unknown[] = [];
+    const outcome = drainOneFollowup({
+      buffer,
+      steerBuffer: steer,
+      ctx,
+      emitQueueUpdate: vi.fn(),
+      sendUserMessage: (content) => sendUserMessage(content),
+      ackSteer: (id) => acks.push(id),
+    });
+    return { steer, sendUserMessage, outcome };
+  }
+
+  it("E20: only idle ∧ ¬pending ships the held steer; the other three combos keep it", () => {
+    for (const idle of [true, false]) {
+      for (const pending of [true, false]) {
+        const r = steerDrain({ isIdle: () => idle, hasPendingMessages: () => pending });
+        const ships = idle && !pending;
+        expect(r.sendUserMessage.mock.calls.length, `idle=${idle} pending=${pending}`).toBe(ships ? 1 : 0);
+        expect(r.steer.length, `idle=${idle} pending=${pending}`).toBe(ships ? 0 : 1);
+      }
+    }
+  });
+
+  it("E35: a held steer with an empty follow-up buffer ships with no deliverAs; both empty bails before the idle probe", () => {
+    const shipped = steerDrain({ isIdle: () => true, hasPendingMessages: () => false });
+    expect(shipped.outcome).toBe("sent");
+    expect(shipped.sendUserMessage.mock.calls).toEqual([["s"]]);
+
+    const probe = { isIdle: vi.fn(() => true), hasPendingMessages: vi.fn(() => false) };
+    const empty = steerDrain(probe, []);
+    expect(empty.outcome).toBe("empty");
+    expect(probe.isIdle).not.toHaveBeenCalled();
+    expect(probe.hasPendingMessages).not.toHaveBeenCalled();
   });
 });

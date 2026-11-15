@@ -57,3 +57,5 @@ Server→browser: `TerminalErrorMessage` (`terminal_error {code: cwd_not_admitte
 `HistoryBackfillResultMessage.openToolCallIds?: string[]` — served top-level starts still open at serve time (no stored end / non-synthetic `agent_start` / `agent_end` / assistant `message_start` after start). Optional, additive; absent = none; absent on refusals + `movedTo` sessions. See change: fix-backfill-elides-live-tools (D1).
 
 See change: add-spawn-model-choice. `SpawnResultBrowserMessage.choiceWarning?` — set on success when a model / role / thinking choice was dropped.
+
+`RemoveSteeringEntryFromBrowserMessage{sessionId,id}`, `ClearSteeringEntriesFromBrowserMessage{sessionId}` in `BrowserToServerMessage`. `QueueUpdateToBrowserMessage.steering: (SteerEntryView|string)[]`. See change: bridge-owned-cancellable-steer.

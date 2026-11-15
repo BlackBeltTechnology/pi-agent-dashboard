@@ -1,0 +1,3 @@
+# steer-buffer.ts — index
+
+Bridge-owned steer buffer: dashboard steers held while streaming, cancellable until hand-off. `createSteerBuffer(instanceNonce, {cap?,maxBytes?})` → `SteerBuffer` (`views` `{id,text,imageCount}`, `push` mints `<nonce>:<seq>` id, `removeById`, `clear`, `take(mode)`, `shift`); follow-up cap + byte ceiling, independent accounting, whole-entry refusal. `admitSteer(buffer,{text,images?,promptId?},sinks)` validates images + reports refusal/drops as `send_prompt` feedback, emits `queue_update` on admit. Types `SteerEntry`, `SteeringMode`. Hand-off: `bridge-handlers/lifecycle.ts` `handOffHeldSteers`; settle drain: `followup-drain.ts`. Tests: `steer-buffer.test.ts`, `bridge-steer-handoff.test.ts`. See change: bridge-owned-cancellable-steer.

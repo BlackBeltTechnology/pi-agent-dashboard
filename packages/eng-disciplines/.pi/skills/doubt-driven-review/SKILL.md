@@ -9,7 +9,7 @@ description: 'In-flight adversarial check on a non-trivial decision BEFORE it st
 
 A confident answer is not a correct one. Long sessions accumulate context that quietly turns assumptions into "facts" without anyone noticing. Doubt-driven development is the discipline of materializing a fresh-context reviewer — biased to **disprove**, not approve — before any non-trivial output stands.
 
-This is not `/review`. `/review` is a verdict on a finished artifact. This is an in-flight posture: non-trivial decisions get cross-examined while course-correction is still cheap.
+This is not post-hoc review (`review-code`, `code-review`). Those are a verdict on a finished artifact. This is an in-flight posture: non-trivial decisions get cross-examined while course-correction is still cheap.
 
 ## When to Use
 
@@ -41,10 +41,10 @@ If you doubt every keystroke, you ship nothing. The skill applies only to non-tr
 
 ## Loading Constraints
 
-This skill is designed for the **main-session orchestrator**, where Step 3 (DOUBT, detailed below) can spawn a fresh-context reviewer.
+This skill is designed for the **main-session orchestrator**, where Step 3 (DOUBT) can spawn a fresh-context reviewer.
 
-- **Do NOT add this skill to a persona's `skills:` frontmatter.** A persona that follows Step 3 would spawn another persona — the orchestration anti-pattern explicitly forbidden by `references/orchestration-patterns.md` ("personas do not invoke other personas").
-- **If you find yourself applying this skill from inside a subagent context** (where Claude Code prevents nested subagent spawn): the preferred path is to surface to the user that doubt-driven cannot run nested and let the main session handle it. As a last resort only, a degraded self-questioning fallback exists — rewrite ARTIFACT + CONTRACT as a fresh self-prompt with a hard mental separator from your prior reasoning, and walk Steps 1–5. This is **not fresh-context review** (you carry your own context with you), so flag the result as degraded and prefer escalation whenever the user is reachable.
+- **Do NOT list this skill in an agent definition's `skills:` frontmatter.** A subagent following Step 3 would spawn a nested subagent — extra context layers, and it competes for the host's small concurrent-subagent cap.
+- **If you find yourself applying this skill from inside a subagent context**: the preferred path is to surface to the user that doubt-driven cannot run nested and let the main session handle it. As a last resort only, a degraded self-questioning fallback exists — rewrite ARTIFACT + CONTRACT as a fresh self-prompt with a hard mental separator from your prior reasoning, and walk Steps 1–5. This is **not fresh-context review** (you carry your own context with you), so flag the result as degraded and prefer escalation whenever the user is reachable.
 
 ## The Process
 
@@ -54,7 +54,7 @@ Copy this checklist when applying the skill:
 Doubt cycle:
 - [ ] Step 1: CLAIM — wrote the claim + why-it-matters
 - [ ] Step 2: EXTRACT — isolated artifact + contract, stripped reasoning
-- [ ] Step 3: DOUBT — invoked fresh-context reviewer with adversarial prompt
+- [ ] Step 3: DOUBT — spawned doubt-reviewer (single-model + cross-model) with adversarial prompt
 - [ ] Step 4: RECONCILE — classified every finding against the artifact text
 - [ ] Step 5: STOP — met stop condition (trivial findings, 3 cycles, or user override)
 ```
@@ -105,81 +105,70 @@ write `unverified` next to it instead of asserting it true or false.
 If the CONTRACT lists candidate requirements, check every
 candidate and report each one the artifact contradicts.
 
+Output one table row per finding, most severe first:
+| # | severity (blocker/major/minor) | location (file:line or section) |
+  contract clause violated | finding | verified/unverified |
+
 ARTIFACT: <paste artifact>
 CONTRACT: <paste contract>
 ```
 
 **Pass ARTIFACT + CONTRACT only. Do NOT pass the CLAIM.** Handing the reviewer your conclusion biases it toward agreement. The reviewer must independently determine whether the artifact satisfies the contract.
 
-In Claude Code, the role-based reviewers in `agents/` start with isolated context by design and are usable here — see `agents/` for the roster and per-domain match.
+#### Who reviews — the `doubt-reviewer` agent
 
-**The adversarial prompt above takes precedence over the persona's default response shape.** Personas like `code-reviewer` are written to produce balanced verdicts with both strengths and weaknesses; doubt-driven needs issues-only output. Paste the adversarial prompt verbatim into the invocation so it overrides the persona's default. If a persona's response shape can't be overridden cleanly, fall back to a generic subagent with the adversarial prompt.
+Spawn the reviewer as `subagent_type: "doubt-reviewer"` — shipped with this package as `agents/doubt-reviewer.md`: read-only tools, no pinned model, **`inherit_context: false`**.
 
-#### Cross-model escalation
+- **Never use a generic label** (`general-purpose`, an ad-hoc name, or a definition without `inherit_context: false`). When the operator's `inheritContext` setting is on, such a child receives a compressed snapshot of *your* conversation — your reasoning and the CLAIM — and the review is no longer fresh-context. That is the exact bias this skill exists to remove.
+- If `doubt-reviewer` is not discoverable, fall back to another definition that sets `inherit_context: false` (e.g. `Explore`, `CodeReviewer`) and paste the adversarial prompt verbatim — it overrides the persona's default response shape (balanced verdicts, strengths, summaries). Note the substitution in the output.
 
-A single-model reviewer shares blind spots with the original author — a colder, different-architecture model catches them. Doubt-driven is already opt-in for non-trivial decisions, so within that scope cross-model is part of the skill's value, not optional friction.
-
-**Automatic when a reviewer role is set.** If a `@propose-review-N` role is configured AND probes clean (see *Choosing the reviewer* below), run the cross-model review **automatically** — do NOT ask the user first. A configured `@propose-review-N` series IS the user's standing decision that cross-model is wanted; asking again each cycle is redundant friction. Spawn the reviewer, take its output into RECONCILE, and announce in the output that cross-model ran (*"Cross-model review ran automatically on @propose-review-N."*).
-
-**Only ask when no reviewer role resolves.** When the `@propose-review-N` series is empty or every role probes empty, fall back to the interactive offer below.
-
-**Step 1: Reviewer role set → run automatically; otherwise offer**
-
-After the single-model review in Step 3 above, but before RECONCILE:
-
-- **A `@propose-review-N` role resolves** → skip the question. Run the cross-model pass automatically (probe-gated, walking the series), fold its findings into RECONCILE, and note in the output that it ran.
-- **No `@propose-review-N` role resolves** (none configured, or all probe empty) → pause and offer:
-
-  > *"Single-model review complete. No reviewer role is configured. Want a cross-model second opinion? Options: configure a `@propose-review-N` role now, manual external review (you paste it elsewhere), or skip."*
-
-The standing `@propose-review-N` config — not a per-cycle prompt — is where the user decides whether cross-model is worth the cost. When that config is absent, the agent surfaces the choice instead.
-
-**The cross-model path in Pi is a subagent on a `@propose-review-N` role.** Pi's `Agent` tool takes a `model` param. Use a **role ref** (`@propose-review-1`, `@propose-review-2`, … `@propose-review-x`) — NOT a raw `provider/model-id`. Role refs resolve through the supported `model:resolve` handler and inherit the parent session's live registry, so a curated reviewer (including a custom-provider model) actually spawns. A raw `provider/model-id` bypasses that path; for a custom provider the child can build a registry that lacks the provider → **empty output** (the exact failure this role series exists to avoid). The subagent runs in isolated context by construction, passes ARTIFACT as a prompt string (no shell-escaping hazard), and can open repo files to verify the author's code claims. This skill does NOT shell out to an external review CLI; the only automated reviewer is the in-process subagent.
+Run **two passes** on the same ARTIFACT + CONTRACT:
 
 ```
-Agent(
-  subagent_type: "Explore",           # or any read-capable label
-  model: "@propose-review-1",                  # a curated cross-model reviewer role
-  description: "Cross-model adversarial review",
-  prompt: "<adversarial prompt> + ARTIFACT + CONTRACT"   # NO CLAIM, NO reasoning
-)
+# single-model: omit `model` → the author's model, clean context
+Agent(subagent_type: "doubt-reviewer", description: "Adversarial review",
+      prompt: "<adversarial prompt> + ARTIFACT + CONTRACT")      # NO CLAIM
+
+# cross-model: a different-architecture reviewer role
+Agent(subagent_type: "doubt-reviewer", model: "@propose-review-1",
+      description: "Cross-model adversarial review",
+      prompt: "<adversarial prompt> + ARTIFACT + CONTRACT")      # NO CLAIM
 ```
 
-**Choosing the reviewer — walk the `@propose-review-N` role series.** The operator pre-configures a numbered series of reviewer roles (`propose-review-1`, `propose-review-2`, … `propose-review-x` in `~/.pi/agent/providers.json#roles`, editable via the `update_roles` tool or the dashboard Roles panel), each pointing at a **different-architecture** model than the author and verified reachable. Order matters: put cross-model reviewers first and any same-family-as-usual-author model (e.g. an Anthropic model when the author is typically Claude) **last**, so it only fires as the final fallback. The skill does not hand-pick or fuzzy-match a catalogue — it walks the series in order:
+The passes are independent — issue them **in parallel**. The host caps concurrent subagents (observed: 2); an admission refusal ("at the concurrency cap") means wait for a running subagent to finish and re-issue — it is not a reviewer failure.
 
-1. Start at `@propose-review-1`. Skip any role whose architecture family matches the author's (author is Claude → skip a `propose-review-N` that maps to `claude-*`) — a reviewer that shares the author's family shares its blind spots.
-2. **Probe before the real prompt** with a trivial prompt (`"Reply with exactly: OK"`). Non-empty → use that role for the adversarial pass. Empty, or a resolution error → advance to `@propose-review-2`, `@propose-review-3`, … until one probes clean.
-3. If no `@propose-review-N` role resolves (none configured, or all probe empty) **and the session is interactive**, offer to configure one on the spot — see *Bootstrap a reviewer role* below — before giving up. Only when the user declines, or the context is non-interactive, treat subagent cross-model as unavailable (Step 2) — offer manual review / skip. Never substitute a raw `provider/model-id`; that is the path that fails silently for custom providers.
+#### Cross-model reviewer — walk the `@propose-review-N` series
 
-> **Seeding the series (one-time).** Assign each `propose-review-N` role a reachable, different-architecture model, cross-model reviewers first and any same-family fallback last — e.g. `propose-review-1 → opencode-go/glm-5.2`, `propose-review-2 → deepseek/deepseek-v4-pro`, `propose-review-3 → anthropic/claude-opus-4-8` (Opus last). Enumerate reachable ids with `pi --list-models` or dashboard `GET /api/models` when deciding what to assign; assign via `update_roles`.
+A single-model reviewer shares blind spots with the original author — a different-architecture model catches them. Within this skill's scope, cross-model is part of the value, not optional friction.
 
-> **Bootstrap a reviewer role (interactive, when the series is empty or unreachable).** On a machine where no `@propose-review-N` role is set — or none resolves — do NOT jump straight to skip. Configure one live:
-> 1. **Enumerate the reachable set** with the `list_models` tool (or `pi --list-models` / dashboard `GET /api/models`). Keep only credentialed rows (`excludedReason: null`); prefer `reasoning: true`.
-> 2. **Drop the author's own architecture family** (author is Claude → exclude `anthropic/*` / `claude-*`) so the reviewer does not share the author's blind spots.
-> 3. **Ask the user to choose** via `ask_user` (method `select`), offering a handful of the strongest different-family candidates from the enumerated set (do not auto-pick).
-> 4. **Assign it via the role API** — the `update_roles` tool: `set_role`, `role: "propose-review-1"` (or the next free `propose-review-N` slot), `ref: "<chosen provider/model-id>"`. This persists to `providers.json#roles`, so the choice carries to every future session; never hand-edit the file.
-> 5. **Probe then spawn** on the freshly-assigned `@propose-review-N` (same `"Reply with exactly: OK"` gate).
+The operator pre-configures a numbered series of reviewer roles (`propose-review-1` … `propose-review-x` in `~/.pi/agent/providers.json#roles`, editable via the `update_roles` tool or the dashboard Roles panel). A configured series **is** the user's standing decision that cross-model is wanted: run it **automatically**, never ask per cycle.
+
+1. **Walk in order, different family first.** Start at `@propose-review-1`. On the first pass skip any role whose architecture family matches the author's (author is Claude → skip roles mapping to `claude-*`) — it shares the author's blind spots.
+2. **Probe once per session.** Before the first real prompt to a role, send `"Reply with exactly: OK"`. Remember the result for the rest of the session — do not re-probe every cycle. Empty output or a resolution error → **retry once** (the subagent transport is known to return empty on a first call that succeeds on retry); still empty → advance to the next role.
+3. **Same-family last resort.** Only when every different-family role failed may a same-family role in the series run. Label its findings **degraded: same-family reviewer**.
+4. **Nothing resolves.**
+   - *Interactive* → bootstrap a role (below), then probe and spawn. If the user declines, offer: manual external review (they paste ARTIFACT + CONTRACT + adversarial prompt into another model) or skip.
+   - *Non-interactive* (CI, `/loop`, autonomous, scheduled) → skip.
+
+**Always use a role ref, never a raw `provider/model-id`.** Role refs resolve through the parent's live registry, so a custom-provider model actually spawns; a raw id can build a child registry that lacks the provider → **empty output**, silently. This skill does not shell out to an external review CLI; the only automated reviewer is the in-process subagent.
+
+> **Bootstrap a reviewer role (interactive only).**
+> 1. Enumerate with `list_models` (or `pi --list-models` / dashboard `GET /api/models`). Keep credentialed rows (`excludedReason: null`); prefer `reasoning: true`.
+> 2. Drop the author's architecture family.
+> 3. `ask_user` (`select`) with a handful of the strongest different-family candidates — do not auto-pick.
+> 4. `update_roles` → `set_role`, `role: "propose-review-1"` (or the next free slot), `ref: "<chosen provider/model-id>"`. Persists for every future session; never hand-edit `providers.json`.
 >
-> Interactive only — never enumerate-and-ask in CI / `/loop` / autonomous runs; there, skip per the non-interactive rule below.
+> **Seeding example:** `propose-review-1 → opencode-go/glm-5.2`, `propose-review-2 → deepseek/deepseek-v4-pro`, `propose-review-3 → anthropic/claude-opus-4-8` (same-family last, reached only via rule 3).
 
-Prerequisite + fallback (verify, do not assume):
-1. A `@propose-review-N` role must be **configured AND reachable**. An unconfigured role, or one pointing at a non-reachable id, makes the spawn return **empty output**. Probe first (`"Reply with exactly: OK"`); empty → advance to the next `@propose-review-N`, never proceed on the empty one. (This series is preferred precisely because a role ref resolves through the parent's live registry; a raw `provider/model-id` can silently miss a custom provider.)
-2. If the whole `@propose-review-N` series is exhausted with no clean probe, surface it explicitly (per Step 2 below) and fall back to manual external review. Do NOT silently proceed single-model, and do NOT substitute a raw `provider/model-id`.
-3. Pass ARTIFACT + CONTRACT + adversarial prompt only — same rule as every cross-model path. No CLAIM.
+#### Announce what ran — always
 
-**Step 2: If the subagent reviewer is unavailable or fails**
+The output states the reviewer situation in one line, every cycle:
 
-Surface the failure explicitly. Offer: run the review manually (paste ARTIFACT + CONTRACT + adversarial prompt into an external model yourself), or skip. A `@propose-review-N` series exhausted with every role probing **empty** counts as a failure — announce it. Do not silently fall back to single-model — the user should know cross-model didn't happen.
+- *"Cross-model review ran automatically on @propose-review-2."*
+- *"Cross-model: degraded: same-family reviewer (@propose-review-3)."*
+- *"Cross-model skipped: <non-interactive context | user declined | series exhausted, every role probed empty>."*
 
-**Step 3: If the user skips**
-
-Acknowledge the skip in the output (*"Proceeding with single-model findings only"*) and continue to RECONCILE. Skipping is fine; silent skipping is not.
-
-**Non-interactive contexts** (CI, `/loop`, autonomous-loop, scheduled runs):
-
-- Cross-model is **skipped**, and the skip must be **announced** in the output: *"Cross-model skipped: non-interactive context."*
-
-Cross-model adds cost and latency. When a reviewer role is set it runs automatically; when none is set, the agent surfaces the choice and the user decides whether this artifact warrants manual review.
+Skipping is fine; silent skipping is not. An exhausted series is a failure to surface, not a reason to quietly proceed single-model.
 
 ### Step 4: RECONCILE — Fold findings back
 
@@ -192,17 +181,19 @@ For each finding, classify in this **precedence order** (first matching class wi
 3. **Valid trade-off** — issue is real but cost of fixing exceeds cost of accepting. Document the trade-off explicitly so the user sees it.
 4. **Noise** — reviewer flagged something that's actually correct under context the reviewer didn't have. Note it, move on, and ask: would adding that context to the contract have prevented the false flag?
 
-A fresh reviewer can be wrong because it lacks context. Don't defer just because it's "fresh."
+A fresh reviewer can be wrong because it lacks context. Don't defer just because it's "fresh." Findings marked `unverified` need you to check them before they can be classified as actionable.
+
+Report the result as a compact table — `# | reviewer | severity | class | action` — so the user sees every finding's fate, not just the fixes.
 
 ### Step 5: STOP — Bounded loop, not recursion
 
 Stop when:
 
-- Next iteration returns only trivial or already-considered findings, **or**
+- Next iteration returns only **trivial** findings — `minor` severity, or already classified in an earlier cycle — **or**
 - 3 cycles completed (escalate to user, don't grind a fourth alone), **or**
 - User explicitly says "ship it"
 
-If after 3 cycles the reviewer still surfaces substantive issues, the artifact may not be ready. Surface this to the user — three unresolved cycles is information about the artifact, not a reason to keep looping.
+If after 3 cycles the reviewer still surfaces `blocker`/`major` findings, the artifact may not be ready. Surface this to the user — three unresolved cycles is information about the artifact, not a reason to keep looping.
 
 If 3 cycles is "obviously insufficient" because the artifact is large: the artifact is too big — return to Step 2 and decompose. Do not lift the bound.
 
@@ -212,48 +203,47 @@ If 3 cycles is "obviously insufficient" because the artifact is large: the artif
 |---|---|
 | "I'm confident, skip the doubt step" | Confidence correlates poorly with correctness on novel problems. Moments of certainty are exactly when blind spots hide. |
 | "Spawning a reviewer is expensive" | Debugging a wrong commit in production is more expensive. The check is bounded; the bug isn't. |
-| "The reviewer will just nitpick" | Only if unscoped. Constrain the prompt to "issues that would make this fail under the contract." |
-| "I'll do doubt at the end with `/review`" | `/review` is a final gate. Doubt-driven catches wrong directions early when course-correction is cheap. By PR time it's too late. |
+| "The reviewer will just nitpick" | Only if unscoped. Constrain the prompt to "issues that would make this fail under the contract"; the severity column lets minor findings stop the loop. |
+| "I'll do doubt at the end with a code review" | Code review is a final gate. Doubt-driven catches wrong directions early when course-correction is cheap. By PR time it's too late. |
 | "If I doubt every step I'll never ship" | The skill applies to non-trivial decisions, not every keystroke. Re-read "When NOT to Use." |
 | "Two opinions are always better than one" | Not when the second has less context and produces noise. Reconcile, don't defer. |
 | "The reviewer disagreed so I was wrong" | The reviewer lacks your context — disagreement is information, not verdict. Re-read the artifact, classify, then decide. |
-| "Cross-model is always better" | Cross-model catches blind spots a single model shares with itself, but it adds cost and latency. When a `@propose-review-N` role is set it runs automatically (the config is the standing decision); when none is set, offer it every interactive doubt cycle so the user decides. |
+| "`general-purpose` works, it's fine as the reviewer" | It works *and* may inherit your conversation. A reviewer that read your reasoning is not fresh-context. Use `doubt-reviewer`. |
+| "The probe came back empty, that role is dead" | The transport sometimes returns empty on a first call. Retry once before advancing. |
 
 ## Red Flags
 
 - Spawning a fresh-context reviewer for a one-line rename or formatting change
+- Spawning the reviewer from a definition without `inherit_context: false` — the CLAIM leaks through the parent snapshot
+- Passing the CLAIM, your reasoning, or no CONTRACT to the reviewer
+- Prompting the reviewer with "is this good?" instead of "find issues"
 - Treating reviewer output as authoritative without re-reading the artifact text
 - Looping >3 cycles without escalating to the user
-- Prompting the reviewer with "is this good?" instead of "find issues"
 - Skipping doubt under time pressure on a high-stakes decision
 - Re-spawning fresh-context on an unchanged artifact (you'll get the same findings; you're stalling)
-- **Doubt theater (checkable signal)**: across 2 or more cycles where the reviewer surfaced substantive findings, zero findings were classified as actionable. You are validating, not doubting. Stop and escalate.
-- Doubting only after committing — that's `/review`, not doubt-driven development
-- Shelling out to an external review CLI — this skill's only automated cross-model path is the in-process `@propose-review-N` subagent; the CLI escape hatch was removed
-- **Silently skipping cross-model in an interactive doubt cycle when NO reviewer role is configured.** With no `@propose-review-N` role set, the offer must be visible — skipping is fine, silent skipping is not. (When a role IS set, cross-model runs automatically without an offer — that is the intended behavior, not a red flag.)
-- Falling back silently when the subagent reviewer errors or probes empty — surface the failure and let the user redirect
-- Stripping the contract from the reviewer's input
-- Passing the CLAIM to the reviewer (biases toward agreement)
+- **Doubt theater (checkable signal)**: across 2 or more cycles where the reviewer surfaced `blocker`/`major` findings, zero findings were classified as actionable. You are validating, not doubting. Stop and escalate.
+- Doubting only after committing — that's post-hoc review, not doubt-driven development
+- Any cross-model outcome (skip, exhausted series, same-family fallback, substituted agent) not announced in the output
+- Substituting a raw `provider/model-id` or an external review CLI for the `@propose-review-N` subagent
 
 ## Interaction with Other Skills
 
-- **`code-review-and-quality` / `/review`**: complementary. `/review` is post-hoc PR verdict; doubt-driven is in-flight per-decision. Use both.
-- **`source-driven-development`**: SDD verifies *facts about frameworks* against official docs. Doubt-driven verifies *your reasoning about the artifact*. SDD checks the API exists; doubt-driven checks you used it correctly under the contract.
-- **`test-driven-development`**: TDD's RED step is doubt made concrete — a failing test is a disproof attempt. When TDD applies, that failing test *is* the doubt step for behavioral claims.
-- **`debugging-and-error-recovery`**: when the reviewer surfaces a real failure mode, drop into the debugging skill to localize and fix.
-- **Repo orchestration rules** (`references/orchestration-patterns.md`): this skill orchestrates from the main session. A persona calling another persona is anti-pattern B — see Loading Constraints above.
+- **`review-code`**: complementary. `review-code` is a post-hoc review of a finished diff; doubt-driven is in-flight per-decision. Use both.
+- **`code-review`**: the CodeRabbit ship gate — the last, external check. Doubt-driven happens long before it.
+- **`systematic-debugging`**: hands control to this skill after three failed fixes — the protected premise is what to doubt. In the other direction, when the reviewer surfaces a real failure mode, drop into systematic-debugging to localize and fix it.
+- **`scenario-design`**: a failing test is a disproof attempt — when a test can express the claim, write it; a failing RED test satisfies the doubt step for behavioral claims.
+- **`security-hardening`**: when the artifact touches auth, secrets or untrusted input, add its threat checklist to the CONTRACT.
+- **`plan-proposal`**: runs this skill on OpenSpec proposals with a spec-collateral scan before each cycle; main session only, never degraded to self-questioning.
 
 ## Verification
 
 After applying doubt-driven development:
 
 - [ ] Every non-trivial decision (per the definition above) was named explicitly as a CLAIM before standing
-- [ ] At least one fresh-context review per non-trivial artifact (a failing test produced by TDD's RED step satisfies this for behavioral claims, per Interaction with Other Skills)
-- [ ] The reviewer received ARTIFACT + CONTRACT — NOT the CLAIM, NOT your reasoning
-- [ ] The reviewer's prompt was adversarial ("find issues"), not validating ("is it good")
-- [ ] Findings were classified against the artifact text (not rubber-stamped) using the precedence: contract misread / actionable / trade-off / noise
-- [ ] A stop condition was met (trivial findings, 3 cycles, or user override)
-- [ ] In interactive mode: when a `@propose-review-N` role was configured and probed clean, cross-model ran **automatically** (no per-cycle offer) and the fact it ran was announced in the output; when no role resolved, cross-model was **explicitly offered** to the user and the response was acknowledged. When run, the preferred Pi path (subagent on a `@propose-review-N` reviewer role) was tried first; an empty probe advanced to the next role in the series, and a fully-exhausted series was surfaced as a failure, not silently swallowed
-- [ ] When cross-model ran, the reviewer was selected by walking the `@propose-review-1..@propose-review-x` role series (probe-gated), each a different architecture family than the author — not a hand-picked raw `provider/model-id`. When the series was empty/unreachable in an interactive session, a role was bootstrapped first: `list_models` → `ask_user` selection → `update_roles` `set_role`, before any manual-review/skip fallback
-- [ ] In non-interactive mode, cross-model was skipped and the skip was announced
-- [ ] No external review CLI was invoked — the only automated cross-model reviewer used was the in-process `@propose-review-N` subagent
+- [ ] At least one fresh-context review per non-trivial artifact (a failing RED test satisfies this for behavioral claims)
+- [ ] The reviewer was spawned as `doubt-reviewer` (or another `inherit_context: false` definition, announced) and received ARTIFACT + CONTRACT — NOT the CLAIM, NOT your reasoning
+- [ ] The reviewer's prompt was adversarial ("find issues") and asked for the severity / location / contract clause table
+- [ ] Findings were classified against the artifact text (not rubber-stamped) using the precedence: contract misread / actionable / trade-off / noise, and reported as a table
+- [ ] A stop condition was met (only minor/repeat findings, 3 cycles, or user override)
+- [ ] Cross-model: a configured `@propose-review-N` series ran automatically (different family first, probed once per session, empty retried once, same-family only as announced degraded last resort); with no role, an interactive session bootstrapped one (`list_models` → `ask_user` → `update_roles`) or offered manual/skip; a non-interactive run skipped
+- [ ] The cross-model outcome was announced in the output, whatever it was

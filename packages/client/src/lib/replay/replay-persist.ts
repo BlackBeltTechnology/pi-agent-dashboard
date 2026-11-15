@@ -98,6 +98,15 @@ export function createReplayPersister(
     const buf = buffers.get(sessionId) ?? [];
     let max = maxSeqOf(buf);
     for (const e of events) {
+      // A live subagent end the gateway deferred under back-pressure is a
+      // bounded projection (no timeline, cut result): never cache it. The seq
+      // hole it leaves contaminates the buffer at the next live frame, so the
+      // next load fully replays the real end from the server store.
+      // Live only: a replay batch comes from the server store, which holds the
+      // full end. See change: fix-background-subagent-ghost-rows (D6).
+      if (origin === "live" && (e.event?.data as { deferredProjection?: unknown } | undefined)?.deferredProjection === true) {
+        continue;
+      }
       if (e.seq > max) {
         // Live frames are contiguous by construction, so a jump means a frame
         // was dropped (gateway back-pressure) and the cursor would skip it

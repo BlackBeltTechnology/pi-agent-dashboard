@@ -120,7 +120,7 @@ describe("HeadlessPidRegistry", () => {
     expect(registry.size()).toBe(0);
   });
 
-  it("should kill all tracked processes", () => {
+  it("should kill all tracked processes", async () => {
     const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
     const proc1 = mockProcess();
     const proc2 = mockProcess();
@@ -128,10 +128,13 @@ describe("HeadlessPidRegistry", () => {
     registry.register(200, "/b", proc2);
 
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    registry.killAll();
-    expect(killSpy).toHaveBeenCalledTimes(2);
-    expect(registry.size()).toBe(0);
-    killSpy.mockRestore();
+    try {
+      await registry.killAll();
+      expect(killSpy).toHaveBeenCalledTimes(2);
+      expect(registry.size()).toBe(0);
+    } finally {
+      killSpy.mockRestore();
+    }
   });
 });
 
@@ -235,7 +238,14 @@ describe("HeadlessPidRegistry orphan cleanup", () => {
       if (sig === "SIGTERM") sigtermSent = true;
       return true;
     });
-    const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
+    // The orphan VERIFIES: its start precedes the 8-day-old anchor. (With the
+    // real probe the test process started now ⇒ mismatch ⇒ never killed — the
+    // pre-change code SIGTERMed its own server here.) See change:
+    // guard-restored-headless-identity.
+    const registry = createHeadlessPidRegistry({
+      pidFilePath: pidFile,
+      probe: () => Date.now() - 9 * 24 * 60 * 60 * 1000,
+    });
     await registry.cleanupOrphans();
 
     // SIGTERM was sent on the positive PID (killProcess ladder, not group kill).
@@ -646,6 +656,7 @@ describe("HeadlessPidRegistry: discovery reconciliation", () => {
   }
 
   it("E7 / E11: reclaimed keeper entry with piPid unset is filled from the sidecar", async () => {
+    const anchor = Date.now();
     const { registry, pidFile } = reclaimedRegistry({
       pid: process.pid, cwd: "/proj", spawnedAt: new Date().toISOString(),
       keeperPid: process.pid, keeperSockPath: "/tmp/s.sock",
@@ -653,11 +664,16 @@ describe("HeadlessPidRegistry: discovery reconciliation", () => {
     await registry.cleanupOrphans(); // reclaim (restores keeperPid → old guard would skip)
     registry.setKeeperWriter({
       discoverExistingKeepers: vi.fn(async () => [
-        { sessionId: "transport-1", keeperPid: process.pid, sockPath: "/tmp/s.sock", piPid: 5050 },
+        // The restored entry records the sidecar pid only when it verifies
+        // against the sidecar mtime (a live pid that started before it).
+        // See change: guard-restored-headless-identity.
+        { sessionId: "transport-1", keeperPid: process.pid, sockPath: "/tmp/s.sock", piPid: process.pid, piPidAnchorMs: anchor },
       ]),
     });
     await registry.cleanupKeeperOrphans();
-    expect(JSON.parse(readFileSync(pidFile, "utf-8")).entries[0].piPid).toBe(5050);
+    const persisted = JSON.parse(readFileSync(pidFile, "utf-8")).entries[0];
+    expect(persisted.piPid).toBe(process.pid);
+    expect(persisted.piLinkedAt).toBe(new Date(anchor).toISOString());
   });
 
   it("E8: sidecar does not override an already-set piPid", async () => {

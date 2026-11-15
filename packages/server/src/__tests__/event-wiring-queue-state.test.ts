@@ -198,6 +198,45 @@ describe("event-wiring: queue_update caches Session.pendingQueues and broadcasts
 
     bridgeWs.close();
   });
+
+  /**
+   * Bridge-held steers arrive as `{ id, text, imageCount }` views; a legacy
+   * bridge still sends plain strings. The server caches either verbatim.
+   * See change: bridge-owned-cancellable-steer (test-plan #E29).
+   */
+  it("E29: caches steer entry objects and legacy steer strings verbatim, with no image bytes", async () => {
+    const { sessionManager } = server;
+    const SID = "queue-steer-sess";
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), "pi-queue-steer-"));
+    const sessionFile = path.join(tmpDir, "s.jsonl");
+    writeFileSync(sessionFile, "");
+
+    const bridgeWs = new WebSocket(`ws://127.0.0.1:${piPort}`);
+    await new Promise<void>((resolve, reject) => {
+      bridgeWs.on("error", reject);
+      bridgeWs.on("open", () => {
+        bridgeWs.send(JSON.stringify({
+          type: "session_register", sessionId: SID, cwd: tmpDir, source: "cli", sessionFile,
+        }));
+        bridgeWs.send(JSON.stringify({ type: "replay_complete", sessionId: SID }));
+        resolve();
+      });
+    });
+    await wait(80);
+
+    const objects = { steering: [{ id: "n:1", text: "a", imageCount: 2 }], followUp: [] };
+    bridgeWs.send(JSON.stringify({ type: "queue_update", sessionId: SID, ...objects }));
+    await wait(60);
+    expect(sessionManager.get(SID)?.pendingQueues).toEqual(objects);
+    expect(JSON.stringify(sessionManager.get(SID)?.pendingQueues)).not.toContain("data");
+
+    const legacy = { steering: ["legacy"], followUp: [] };
+    bridgeWs.send(JSON.stringify({ type: "queue_update", sessionId: SID, ...legacy }));
+    await wait(60);
+    expect(sessionManager.get(SID)?.pendingQueues).toEqual(legacy);
+
+    bridgeWs.close();
+  });
 });
 
 /**

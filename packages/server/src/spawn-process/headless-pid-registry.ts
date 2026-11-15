@@ -7,15 +7,25 @@
 import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
+import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import {
-  isProcessAlive,
   killPidWithGroup,
   killProcess,
   killProcessGroup,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { isUnsafeTestHomeScan } from "../auth/test-env-guard.js";
 import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
+import {
+  type IdentityKind,
+  type IdentityVerdict,
+  identityLogLine,
+  KILL_ALL_VERIFY_BUDGET_MS,
+  LEGACY_PI_WINDOW_MS,
+  parseAnchor,
+  type StartProbe,
+  verifyRestored,
+} from "./restored-identity.js";
 
 /**
  * Minimal interface the registry depends on for orphan reconciliation.
@@ -30,7 +40,7 @@ export interface KeeperWriter {
    * valid under return covariance. See change: fix-keeper-session-identity-and-reattach.
    */
   discoverExistingKeepers(): Promise<
-    Array<{ sessionId: string; keeperPid: number; sockPath: string; piPid?: number }>
+    Array<{ sessionId: string; keeperPid: number; sockPath: string; piPid?: number; piPidAnchorMs?: number }>
   >;
 }
 
@@ -86,7 +96,31 @@ export interface HeadlessEntry {
    * See change: detach-automation-goal-from-core.
    */
   pluginRef?: Record<string, unknown>;
+  /**
+   * Epoch ms at which `piPid` was proven live: `linkByToken` time, or the
+   * verified pi-PID sidecar mtime. Persisted. `NaN` when a persisted value was
+   * unparseable (⇒ unverifiable). See change: guard-restored-headless-identity.
+   */
+  piLinkedAt?: number;
+  /** Set only by `cleanupOrphans`: no live handle, so every signal is verified. Not persisted. */
+  restored?: boolean;
+  /** Restored spawn-time pid failed verification: never signalled. Not persisted. */
+  identityRefused?: boolean;
 }
+
+/** Outcome of a checked registry kill (design D1/D4). */
+export interface CheckedKillResult {
+  outcome: "signalled" | "no-entry" | "refused-identity";
+  /** Pids the registry refused to signal (mismatch, refused, or unverifiable when unattended). */
+  refusedPids: number[];
+  /** Human-readable reason when a pid was refused. */
+  diagnostic?: string;
+  /** Legacy `killBySessionId` boolean: a kill was issued. */
+  killed: boolean;
+}
+
+/** `verifyIdentity: true` (default) = unattended: an unverifiable restored pid is refused. */
+type VerifyIdentityOption = { verifyIdentity?: boolean };
 
 /**
  * Serialized format for disk persistence. ALL identity-bearing fields
@@ -107,6 +141,7 @@ interface PersistedEntry {
   spawnedAt: string;
   spawnToken?: string;
   piPid?: number;
+  piLinkedAt?: string;
   keeperPid?: number;
   keeperSockPath?: string;
   pluginRef?: Record<string, unknown>;
@@ -213,6 +248,21 @@ export interface HeadlessPidRegistry {
    */
   killBySessionId(sessionId: string): Promise<boolean>;
   /**
+   * Checked session kill: every pid of a RESTORED entry is verified by start
+   * time immediately before its first signal. `verifyIdentity` (default true =
+   * unattended) refuses an unverifiable pid; a mismatch is refused always.
+   * `killBySessionId` is this with `verifyIdentity:false`, reduced to `killed`.
+   * See change: guard-restored-headless-identity (D1).
+   */
+  killBySessionIdChecked(sessionId: string, opts?: VerifyIdentityOption): Promise<CheckedKillResult>;
+  /**
+   * Operator pre-check for a pid about to be signalled outside the registry
+   * (force-kill): `mismatch` when `pid` belongs to a restored entry and fails
+   * verification (or is the refused spawn pid), `unverifiable` when its start
+   * time cannot be determined, else `ok`. Never signals.
+   */
+  verifySessionPid(sessionId: string, pid: number): Promise<"ok" | "mismatch" | "unverifiable">;
+  /**
    * Terminate the process for the entry whose stored `spawnToken` matches,
    * using the same SIGTERM → 2 s → SIGKILL ladder as `killBySessionId`
    * (keeper-aware: kills pi first). Enables killing a spawned-but-not-yet-
@@ -221,7 +271,7 @@ export interface HeadlessPidRegistry {
    * unknown token or an already-dead pid. See change:
    * fix-automation-stop-zombie-runs.
    */
-  killByToken(spawnToken: string): Promise<boolean>;
+  killByToken(spawnToken: string, opts?: VerifyIdentityOption): Promise<boolean>;
   /**
    * Enumerate every entry that has been linked to a session id, with the
    * resolved pi PID and whether a keeper UDS is available for it.
@@ -236,8 +286,13 @@ export interface HeadlessPidRegistry {
   listSessions(): Array<{ sessionId: string; cwd: string; pid: number; hasKeeper: boolean }>;
   /** Remove a tracked process by PID. */
   remove(pid: number): void;
-  /** Kill all tracked processes (for server shutdown). */
-  killAll(): void;
+  /**
+   * Kill all tracked processes (for server shutdown). Restored entries are
+   * verified first (5 s total budget). An unverifiable restored entry is
+   * signalled only for exit intent `shutdown` / `user-quit` / `restart`; a
+   * null or absent intent is unattended. Never rejects.
+   */
+  killAll(opts?: { exitIntent?: ExitIntent | null }): Promise<void>;
   /** Number of tracked entries (for testing). */
   size(): number;
   /** Clean up orphan processes from a previous server instance. */
@@ -274,7 +329,13 @@ export interface HeadlessPidRegistryOptions {
    * See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 6).
    */
   keeperManager?: KeeperWriter;
+  /** Start-time probe for restored pids (default: `processStartedAt`). */
+  probe?: StartProbe;
+  /** Gone check for restored pids (default: `signalZero === "esrch"`). */
+  isGone?: (pid: number) => boolean;
 }
+
+const OPERATOR_EXIT_INTENTS: ReadonlySet<ExitIntent> = new Set(["shutdown", "user-quit", "restart"]);
 
 export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions): HeadlessPidRegistry {
   const entries = new Map<number, HeadlessEntry>();
@@ -297,28 +358,112 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
     return undefined;
   }
 
+  const probe = options?.probe;
+  const isGone = options?.isGone;
+  const verify = (pid: number, anchor: number | undefined) =>
+    verifyRestored(pid, anchor, { probe, isGone });
+
+  /** Anchor of an entry's `piPid` (design D2): `piLinkedAt`, else the legacy window. */
+  function piAnchor(entry: HeadlessEntry): number | undefined {
+    if (entry.piLinkedAt !== undefined) return entry.piLinkedAt;
+    return entry.spawnedAt + LEGACY_PI_WINDOW_MS;
+  }
+
+  /**
+   * Gate one pid of an entry immediately before its first signal (D4/D5).
+   * Live entries are never probed. Returns what to do with the pid.
+   */
+  async function gate(
+    entry: HeadlessEntry,
+    pid: number,
+    anchor: number | undefined,
+    kind: IdentityKind,
+    verifyIdentity: boolean,
+  ): Promise<"signal" | "gone" | "mismatch" | "refuse"> {
+    if (!entry.restored) return "signal";
+    const v = await verify(pid, anchor);
+    if (v === "match") return "signal";
+    if (v === "gone") return "gone";
+    if (v === "mismatch") {
+      console.warn(identityLogLine("mismatch", pid, kind, entry.sessionId));
+      return "mismatch";
+    }
+    console.warn(identityLogLine(verifyIdentity ? "unverifiable" : "unverifiable (operator: signalled)", pid, kind, entry.sessionId));
+    return verifyIdentity ? "refuse" : "signal";
+  }
+
   /**
    * Internal: run the SIGTERM → 2 s → SIGKILL kill ladder for one entry.
    * Keeper-aware — kills pi first so the keeper's auto-exit fires, with a
    * fallback SIGTERM to the keeper. Shared by `killBySessionId` /
-   * `killByToken`. Returns true if a live PID was targeted.
+   * `killByToken`. A RESTORED entry's pids are verified before their first
+   * signal; a refused pid is never signalled, and an entry nothing could be
+   * signalled for stays in the registry. See change: guard-restored-headless-identity.
    */
-  async function killEntry(entry: HeadlessEntry): Promise<boolean> {
+  async function killEntry(entry: HeadlessEntry, verifyIdentity: boolean): Promise<CheckedKillResult> {
+    const refusedPids: number[] = [];
+    let mismatch = false;
+    const refused = (pid: number, v: "mismatch" | "refuse") => {
+      refusedPids.push(pid);
+      if (v === "mismatch") mismatch = true;
+    };
+    const finish = (killed: boolean, anySignal: boolean): CheckedKillResult => {
+      const outcome = !anySignal && refusedPids.length > 0 ? "refused-identity" : "signalled";
+      if (outcome === "signalled" && entries.get(entry.pid) === entry) {
+        entries.delete(entry.pid);
+        persist();
+      }
+      const diagnostic = refusedPids.length === 0
+        ? undefined
+        : mismatch ? `identity reuse: pid ${refusedPids.join(",")} started after its anchor` : "identity unverifiable";
+      return { outcome, refusedPids, killed: outcome === "signalled" && killed, ...(diagnostic ? { diagnostic } : {}) };
+    };
+
     // Keeper-mediated entry: kill pi first (with SIGTERM → 2 s →
     // SIGKILL escalation) so the keeper's auto-exit-on-pi-exit handler
-    // fires; schedule a fallback SIGTERM to the keeper if it survives
-    // the brief grace window.
+    // fires; schedule a fallback group kill of the keeper.
     // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (task 6.4);
     // SIGKILL escalation added in change: fix-keeper-kill-escalation.
     if (entry.keeperPid !== undefined) {
-      const piPid = entry.piPid;
       const keeperPid = entry.keeperPid;
       let killedSomething = false;
+      let anySignal = false;
+      const piPid = entry.piPid;
       if (piPid !== undefined) {
-        try {
-          await killProcess(piPid, { timeoutMs: 2000 });
-          killedSomething = true;
-        } catch { /* pi may already be dead */ }
+        const g = await gate(entry, piPid, piAnchor(entry), "pi", verifyIdentity);
+        if (g === "signal") {
+          anySignal = true;
+          try {
+            await killProcess(piPid, { timeoutMs: 2000 });
+            killedSomething = true;
+          } catch { /* pi may already be dead */ }
+        } else if (g === "mismatch" || g === "refuse") {
+          refused(piPid, g);
+          // A mismatched piPid belongs to another process: forget it (D4).
+          if (g === "mismatch" && entry.piPid === piPid) {
+            entry.piPid = undefined;
+            entry.piLinkedAt = undefined;
+            persist();
+          }
+        }
+      }
+      // A refused keeper spawn pid is never signalled, not even as a group (G7).
+      let keeperBlocked = entry.identityRefused === true;
+      if (keeperBlocked) refused(keeperPid, "mismatch");
+      // If pi was not signalled (bridge never connected, or refused), kill the
+      // keeper directly with SIGKILL escalation so the spawn cleanup completes.
+      if (!killedSomething && !keeperBlocked) {
+        const g = await gate(entry, keeperPid, entry.spawnedAt, "keeper", verifyIdentity);
+        if (g === "signal") {
+          anySignal = true;
+          try {
+            await killProcess(keeperPid, { timeoutMs: 2000 });
+            killedSomething = true;
+          } catch { /* ignore */ }
+        } else if (g === "mismatch" || g === "refuse") {
+          refused(keeperPid, g);
+          keeperBlocked = true;
+        }
       }
       // Fallback after a 200 ms grace: terminate the keeper's whole process
       // GROUP (keeper + pi + pi's children — pi is spawned non-detached by the
@@ -326,38 +471,50 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       // existing, not on keeper liveness: the keeper auto-exits with pi, but
       // pi's orphaned children (long bash calls, MCP servers) stay in the
       // group. killProcessGroup is a no-op once the group is gone and
-      // escalates SIGTERM → SIGKILL. See issue #912.
-      setTimeout(() => {
-        void killProcessGroup(keeperPid, { timeoutMs: 2000 }).catch(() => undefined);
-      }, 200).unref?.();
-      // If pi was unknown (bridge never connected), fall through to
-      // killing the keeper directly with SIGKILL escalation so the
-      // spawn cleanup completes — we have no cleaner shutdown signal.
-      if (!killedSomething) {
-        try {
-          await killProcess(keeperPid, { timeoutMs: 2000 });
-          killedSomething = true;
-        } catch { /* ignore */ }
+      // escalates SIGTERM → SIGKILL. See issue #912. A restored keeper pid is
+      // re-probed when the timer fires (G3): mismatch skips, gone still reaps,
+      // unverifiable follows the operator/unattended rule.
+      if (!keeperBlocked && !(entry.restored && !anySignal && refusedPids.length > 0)) {
+        const restored = entry.restored === true;
+        const spawnedAt = entry.spawnedAt;
+        const sessionId = entry.sessionId;
+        const reapKeeperGroup = async (): Promise<void> => {
+          if (restored) {
+            const v = await verify(keeperPid, spawnedAt);
+            if (v === "mismatch" || (v === "unverifiable" && verifyIdentity)) {
+              console.warn(identityLogLine(`${v} (group kill skipped)`, keeperPid, "keeper", sessionId));
+              return;
+            }
+          }
+          await killProcessGroup(keeperPid, { timeoutMs: 2000 });
+        };
+        setTimeout(() => {
+          void reapKeeperGroup().catch(() => undefined);
+        }, 200).unref?.();
       }
-      entries.delete(entry.pid);
-      persist();
-      return killedSomething;
+      return finish(killedSomething, anySignal || !entry.restored || refusedPids.length === 0);
     }
 
     // Non-keeper path (legacy): kill the spawn-time PID directly with
     // SIGTERM → 2 s → SIGKILL escalation (uniform with keeper path).
-    // Returns true once the kill is ISSUED for a known entry (matches the
+    // Returns killed once the kill is ISSUED for a known entry (matches the
     // established killBySessionId contract; a non-throwing killProcess —
     // even {ok:false} for an already-dead PID — counts as issued).
+    if (entry.identityRefused) {
+      refused(entry.pid, "mismatch");
+      return finish(false, false);
+    }
+    const g = await gate(entry, entry.pid, entry.spawnedAt, "spawn", verifyIdentity);
+    if (g === "mismatch" || g === "refuse") {
+      refused(entry.pid, g);
+      return finish(false, false);
+    }
+    if (g === "gone") return finish(true, true);
     try {
       await killProcess(entry.pid, { timeoutMs: 2000 });
-      entries.delete(entry.pid);
-      persist();
-      return true;
+      return finish(true, true);
     } catch {
-      entries.delete(entry.pid);
-      persist();
-      return false;
+      return finish(false, true);
     }
   }
 
@@ -367,10 +524,15 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         const out: PersistedEntry = {
           pid: e.pid,
           cwd: e.cwd,
-          spawnedAt: new Date(e.spawnedAt).toISOString(),
+          // An unparseable restored anchor stays unparseable (⇒ unverifiable)
+          // rather than throwing here. See change: guard-restored-headless-identity (G5).
+          spawnedAt: Number.isFinite(e.spawnedAt) ? new Date(e.spawnedAt).toISOString() : "invalid-date",
         };
         if (e.spawnToken) out.spawnToken = e.spawnToken;
         if (e.piPid !== undefined) out.piPid = e.piPid;
+        if (e.piPid !== undefined && e.piLinkedAt !== undefined && Number.isFinite(e.piLinkedAt)) {
+          out.piLinkedAt = new Date(e.piLinkedAt).toISOString();
+        }
         if (e.keeperPid !== undefined) out.keeperPid = e.keeperPid;
         if (e.keeperSockPath) out.keeperSockPath = e.keeperSockPath;
         if (e.pluginRef) out.pluginRef = e.pluginRef;
@@ -427,6 +589,10 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
           // entry.pid. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
           if (entry.keeperPid !== undefined && pid !== undefined && pid !== entry.pid) {
             entry.piPid = pid;
+            // pi is alive and registering right now: the link time is the
+            // identity anchor for this pid (no probe, no stamp race).
+            // See change: guard-restored-headless-identity (D3).
+            entry.piLinkedAt = Date.now();
             // Persist immediately so a future cleanupOrphans reclaim has
             // piPid available for linkByPid to match against (the token
             // is omitted by the bridge on reattach).
@@ -441,7 +607,10 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
     linkByPid(sessionId: string, pid: number, opts?: { cwd?: string }): boolean {
       // `opts.cwd`: an `unknown` pid target links by pid only to an entry in
       // the register's own cwd. See change: scope-pids-to-namespace (D3).
-      const cwdOk = (e: HeadlessEntry) => opts?.cwd === undefined || e.cwd === opts.cwd;
+      // An identity-refused entry's pid belongs to another process: a pi that
+      // merely holds that pid never owns it (G8). See change: guard-restored-headless-identity.
+      const cwdOk = (e: HeadlessEntry) =>
+        !e.identityRefused && (opts?.cwd === undefined || e.cwd === opts.cwd);
       // Tier 2a: match by Map key (= spawn-time pid). Always tried first
       // because it's O(1) and exact for non-keeper mode.
       const direct = entries.get(pid);
@@ -526,14 +695,43 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
     async killBySessionId(sessionId: string): Promise<boolean> {
       const entry = findBySessionId(sessionId);
       if (!entry) return false;
-      return killEntry(entry);
+      // Operator path: an unverifiable restored pid is signalled; a mismatch
+      // is refused and reported as `false` (G2).
+      return (await killEntry(entry, false)).killed;
     },
 
-    async killByToken(spawnToken: string): Promise<boolean> {
+    async killBySessionIdChecked(sessionId: string, opts?: VerifyIdentityOption): Promise<CheckedKillResult> {
+      const entry = findBySessionId(sessionId);
+      if (!entry) return { outcome: "no-entry", refusedPids: [], killed: false };
+      return killEntry(entry, opts?.verifyIdentity ?? true);
+    },
+
+    async verifySessionPid(sessionId: string, pid: number): Promise<"ok" | "mismatch" | "unverifiable"> {
+      const entry = findBySessionId(sessionId);
+      if (!entry?.restored) return "ok";
+      let anchor: number | undefined;
+      let kind: IdentityKind;
+      if (pid === entry.piPid) {
+        anchor = piAnchor(entry);
+        kind = "pi";
+      } else if (pid === entry.pid || pid === entry.keeperPid) {
+        if (entry.identityRefused) return "mismatch";
+        anchor = entry.spawnedAt;
+        kind = entry.keeperPid !== undefined ? "keeper" : "spawn";
+      } else {
+        return "ok";
+      }
+      const v = await verify(pid, anchor);
+      if (v === "mismatch" || v === "unverifiable") console.warn(identityLogLine(v, pid, kind, sessionId));
+      return v === "mismatch" ? "mismatch" : v === "unverifiable" ? "unverifiable" : "ok";
+    },
+
+    async killByToken(spawnToken: string, opts?: VerifyIdentityOption): Promise<boolean> {
       if (!spawnToken) return false;
       const entry = findByToken(spawnToken);
       if (!entry) return false;
-      return killEntry(entry);
+      // Token reclaims are unattended by default (D5).
+      return (await killEntry(entry, opts?.verifyIdentity ?? true)).killed;
     },
 
     listSessions() {
@@ -555,19 +753,88 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       persist();
     },
 
-    killAll() {
+    async killAll(opts?: { exitIntent?: ExitIntent | null }): Promise<void> {
       if (isUnsafeTestHomeScan()) {
         console.warn("[headless-pid-registry] killAll() blocked: running under vitest with real HOME");
         return;
       }
-      for (const [pid] of entries) {
-        try {
-          killPidWithGroup(pid, "SIGTERM");
-        } catch {
-          // Process may have already exited
+      // A null or absent intent is unattended (G1): it never widens kill rights.
+      const intent = opts?.exitIntent ?? null;
+      const operator = intent !== null && OPERATOR_EXIT_INTENTS.has(intent);
+      // Snapshot: only these entries are signalled and deleted (D7).
+      const snapshot = [...entries.entries()];
+
+      // Verify restored entries concurrently, under a total budget (G6). A
+      // verdict that lands after the budget is ignored (⇒ unverifiable).
+      // A restored keeper entry's `piPid` is verified too: when the keeper
+      // group cannot be signalled, the pi rung alone runs (D4, G7).
+      const verdicts = new Map<HeadlessEntry, IdentityVerdict>();
+      const piVerdicts = new Map<HeadlessEntry, IdentityVerdict>();
+      let settled = false;
+      const restoredEntries = snapshot.filter(([, e]) => e.restored);
+      const work = Promise.all([
+        ...restoredEntries
+          .filter(([, e]) => !e.identityRefused)
+          .map(async ([pid, e]) => {
+            const v = await verify(pid, e.spawnedAt).catch((): IdentityVerdict => "unverifiable");
+            if (!settled) verdicts.set(e, v);
+          }),
+        ...restoredEntries
+          .filter(([, e]) => e.keeperPid !== undefined && e.piPid !== undefined)
+          .map(async ([, e]) => {
+            const v = await verify(e.piPid as number, piAnchor(e)).catch((): IdentityVerdict => "unverifiable");
+            if (!settled) piVerdicts.set(e, v);
+          }),
+      ]);
+      let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+      const budget = new Promise<void>((resolve) => {
+        budgetTimer = setTimeout(resolve, KILL_ALL_VERIFY_BUDGET_MS);
+        budgetTimer.unref?.();
+      });
+      await Promise.race([work, budget]);
+      settled = true;
+      if (budgetTimer) clearTimeout(budgetTimer);
+
+      const piKills: Array<Promise<unknown>> = [];
+      for (const [pid, e] of snapshot) {
+        let signal = true;
+        if (e.identityRefused) {
+          console.warn(identityLogLine("refused", pid, e.keeperPid !== undefined ? "keeper" : "spawn", e.sessionId));
+          signal = false;
+        } else if (e.restored) {
+          const v = verdicts.get(e) ?? "unverifiable";
+          const kind = e.keeperPid !== undefined ? "keeper" : "spawn";
+          if (v === "gone") signal = false;
+          else if (v === "mismatch") {
+            console.warn(identityLogLine("mismatch", pid, kind, e.sessionId));
+            signal = false;
+          } else if (v === "unverifiable") {
+            signal = operator;
+            console.warn(identityLogLine(operator ? "unverifiable (operator: signalled)" : "unverifiable", pid, kind, e.sessionId));
+          }
+        }
+        if (signal) {
+          try {
+            killPidWithGroup(pid, "SIGTERM");
+          } catch {
+            // Process may have already exited
+          }
+        } else if (e.keeperPid !== undefined && e.piPid !== undefined) {
+          // Keeper group not signalled: the pi rung alone, never the keeper.
+          const piPid = e.piPid;
+          const v = piVerdicts.get(e) ?? "unverifiable";
+          if (v === "match" || (v === "unverifiable" && operator)) {
+            if (v === "unverifiable") console.warn(identityLogLine("unverifiable (operator: signalled)", piPid, "pi", e.sessionId));
+            piKills.push(killProcess(piPid, { timeoutMs: 2000 }).catch(() => undefined));
+          } else if (v !== "gone") {
+            console.warn(identityLogLine(v, piPid, "pi", e.sessionId));
+          }
         }
       }
-      entries.clear();
+      await Promise.all(piKills);
+      for (const [pid, e] of snapshot) {
+        if (entries.get(pid) === e) entries.delete(pid);
+      }
       // Don't persist here — keep disk entries so cleanupOrphans() can
       // reclaim surviving processes after a server restart.
     },
@@ -614,12 +881,27 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
           // primary population this change targets (task 1.3, task 5.6). The
           // sidecar FILLS an absent piPid; it never arbitrates against a live
           // capture. One [keeper-identity] line per keeper records the outcome.
+          // A RESTORED entry records the sidecar pid only when it verifies
+          // against the pi-PID sidecar's mtime; the mtime becomes its
+          // `piLinkedAt`. A mismatched pid is never recorded, so a cleared
+          // recycled pid cannot be refilled. See change: guard-restored-headless-identity (D3).
           if (existing.piPid === undefined && k.piPid !== undefined) {
-            existing.piPid = k.piPid;
-            persist();
-            console.error(
-              `[keeper-identity] recorded piPid=${k.piPid} keeperPid=${k.keeperPid} session=${k.sessionId}`,
-            );
+            const v = existing.restored ? await verify(k.piPid, k.piPidAnchorMs) : "match";
+            if (v === "match") {
+              existing.piPid = k.piPid;
+              if (existing.restored && k.piPidAnchorMs !== undefined) {
+                existing.piLinkedAt = Math.min(k.piPidAnchorMs, Date.now());
+              }
+              persist();
+              console.error(
+                `[keeper-identity] recorded piPid=${k.piPid} keeperPid=${k.keeperPid} session=${k.sessionId}`,
+              );
+            } else {
+              console.warn(identityLogLine(v, k.piPid, "pi", existing.sessionId));
+              console.error(
+                `[keeper-identity] not recorded (${v}) piPid=${k.piPid} keeperPid=${k.keeperPid} session=${k.sessionId}`,
+              );
+            }
           } else if (existing.piPid !== undefined) {
             console.error(
               `[keeper-identity] unchanged piPid=${existing.piPid} keeperPid=${k.keeperPid} session=${k.sessionId}`,
@@ -647,25 +929,41 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       const persisted = loadFromDisk();
       const now = Date.now();
 
-      for (const entry of persisted) {
-        const spawnedAt = new Date(entry.spawnedAt).getTime();
-        const age = now - spawnedAt;
+      // Verify every persisted spawn pid concurrently (one probe per live pid;
+      // a gone pid is never probed). See change: guard-restored-headless-identity (D4).
+      const verdicts = await Promise.all(
+        persisted.map((entry) =>
+          verify(entry.pid, parseAnchor(entry.spawnedAt)).catch((): IdentityVerdict => "unverifiable"),
+        ),
+      );
 
-        if (!isProcessAlive(entry.pid)) {
-          // Dead process — skip (will be removed from file on persist)
-          continue;
-        }
+      for (const [i, entry] of persisted.entries()) {
+        const verdict = verdicts[i];
+        // Dead process — skip (will be removed from file on persist).
+        if (verdict === "gone") continue;
+        const spawnedAt = parseAnchor(entry.spawnedAt) ?? Number.NaN;
+        const age = now - spawnedAt;
+        const kind: IdentityKind = entry.keeperPid !== undefined ? "keeper" : "spawn";
 
         if (age > MAX_ORPHAN_AGE_MS) {
-          // Very old orphan — escalate via SIGTERM → 2 s → SIGKILL ladder
-          // (uniform with killBySessionId after change:
-          // fix-keeper-kill-escalation).
-          try {
-            await killProcess(entry.pid, { timeoutMs: 2000 });
-          } catch {
-            // Already dead
+          if (verdict === "match") {
+            // Very old orphan — escalate via SIGTERM → 2 s → SIGKILL ladder
+            // (uniform with killBySessionId after change:
+            // fix-keeper-kill-escalation). Only a verified pid is killed.
+            try {
+              await killProcess(entry.pid, { timeoutMs: 2000 });
+            } catch {
+              // Already dead
+            }
+            continue;
           }
-          continue;
+          if (verdict === "mismatch") {
+            // A recycled very old pid: drop the entry, no signal.
+            console.warn(identityLogLine("mismatch", entry.pid, kind));
+            continue;
+          }
+          // Unverifiable: no signal; fall through to reclaim.
+          console.warn(identityLogLine("unverifiable (7-day kill skipped)", entry.pid, kind));
         }
 
         // Alive and not too old — reclaim into registry.
@@ -680,9 +978,19 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
           cwd: entry.cwd,
           process: dummyProc,
           spawnedAt,
+          restored: true,
         };
+        if (verdict === "mismatch") {
+          // Reclaimed so it is re-evaluated next restart, but never signalled.
+          reclaimed.identityRefused = true;
+          console.warn(identityLogLine("mismatch", entry.pid, kind));
+        }
         if (entry.spawnToken) reclaimed.spawnToken = entry.spawnToken;
-        if (entry.piPid !== undefined) reclaimed.piPid = entry.piPid;
+        if (entry.piPid !== undefined) {
+          reclaimed.piPid = entry.piPid;
+          const linkedAt = parseAnchor(entry.piLinkedAt);
+          if (linkedAt !== undefined) reclaimed.piLinkedAt = linkedAt;
+        }
         if (entry.keeperPid !== undefined) reclaimed.keeperPid = entry.keeperPid;
         if (entry.keeperSockPath) reclaimed.keeperSockPath = entry.keeperSockPath;
         if (entry.pluginRef) reclaimed.pluginRef = entry.pluginRef;

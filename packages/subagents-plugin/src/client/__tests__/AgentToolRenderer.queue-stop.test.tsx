@@ -309,3 +309,44 @@ describe("dock row Stop shares the card's stop state", () => {
     );
   });
 });
+
+// See change: fix-background-subagent-ghost-rows (task 4.9, test-plan #F3): a
+// foreground ghost whose session answers `unknown` ends untracked; its card loses
+// the stop line and its row is no longer running (no stop offered).
+describe("foreground ghost ended by an unknown stop answer (#F3)", () => {
+  it("card shows no stop line; the row is finalized untracked and not running", async () => {
+    const { toolRowFinalizers } = await import("../toolRowFinalizer.js");
+    global.fetch = vi.fn().mockResolvedValue(new Response("{}", { status: 200 })) as unknown as typeof fetch;
+    const running = { status: "running", stoppable: true, durationMs: 1000 };
+    const { rerender } = render(card(running));
+    await act(async () => {
+      agentStop({ sessionId: SID, toolCallId: "tc-1", toolDetails: { agentId: "ag-1", ...running } });
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("agent-stop-pending")).toBeTruthy();
+
+    // Reduce the session's answer through the real finalizer; capture the row end it emits.
+    const reduce = vi.fn((s: never) => s);
+    const state = {
+      subagents: new Map<string, SubagentState>([["ag-1", { id: "ag-1", type: "Explore", description: "probe", status: "running" }]]),
+      messages: [{ role: "toolResult", toolName: "Agent", toolStatus: "running", toolCallId: "tc-1", toolDetails: { agentId: "ag-1", ...running } }],
+      toolCalls: new Map([["tc-1", { status: "running" }]]),
+    };
+    const next = toolRowFinalizers[0].onSessionEvent!(
+      state,
+      { eventType: "subagent_stop_result", timestamp: 2, data: { agentId: "ag-1", outcome: "ignored", phase: "unknown", answeredAt: 1 } },
+      { reduce },
+    )!;
+    expect(next.subagents.get("ag-1")).toMatchObject({ status: "failed", healedBy: "untracked" });
+    expect(reduce).toHaveBeenCalledTimes(1);
+    const end = (reduce.mock.calls[0] as unknown as [unknown, { data: { isError: boolean; healedBy: string; details: Record<string, unknown> } }])[1];
+    expect(end.data).toMatchObject({ isError: true, healedBy: "untracked" });
+
+    // The shell applies that end to the row: the card re-renders terminal.
+    rerender(card({ ...end.data.details, healedBy: "untracked" }, "complete"));
+    expect(screen.queryByTestId("agent-stop-row")).toBeNull();
+    expect(screen.queryByTestId("agent-stop-pending")).toBeNull();
+    // The row is no longer running: the claim's row status is not a live stop target.
+    expect(end.data.details.status).toBe("error");
+  });
+});

@@ -593,3 +593,50 @@ describe("browser-gateway on-connect snapshot excludes archived sessions (E7)", 
     expect(snap.archivedCountByCwd).toEqual({ "/repo/a": 1 });
   });
 });
+
+// ── E1/E2: the snapshot names the platform the archive keys were folded with ──
+// See change: fix-archive-fold-key-and-filter-chips.
+describe("browser-gateway on-connect snapshot carries pathKeyPlatform (E1/E2)", () => {
+  function snapshotFor(platform: NodeJS.Platform) {
+    const sessionManager = createMemorySessionManager();
+    const archive = createSessionArchive({
+      sessionManager,
+      metaPersistence: createMetaPersistence(),
+      getPinnedDirs: () => [],
+      platform,
+    });
+    const row = (id: string) => ({
+      id, cwd: "/Users/x/Proj", groupPath: "/Users/x/Proj",
+      endedAt: 2, archivedAt: 3, sessionFile: `/s/${id}.jsonl`,
+    });
+    archive.seed([row("a1"), row("a2")]);
+    const gateway = createBrowserGateway(
+      sessionManager,
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+      undefined, undefined,
+      makeStubOrderManager({}),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      archive,
+    );
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+    return sentMessages(ws).find((m) => m.type === "sessions_snapshot") as {
+      archivedCountByCwd: Record<string, number>;
+      pathKeyPlatform?: string;
+    };
+  }
+
+  it("darwin: folded keys and pathKeyPlatform=darwin (E1)", () => {
+    const snap = snapshotFor("darwin");
+    expect(snap.pathKeyPlatform).toBe("darwin");
+    expect(snap.archivedCountByCwd).toEqual({ "/users/x/proj": 2 });
+  });
+
+  it("linux: case-preserving keys and pathKeyPlatform=linux (E2)", () => {
+    const snap = snapshotFor("linux");
+    expect(snap.pathKeyPlatform).toBe("linux");
+    expect(snap.archivedCountByCwd).toEqual({ "/Users/x/Proj": 2 });
+  });
+});

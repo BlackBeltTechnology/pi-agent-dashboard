@@ -14,9 +14,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   handleClearFollowupEntries,
+  handleClearSteeringEntries,
   handleEditFollowupEntry,
   handlePromoteFollowupEntry,
   handleRemoveFollowupEntry,
+  handleRemoveSteeringEntry,
 } from "../browser-handlers/session-action-handler.js";
 
 function makeCtx(opts: { sessionExists: boolean }) {
@@ -167,4 +169,24 @@ describe("handlePromoteFollowupEntry", () => {
   });
 });
 
+// Bridge-held steer mutations. See change: bridge-owned-cancellable-steer (test-plan #E27, #X3).
+describe("steer mutation forwarders", () => {
+  it("E27: forwards remove + clear unchanged to the session's bridge only", () => {
+    const { ctx, piGateway } = makeCtx({ sessionExists: true });
+    handleRemoveSteeringEntry({ type: "remove_steering_entry", sessionId: "S", id: "2" } as any, ctx);
+    handleClearSteeringEntries({ type: "clear_steering_entries", sessionId: "S" } as any, ctx);
+    expect(piGateway.sendToSession.mock.calls).toEqual([
+      ["S", { type: "remove_steering_entry", sessionId: "S", id: "2" }],
+      ["S", { type: "clear_steering_entries", sessionId: "S" }],
+    ]);
+  });
 
+  it("X3: unknown / disconnected session → no throw, nothing forwarded", () => {
+    const { ctx, piGateway } = makeCtx({ sessionExists: false });
+    expect(() => {
+      handleRemoveSteeringEntry({ type: "remove_steering_entry", sessionId: "S", id: "1" } as any, ctx);
+      handleClearSteeringEntries({ type: "clear_steering_entries", sessionId: "S" } as any, ctx);
+    }).not.toThrow();
+    expect(piGateway.sendToSession).not.toHaveBeenCalled();
+  });
+});
