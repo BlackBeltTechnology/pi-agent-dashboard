@@ -17,6 +17,7 @@ import path from "node:path";
 import { proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { BrowserWindow, dialog, ipcMain, powerMonitor, safeStorage, screen, session } from "electron";
 import { CONNECTING_HTML, getConnectingWindow, openConnectingWindow } from "./connecting-window.js";
+import { proveWithDeviceNonce } from "./device-key.js";
 import { MANAGED_DIR } from "./managed-paths.js";
 import { getRemoteConnectHtmlPath, getRemoteConnectWindow, openRemoteConnectWindow } from "./remote-connect-window.js";
 import { getRendererHtmlPath } from "./renderer-paths.js";
@@ -161,7 +162,7 @@ export function startServerWindows(opts: ServerWindowsMainOptions): ServerWindow
     keyring,
     discovery,
     ports,
-    prove: (baseUrl) => proveServerIdentity(baseUrl),
+    prove: (baseUrl) => proveWithDeviceNonce(baseUrl),
     // Proof and use are bound to one address literal: names are resolved by the OS resolver (`.local` included).
     lookup: async (hostname) => (await dns.lookup(hostname, { all: true })).map((a) => a.address),
     interfaces: () => os.networkInterfaces(),

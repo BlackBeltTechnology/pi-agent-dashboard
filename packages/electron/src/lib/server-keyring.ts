@@ -18,16 +18,26 @@
  *   a host written by an earlier version has none and is read as unknown.
  *   At most {@link MAX_DELIVERED_STORED} delivered (`pairing`) hosts are stored per
  *   pairing result (`addDeliveredHosts`), then the 5-host cap applies.
- * - No method here returns a bearer to anything but main-process callers
- *   (`bearerFor`); `list()` is renderer-safe (no bearer).
+ * - Device key (`deviceKey`): an Ed25519 key per entry. `pub` is stored in clear; the private
+ *   key only encrypted with `safeStorage` (PKCS#8 → `priv`). Encryption unavailable ⇒ the key stays in
+ *   memory for this run, like the bearer. A private key that cannot be decrypted (or does not match
+ *   its `pub`) is dropped ALONE — the entry keeps its credential and reads "key pending". A build
+ *   that predates the key drops the field on save (its loader copies known fields only) and the
+ *   current build then sees no key. A credential refusal (`markNeedsPairing`) drops the key with the
+ *   bearer; `savePaired` takes the key it is given and never inherits an older one.
+ * - No method here returns a bearer or a private key to anything but main-process callers
+ *   (`bearerFor`, `deviceKeyFor`); `list()` / `get()` are renderer-safe (no bearer, no key object,
+ *   only `keyHeld`).
  *
  * Imports nothing from electron — unit-tested in `__tests__/server-keyring.test.ts`.
  *
- * See change: add-electron-server-windows (D4), group-servers-by-identity (D7).
+ * See change: add-electron-server-windows (D4), group-servers-by-identity (D7),
+ * device-key-mutual-check (D3, D9).
  */
 import fs from "node:fs";
 import path from "node:path";
 import { ROUTE_SOURCES, type RouteSource } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
+import { type DeviceKey, deviceKeyFromPrivate } from "./device-key.js";
 import { type HostRef, shortFingerprint } from "./server-discovery.js";
 
 const KEYRING_FILE = "server-keyring.json";
@@ -112,10 +122,12 @@ export interface KeyringEntry {
   remembered: boolean;
   needsPairing: boolean;
   pairedAt: string;
+  /** The device key (main-process memory only; its private half is encrypted on disk). `null` ⇒ none held ("key pending" with a credential). */
+  deviceKey: DeviceKey | null;
 }
 
-/** Renderer-safe projection (no bearer). */
-export type KeyringEntryView = Omit<KeyringEntry, "bearer">;
+/** Renderer-safe projection: no bearer, no key object — only whether a key is held. */
+export type KeyringEntryView = Omit<KeyringEntry, "bearer" | "deviceKey"> & { keyHeld: boolean };
 
 interface DiskEntry {
   label: string;
@@ -125,6 +137,8 @@ interface DiskEntry {
   remembered: boolean;
   needsPairing: boolean;
   pairedAt: string;
+  /** Absent when no key is held or when the private half could not be encrypted (memory only). */
+  deviceKey?: { pub: string; priv: { enc: "safeStorage"; data: string } };
 }
 
 interface DiskFile {
@@ -247,6 +261,21 @@ export class ServerKeyring {
     }
   }
 
+  /** Decrypt the stored device key; an undecryptable, unparseable or mismatching one is dropped alone. */
+  private decodeDeviceKey(fp: string, e: DiskEntry): DeviceKey | null {
+    const dk = e.deviceKey;
+    if (dk === undefined) return null;
+    if (!(dk && typeof dk.pub === "string" && dk.priv?.enc === "safeStorage" && typeof dk.priv.data === "string")) return null;
+    let key: DeviceKey | null = null;
+    try {
+      key = deviceKeyFromPrivate(this.opts.crypto.decryptString(Buffer.from(dk.priv.data, "base64")), dk.pub);
+    } catch {
+      /* falls through to the drop below */
+    }
+    if (!key) this.log(`[server-windows] keyring: device key undecryptable fp=${shortFingerprint(fp)} — key pending`);
+    return key;
+  }
+
   private decodeEntry(fp: string, e: DiskEntry): KeyringEntry | null {
     if (!e || typeof e.label !== "string" || !Array.isArray(e.lastHosts)) return null;
     const { bearer, needsPairing } = this.decodeBearer(fp, e);
@@ -259,6 +288,7 @@ export class ServerKeyring {
       remembered: e.remembered === true && bearer !== null,
       needsPairing,
       pairedAt: typeof e.pairedAt === "string" ? e.pairedAt : new Date(this.now()).toISOString(),
+      deviceKey: this.decodeDeviceKey(fp, e),
     };
   }
 
@@ -287,6 +317,11 @@ export class ServerKeyring {
   /** Main-process only. */
   bearerFor(fp: string): string | null {
     return this.entries.get(fp)?.bearer ?? null;
+  }
+
+  /** Main-process only: the device key held for `fp` (never exposed to a renderer). */
+  deviceKeyFor(fp: string): DeviceKey | null {
+    return this.entries.get(fp)?.deviceKey ?? null;
   }
 
   /** Renderer-safe list, sorted by label. */
@@ -318,6 +353,8 @@ export class ServerKeyring {
     pinnedPubkey?: string;
     host: StoredHost;
     bearer: string;
+    /** The key generated for this pairing (kept in memory until now). Not inherited from an older entry. */
+    deviceKey?: DeviceKey;
   }): KeyringEntryView {
     const remembered = this.canPersistBearer();
     const existing = this.entries.get(input.fingerprint);
@@ -330,6 +367,7 @@ export class ServerKeyring {
       remembered,
       needsPairing: false,
       pairedAt: new Date(this.now()).toISOString(),
+      deviceKey: input.deviceKey ?? null,
     };
     this.entries.set(entry.fingerprint, entry);
     this.save();
@@ -366,11 +404,12 @@ export class ServerKeyring {
     return kept.length;
   }
 
-  /** Credential refused/undecryptable: drop the bearer, keep pin/label/hosts. */
+  /** Credential refused/undecryptable: drop the bearer and the device key, keep pin/label/hosts. */
   markNeedsPairing(fp: string): void {
     const e = this.entries.get(fp);
     if (!e) return;
     e.bearer = null;
+    e.deviceKey = null;
     e.needsPairing = true;
     e.remembered = false;
     this.saveBestEffort();
@@ -401,6 +440,10 @@ export class ServerKeyring {
       if (e.bearer && e.remembered && this.canPersistBearer()) {
         bearer = { enc: "safeStorage", data: this.opts.crypto.encryptString(e.bearer).toString("base64") };
       }
+      const deviceKey: DiskEntry["deviceKey"] =
+        e.deviceKey && this.canPersistBearer()
+          ? { pub: e.deviceKey.pub, priv: { enc: "safeStorage", data: this.opts.crypto.encryptString(e.deviceKey.exportPrivate()).toString("base64") } }
+          : undefined;
       servers[e.fingerprint] = {
         label: e.label,
         ...(e.pinnedPubkey ? { pinnedPubkey: e.pinnedPubkey } : {}),
@@ -409,6 +452,7 @@ export class ServerKeyring {
         remembered: bearer !== null,
         needsPairing: e.needsPairing,
         pairedAt: e.pairedAt,
+        ...(deviceKey ? { deviceKey } : {}),
       };
     }
     const body: DiskFile = { version: KEYRING_VERSION, servers };
@@ -426,8 +470,8 @@ export class ServerKeyring {
 }
 
 function view(e: KeyringEntry): KeyringEntryView {
-  const { bearer: _bearer, ...rest } = e;
-  return { ...rest, lastHosts: e.lastHosts.map((h) => ({ ...h })) };
+  const { bearer: _bearer, deviceKey, ...rest } = e;
+  return { ...rest, keyHeld: deviceKey !== null, lastHosts: e.lastHosts.map((h) => ({ ...h })) };
 }
 
 const sameRef = (a: HostRef, b: HostRef): boolean => a.scheme === b.scheme && a.host === b.host && a.port === b.port;

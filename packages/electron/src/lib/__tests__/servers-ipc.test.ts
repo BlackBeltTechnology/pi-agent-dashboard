@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { generateDeviceKey } from "../device-key.js";
 import { loadKeyring } from "../server-keyring.js";
 import type { ServerWindows } from "../server-windows.js";
 import {
@@ -345,5 +346,46 @@ describe("listServers / pairWithCode channels (#X17)", () => {
     expect(await b.handlers.get("servers:submit-code")!(connEvent(), { text: "x".repeat(20_000) })).toEqual({ ok: false });
     expect(b.sw.submitCode).not.toHaveBeenCalled();
     expect(b.logs.join("\n")).not.toContain("ZZ9");
+  });
+});
+
+// ── device-key-mutual-check: key state in the list, nothing secret to a renderer (X11) ──
+
+describe("device key in servers IPC (device-key-mutual-check, X11)", () => {
+  const G = `sha256:${"B".repeat(43)}`;
+  const H = `sha256:${"C".repeat(43)}`;
+  const host = { scheme: "https" as const, host: "b.share.zrok.io", port: 443 };
+
+  it("a credential without a key reads key-pending; a keyed or credential-less row carries no device state yet", async () => {
+    const b = build();
+    b.keyring.savePaired({ fingerprint: G, label: "keyed", host, bearer: "BEARER-KEYED", deviceKey: generateDeviceKey() });
+    b.keyring.savePaired({ fingerprint: H, label: "gone", host, bearer: "BEARER-GONE", deviceKey: generateDeviceKey() });
+    b.keyring.markNeedsPairing(H);
+    const r = (await b.handlers.get("servers:list")!(rcEvent())) as { paired: Array<Record<string, unknown>> };
+    const by = (fp: string) => r.paired.find((p) => p.fingerprint === fp)!;
+    expect(by(F)).toMatchObject({ deviceState: "key-pending" });
+    expect(by(F)).not.toHaveProperty("tier");
+    expect(by(G)).not.toHaveProperty("deviceState");
+    expect(by(H)).not.toHaveProperty("deviceState");
+  });
+
+  it("every IPC answer and push serialises with no bearer, no private key and no `privateKey` field", async () => {
+    const b = build();
+    const key = generateDeviceKey();
+    b.keyring.savePaired({ fingerprint: G, label: "keyed", host, bearer: "BEARER-KEYED", deviceKey: key });
+    const der = Buffer.from(key.exportPrivate(), "base64");
+    const forbidden = ["BEARER-KEYED", "privateKey", key.exportPrivate(), der.toString("base64url"), der.subarray(-32).toString("base64url")];
+    const answers: unknown[] = [];
+    answers.push(...(await Promise.all([rcEvent(), mainEvent(), connEvent()].map((e) => b.handlers.get("servers:list")!(e)))));
+    answers.push(await b.handlers.get("servers:open")!(rcEvent(), { fingerprint: G }));
+    answers.push(await b.handlers.get("servers:pair-again")!(rcEvent(), { fingerprint: G }));
+    answers.push(await b.handlers.get("servers:pair-with-code")!(mainEvent(), { fingerprint: G }));
+    answers.push(await b.handlers.get("servers:forget")!(rcEvent(), { fingerprint: G }));
+    answers.push(await b.handlers.get("servers:connecting-ready")!(connEvent()));
+    b.ipc.broadcast();
+    answers.push(main.sent, rc.sent, conn.sent, b.ipc.state());
+    const out = JSON.stringify(answers);
+    expect(out).toContain("keyed");
+    for (const f of forbidden) expect(out, f).not.toContain(f);
   });
 });

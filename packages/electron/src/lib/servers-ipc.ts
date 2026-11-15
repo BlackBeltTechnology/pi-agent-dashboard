@@ -19,10 +19,15 @@
  * dashboard page's `piDashboard.listServers` / `piDashboard.pairWithCode` bridges; the pasted
  * pairing text travels only on `servers:submit-code` from the connecting window.
  *
- * See change: add-electron-server-windows (D9), group-servers-by-identity (D8, D9).
+ * A paired row carries `deviceState` only when it is known without a network check (a credential and
+ * no device key ⇒ `key-pending`); no key object, private key or bearer ever leaves the main process.
+ *
+ * See change: add-electron-server-windows (D9), group-servers-by-identity (D8, D9),
+ * device-key-mutual-check (D9).
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { type DeviceRowStateId, deviceRowState } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import { normalizeRemoteUrl } from "./remote-probe.js";
 import { type DiscoveredEntry, isFingerprint, shortFingerprint } from "./server-discovery.js";
 import type { KeyringEntryView, ServerKeyring } from "./server-keyring.js";
@@ -118,6 +123,8 @@ interface PairedRow {
   open: boolean;
   remembered: boolean;
   host?: string;
+  /** Row state known without a network check; absent until the device check runs. `tier` follows that check. */
+  deviceState?: DeviceRowStateId;
 }
 
 interface ServersState {
@@ -128,6 +135,7 @@ interface ServersState {
 
 function pairedRow(e: KeyringEntryView, open: boolean): PairedRow {
   const h = e.lastHosts[0];
+  const deviceState = localDeviceState(e);
   return {
     fingerprint: e.fingerprint,
     label: e.label,
@@ -136,7 +144,14 @@ function pairedRow(e: KeyringEntryView, open: boolean): PairedRow {
     open,
     remembered: e.remembered,
     ...(h ? { host: `${h.host}:${h.port}` } : {}),
+    ...(deviceState ? { deviceState } : {}),
   };
+}
+
+/** What a row says before any device check: a credential and no key is "key-pending"; the rest waits for the check. */
+function localDeviceState(e: KeyringEntryView): DeviceRowStateId | undefined {
+  if (e.needsPairing || e.keyHeld) return undefined;
+  return deviceRowState({ credential: "held", keyHeld: false, reply: { kind: "no-answer" } }).state;
 }
 
 // ── Registration ─────────────────────────────────────────────────────────────
