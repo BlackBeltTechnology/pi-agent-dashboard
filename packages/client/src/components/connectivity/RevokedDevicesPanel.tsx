@@ -131,7 +131,7 @@ export function RevokedDevicesPanel({
             </button>
             <button
               type="button"
-              className="text-xs text-[var(--danger,#ef4444)] hover:underline disabled:opacity-50"
+              className="text-xs text-[var(--status-error)] hover:underline disabled:opacity-50"
               disabled={busyId === d.id}
               onClick={() => setTarget(d)}
             >

@@ -287,7 +287,7 @@ function KeyAndCompanions({
                 {operator && (
                   <button
                     type="button"
-                    className="text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
+                    className="text-[var(--text-muted)] hover:text-[var(--status-error)]"
                     aria-label={i18nT("pairedDevices.removeStatusCheck", { origin: c.origin }, "Remove status check from {origin}")}
                     title={i18nT("pairedDevices.removeStatusCheckTitle", undefined, "Remove this status check")}
                     onClick={() => onRemoveCompanion(device.id, c.id)}

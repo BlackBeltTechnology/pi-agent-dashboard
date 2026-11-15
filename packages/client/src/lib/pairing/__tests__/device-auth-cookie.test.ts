@@ -6,6 +6,7 @@
 import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setGlobalApiBase } from "../../api/api-context.js";
+import { proveRoute } from "../device-check.js";
 import { getInitialWsUrl, LAST_SERVER_KEY } from "../../api/server-switch.js";
 import {
   browserHolderBody,
@@ -263,7 +264,9 @@ describe("mintWsTicket via cookie (F3 / F5 / E36)", () => {
     localStorage.setItem(MARKER, "1");
     vi.stubGlobal("fetch", vi.fn(async () => res(401, { success: false })));
     expect(await mintWsTicket()).toBeNull();
-    await new Promise((r) => setTimeout(r, 20));
+    // The keep/discard decision runs right after the route proof settles: wait on that proof, not a timer.
+    await vi.waitFor(() => expect(vi.mocked(proveRoute)).toHaveBeenCalled());
+    await vi.mocked(proveRoute).mock.results.at(-1)?.value;
     expect(isDevicePaired()).toBe(true);
   });
   it("E36 a stored bearer is still sent as Authorization", async () => {

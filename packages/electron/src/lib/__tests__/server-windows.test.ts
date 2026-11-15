@@ -1616,9 +1616,12 @@ describe("X9: Access removed — transitions and re-pairing", () => {
     rig.askNeedsPairing.mockResolvedValueOnce("pair-again");
     let approve!: (r: unknown) => void;
     rig.startPairing.mockImplementationOnce(((_t: unknown, d: { keyring: ServerKeyring }) => {
-      const done = new Promise((r) => (approve = r));
-      void done.then(() => {
-        d.keyring.savePaired({ fingerprint: F, label: "home-imac", host: { scheme: "http", host: "192.168.16.204", port: 8000 }, bearer: "B2", deviceKey: generateDeviceKey() });
+      // The pairing client persists the new entry on approval, before it resolves `done`.
+      const done = new Promise((resolve) => {
+        approve = (r) => {
+          d.keyring.savePaired({ fingerprint: F, label: "home-imac", host: { scheme: "http", host: "192.168.16.204", port: 8000 }, bearer: "B2", deviceKey: generateDeviceKey() });
+          resolve(r);
+        };
       });
       return { send: vi.fn(), stop: vi.fn(), done };
     }) as never);
