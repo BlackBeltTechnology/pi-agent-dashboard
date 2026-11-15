@@ -296,6 +296,24 @@ describe("device key per entry (device-key-mutual-check, X11/X12)", () => {
     expect(open().get(F)).toMatchObject({ keyHeld: true, needsPairing: false });
   });
 
+  it("X5: setDeviceKey stores a bound key for a credential-holding keyless entry only (encrypted, reload signs the same)", () => {
+    const k = open();
+    k.savePaired({ fingerprint: F, label: "home-imac", host: http("192.168.16.204"), bearer: BEARER, pinnedPubkey: "PUB" });
+    const key = generateDeviceKey();
+    expect(k.setDeviceKey(F, key)).toBe(true);
+    expect(k.get(F)).toMatchObject({ keyHeld: true, needsPairing: false });
+    const raw = fs.readFileSync(file(), "utf8");
+    expect(raw).toContain(key.pub);
+    for (const form of privateForms(key)) expect(raw).not.toContain(form);
+    expect(open().deviceKeyFor(F)?.pub).toBe(key.pub);
+    // a held key is never replaced; an unknown or credential-less entry takes none
+    expect(k.setDeviceKey(F, generateDeviceKey())).toBe(false);
+    expect(k.deviceKeyFor(F)?.pub).toBe(key.pub);
+    expect(k.setDeviceKey(`sha256:${"Z".repeat(43)}`, generateDeviceKey())).toBe(false);
+    k.markNeedsPairing(F);
+    expect(k.setDeviceKey(F, generateDeviceKey())).toBe(false);
+  });
+
   it("X11: safeStorage unavailable ⇒ key and bearer stay in memory, nothing secret on disk, not remembered, window still opens", () => {
     for (const crypto of [fakeCrypto({ isEncryptionAvailable: () => false }), fakeCrypto({ getSelectedStorageBackend: () => "basic_text" })]) {
       fs.rmSync(file(), { force: true });

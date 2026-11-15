@@ -19,19 +19,20 @@
  * dashboard page's `piDashboard.listServers` / `piDashboard.pairWithCode` bridges; the pasted
  * pairing text travels only on `servers:submit-code` from the connecting window.
  *
- * A paired row carries `deviceState` only when it is known without a network check (a credential and
- * no device key ⇒ `key-pending`); no key object, private key or bearer ever leaves the main process.
+ * A paired row carries `deviceState` (+ `tier`) from the last device check the main process ran
+ * (`serverWindows.deviceView`), else only what is known without a check (a credential and no device
+ * key ⇒ `key-pending`); no key object, private key or bearer ever leaves the main process.
  *
  * See change: add-electron-server-windows (D9), group-servers-by-identity (D8, D9),
  * device-key-mutual-check (D9).
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { type DeviceRowStateId, deviceRowState } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
+import { type DeviceRowStateId, type DeviceTier, deviceRowState } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import { normalizeRemoteUrl } from "./remote-probe.js";
 import { type DiscoveredEntry, isFingerprint, shortFingerprint } from "./server-discovery.js";
 import type { KeyringEntryView, ServerKeyring } from "./server-keyring.js";
-import type { OpenResult, ServerWindows } from "./server-windows.js";
+import type { DeviceView, OpenResult, ServerWindows } from "./server-windows.js";
 
 type SenderKind = "remote-connect" | "connecting" | "main";
 
@@ -123,8 +124,12 @@ interface PairedRow {
   open: boolean;
   remembered: boolean;
   host?: string;
-  /** Row state known without a network check; absent until the device check runs. `tier` follows that check. */
+  /** Row state from the last device check (or known without one: key-pending); absent until then. */
   deviceState?: DeviceRowStateId;
+  /** Only with `deviceState: "paired"`, from the same check. */
+  tier?: DeviceTier;
+  /** Display-only: the credential is kept but this network is refused. */
+  networkNotAllowed?: true;
 }
 
 interface ServersState {
@@ -133,9 +138,9 @@ interface ServersState {
   recent: Array<{ url: string; lastUsed: string }>;
 }
 
-function pairedRow(e: KeyringEntryView, open: boolean): PairedRow {
+function pairedRow(e: KeyringEntryView, open: boolean, view: DeviceView | undefined): PairedRow {
   const h = e.lastHosts[0];
-  const deviceState = localDeviceState(e);
+  const deviceState = view?.state ?? localDeviceState(e);
   return {
     fingerprint: e.fingerprint,
     label: e.label,
@@ -145,6 +150,8 @@ function pairedRow(e: KeyringEntryView, open: boolean): PairedRow {
     remembered: e.remembered,
     ...(h ? { host: `${h.host}:${h.port}` } : {}),
     ...(deviceState ? { deviceState } : {}),
+    ...(view?.tier ? { tier: view.tier } : {}),
+    ...(view?.networkNotAllowed ? { networkNotAllowed: true as const } : {}),
   };
 }
 
@@ -188,7 +195,7 @@ export function registerServersIpc(deps: ServersIpcDeps): ServersIpc {
   const { ipcMain, trust, serverWindows, keyring } = deps;
 
   const state = (): ServersState => ({
-    paired: keyring.list().map((e) => pairedRow(e, serverWindows.isOpen(e.fingerprint))),
+    paired: keyring.list().map((e) => pairedRow(e, serverWindows.isOpen(e.fingerprint), serverWindows.deviceView(e.fingerprint))),
     discovered: deps.discovery.list().filter((d) => d.state !== "paired"),
     recent: deps.recent(),
   });

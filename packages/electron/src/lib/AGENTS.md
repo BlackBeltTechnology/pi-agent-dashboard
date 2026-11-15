@@ -39,7 +39,7 @@ Files in this directory. One row per source file.
 | `server-keyring.ts` | `ServerKeyring` / `loadKeyring`: paired servers by fingerprint in `~/.pi-dashboard/server-keyring.json` (v1). → see `server-keyring.ts.AGENTS.md` |
 | `server-lifecycle.ts` | Thin `selectLaunchSource + spawnFromSource` shim under R3. → see `server-lifecycle.ts.AGENTS.md` |
 | `server-windows-main.ts` | `startServerWindows(opts)`: Electron binding for server windows. → see `server-windows-main.ts.AGENTS.md` |
-| `server-windows.ts` | `createServerWindows(deps)`: one window per paired server on its own origin. → see `server-windows.ts.AGENTS.md` |
+| `server-windows.ts` | `createServerWindows(deps)`: one window per paired server on its own origin; device check after a refused exchange, key-pending bind, `deviceView`/`deviceNote`. → see `server-windows.ts.AGENTS.md` |
 | `servers-ipc.ts` | `servers:*` IPC (own family). `registerServersIpc(deps)`; `isServerWindowsSender` accepts only TOP frame of… → see `servers-ipc.ts.AGENTS.md` |
 | `servers-menu.ts` | Servers submenu for app + tray menus: `buildServersSubmenu`, `serversMenuItem`, `setServersMenuHooks`,… → see `servers-menu.ts.AGENTS.md` |
 | `tray.ts` | System tray with platform-specific icons (template on macOS, ico/png on Win/Linux) → see `tray.ts.AGENTS.md` |

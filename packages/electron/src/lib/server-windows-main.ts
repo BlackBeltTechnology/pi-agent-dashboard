@@ -23,12 +23,26 @@ import { getRemoteConnectHtmlPath, getRemoteConnectWindow, openRemoteConnectWind
 import { getRendererHtmlPath } from "./renderer-paths.js";
 import { createServerDiscovery, type ServerDiscovery } from "./server-discovery.js";
 import { loadKeyring, type ServerKeyring } from "./server-keyring.js";
-import { type Bounds, createServerWindows, type ServerWindowPorts, type ServerWindows } from "./server-windows.js";
+import { type Bounds, createServerWindows, deviceNote, type RepairReason, type ServerWindowPorts, type ServerWindows } from "./server-windows.js";
 import { registerServersIpc, type ServersIpc, type TrustedWindow } from "./servers-ipc.js";
 import { notifyServersMenuChanged, setServersMenuHooks } from "./servers-menu.js";
 import { listRecentRemotes } from "./wizard-state.js";
 
 const BOUNDS_FILE = "server-windows-state.json";
+
+/** Wording of the one dialog after a refused credential, by why (device-key-mutual-check D9). */
+const REPAIR_TEXT: Record<RepairReason, { message: string; detail: string }> = {
+  refused: { message: "no longer accepts this computer.", detail: "The device may have been revoked on that dashboard. You can pair again, or forget this server." },
+  "access-removed": {
+    message: "access removed.",
+    detail: "The operator removed this device on that dashboard. If they undo it, opening the server works again; otherwise pair again (this creates a new device key), or forget this server.",
+  },
+  "access-expired": { message: "access expired.", detail: "This device's access ran out. Pair again (this creates a new device key), or forget this server." },
+  "network-not-allowed": {
+    message: "does not allow this network.",
+    detail: "The dashboard refused this computer's network. The saved credential was kept. Try from an allowed network, pair again, or forget this server.",
+  },
+};
 
 export interface ServerWindowsMainOptions {
   getMainWindow: () => BrowserWindow | null;
@@ -131,12 +145,13 @@ export function startServerWindows(opts: ServerWindowsMainOptions): ServerWindow
     createWindow: (o) => new BrowserWindow(o) as never,
     sessionFor: (partition) => session.fromPartition(partition) as never,
     openExternal: opts.openExternal,
-    askNeedsPairing: async (label) => {
+    askNeedsPairing: async (label, reason) => {
+      const text = REPAIR_TEXT[reason ?? "refused"];
       const { response } = await dialog.showMessageBox({
         type: "warning",
         title: "Pair again?",
-        message: `${label} no longer accepts this computer.`,
-        detail: "The device may have been revoked on that dashboard. You can pair again, or forget this server.",
+        message: `${label} ${text.message}`,
+        detail: text.detail,
         buttons: ["Pair again", "Forget", "Close"],
         defaultId: 0,
         cancelId: 2,
@@ -166,6 +181,8 @@ export function startServerWindows(opts: ServerWindowsMainOptions): ServerWindow
     // Proof and use are bound to one address literal: names are resolved by the OS resolver (`.local` included).
     lookup: async (hostname) => (await dns.lookup(hostname, { all: true })).map((a) => a.address),
     interfaces: () => os.networkInterfaces(),
+    // The device view is memory only: tell the Servers list and menu when it changes.
+    onDeviceChange: changed,
     log,
   });
 
@@ -196,7 +213,7 @@ export function startServerWindows(opts: ServerWindowsMainOptions): ServerWindow
 
   keyring.onChange(changed);
   setServersMenuHooks({
-    entries: () => keyring.list().map((e) => ({ fingerprint: e.fingerprint, label: e.label, needsPairing: e.needsPairing })),
+    entries: () => keyring.list().map((e) => ({ fingerprint: e.fingerprint, label: e.label, needsPairing: e.needsPairing, note: deviceNote(serverWindows.deviceView(e.fingerprint)) })),
     open: (fp) => void serverWindows.open(fp, { notify: true }),
     connectAnother: () => void openRemoteConnectWindow(),
   });

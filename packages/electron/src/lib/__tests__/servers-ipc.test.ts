@@ -124,6 +124,7 @@ function build() {
     isOpen: vi.fn(() => false),
     pairWithCode: vi.fn(async () => ({ ok: true, pairing: true })),
     submitCode: vi.fn(),
+    deviceView: vi.fn(() => undefined),
   };
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sipc-"));
   const keyring = loadKeyring({ dir, crypto: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(s), decryptString: (b) => b.toString() }, log: () => {} });
@@ -367,6 +368,21 @@ describe("device key in servers IPC (device-key-mutual-check, X11)", () => {
     expect(by(F)).not.toHaveProperty("tier");
     expect(by(G)).not.toHaveProperty("deviceState");
     expect(by(H)).not.toHaveProperty("deviceState");
+  });
+
+  it("a row carries the last device check's state and tier from serverWindows.deviceView; the network-not-allowed flag rides along", async () => {
+    const b = build();
+    b.keyring.savePaired({ fingerprint: G, label: "keyed", host, bearer: "BEARER-KEYED", deviceKey: generateDeviceKey() });
+    b.keyring.savePaired({ fingerprint: H, label: "removed", host, bearer: "BEARER-RM", deviceKey: generateDeviceKey() });
+    b.sw.deviceView!.mockImplementation((fp: string) =>
+      fp === G ? { state: "paired", tier: "operate", networkNotAllowed: true } : fp === H ? { state: "access-removed" } : undefined,
+    );
+    const r = (await b.handlers.get("servers:list")!(rcEvent())) as { paired: Array<Record<string, unknown>> };
+    const by = (fp: string) => r.paired.find((p) => p.fingerprint === fp)!;
+    expect(by(G)).toMatchObject({ deviceState: "paired", tier: "operate", networkNotAllowed: true });
+    expect(by(H)).toMatchObject({ deviceState: "access-removed" });
+    expect(by(H)).not.toHaveProperty("tier");
+    expect(by(F)).toMatchObject({ deviceState: "key-pending" });
   });
 
   it("every IPC answer and push serialises with no bearer, no private key and no `privateKey` field", async () => {

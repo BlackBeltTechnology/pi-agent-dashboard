@@ -404,6 +404,18 @@ export class ServerKeyring {
     return kept.length;
   }
 
+  /**
+   * Persist a device key the server accepted for this entry's credential (the key-pending bind).
+   * Only an entry that holds a credential and no key takes it; returns whether it was stored.
+   */
+  setDeviceKey(fp: string, key: DeviceKey): boolean {
+    const e = this.entries.get(fp);
+    if (!e || e.needsPairing || e.bearer === null || e.deviceKey !== null) return false;
+    e.deviceKey = key;
+    this.saveBestEffort();
+    return true;
+  }
+
   /** Credential refused/undecryptable: drop the bearer and the device key, keep pin/label/hosts. */
   markNeedsPairing(fp: string): void {
     const e = this.entries.get(fp);
