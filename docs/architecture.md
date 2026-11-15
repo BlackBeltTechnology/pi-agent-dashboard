@@ -4751,6 +4751,49 @@ Approval: operator types numeric confirm code shown on device → `POST /api/pai
 
 Gate: `reachableUrls()` (`packages/server/src/pairing.ts`) read-time filter (D4/D14) advertises only secure `wss`/`https` endpoints. Keeps `urls[]` secure. `createPayload()` returns null when no reachable url → route returns `{success:false,error:"no_reachable_endpoint"}` (HTTP 200).
 
+### Device keys and the mutual device check (change: device-key-mutual-check)
+
+Paired device proves possession of its own key. One key per server fingerprint. Check is mutual: device proves the server first, signs second.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server (route)
+    C->>S: POST /api/pair/challenge {nonce}
+    S-->>C: {fingerprint, publicKey, signature, deviceNonce}
+    Note over C: verify signature + fingerprint vs pin or advert
+    alt route not proven
+        Note over C: stop — no proof to this route
+    else route proven
+        C->>S: POST /api/pair/device-status {deviceNonce, pub, sig}
+        S-->>C: {status: paired|expired|unknown|revoked, tier?, scope?}
+    end
+    Note over S: any failure → {status:"unverified"} at HTTP 200
+```
+
+- Step 1 — `POST /api/pair/challenge {nonce}` reply gains `deviceNonce`: 32 random bytes, base64url (43 chars). Store single-use, 60 s TTL, bound 10 000 entries, oldest evicted. Carries no secret.
+- Client verifies step 1 against pin or advertised fingerprint FIRST. Unproven route → stop, no proof sent.
+- Step 2 — `POST /api/pair/device-status {deviceNonce, pub, sig}`. `sig` = Ed25519 over `pi-devcheck/v2\n<fp>\n<deviceNonce>`. `pub` = raw 32-byte key, unpadded base64url (43), not SPKI; `sig` 64 bytes (86). Charset + length checked before decode. Nonce consumed on first presentation, so no client timestamp.
+- Reply `{status: paired|expired|unknown|revoked, tier?, scope?}`. Full paired key → `tier` + `scope:"full"`. Companion → `scope:"status-only"`, no tier. `expired` / `revoked` → neither. `revoked` decided first, wins over `expired`.
+- `expired` reuses the per-row judgement that refuses a bearer `401 bearer_expired` (`currentVerdict`, `packages/server/src/pairing/paired-devices.ts`), never a copy of the expiry arithmetic.
+- Every failure — bad signature, malformed field, unknown / expired / consumed nonce, rate-limited peer — answers `{status:"unverified"}` at HTTP 200. Discloses only the caller's own key status.
+- Limit 60/min per peer address, sliding window, invalid attempts counted. Limiter map bound 1024 peers, oldest evicted. Step 1 never limited.
+- Route public (`PUBLIC_PAIRING_PREFIXES`), tier `observe` like the challenge. Not a prefix of `/api/pair/device-key` — auth hook matches `startsWith`.
+- Proof, key bind, keyed knock go ONLY to the route that proved the pin in that selection. Electron `http:` route → the address literal that proved it, never the host name or a sibling literal. `https:` → proven host name.
+- Key per fingerprint: browser `packages/client/src/lib/pairing/device-key.ts` — non-extractable WebCrypto key in IndexedDB, secure contexts only. Electron main `packages/electron/src/lib/device-key.ts`, private part under `safeStorage` (`server-keyring.ts`). Shell `packages/shell/src/lib/device-key.ts` — IndexedDB.
+- Created only when pairing starts (Request access, Pair with code, Pair again). Listing creates nothing.
+- Registered at approval: knock / redeem body carries `deviceKey: {deviceNonce, pub, sig}`, `sig` over `pi-devbind/v1`. Held on `PendingDevice`, passed to `registry.add` — deny / expiry / lockout leaves nothing behind.
+- Later bind: `POST /api/pair/device-key {deviceNonce, pub, sig}` with the device's own credential (`authVia === "device"`). `400` bad proof, `401` no credential, `409` key held by another row, tier `observe`. One primary key per row; replaces the old one.
+- Uniqueness: one public key across primary + companion keys of active and revoked rows. Duplicate at approval → pairing proceeds keyless; duplicate at bind → `409`.
+- Companion key: `#companion=<pub>.<ts>.<sig>&from=<origin>` fragment, `sig` over `pi-companion/v1`, `ts` ±300 s. Status-only, accepted nowhere else. Opt-in, unticked at approval, max 4 per device.
+- Revoke is a state. Whole row (hash, tier, keys, companions, expiry fields) moves to `~/.pi/dashboard/revoked-devices.json` (0600) plus `revokedAt` / `revokedBy`. Revoked written FIRST, then active removed; id in both files → revoked wins.
+- Undo restores hash, tier, keys, companions, expiry fields unchanged — never extends expiry, never restarts the grace window. Purge at 90 d (`REVOKED_RETENTION_MS`) or Delete now.
+- Unreadable revoked file → set aside as `revoked-devices.corrupt-<time>.json`, empty list, `warning` on `GET /api/paired-devices/revoked`.
+- `registry.onRevoked(listener)` → browser gateway + pi gateway close matching sockets, code `4401`, reason `device revoked`. `verify()` scans active rows only, so REST, device-session, ws-ticket, bridge mint need no change.
+- Rollback-safe: older builds ignore the second file, degrade to "revoke = delete". Only Undo is lost.
+- Discard rule: no device-status answer discards anything — `unknown`, `expired`, `revoked` all keep credential and key. Only a refused credential at a proven route (`401`, incl. `401 bearer_expired`; refused cookie exchange) discards credential + key together.
+- Shared helpers: `packages/shared/src/device-key-proof.ts` — message builders, validators, `deviceRowState`. Server verifier `packages/server/src/auth/device-proof.ts`.
+
 ### Built-in TLS listener (change: add-tailscale-cert-tls)
 
 Optional second `https.Server`. Off by default (`tls.enabled: false`). Serves the SAME Fastify app as the main listener.
