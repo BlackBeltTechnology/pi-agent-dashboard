@@ -20,7 +20,7 @@
  * HARNESS FACTS THIS SPEC RESPECTS
  * --------------------------------
  * - The seed trusts every peer, which would admit a revoked device's bearer anyway; the suite narrows
- *   `trustedNetworks` to a range that matches nobody (`narrowTrust`, describe scope).
+ *   `trustedNetworks` to a range that matches nobody (`narrowTrust`, test scope via `beforeEach`).
  * - All device calls come from one gateway source address; device-status is limited to 60/min per peer
  *   and this file makes ~25 proofs per run.
  * - Unique labels per run; every device is revoked and deleted for good in `afterEach`/`afterAll`.
@@ -125,9 +125,14 @@ async function expectRestored(d: Device): Promise<void> {
 test.describe.configure({ mode: "serial" });
 
 test.describe("revoke is a state: held, undoable, deletable", () => {
-  test.beforeAll(async ({ request }) => {
-    await narrowTrust(request, { trustedNetworks: NOBODY });
+  test.beforeAll(async () => {
     await purgeDevices(BASE, PREFIX);
+  });
+  // Test scope (runs inside the fixture's body window), so the fixture restores trust after EACH test.
+  // A describe-scope narrowing is released only at the next file's first test — after that file's own
+  // `beforeAll` has snapshotted it — and would clobber a following describe-scope spec (lan-knock E19).
+  test.beforeEach(async ({ request }) => {
+    await narrowTrust(request, { trustedNetworks: NOBODY });
   });
   test.afterEach(async () => {
     await purgeDevices(BASE, PREFIX);
