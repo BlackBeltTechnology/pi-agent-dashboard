@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useNetworkDenied } from "../../../hooks/useNetworkDenied.js";
 import { setGlobalApiBase } from "../../api/api-context.js";
 import {
+  bindDeviceKeyForCurrentServer,
   clearDeviceBearer,
   finishDevicePairing,
   getApiBearer,
@@ -16,6 +17,29 @@ import {
   startDeviceBearerRotation,
   storeDeviceBearer,
 } from "../device-auth.js";
+import { resetDeviceKeyBindForTests } from "../device-key-bind.js";
+
+// Route proof + key store are faked (no WebCrypto / IndexedDB): `routes` maps an origin to the
+// fingerprint its challenge proves; `store` is the per-fingerprint key set.
+const fake = vi.hoisted(() => ({ routes: new Map<string, string>(), store: new Set<string>(), supported: true, discards: [] as string[] }));
+vi.mock("../device-check.js", async (orig) => ({
+  ...(await orig<typeof import("../device-check.js")>()),
+  proveRoute: vi.fn(async (route: string, pin?: string) => {
+    const fp = fake.routes.get(route);
+    return fp && (pin === undefined || pin === fp) ? { fingerprint: fp, publicKey: "pk", verified: true, deviceNonce: "n".repeat(43) } : null;
+  }),
+}));
+vi.mock("../device-key.js", async (orig) => ({
+  ...(await orig<typeof import("../device-key.js")>()),
+  detectDeviceKeySupport: vi.fn(async () => fake.supported),
+  hasKey: vi.fn(async (fp: string) => fake.store.has(fp)),
+  ensureKey: vi.fn(async (fp: string) => (fake.store.add(fp), "P".repeat(43))),
+  discardKey: vi.fn(async (fp: string) => {
+    fake.store.delete(fp);
+    fake.discards.push(fp);
+  }),
+  signDevbind: vi.fn(async (fp: string, n: string) => (fake.store.has(fp) ? { deviceNonce: n, pub: "P".repeat(43), sig: "S".repeat(86) } : null)),
+}));
 
 /** Capture the Authorization header the wrapper produced for a given URL. */
 function authHeaderFor(spy: ReturnType<typeof vi.fn>): string | null {
@@ -98,6 +122,8 @@ describe("installDeviceAuthFetch wrapper (§12.2)", () => {
 const LEGACY = "pi-dashboard:device-bearer";
 const SLOT = (origin: string) => `${LEGACY}:${origin}`;
 const A = "https://a.example";
+const FPA = "sha256:serverA";
+const FPB = "sha256:serverB";
 const B = "https://b.example";
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -135,6 +161,13 @@ const settle = () => vi.advanceTimersByTimeAsync(0);
 
 describe("harden-auth-credentials: per-origin bearer slots + rotation", () => {
   beforeEach(() => {
+    fake.routes.clear();
+    fake.routes.set(A, FPA);
+    fake.routes.set(B, FPB);
+    fake.store.clear();
+    fake.discards.length = 0;
+    fake.supported = true;
+    resetDeviceKeyBindForTests();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2030-01-01T00:00:00Z"));
     resetDeviceAuthRuntimeForTests();
@@ -293,6 +326,125 @@ describe("harden-auth-credentials: per-origin bearer slots + rotation", () => {
     expect(spy).toHaveBeenCalledTimes(5);
     expect(rawSlot(A)).toBeNull();
     expect(assign).toHaveBeenCalledTimes(1);
+  });
+
+  describe("device-key-mutual-check: discard rule at a proven route (X19)", () => {
+    it("401 bearer_expired at the route that proves F discards the bearer AND key F together; one re-pair", async () => {
+      localStorage.setItem(SLOT(A), JSON.stringify({ token: "TA", expiresAt: Date.now() + DAY, fingerprint: FPA }));
+      fake.store.add(FPA);
+      const assign = stubNavigation();
+      installOver(() => json(401, { code: "bearer_expired" }));
+      await Promise.all([window.fetch(`${A}/api/sessions`), window.fetch(`${A}/api/sessions`)]);
+      await settle();
+      expect(rawSlot(A)).toBeNull();
+      expect(fake.store.has(FPA)).toBe(false);
+      expect(fake.discards).toEqual([FPA]);
+      expect(assign).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["proves a different fingerprint", () => fake.routes.set(A, "sha256:impostor")],
+      ["does not prove anything (challenge fails)", () => fake.routes.delete(A)],
+    ])("401 bearer_expired at a route that %s discards nothing and does not navigate", async (_n, arrange) => {
+      localStorage.setItem(SLOT(A), JSON.stringify({ token: "TA", expiresAt: Date.now() + DAY, fingerprint: FPA }));
+      fake.store.add(FPA);
+      arrange();
+      const assign = stubNavigation();
+      installOver(() => json(401, { code: "bearer_expired" }));
+      await window.fetch(`${A}/api/sessions`);
+      await settle();
+      expect(JSON.parse(rawSlot(A) ?? "null").token).toBe("TA");
+      expect(fake.store.has(FPA)).toBe(true);
+      expect(fake.discards).toEqual([]);
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("a slot without a pinned fingerprint is discarded at any route that proves an identity, with that identity's key", async () => {
+      putSlot(A, "TA", Date.now() + DAY);
+      fake.store.add(FPA);
+      stubNavigation();
+      installOver(() => json(401, { code: "bearer_expired" }));
+      await window.fetch(`${A}/api/sessions`);
+      await settle();
+      expect(rawSlot(A)).toBeNull();
+      expect(fake.discards).toEqual([FPA]);
+    });
+
+    it("a rotation keeps the slot's pinned fingerprint", async () => {
+      localStorage.setItem(SLOT(A), JSON.stringify({ token: "TA", expiresAt: Date.now() + HOUR, fingerprint: FPA }));
+      setGlobalApiBase(A);
+      installOver((url) => (url.endsWith(ROTATE) ? json(200, { token: "TA2", expiresAt: Date.now() + 7 * DAY }) : json(200)));
+      await startDeviceBearerRotation(A);
+      expect(JSON.parse(rawSlot(A) ?? "null")).toMatchObject({ token: "TA2", fingerprint: FPA });
+    });
+  });
+
+  describe("device-key-mutual-check: key-pending bind (X5)", () => {
+    const BIND = "/api/pair/device-key";
+    const binds = (spy: ReturnType<typeof vi.fn>) => spy.mock.calls.filter((c) => urlOf(c).endsWith(BIND));
+
+    it("secure tab, bearer slot, no key: one authed POST, key created; not repeated in the same app start", async () => {
+      setGlobalApiBase(B);
+      putSlot(B, "TB", Date.now() + DAY);
+      const { spy } = installOver(() => json(200, { success: true }));
+      expect(await bindDeviceKeyForCurrentServer()).toBe("bound");
+      expect(binds(spy)).toHaveLength(1);
+      expect(authOf(binds(spy)[0])).toBe("Bearer TB");
+      expect(JSON.parse(String((binds(spy)[0][1] as RequestInit).body))).toEqual({ deviceNonce: "n".repeat(43), pub: "P".repeat(43), sig: "S".repeat(86) });
+      expect(fake.store.has(FPB)).toBe(true);
+      expect(await bindDeviceKeyForCurrentServer()).toBe("already-attempted");
+      expect(binds(spy)).toHaveLength(1);
+    });
+
+    it("a failed bind drops the new key and is retried only on the next app start", async () => {
+      setGlobalApiBase(B);
+      putSlot(B, "TB", Date.now() + DAY);
+      const { spy } = installOver(() => {
+        throw new TypeError("network error");
+      });
+      expect(await bindDeviceKeyForCurrentServer()).toBe("failed");
+      expect(fake.store.has(FPB)).toBe(false);
+      expect(await bindDeviceKeyForCurrentServer()).toBe("already-attempted");
+      expect(binds(spy)).toHaveLength(1);
+      resetDeviceKeyBindForTests(); // next app start
+      installOver(() => json(200, { success: true }));
+      expect(await bindDeviceKeyForCurrentServer()).toBe("bound");
+    });
+
+    it("409 key_held counts as a failed bind and leaves no unbound key behind", async () => {
+      setGlobalApiBase(B);
+      putSlot(B, "TB", Date.now() + DAY);
+      installOver(() => json(409, { success: false, error: "key_held" }));
+      expect(await bindDeviceKeyForCurrentServer()).toBe("failed");
+      expect(fake.store.has(FPB)).toBe(false);
+    });
+
+    it("plain-http tab: zero requests of any kind", async () => {
+      fake.supported = false;
+      setGlobalApiBase(B);
+      putSlot(B, "TB", Date.now() + DAY);
+      const { spy } = installOver(() => json(200));
+      expect(await bindDeviceKeyForCurrentServer()).toBe("unsupported");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("a key already held, or no credential, sends nothing", async () => {
+      setGlobalApiBase(B);
+      const { spy } = installOver(() => json(200));
+      expect(await bindDeviceKeyForCurrentServer()).toBe("no-credential");
+      putSlot(B, "TB", Date.now() + DAY);
+      fake.store.add(FPB);
+      expect(await bindDeviceKeyForCurrentServer()).toBe("key-held");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("a route that proves another fingerprint than the slot's pin gets no bind", async () => {
+      setGlobalApiBase(B);
+      localStorage.setItem(SLOT(B), JSON.stringify({ token: "TB", fingerprint: "sha256:other" }));
+      const { spy } = installOver(() => json(200));
+      expect(await bindDeviceKeyForCurrentServer()).toBe("failed");
+      expect(spy).not.toHaveBeenCalled();
+    });
   });
 
   it("AE78 the Electron/CLI keyring path never reaches the browser slot, holder declaration or rotation", () => {

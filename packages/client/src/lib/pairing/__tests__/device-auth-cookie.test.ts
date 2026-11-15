@@ -20,6 +20,13 @@ import {
   storeDeviceBearer,
 } from "../device-auth.js";
 
+// F5: the marker goes only at a route that proves the server (device-key-mutual-check D9).
+const fakeProof = vi.hoisted(() => ({ proves: true }));
+vi.mock("../device-check.js", async (orig) => ({
+  ...(await orig<typeof import("../device-check.js")>()),
+  proveRoute: vi.fn(async () => (fakeProof.proves ? { fingerprint: "sha256:F", publicKey: "pk", verified: true } : null)),
+}));
+
 const LEGACY = "pi-dashboard:device-bearer";
 const SLOT = (origin: string) => `${LEGACY}:${origin}`;
 /** Every per-origin slot key currently in storage. */
@@ -28,6 +35,7 @@ const MARKER = "pi-dashboard:device-paired";
 const res = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status });
 
 beforeEach(() => {
+  fakeProof.proves = true;
   resetDeviceAuthRuntimeForTests();
   clearAccessToken();
   localStorage.clear();
@@ -248,7 +256,15 @@ describe("mintWsTicket via cookie (F3 / F5 / E36)", () => {
     localStorage.setItem(MARKER, "1");
     vi.stubGlobal("fetch", vi.fn(async () => res(401, { success: false })));
     expect(await mintWsTicket()).toBeNull();
-    expect(isDevicePaired()).toBe(false);
+    await vi.waitFor(() => expect(isDevicePaired()).toBe(false));
+  });
+  it("F5b a 401 at a route that proves nothing keeps the marker", async () => {
+    fakeProof.proves = false;
+    localStorage.setItem(MARKER, "1");
+    vi.stubGlobal("fetch", vi.fn(async () => res(401, { success: false })));
+    expect(await mintWsTicket()).toBeNull();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(isDevicePaired()).toBe(true);
   });
   it("E36 a stored bearer is still sent as Authorization", async () => {
     storeDeviceBearer("B");
