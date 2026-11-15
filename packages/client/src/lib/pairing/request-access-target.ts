@@ -1,3 +1,5 @@
+import { COMPANION_FRAGMENT_MAX, type CompanionClaim, encodeCompanionFragment } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
+
 /**
  * Where "Request access" leads for a given server: the server's own request page
  * (`/pair?request`). One rule shared by the network-denied banner and the Vault
@@ -22,7 +24,13 @@ export interface CompanionDeps {
   signCompanion(fingerprint: string, origin: string): Promise<CompanionClaim | null>;
 }
 
-const defaultCompanionDeps: CompanionDeps = { supported: detectDeviceKeySupport, ensureKey, signCompanion };
+// The key store (IndexedDB + WebCrypto) loads only when a pair link is built, never on the cold landing.
+const keyStore = () => import("./device-key.js");
+const defaultCompanionDeps: CompanionDeps = {
+  supported: async () => (await keyStore()).detectDeviceKeySupport(),
+  ensureKey: async (fingerprint) => (await keyStore()).ensureKey(fingerprint),
+  signCompanion: async (fingerprint, origin) => (await keyStore()).signCompanion(fingerprint, origin),
+};
 
 /**
  * The address a browser's "Request access…" opens: `base` (the round-tripped
@@ -58,8 +66,6 @@ export async function requestAccessHref(
  * so the client has one place that names where "Request access" leads.
  * See change: group-servers-by-identity (D8, test-plan #E7, #E8).
  */
-import { COMPANION_FRAGMENT_MAX, type CompanionClaim, encodeCompanionFragment } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
-import { detectDeviceKeySupport, ensureKey, signCompanion } from "./device-key.js";
 
 export type { PairAction, PairActionInput } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
 export { buildRequestPageUrl, pairAction } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";

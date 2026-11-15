@@ -12,11 +12,16 @@
  */
 import { type DeviceRowState, deviceRowState } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import { useEffect, useRef, useState } from "react";
-import { runDeviceCheck } from "../../lib/pairing/device-check.js";
-import { hasKey } from "../../lib/pairing/device-key.js";
+import type { runDeviceCheck as RunDeviceCheck } from "../../lib/pairing/device-check.js";
 import { logRejection } from "../../lib/report-error.js";
 import type { ListEntry } from "../../lib/server-list-model.js";
 import { routeBaseUrl } from "../../lib/server-route-check.js";
+
+// The key store and the device check load on the first menu open, never on the cold landing.
+const hasKey = async (fingerprint: string): Promise<boolean> =>
+  (await import("../../lib/pairing/device-key.js")).hasKey(fingerprint);
+const runDeviceCheck = async (opts: Parameters<typeof RunDeviceCheck>[0]): ReturnType<typeof RunDeviceCheck> =>
+  (await import("../../lib/pairing/device-check.js")).runDeviceCheck(opts);
 
 export type DeviceRows = ReadonlyMap<string, Pick<DeviceRowState, "state" | "tier">>;
 const NONE: DeviceRows = new Map();

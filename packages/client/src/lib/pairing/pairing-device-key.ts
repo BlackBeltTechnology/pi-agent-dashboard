@@ -9,7 +9,18 @@
  * See change: device-key-mutual-check (tasks 4.3, 4.4, D3, D4).
  */
 import type { DeviceProof } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
-import { detectDeviceKeySupport, discardKey, markPending, rotateKey, settlePending, signDevbind } from "./device-key.js";
+import type * as DeviceKeyStore from "./device-key.js";
+
+// The key store (IndexedDB + WebCrypto) loads on demand: the pairing landings are on the cold landing
+// graph. Same-named wrappers keep the call sites unchanged. See change: device-key-mutual-check.
+const store = (): Promise<typeof DeviceKeyStore> => import("./device-key.js");
+const detectDeviceKeySupport = async () => (await store()).detectDeviceKeySupport();
+const discardKey = async (fp: string) => (await store()).discardKey(fp);
+const markPending = async (fp: string, pendingId: string) => (await store()).markPending(fp, pendingId);
+const rotateKey = async (fp: string) => (await store()).rotateKey(fp);
+const settlePending = async (fp: string, outcome: Parameters<typeof DeviceKeyStore.settlePending>[1]) =>
+  (await store()).settlePending(fp, outcome);
+const signDevbind = async (fp: string, deviceNonce: string) => (await store()).signDevbind(fp, deviceNonce);
 import { challengeIdentity, type IdentityProof } from "./pair-protocol.js";
 
 export interface PreparedDeviceKey {

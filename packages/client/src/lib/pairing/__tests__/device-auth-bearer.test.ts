@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { clearAccessToken, setAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { useNetworkDenied } from "../../../hooks/useNetworkDenied.js";
 import { setGlobalApiBase } from "../../api/api-context.js";
 import {
@@ -158,6 +158,13 @@ function stubNavigation() {
 
 /** Let fire-and-forget rotation/401 handlers settle. */
 const settle = () => vi.advanceTimersByTimeAsync(0);
+
+// device-auth loads the refusal/bind modules on demand (cold-landing budget). Load them once up front so the
+// later `import()` resolves from the module cache within `settle()`'s microtask flush, not via disk I/O.
+beforeAll(async () => {
+  await import("../credential-refusal.js");
+  await import("../device-key-bind.js");
+});
 
 describe("harden-auth-credentials: per-origin bearer slots + rotation", () => {
   beforeEach(() => {

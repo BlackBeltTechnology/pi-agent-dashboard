@@ -34,8 +34,19 @@
 
 import { getAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { getApiBase, VITE_API_URL } from "../api/api-context.js";
-import { discardRefusedCredential } from "./credential-refusal.js";
-import { type BindOutcome, bindDeviceKeyOnce } from "./device-key-bind.js";
+import type { discardRefusedCredential as DiscardRefusedCredential } from "./credential-refusal.js";
+import type { BindOutcome, bindDeviceKeyOnce as BindDeviceKeyOnce } from "./device-key-bind.js";
+
+// The device-key modules (IndexedDB key store, route proof, bind) load on demand, never on the cold
+// landing: this file is boot code. See change: device-key-mutual-check.
+async function discardRefusedCredential(
+  ...args: Parameters<typeof DiscardRefusedCredential>
+): ReturnType<typeof DiscardRefusedCredential> {
+  return (await import("./credential-refusal.js")).discardRefusedCredential(...args);
+}
+async function bindDeviceKeyOnce(...args: Parameters<typeof BindDeviceKeyOnce>): ReturnType<typeof BindDeviceKeyOnce> {
+  return (await import("./device-key-bind.js")).bindDeviceKeyOnce(...args);
+}
 import { requestAccessTarget } from "./request-access-target.js";
 
 /** Legacy single global bearer key — only ever DELETED (see `migrateLegacyDeviceBearer`). */
