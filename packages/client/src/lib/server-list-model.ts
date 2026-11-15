@@ -17,6 +17,7 @@
  *
  * See change: group-servers-by-identity (D1–D4, D6, D8, D9, D11).
  */
+import type { DeviceRowStateId, DeviceTier } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import type { DiscoveredServerInfo, KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
   classifyRoute,
@@ -48,6 +49,10 @@ export interface ElectronServersState {
     fingerprint: string;
     label: string;
     state: "paired" | "needs-pairing";
+    /** Device-check refinement of the keyring base state (main process fills it; absent → base state only). */
+    deviceState?: DeviceRowStateId;
+    /** Tier of a `paired` device state. */
+    tier?: DeviceTier;
     /** Most recent host as `host:port` (scheme is not carried). */
     host?: string;
   }>;
@@ -144,6 +149,9 @@ export interface ListEntry {
   best: ListRoute | null;
   status: EntryStatus;
   pairedState: PairedState;
+  /** Device-check state when one is known (Electron keyring refinement, or a browser tab's own check). */
+  deviceState?: DeviceRowStateId;
+  tier?: DeviceTier;
   /** The one action for an entry this device holds no credential for; `null` = state text only. */
   pairAction: PairAction | null;
   /** Other entries with the same identity on another instance port ("same identity as …"). */
@@ -331,6 +339,8 @@ function buildEntry(d: Draft, drafts: readonly Draft[], input: ServerListInput, 
     best,
     status: statusOf(routes, best),
     pairedState,
+    ...(pairedRow?.deviceState && client === "electron" && !isCurrent ? { deviceState: pairedRow.deviceState } : {}),
+    ...(pairedRow?.tier && client === "electron" && !isCurrent ? { tier: pairedRow.tier } : {}),
     pairAction: action,
     sameIdentityAs: d.g.sameIdentityAs.map((j) => ({ key: drafts[j].key, title: titleOf(drafts[j]) })),
     isCurrent,

@@ -3,9 +3,9 @@
  * by the network-denied banner and the Vault callout row.
  * See change: add-request-access-remedy (test-plan E17, design D7).
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PairActionInput } from "../request-access-target.js";
-import { buildRequestPageUrl, pairAction, requestAccessTarget } from "../request-access-target.js";
+import { buildRequestPageUrl, type CompanionDeps, pairAction, requestAccessHref, requestAccessTarget } from "../request-access-target.js";
 
 const ORIGIN = "http://192.168.16.31:8000";
 
@@ -102,5 +102,72 @@ describe("E8 request page URL must round-trip", () => {
     ["home-imac.local", 65536],
   ])("%s:%d is refused (no URL, no navigation offered)", (host, port) => {
     expect(buildRequestPageUrl(host, port)).toBeNull();
+  });
+});
+
+// ── device-key-mutual-check (test-plan F3) ───────────────────────────────────
+
+describe("F3 requestAccessHref — companion fragment on the browser request link", () => {
+  const FP = `sha256:${"B".repeat(43)}`;
+  const OWN = "http://192.168.16.31:8000";
+  const PUB = "A".repeat(43);
+  const SIG = "B".repeat(86);
+  const BASE = "http://192.168.16.77:8000/pair?request";
+  const deps = (over: Partial<CompanionDeps> = {}): CompanionDeps & { ensureKey: ReturnType<typeof vi.fn>; signCompanion: ReturnType<typeof vi.fn> } => ({
+    supported: vi.fn(async () => true),
+    ensureKey: vi.fn(async () => PUB),
+    signCompanion: vi.fn(async (_fp: string, origin: string) => ({ pub: PUB, ts: 1_700_000_000, sig: SIG, origin })),
+    ...over,
+  }) as never;
+
+  it("fingerprint + Ed25519 → base + #companion=<pub>.<ts>.<sig>&from=<encoded own origin>", async () => {
+    const d = deps();
+    const href = await requestAccessHref(BASE, FP, OWN, d);
+    expect(href).toBe(`${BASE}#companion=${PUB}.1700000000.${SIG}&from=${encodeURIComponent(OWN)}`);
+    expect(href.split("#")[0]).toBe(BASE);
+    expect(d.ensureKey).toHaveBeenCalledWith(FP);
+    expect(d.signCompanion).toHaveBeenCalledWith(FP, OWN);
+  });
+
+  it("fingerprint, no Ed25519 → plain link, no key created", async () => {
+    const d = deps({ supported: vi.fn(async () => false) });
+    expect(await requestAccessHref(BASE, FP, OWN, d)).toBe(BASE);
+    expect(d.ensureKey).not.toHaveBeenCalled();
+  });
+
+  it("no fingerprint → plain link, no key created", async () => {
+    const d = deps();
+    expect(await requestAccessHref(BASE, undefined, OWN, d)).toBe(BASE);
+    expect(d.ensureKey).not.toHaveBeenCalled();
+  });
+
+  it("IPv6 host keeps its brackets before the fragment", async () => {
+    const base = buildRequestPageUrl("fd12::4", 8000)!;
+    expect(base).toBe("http://[fd12::4]:8000/pair?request");
+    expect((await requestAccessHref(base, FP, OWN, deps())).startsWith("http://[fd12::4]:8000/pair?request#companion=")).toBe(true);
+  });
+
+  it("an own origin that pushes the fragment past 512 chars → plain link", async () => {
+    const huge = `http://${"a".repeat(400)}.example:8000`;
+    expect(await requestAccessHref(BASE, FP, huge, deps())).toBe(BASE);
+  });
+
+  it("key creation or signing failure → plain link, never throws", async () => {
+    expect(await requestAccessHref(BASE, FP, OWN, deps({ ensureKey: vi.fn(async () => { throw new Error("idb"); }) }))).toBe(BASE);
+    expect(await requestAccessHref(BASE, FP, OWN, deps({ signCompanion: vi.fn(async () => null) }))).toBe(BASE);
+  });
+
+  it("hostile advertised host → no URL at all (nothing to open with or without a fragment)", () => {
+    expect(buildRequestPageUrl("evil.example/x?", 8000)).toBeNull();
+    // The pair action never offers a request link for it, so there is nothing to open.
+    expect(act({ routes: [route("evil.example/x?", 8000)], fingerprint: F })?.kind).not.toBe("request-access");
+  });
+
+  it("sends nothing over the network (no fetch) while building the link", async () => {
+    const spy = vi.fn();
+    vi.stubGlobal("fetch", spy);
+    await requestAccessHref(BASE, FP, OWN, deps());
+    expect(spy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

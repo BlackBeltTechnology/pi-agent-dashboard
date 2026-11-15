@@ -24,11 +24,14 @@ export const identityMock = {
   invalid: new Set<string>(),
   /** the browser has no WebCrypto Ed25519. */
   cryptoless: false,
+  /** `deviceNonce` the challenge carries (device-key-mutual-check); null = an older server without one. */
+  deviceNonce: null as string | null,
   reset(): void {
     this.proves.clear();
     this.noProof.clear();
     this.invalid.clear();
     this.cryptoless = false;
+    this.deviceNonce = null;
   },
 };
 
@@ -52,7 +55,7 @@ export function pairProtocolMock(actual: typeof PairProtocol): typeof PairProtoc
       if (identityMock.noProof.has(host) || (res.status !== 403 && !res.ok)) {
         throw new actual.IdentityChallengeError("no-proof");
       }
-      return { fingerprint: fingerprintOf(host), publicKey: "pk", verified: !identityMock.invalid.has(host) };
+      return { fingerprint: fingerprintOf(host), publicKey: "pk", verified: !identityMock.invalid.has(host), ...(identityMock.deviceNonce ? { deviceNonce: identityMock.deviceNonce } : {}) };
     },
   };
 }
