@@ -24,7 +24,7 @@ export interface PairedDeviceView {
   companions?: DeviceCompanionView[];
 }
 
-export interface DeviceCompanionView {
+interface DeviceCompanionView {
   /** Short key id — the handle for removing it. */
   id: string;
   origin: string;

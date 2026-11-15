@@ -21,7 +21,7 @@ export interface BindCredential {
   cookie?: boolean;
 }
 
-export interface BindKeys {
+interface BindKeys {
   detect(): Promise<boolean>;
   hasKey(fingerprint: string): Promise<boolean>;
   ensureKey(fingerprint: string): Promise<string>;

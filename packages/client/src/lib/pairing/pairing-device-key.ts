@@ -48,7 +48,7 @@ export async function prepareDeviceKey(base: string): Promise<PreparedDeviceKey 
 }
 
 /** Map a request outcome to the key's fate: `approved` keeps it, everything else deletes the pending key. */
-export function settleRequestKey(fingerprint: string, outcome: "approved" | "rejected" | "expired" | "missed"): Promise<void> {
+function settleRequestKey(fingerprint: string, outcome: "approved" | "rejected" | "expired" | "missed"): Promise<void> {
   return settlePending(fingerprint, outcome === "approved" ? "approved" : outcome === "rejected" ? "rejected" : "expired");
 }
 

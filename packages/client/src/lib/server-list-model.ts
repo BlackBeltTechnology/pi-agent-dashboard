@@ -116,7 +116,7 @@ export interface ListRoute extends Route {
 }
 
 /** Whether this device holds a credential for the entry, per client (D9). */
-export type PairedState =
+type PairedState =
   /** The dashboard the page is loaded from. */
   | "this-dashboard"
   /** Electron: keyring entry with a usable credential. */

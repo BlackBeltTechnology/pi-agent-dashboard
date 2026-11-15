@@ -118,4 +118,3 @@ export function createDeviceKeyIntake(deps: DeviceKeyIntakeDeps) {
   return { accept, acceptDeviceKey, acceptCompanion };
 }
 
-export type DeviceKeyIntake = ReturnType<typeof createDeviceKeyIntake>;

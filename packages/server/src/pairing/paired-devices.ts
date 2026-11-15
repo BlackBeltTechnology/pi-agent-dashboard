@@ -48,7 +48,7 @@ const ROTATE_LIMIT = 10;
 const ROTATE_WINDOW_MS = 60_000;
 
 /** A status-only key held by a device for another dashboard origin (never authenticates). */
-export interface DeviceCompanion {
+interface DeviceCompanion {
   /** Short stable id: `dk:` + 12 chars of SHA-256 over the raw key. */
   id: string;
   /** Raw Ed25519 public key, unpadded base64url. */

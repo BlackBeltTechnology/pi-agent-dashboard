@@ -22,12 +22,12 @@ import { auditLine } from "./audit-log.js";
 /** Bound on unused nonces; the oldest is evicted first. */
 export const DEVICE_NONCE_MAX = 10_000;
 /** Device-status requests allowed per peer inside {@link DEVICE_STATUS_WINDOW_MS}. */
-export const DEVICE_STATUS_LIMIT = 60;
-export const DEVICE_STATUS_WINDOW_MS = 60_000;
+const DEVICE_STATUS_LIMIT = 60;
+const DEVICE_STATUS_WINDOW_MS = 60_000;
 /** Tracked peers; the oldest is evicted first (same bound as the knock limiter). */
 export const DEVICE_STATUS_MAX_PEERS = 1024;
 /** At most one `revoked_answer` line per key id inside this window. */
-export const REVOKED_ANSWER_LOG_MS = 10 * 60_000;
+const REVOKED_ANSWER_LOG_MS = 10 * 60_000;
 const REVOKED_ANSWER_MAX_KEYS = 1024;
 
 /**

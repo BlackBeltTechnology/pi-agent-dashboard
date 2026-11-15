@@ -27,13 +27,13 @@ export function newDeviceKey(): E2eDeviceKey {
   return { pub, sign: (m) => crypto.sign(null, Buffer.from(m, "utf8"), privateKey).toString("base64url") };
 }
 
-export interface Challenge {
+interface Challenge {
   fingerprint: string;
   deviceNonce: string;
 }
 
 /** `POST /api/pair/challenge` — a fresh single-use device nonce plus the server fingerprint. */
-export async function fetchChallenge(base: string): Promise<Challenge> {
+async function fetchChallenge(base: string): Promise<Challenge> {
   const res = await fetch(`${base}/api/pair/challenge`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -47,7 +47,7 @@ export async function fetchChallenge(base: string): Promise<Challenge> {
 }
 
 /** `{deviceNonce, pub, sig}` for the bind proof (knock / redeem `deviceKey`). */
-export async function bindProof(base: string, key: E2eDeviceKey): Promise<{ deviceNonce: string; pub: string; sig: string }> {
+async function bindProof(base: string, key: E2eDeviceKey): Promise<{ deviceNonce: string; pub: string; sig: string }> {
   const { fingerprint, deviceNonce } = await fetchChallenge(base);
   return { deviceNonce, pub: key.pub, sig: key.sign(`pi-devbind/v1\n${fingerprint}\n${deviceNonce}`) };
 }

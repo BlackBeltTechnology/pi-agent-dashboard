@@ -23,7 +23,7 @@ function tierText(tier: DeviceTier): string {
 }
 
 /** Label of one device-check row state. */
-export function deviceStateText(state: DeviceRowStateId, tier?: DeviceTier): string {
+function deviceStateText(state: DeviceRowStateId, tier?: DeviceTier): string {
   switch (state) {
     case "paired":
       return tier
