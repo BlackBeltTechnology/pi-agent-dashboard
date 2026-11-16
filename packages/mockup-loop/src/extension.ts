@@ -26,20 +26,20 @@
  * React/Tailwind/shadcn (or plain HTML) project.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import * as http from "node:http";
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
-import * as path from "node:path";
+import * as http from "node:http";
 import * as os from "node:os";
-import { randomBytes } from "node:crypto";
+import * as path from "node:path";
 import { pipeline } from "node:stream";
-import { listPresets, resolvePreset } from "./presets/registry.js";
-import { loadContract, refreshContract } from "./presets/contract.js";
-import { loadRubric, validateMockup } from "./presets/validators.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { INSTALL_HINT, launchChromium } from "./mock-site/browser.mjs";
-import { children as mockSiteChildren, DEFAULT_MOCK_SITE_PORT, startMockSite, stopAllMockSites, stopMockSite } from "./mock-site-serve.js";
+import { DEFAULT_MOCK_SITE_PORT, children as mockSiteChildren, startMockSite, stopAllMockSites, stopMockSite } from "./mock-site-serve.js";
+import { loadContract, refreshContract } from "./presets/contract.js";
+import { listPresets, resolvePreset } from "./presets/registry.js";
+import { loadRubric, validateMockup } from "./presets/validators.js";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Module state — running mockup servers, keyed by bound port.

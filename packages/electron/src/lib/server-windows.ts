@@ -26,7 +26,6 @@ import type { NetworkInterfaceInfo } from "node:os";
 import type { ProveFn } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock-client.js";
 import { classifyProof, type ProveResult } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { decideServerWindowNavigation } from "./link-handling.js";
-import { isPermissionAllowed } from "./permissions.js";
 import {
   type ConnectingState,
   type PairingResult,
@@ -35,6 +34,7 @@ import {
   startPairing,
 } from "./pairing-client.js";
 import { type CodePairingSession, startCodePairing } from "./pairing-code-client.js";
+import { isPermissionAllowed } from "./permissions.js";
 import {
   buildCandidates,
   type Candidate,

@@ -9,10 +9,11 @@
  *
  * See change: electron-server-launch-controls (task 5.4).
  */
-import { describe, it, expect } from "vitest";
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAIN_TS = path.resolve(__dirname, "..", "main.ts");

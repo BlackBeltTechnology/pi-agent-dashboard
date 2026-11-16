@@ -17,10 +17,11 @@ vi.mock("node:os", async (orig) => {
   const networkInterfaces = () => (nic.fn ? nic.fn() : actual.networkInterfaces());
   return { ...actual, networkInterfaces, default: { ...actual, networkInterfaces } };
 });
+
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as net from "node:net";
 import frontendMockupLoop from "../extension.js";
 
 interface Tool {
