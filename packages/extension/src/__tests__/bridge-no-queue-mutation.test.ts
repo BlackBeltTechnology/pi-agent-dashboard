@@ -1,112 +1,91 @@
 /**
- * Negative-assertion lock-in: bridge SHALL NOT honor queue-mutation messages.
+ * Negative-assertion lock-in: the bridge SHALL NOT honor the deleted
+ * pi-queue-mutation messages, and no bridge source calls a `pi.clear*Queue`.
  *
- * Pi's ExtensionAPI (verified through 0.76.0) exposes no queue-mutation
- * primitives. The dashboard's honest policy is to reject these messages
- * entirely — no handler in the bridge, no side effect, no shadow drift.
+ * Pi's ExtensionAPI (verified through 1.5.0) exposes no queue-mutation
+ * primitives. The three Phase-3 pi-mutation types stay PERMANENTLY DELETED:
+ * a stale client sending one must cause no pi call, no buffer change and no
+ * `queue_update`. Driven through the real `handleInboundMessage` over real
+ * steer + follow-up buffers.
  *
- * This test verifies the absence: a stale client sending any of the six
- * deprecated message types must NOT cause pi.sendUserMessage, pi.clear*,
- * shadow mutation, or queue_update emission.
+ * Steers held by the BRIDGE are cancellable (`remove_steering_entry` /
+ * `clear_steering_entries`, see bridge-steer-handoff.test.ts); this file only
+ * guards the deleted pi-mutation surface.
  *
- * See change: honest-mid-turn-queue-surface (spec mid-turn-prompt-queue:
- * "Queue mutation is not exposed by pi; dashboard SHALL NOT pretend it is").
+ * Covers bridge-owned-cancellable-steer test-plan row E26.
+ *
+ * @structural-pin "no pi.clear*Queue call anywhere" is an absence over every bridge source file, which only a source scan can assert; the dispatch half is behavioural
+ * See changes: honest-mid-turn-queue-surface, rework-mid-turn-prompt-queue,
+ * bridge-owned-cancellable-steer.
  */
-import { describe, it, expect, vi } from "vitest";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { handleInboundMessage } from "../bridge-handlers/dispatch.js";
+import { createFollowupBuffer } from "../followup-buffer.js";
+import { createSteerBuffer } from "../steer-buffer.js";
+import { makeStubInstance } from "./helpers/bridge-instance-stub.js";
 
-// Mirror of bridge.ts message-router shape for queue-mutation types. The
-// real bridge has NO case arm for any of these — the discriminated union
-// in browser-protocol.ts no longer defines them, and a fall-through to
-// commandHandler.handle() ignores them silently.
-type MockFn = ReturnType<typeof vi.fn> & ((...args: unknown[]) => unknown);
+/** Every `.ts` file under `dir`, skipping tests and node_modules. */
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) return name === "__tests__" || name === "node_modules" ? [] : sourceFiles(p);
+    return name.endsWith(".ts") ? [p] : [];
+  });
+}
 
-function routeMessage(msg: any, opts: {
-  pi: {
-    sendUserMessage: MockFn;
-    clearSteeringQueue: MockFn;
-    clearFollowUpQueue: MockFn;
-  };
-  bridgeSteering: string[];
-  bridgeFollowUp: string[];
-  emitQueueUpdate: MockFn;
-}): void {
-  // Bridge has zero handlers for queue-mutation message types. Anything
-  // not matched by any other arm reaches the default commandHandler arm,
-  // which in turn falls through (no `case "clear_steering_queue"` etc.)
-  // and the message is silently dropped.
-  //
-  // For this test, we model the bridge by NOT defining any handler for
-  // the six removed types and asserting no side effects.
-  if (msg.type === "send_prompt") {
-    // legitimate path — not under test here
-    opts.pi.sendUserMessage(msg.text, { deliverAs: msg.delivery ?? "followUp" });
-    if (msg.delivery === "steer") opts.bridgeSteering.push(msg.text);
-    else opts.bridgeFollowUp.push(msg.text);
-    opts.emitQueueUpdate();
-    return;
-  }
-  // All other types fall through silently. No handler exists for queue
-  // mutation. Test verifies the absence of side effects below.
+// Names that stay PERMANENTLY DELETED (pi-mutation semantics, never
+// re-introduced). edit/remove/promote_followup_entry are NOT here — they are
+// reused with bridge-buffer-only semantics (bridge-followup-mutation.test.ts).
+const QUEUE_MUTATION_TYPES = ["clear_steering_queue", "clear_followup_slot", "edit_followup_slot"] as const;
+
+function makeRig() {
+  const steer = createSteerBuffer("n");
+  const followUp = createFollowupBuffer();
+  steer.push({ text: "existing-steer" });
+  followUp.push({ text: "existing-followup" });
+  const emitQueueUpdate = vi.fn();
+  const handle = vi.fn(async () => undefined);
+  const { inst, pi } = makeStubInstance({
+    bridgeSteer: steer,
+    bridgeFollowUp: followUp,
+    emitQueueUpdate,
+    sendCommandFeedback: vi.fn(),
+    commandHandler: { handle } as never,
+    pathGate: { onServerMessage: () => false } as never,
+    polling: {} as never,
+  });
+  const piMethods = { sendUserMessage: vi.fn(), clearSteeringQueue: vi.fn(), clearFollowUpQueue: vi.fn() };
+  Object.assign(pi, piMethods);
+  return { inst, steer, followUp, emitQueueUpdate, handle, piMethods };
 }
 
 describe("bridge: stale queue-mutation messages produce zero side effects", () => {
-  // Names that stay PERMANENTLY DELETED (pi-mutation semantics, never
-  // re-introduced). See change: rework-mid-turn-prompt-queue.
-  //
-  // NOTE: edit_followup_entry / remove_followup_entry /
-  // promote_followup_entry are NOT in this list — they are reused with
-  // new bridge-buffer-only semantics in rework-mid-turn-prompt-queue
-  // §2-§3. Their positive behavior is covered by
-  // bridge-followup-mutation.test.ts.
-  const QUEUE_MUTATION_TYPES = [
-    "clear_steering_queue",
-    "clear_followup_slot",
-    "edit_followup_slot",
-  ] as const;
-
   for (const type of QUEUE_MUTATION_TYPES) {
-    it(`${type}: pi.sendUserMessage not called, pi.clear* not called, shadow unchanged, no queue_update`, () => {
-      const pi = {
-        sendUserMessage: vi.fn(),
-        clearSteeringQueue: vi.fn(),
-        clearFollowUpQueue: vi.fn(),
-      };
-      const bridgeSteering = ["existing-steer"];
-      const bridgeFollowUp = ["existing-followup"];
-      const emitQueueUpdate = vi.fn();
+    it(`${type}: pi.sendUserMessage not called, pi.clear* not called, buffers unchanged, no queue_update`, async () => {
+      const r = makeRig();
+      await handleInboundMessage(r.inst, { type, sessionId: "S1", index: 0, text: "new", images: undefined });
 
-      routeMessage(
-        { type, sessionId: "s1", index: 0, text: "new", images: undefined },
-        { pi, bridgeSteering, bridgeFollowUp, emitQueueUpdate },
-      );
-
-      expect(pi.sendUserMessage).not.toHaveBeenCalled();
-      expect(pi.clearSteeringQueue).not.toHaveBeenCalled();
-      expect(pi.clearFollowUpQueue).not.toHaveBeenCalled();
-      expect(bridgeSteering).toEqual(["existing-steer"]);
-      expect(bridgeFollowUp).toEqual(["existing-followup"]);
-      expect(emitQueueUpdate).not.toHaveBeenCalled();
+      expect(r.piMethods.sendUserMessage).not.toHaveBeenCalled();
+      expect(r.piMethods.clearSteeringQueue).not.toHaveBeenCalled();
+      expect(r.piMethods.clearFollowUpQueue).not.toHaveBeenCalled();
+      expect(r.steer.views().map((v) => v.text)).toEqual(["existing-steer"]);
+      expect(r.followUp.views().map((v) => v.text)).toEqual(["existing-followup"]);
+      expect(r.emitQueueUpdate).not.toHaveBeenCalled();
     });
   }
 
-  it("legitimate send_prompt path still works — sanity check that the negative tests aren't vacuous", () => {
-    const pi = {
-      sendUserMessage: vi.fn(),
-      clearSteeringQueue: vi.fn(),
-      clearFollowUpQueue: vi.fn(),
-    };
-    const bridgeSteering: string[] = [];
-    const bridgeFollowUp: string[] = [];
-    const emitQueueUpdate = vi.fn();
+  it("non-vacuous: a live buffer mutation through the same dispatch DOES emit", async () => {
+    const r = makeRig();
+    await handleInboundMessage(r.inst, { type: "clear_steering_entries", sessionId: "S1" });
+    expect(r.steer.length).toBe(0);
+    expect(r.emitQueueUpdate).toHaveBeenCalledTimes(1);
+    expect(r.piMethods.clearSteeringQueue).not.toHaveBeenCalled();
+  });
 
-    routeMessage(
-      { type: "send_prompt", sessionId: "s1", text: "hello", delivery: "followUp" },
-      { pi, bridgeSteering, bridgeFollowUp, emitQueueUpdate },
-    );
-
-    expect(pi.sendUserMessage).toHaveBeenCalledWith("hello", { deliverAs: "followUp" });
-    expect(pi.clearFollowUpQueue).not.toHaveBeenCalled(); // honest append, no pretense
-    expect(bridgeFollowUp).toEqual(["hello"]);
-    expect(emitQueueUpdate).toHaveBeenCalledTimes(1);
+  it("no source under packages/extension/src calls pi.clear*Queue(", () => {
+    const hits = sourceFiles(join(__dirname, "..")).filter((p) => /\bpi\.clear\w*Queue\(/.test(readFileSync(p, "utf8")));
+    expect(hits).toEqual([]);
   });
 });

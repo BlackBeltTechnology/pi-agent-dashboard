@@ -73,6 +73,12 @@ interface ArchivedListResult {
 }
 
 export interface SessionArchive {
+  /**
+   * Platform the index folds keys with, narrowed to the wire's
+   * `pathKeyPlatform` (non-linux/win32 platforms fold like darwin).
+   * See change: fix-archive-fold-key-and-filter-chips.
+   */
+  readonly pathKeyPlatform: "linux" | "darwin" | "win32";
   /** Seed the index from the boot scan's archived rows. */
   seed(rows: ArchivedSessionSummary[]): void;
   /** Re-key every row after a pinned-directory change; broadcasts changed counts. */
@@ -237,6 +243,7 @@ export function createSessionArchive(deps: SessionArchiveDeps): SessionArchive {
   }
 
   return {
+    pathKeyPlatform: platform === "linux" || platform === "win32" ? platform : "darwin",
     seed(rows) {
       rebuild(rows);
     },

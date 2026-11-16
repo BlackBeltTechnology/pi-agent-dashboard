@@ -32,6 +32,12 @@ on:
       - "qa/tests/54-pid-target.sh"
       - "qa/tests/54-windows-pid-target.ps1"
       - "qa/tests/lib/pid-target-probe.ts"
+      # Restored headless pid identity (guard-restored-headless-identity).
+      - "packages/server/src/spawn-process/headless-pid-registry.ts"
+      - "packages/server/src/spawn-process/restored-identity.ts"
+      - "qa/tests/57-restored-pid-identity.sh"
+      - "qa/tests/57-restored-pid-identity.ps1"
+      - "qa/tests/lib/restored-pid-identity-probe.ts"
       - ".github/workflows/ci-gateway-platform.yml"
 
 # Least-privilege default: jobs that need more declare it at job level.
@@ -76,6 +82,10 @@ jobs:
       # See change: scope-pids-to-namespace.
       - name: Pid target — non-local pids never signalled
         run: bash qa/tests/54-pid-target.sh
+      # X9/X10: a recycled restored pid is never signalled; a genuine orphan
+      # still is. See change: guard-restored-headless-identity.
+      - name: Restored headless pid identity
+        run: bash qa/tests/57-restored-pid-identity.sh
 
   windows:
     name: loopback fallback + credential ACLs (windows-latest)
@@ -101,3 +111,11 @@ jobs:
         env:
           QA_REPO_ROOT: ${{ github.workspace }}
         run: ./qa/tests/54-windows-pid-target.ps1
+      # X11/X12: no start-time probe on win32 ⇒ a restored pid is unverifiable:
+      # never 7-day-killed, never signalled by an unattended stop.
+      # See change: guard-restored-headless-identity.
+      - name: Restored headless pid identity on Windows
+        shell: pwsh
+        env:
+          QA_REPO_ROOT: ${{ github.workspace }}
+        run: ./qa/tests/57-restored-pid-identity.ps1

@@ -6,8 +6,14 @@
  * Like `followup-buffer.ts`, every collaborator is a parameter: the buffer, a
  * `ctx`-like probe, `emitQueueUpdate` and `sendUserMessage`.
  *
+ * Held steers (bridge-owned steer buffer) drain FIRST: a steer not handed to
+ * pi at a completed `turn_end` (sent after the last turn, aborted/errored run,
+ * skipped handler) ships here as a fresh prompt ahead of follow-ups, one entry
+ * per settle, with its `promptId` acked after the send.
+ * See change: bridge-owned-cancellable-steer (D5).
+ *
  * Gate order (each is a no-op return, nothing is popped before the last):
- *   1. empty buffer
+ *   1. both buffers empty
  *   2. `ctx.hasPendingMessages()` true — pi owns queued items (TUI alt+enter,
  *      or a busy single-bang `!cmd` sent with `deliverAs: "followUp"`); pi
  *      drains those first.
@@ -25,6 +31,7 @@
 
 import { buildUserMessageContent } from "./command-handler.js";
 import type { FollowupBuffer } from "./followup-buffer.js";
+import type { SteerBuffer } from "./steer-buffer.js";
 
 /** The slice of pi's `ExtensionContext` the drain reads. */
 export interface DrainContext {
@@ -34,18 +41,23 @@ export interface DrainContext {
 
 export interface DrainDeps {
   buffer: Pick<FollowupBuffer, "length" | "shift">;
+  /** Held steers; drained ahead of `buffer`. Optional for follow-up-only callers. */
+  steerBuffer?: Pick<SteerBuffer, "length" | "shift">;
   ctx: DrainContext | undefined;
   emitQueueUpdate: () => void;
   sendUserMessage: (content: ReturnType<typeof buildUserMessageContent>) => void;
+  /** Ack a shipped steer's `promptId` (bridge → server `prompt_received`). */
+  ackSteer?: (promptId: string | undefined) => void;
 }
 
 /** Why a drain call did, or did not, ship an entry. */
 export type DrainOutcome = "empty" | "pending" | "busy" | "sent" | "lost";
 
-/** Pop at most one buffered follow-up and hand it to pi as a fresh turn. */
+/** Pop at most one held steer (else one buffered follow-up) and hand it to pi as a fresh turn. */
 export function drainOneFollowup(deps: DrainDeps): DrainOutcome {
-  const { buffer, ctx, emitQueueUpdate, sendUserMessage } = deps;
-  if (buffer.length === 0) return "empty";
+  const { buffer, steerBuffer, ctx, emitQueueUpdate, sendUserMessage, ackSteer } = deps;
+  const steerHeld = (steerBuffer?.length ?? 0) > 0;
+  if (!steerHeld && buffer.length === 0) return "empty";
 
   // TUI-coexistence gate. The probe method lives on `ctx`.
   if (typeof ctx?.hasPendingMessages === "function") {
@@ -60,13 +72,15 @@ export function drainOneFollowup(deps: DrainDeps): DrainOutcome {
   if (!idle) return "busy";
 
   // POP FIRST. Once shifted, the entry exists only on this stack frame.
-  const entry = buffer.shift();
+  const steer = steerHeld ? steerBuffer?.shift() : undefined;
+  const entry = steer ?? buffer.shift();
   if (!entry) return "empty";
   // Emit immediately so wire-state matches buffer-state BEFORE the pi call.
   emitQueueUpdate();
 
   try {
     sendUserMessage(buildUserMessageContent(entry.text, entry.images));
+    if (steer) ackSteer?.(steer.promptId);
     return "sent";
   } catch (err) {
     console.warn(

@@ -34,12 +34,22 @@ import {
   setSubagentState,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 import type { DashboardEvent as SessionEventLike } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { SubagentSessionSlice } from "./sessionEventReducer.js";
+import type { PluginSubagentState, SubagentSessionSlice } from "./sessionEventReducer.js";
 
 /** Never-empty body when a completed subagent reported no result. */
 export const SUBAGENT_DONE_NO_RESULT = "subagent finished";
 /** Never-empty body when a failed subagent reported no error text. */
 const SUBAGENT_FAILED_NO_ERROR = "subagent failed";
+
+/**
+ * Heal marker of a subagent its session reported it does not run.
+ * See change: fix-background-subagent-ghost-rows (D5).
+ */
+const UNTRACKED_HEAL = "untracked";
+/** Heal marker of a terminal status taken from the session's answer or registry. */
+const SESSION_RECONCILE_HEAL = "session_reconcile";
+/** Error text of an untracked end (the full-screen view shows a localized line instead). */
+const UNTRACKED_ERROR = "no longer tracked by its session";
 
 /** Detail keys that exist only because a heal set them; a real end clears them. */
 const HEAL_ONLY_DETAIL_KEYS = ["healedBy", "resultMissing"] as const;
@@ -221,10 +231,16 @@ function mergeSubagent(
   } as SubagentState;
 }
 
-/** Revive a subagent the `session_ended` heal failed: running again, heal marker and error dropped. */
+/** Heal markers a live frame may revive (the producer is provably alive). */
+const REVIVABLE_HEALS: ReadonlySet<string | undefined> = new Set(["session_ended", UNTRACKED_HEAL]);
+
+/**
+ * Revive a subagent a `session_ended` or `untracked` heal failed: running again, heal
+ * marker and error dropped. See change: fix-background-subagent-ghost-rows (D5 Revive).
+ */
 function reopenHealedSubagent(subagents: Map<string, SubagentState>, agentId: string): Map<string, SubagentState> {
   const sub = subagents.get(agentId);
-  if (sub?.healedBy !== "session_ended") return subagents;
+  if (!sub || !REVIVABLE_HEALS.has(sub.healedBy)) return subagents;
   const { healedBy: _h, error: _e, ...rest } = sub;
   const out = new Map(subagents);
   setSubagentState(out, { ...rest, status: "running" });
@@ -237,7 +253,12 @@ function reopenHealedSubagent(subagents: Map<string, SubagentState>, agentId: st
  * CURRENT terminal status exists, so a running write drops it.
  * See change: fix-replay-fabricates-orphan-end-for-live-calls (D5).
  */
-function hydrateFromTick(subagents: Map<string, SubagentState>, agentId: string, details: Data): Map<string, SubagentState> {
+function hydrateFromTick(
+  subagents: Map<string, SubagentState>,
+  agentId: string,
+  details: Data,
+  timestamp?: number,
+): Map<string, SubagentState> {
   const out = new Map(subagents);
   const existing = out.get(agentId);
   const terminal = isTerminal(existing);
@@ -248,6 +269,8 @@ function hydrateFromTick(subagents: Map<string, SubagentState>, agentId: string,
     ...readSubagentDetails(details),
   });
   if (!terminal) delete merged.healedBy;
+  // A durable progress tick proves the subagent alive at forward time (D5 freshness).
+  if (typeof timestamp === "number") (merged as PluginSubagentState).lastFrameAt = timestamp;
   setSubagentState(out, merged);
   return out;
 }
@@ -346,11 +369,106 @@ function onUpdate(state: AgentFinalizerState, event: SessionEventLike, opts: Opt
   // Reopen a subagent the SAME heal failed — only when its terminal state came from that heal.
   const rowAgentId = tickAgentId ?? stringOf(priorRow.toolDetails?.agentId);
   let subagents = reopened && rowAgentId ? reopenHealedSubagent(state.subagents, rowAgentId) : state.subagents;
-  if (tickAgentId && details) subagents = hydrateFromTick(subagents, tickAgentId, details);
+  if (tickAgentId && details) subagents = hydrateFromTick(subagents, tickAgentId, details, event.timestamp);
   let next: AgentFinalizerState = subagents === state.subagents ? state : { ...state, subagents };
 
   next = settleLateTick(next, idx, priorRow, priorRunning, tickAgentId, event, opts);
   return next === state ? undefined : next;
+}
+
+// ── Liveness reconcile (change: fix-background-subagent-ghost-rows, D5) ──────────────
+
+
+type ReconcileVerdict = { kind: "untracked" } | { kind: "status"; status: "completed" | "failed" | "stopped" };
+
+const finiteNumber = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+
+/**
+ * A reconcile frame may change `sub` only when it is live (`created`/`running`) and no live
+ * frame newer than the frame's time `at` was seen for it (absent `lastFrameAt` = none in
+ * the loaded history). Every compared time is a pi-host `Date.now()`.
+ */
+function reconcilable(sub: SubagentState | undefined, at: number | undefined): sub is SubagentState {
+  if (!sub || (sub.status !== "created" && sub.status !== "running")) return false;
+  const last = (sub as PluginSubagentState).lastFrameAt;
+  if (last === undefined) return true;
+  // A frame without a time cannot prove the subagent's frames older: keep it live.
+  return at !== undefined && last <= at;
+}
+
+/** End one subagent through the existing terminal path (also finalizes its Agent row). */
+function applyReconcile(
+  state: AgentFinalizerState,
+  id: string,
+  verdict: ReconcileVerdict,
+  timestamp: number,
+  opts: Opts,
+): AgentFinalizerState {
+  const synthetic: SessionEventLike =
+    verdict.kind === "untracked"
+      ? { eventType: "subagent_failed", timestamp, data: { id, error: UNTRACKED_ERROR, healedBy: UNTRACKED_HEAL } }
+      : {
+          eventType: verdict.status === "failed" ? "subagent_failed" : "subagent_completed",
+          timestamp,
+          data: { id, details: { status: verdict.status }, healedBy: SESSION_RECONCILE_HEAL },
+        };
+  return onSubagentTerminal(state, synthetic, opts);
+}
+
+/** Verdict of a terminal answer: its status when known, else untracked. */
+function terminalVerdict(status: unknown): ReconcileVerdict {
+  return status === "completed" || status === "failed" || status === "stopped"
+    ? { kind: "status", status }
+    : { kind: "untracked" };
+}
+
+/**
+ * `subagent_stop_result`: the session's combined answer to a per-subagent stop. `unknown`
+ * (or `terminal` without a status) → untracked; `terminal` with a status → that status;
+ * `queued` / `running` → nothing (the real terminal frame follows). Claimed even when it
+ * changes nothing, so the event never falls into the slice or a group row.
+ */
+function onStopResult(state: AgentFinalizerState, event: SessionEventLike, opts: Opts): AgentFinalizerState {
+  const data = event.data as Data;
+  const agentId = stringOf(data.agentId);
+  if (!agentId) return state;
+  let verdict: ReconcileVerdict | undefined;
+  if (data.phase === "unknown") verdict = { kind: "untracked" };
+  else if (data.phase === "terminal") verdict = terminalVerdict(data.status);
+  if (!verdict) return state;
+  const sub = state.subagents.get(agentId);
+  if (!reconcilable(sub, finiteNumber(data.answeredAt))) return state;
+  return applyReconcile(state, sub.id, verdict, event.timestamp, opts);
+}
+
+/**
+ * `subagent_registry_snapshot`: every subagent the session tracks. A live subagent of this
+ * session absent from it ends untracked; one listed with a terminal status takes it. The
+ * map is per session, so another session's subagents are never touched.
+ */
+function onRegistrySnapshot(state: AgentFinalizerState, event: SessionEventLike, opts: Opts): AgentFinalizerState {
+  const data = event.data as Data;
+  if (!Array.isArray(data.entries)) return state;
+  const takenAt = finiteNumber(data.takenAt);
+  const listed = new Map<string, unknown>();
+  for (const e of data.entries) {
+    const agentId = e && typeof e === "object" ? stringOf((e as Data).agentId) : undefined;
+    if (agentId) listed.set(agentId, (e as Data).status);
+  }
+  // De-dupe the dual index (agentId + agentSessionId point at one object).
+  const targets = new Map<string, SubagentState>();
+  for (const sub of state.subagents.values()) if (!targets.has(sub.id)) targets.set(sub.id, sub);
+  let next = state;
+  for (const sub of targets.values()) {
+    if (!reconcilable(sub, takenAt)) continue;
+    const inSnapshot = listed.has(sub.id) || (sub.agentSessionId !== undefined && listed.has(sub.agentSessionId));
+    const status = listed.get(sub.id) ?? (sub.agentSessionId !== undefined ? listed.get(sub.agentSessionId) : undefined);
+    let verdict: ReconcileVerdict | undefined;
+    if (!inSnapshot) verdict = { kind: "untracked" };
+    else if (status === "completed" || status === "failed" || status === "stopped") verdict = { kind: "status", status };
+    if (verdict) next = applyReconcile(next, sub.id, verdict, event.timestamp, opts);
+  }
+  return next;
 }
 
 /** Build the terminal patch of a `tool_execution_end` for its subagent. */
@@ -409,6 +527,8 @@ const agentFinalizer: ToolRowFinalizer<AgentFinalizerState> = {
       return onSubagentTerminal(state, event, opts);
     }
     if (event.eventType === "agent_settled") return onSettled(state, event, opts);
+    if (event.eventType === "subagent_stop_result") return onStopResult(state, event, opts);
+    if (event.eventType === "subagent_registry_snapshot") return onRegistrySnapshot(state, event, opts);
     return undefined;
   },
 };

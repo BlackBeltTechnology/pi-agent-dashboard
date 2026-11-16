@@ -11,3 +11,5 @@ Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExt
 `SessionRegisterMessage.pidNamespace?: PidNamespace` — pi process's pid-namespace report; server sanitises before use. See change: scope-pids-to-namespace.
 
 See change: add-spawn-model-choice. `SpawnNewSessionMessage` gains `model?` / `thinkingLevel?` (bridge inheritance).
+
+`QueueUpdateToServerMessage.steering: (SteerEntryView|string)[]` (BREAKING wire; legacy strings one release). `RemoveSteeringEntryToExtensionMessage`, `ClearSteeringEntriesToExtensionMessage` in `ServerToExtensionMessage`. See change: bridge-owned-cancellable-steer.

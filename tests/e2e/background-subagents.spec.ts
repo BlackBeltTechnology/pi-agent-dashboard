@@ -8,6 +8,10 @@
  * the child runs on. `[[faux:subagent-background-mixed]]` starts one foreground
  * and one background `Agent` in the same message.
  *
+ * Ghost rows (change fix-background-subagent-ghost-rows): #F13 a deferred end
+ * under the force-shed injector; #X3/#F6 reconcile scenarios skip until the
+ * harness pins producer 0.8.0.
+ *
  * Covers test-plan #F6 (started card + own group), #F7 (two groups), #F8 (Open
  * watches the run), #F9 (mark survives reload), #X1 (Stop from the dock), #X3
  * (session ends mid-run).
@@ -28,6 +32,8 @@ import type { Locator, Page } from "@playwright/test";
 import { SUBAGENT_BACKGROUND_MIXED_TAIL, SUBAGENT_BACKGROUND_TAIL } from "../../qa/fixtures/faux-scenarios.js";
 import { expect, test } from "./fixtures.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { dropServerFrames } from "./helpers/drop-ws-frames.js";
+import { droppedFrameCounters, setForceShed } from "./helpers/force-shed.js";
 import { OperatorSession } from "./helpers/operator-session.js";
 
 const op = new OperatorSession();
@@ -216,5 +222,83 @@ test.describe("background subagents (L3)", () => {
     await expect(dockRow(page, BG_DESC)).toHaveCount(0, { timeout: 60_000 });
     await page.goto(href!);
     await expect(page.getByText("parent session ended").first()).toBeVisible({ timeout: 30_000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ghost rows: a subagent end survives back-pressure; reconcile clears ghosts.
+// See change: fix-background-subagent-ghost-rows (tasks 5.2, 5.4, 5.5).
+// ---------------------------------------------------------------------------
+/** The producer the harness pins answers stops and the registry query from 0.8.0 on. */
+const PRODUCER_RECONCILE_SKIP = "needs producer pi-dashboard-subagents >= 0.8.0 (stop verdicts + registry); harness pins 0.7.0";
+
+test.describe("background subagent end under back-pressure (L3)", () => {
+  test.describe.configure({ mode: "serial" });
+  test.beforeEach(async ({ page }) => {
+    const res = await page.request.patch("/api/preferences/display", {
+      data: { reasoning: true, toolResults: true, toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true } },
+    });
+    expect(res.ok()).toBeTruthy();
+  });
+  test.afterEach(async ({ page }) => {
+    // Process-wide injector: never leak `true` into the next spec.
+    await setForceShed(page, false).catch(() => {});
+  });
+
+  test("#F13 the child ends while the socket sheds: the end is deferred, the row leaves", async ({ page }) => {
+    test.setTimeout(180_000);
+    await startBackground(page);
+    const before = await droppedFrameCounters(page);
+    // Saturate while the child (~6 s) is still running, so its end hits the shed branch.
+    await setForceShed(page, true);
+    await expect
+      .poll(async () => (await droppedFrameCounters(page)).deferredSubagentFrames, { timeout: 60_000 })
+      .toBeGreaterThanOrEqual(before.deferredSubagentFrames + 1);
+    await setForceShed(page, false);
+    await expect(dockRow(page, BG_DESC)).toHaveCount(0, { timeout: 5_000 });
+    expect((await droppedFrameCounters(page)).deferredSubagentFrames).toBeGreaterThanOrEqual(1);
+  });
+});
+
+test.describe("ghost background rows cleared by the session (L3, producer >= 0.8.0)", () => {
+  test.beforeEach(async ({ page }) => {
+    const res = await page.request.patch("/api/preferences/display", {
+      data: { reasoning: true, toolResults: true, toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true } },
+    });
+    expect(res.ok()).toBeTruthy();
+  });
+
+  /** Start a background child whose end frames never reach this page, and wait until it really ended. */
+  async function ghost(page: Page): Promise<string> {
+    await dropServerFrames(page, (f) =>
+      f.type === "event" && (f.event?.eventType === "subagent_completed" || f.event?.eventType === "subagent_failed"),
+    );
+    const sessionId = await startBackground(page);
+    await expect(page.getByText(SUBAGENT_BACKGROUND_TAIL).first()).toBeVisible({ timeout: 60_000 });
+    // The child (~6 s) has ended in the session; the row is a ghost.
+    await page.waitForTimeout(10_000);
+    await expect(dockRow(page, BG_DESC)).toHaveCount(1);
+    return sessionId;
+  }
+
+  test("#X3 /reload in the session clears the ghost row without a click", async ({ page }) => {
+    test.skip(true, PRODUCER_RECONCILE_SKIP);
+    test.setTimeout(240_000);
+    await ghost(page);
+    await sendPrompt(page, "/reload");
+    await expect(dockRow(page, BG_DESC)).toHaveCount(0, { timeout: 60_000 });
+  });
+
+  test("#F6 after the ghost is cleared, a page reload shows no background row or count", async ({ page, request, context }) => {
+    test.skip(true, PRODUCER_RECONCILE_SKIP);
+    test.setTimeout(240_000);
+    await op.arm(request, context);
+    await ghost(page);
+    await dockRow(page, BG_DESC).getByRole("button", { name: /^Stop subagent / }).click();
+    await expect(dockRow(page, BG_DESC)).toHaveCount(0, { timeout: 15_000 });
+    await page.reload();
+    await openProcesses(page).catch(() => {});
+    await expect(dockRow(page, BG_DESC)).toHaveCount(0);
+    await expect(page.getByText(/background subagents?$/)).toHaveCount(0);
   });
 });

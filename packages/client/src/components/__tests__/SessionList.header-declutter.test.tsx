@@ -247,6 +247,44 @@ describe("filter funnel", () => {
     expect(document.activeElement).toBe(screen.getByTestId("filter-funnel-btn"));
   });
 
+  // test-plan #E12/#E13. See change: fix-archive-fold-key-and-filter-chips.
+  it("E12 (fold-key change): both funnel toggles share one style — icon, Title-Case label, check only while on", () => {
+    renderList([mk()]);
+    openFilterFunnel();
+    const archive = screen.getByTestId("search-include-archive");
+    const hidden = screen.getByTestId("show-hidden-toggle");
+    const badge = () => screen.queryByTestId("filter-funnel-badge")?.textContent ?? "0";
+    for (const [el, label] of [[archive, "Archived"], [hidden, "Hidden"]] as const) {
+      expect(el.querySelector("svg")).not.toBeNull();
+      expect(el.textContent).toBe(label);
+      expect(el.getAttribute("aria-pressed")).toBe("false");
+    }
+    expect(screen.queryByTestId("search-include-archive-check")).toBeNull();
+    expect(screen.queryByTestId("show-hidden-toggle-check")).toBeNull();
+    expect(badge()).toBe("0");
+    fireEvent.click(archive);
+    expect(archive.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("search-include-archive-check")).toBeTruthy();
+    expect(screen.queryByTestId("show-hidden-toggle-check")).toBeNull();
+    expect(badge()).toBe("1");
+    fireEvent.click(hidden);
+    expect(hidden.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("show-hidden-toggle-check")).toBeTruthy();
+    expect(badge()).toBe("2");
+    fireEvent.click(archive);
+    expect(screen.queryByTestId("search-include-archive-check")).toBeNull();
+    expect(badge()).toBe("1");
+  });
+
+  it("E13 (fold-key change): the Sessions/Folders scope toggles stay icon-less with no check", () => {
+    renderList([mk()]);
+    for (const id of ["search-scope-sessions", "search-scope-folders"]) {
+      const el = screen.getByTestId(id);
+      expect(el.querySelector("svg")).toBeNull();
+      expect(screen.queryByTestId(`${id}-check`)).toBeNull();
+    }
+  });
+
   it("E20: the filter row carries no pin-folder button", () => {
     renderList([mk()], { onPinDirectory: () => {}, onOpenPinDialog: () => {} });
     const row = screen.getByTestId("header-filter-bar");

@@ -139,7 +139,7 @@ describe("E9: session_start delegates the session change to session-sync", () =>
       subagentFrameBuffer: { reset: vi.fn() } as never,
       subagentTickThrottle: { reset: vi.fn() } as never,
       coalescer: { clear: vi.fn() } as never,
-      bridgeSteering: [],
+      bridgeSteer: { length: 0, clear: vi.fn() } as never,
       bridgeFollowUp: { length: 0, reset: vi.fn() } as never,
       renewGitTracker: vi.fn() as never,
       syncBc: vi.fn(() => ({})) as never,

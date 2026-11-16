@@ -200,6 +200,46 @@ describe("replay-persist", () => {
     expect(put).not.toHaveBeenCalled();
   });
 
+  // A deferred, projected subagent end (gateway back-pressure) is a cut copy:
+  // never cached, and the seq hole it leaves contaminates the buffer so the
+  // next load fully replays the real end. See change: fix-background-subagent-ghost-rows (#F11).
+  it("never caches a deferred projected end; the hole contaminates the buffer (#F11)", async () => {
+    const { cache, put } = spyCache(createReplayCache({ factory }));
+    const p = createReplayPersister(cache, 0, () => KEY);
+    p.record("X", Array.from({ length: 10 }, (_, i) => evt(i + 1)), "replay");
+    const projected: CachedEvent = {
+      seq: 11,
+      event: {
+        sessionId: "X",
+        eventType: "subagent_completed",
+        timestamp: 11,
+        data: { id: "A", deferredProjection: true },
+      } as unknown as DashboardEvent,
+    };
+    p.record("X", [projected], "live");
+    p.record("X", [evt(12)], "live");
+    await p.flush("X");
+
+    // Contaminated: nothing persisted, so the projected copy can never be read back.
+    expect(put).not.toHaveBeenCalled();
+    // Non-vacuity: a wholesale seed restores provenance and the buffer it
+    // persists never held seq 11.
+    p.seed("X", [evt(1)]);
+    await p.flush("X");
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it("buffers the projected end's seq gap only — a plain live 11 is kept (#F11 control)", async () => {
+    const { cache, put } = spyCache(createReplayCache({ factory }));
+    const p = createReplayPersister(cache, 0, () => KEY);
+    p.record("X", Array.from({ length: 10 }, (_, i) => evt(i + 1)), "replay");
+    p.record("X", [evt(11)], "live");
+    p.record("X", [evt(12)], "live");
+    await p.flush("X");
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(put.mock.calls[0][1].payload.map((e: CachedEvent) => e.seq)).toContain(11);
+  });
+
   it("does not let a replay batch restore provenance across a live gap", async () => {
     const { cache, put } = spyCache(createReplayCache({ factory }));
     const p = createReplayPersister(cache, 0, () => KEY);

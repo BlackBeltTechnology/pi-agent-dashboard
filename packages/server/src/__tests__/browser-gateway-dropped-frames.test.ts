@@ -10,7 +10,7 @@
 
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createBrowserGateway, frameClassOf } from "../pairing/browser-gateway.js";
+import { createBrowserGateway, deferKeyOfEvent, frameClassOf, projectDeferredSubagentFrame, SUBAGENT_END_DEFER_TEXT_BYTES } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
@@ -652,11 +652,14 @@ describe("registry-reconcile counters + byte-free register (E13/E14)", () => {
 
     // All three kinds are delivered and counted — no kind is second-class.
     expect(gateway.getDroppedFrameStats().statusReconcileSent).toBe(3);
-    // No new /api/health field appears: the documented counter set is fixed.
+    // No undocumented /api/health field appears: the counter set is fixed.
+    // `deferredSubagentFrames` is the spec'd addition of
+    // change fix-background-subagent-ghost-rows (D6).
     expect(Object.keys(gateway.getDroppedFrameStats()).sort()).toEqual([
       "blocking",
       "bySession",
       "coalescedState",
+      "deferredSubagentFrames",
       "stalledSocketsTerminated",
       "statusReconcileQueued",
       "statusReconcileSent",
@@ -682,5 +685,177 @@ describe("registry-reconcile counters + byte-free register (E13/E14)", () => {
     expect(gateway.getPendingStateInfo(asWs(client.ws))).toEqual(undefined);
     expect(gateway.getDroppedFrameStats().stalledSocketsTerminated).toBe(0);
     expect(gateway.getStatusReconcileInfo(asWs(client.ws))?.owed.length).toBeLessThanOrEqual(100);
+  });
+});
+
+// ── Subagent end / liveness frames are deferred, never shed (D6) ─────────
+// See change: fix-background-subagent-ghost-rows (test-plan #E15, #E16, #F7–#F10, #X6).
+
+const evFrame = (sessionId: string, eventType: string, data: Record<string, unknown>, seq = 1) =>
+  ({ type: "event", sessionId, seq, event: { eventType, timestamp: 1, data } }) as unknown as ServerToBrowserMessage;
+
+describe("deferKeyOfEvent — subagent end and liveness frames (#E15)", () => {
+  it("keys real ends, heals, stop answers and snapshots; nothing else", () => {
+    const S = "S";
+    expect(deferKeyOfEvent(evFrame(S, "subagent_completed", { id: "A" }))).toBe("subagent_end:S:A");
+    expect(deferKeyOfEvent(evFrame(S, "subagent_failed", { id: "A" }))).toBe("subagent_end:S:A");
+    expect(deferKeyOfEvent(evFrame(S, "subagent_failed", { id: "A", healedBy: "session_ended" }))).toBe("subagent_heal:S:A");
+    expect(deferKeyOfEvent(evFrame(S, "subagent_stop_result", { agentId: "A" }))).toBe("subagent_stop_result:S:A");
+    expect(deferKeyOfEvent(evFrame(S, "subagent_registry_snapshot", {}))).toBe("subagent_registry_snapshot:S");
+    expect(deferKeyOfEvent(evFrame(S, "subagent_completed", {}))).toBeUndefined();
+    expect(deferKeyOfEvent(evFrame(S, "subagent_completed", { id: 42 }))).toBeUndefined();
+    expect(deferKeyOfEvent(evFrame(S, "tool_execution_end", { id: "A" }))).toBeUndefined();
+  });
+
+  it("leaves frameClassOf unchanged: every event frame stays transcript", () => {
+    for (const [t, d] of [
+      ["subagent_completed", { id: "A" }],
+      ["subagent_failed", { id: "A" }],
+      ["subagent_failed", { id: "A", healedBy: "session_ended" }],
+      ["subagent_stop_result", { agentId: "A" }],
+      ["subagent_registry_snapshot", {}],
+      ["subagent_completed", {}],
+      ["subagent_completed", { id: 42 }],
+      ["tool_execution_end", {}],
+    ] as const) {
+      expect(frameClassOf(evFrame("S", t, d as Record<string, unknown>))).toEqual({ cls: "transcript", key: "event" });
+    }
+  });
+});
+
+describe("projectDeferredSubagentFrame — bounded copy (#E16)", () => {
+  const dataOf = (m: ServerToBrowserMessage) => (m as unknown as { event: { data: Record<string, unknown> } }).event.data;
+  const big = (n: number) => "r".repeat(n);
+
+  it("drops the timeline and nested objects, cuts result/error, marks the copy", () => {
+    const entries = Array.from({ length: 2000 }, (_, i) => ({ i, text: "e".repeat(1000) })); // ~2 MB
+    for (const [len, want] of [[0, 0], [8192, 8192], [8193, 8192], [100_000, 8192]] as const) {
+      const msg = evFrame("S", "subagent_completed", {
+        id: "A",
+        result: big(len),
+        error: "x".repeat(50 * 1024),
+        durationMs: 5,
+        details: { status: "completed", entries, liveBlock: { blockId: 1 }, nested: { deep: true }, displayName: "w" },
+      });
+      const projected = projectDeferredSubagentFrame(msg);
+      const data = dataOf(projected);
+      const details = data.details as Record<string, unknown>;
+      expect(details.entries).toBeUndefined();
+      expect(details.liveBlock).toBeUndefined();
+      expect(details.nested).toBeUndefined();
+      expect(details.status).toBe("completed");
+      expect(details.displayName).toBe("w");
+      expect((data.result as string).length).toBe(want);
+      expect(Buffer.byteLength(data.error as string)).toBeLessThanOrEqual(SUBAGENT_END_DEFER_TEXT_BYTES);
+      expect(data.deferredProjection).toBe(true);
+      expect(data.id).toBe("A");
+      expect(data.durationMs).toBe(5);
+      expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThanOrEqual(20 * 1024);
+    }
+  });
+
+  it("returns stop answers and snapshots unchanged", () => {
+    const stop = evFrame("S", "subagent_stop_result", { agentId: "A", phase: "unknown" });
+    expect(projectDeferredSubagentFrame(stop)).toBe(stop);
+  });
+});
+
+describe("sendTo defers subagent end frames on a saturated socket (#F7–#F10, #X6)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** A captured socket subscribed to `S`, bootstrap frames discarded. */
+  function subscribed(maxWsBuffer = TEST_MAX_WS_BUFFER) {
+    const { gateway } = buildDebtGateway(["S"], maxWsBuffer);
+    const client = attachCapturedWs(gateway, maxWsBuffer);
+    client.ws.emit("message", Buffer.from(JSON.stringify({ type: "subscribe", sessionId: "S" })));
+    vi.advanceTimersByTime(0);
+    client.drain();
+    client.frames.length = 0;
+    return { gateway, client };
+  }
+  const eventsOf = (client: ReturnType<typeof attachCapturedWs>) =>
+    client
+      .framesOfType<{ event: { eventType: string; data: Record<string, unknown> } }>("event")
+      .map((m) => m.event);
+
+  it("defers a saturated end, delivers its projection once on drain (#F7)", () => {
+    const { gateway, client } = subscribed();
+    client.saturate();
+    gateway.broadcastEvent("S", 5, { eventType: "subagent_completed", timestamp: 1, data: { id: "A", result: "done" } });
+    expect(eventsOf(client)).toHaveLength(0);
+    client.drain();
+    vi.advanceTimersByTime(250);
+    const ends = eventsOf(client).filter((e) => e.eventType === "subagent_completed");
+    expect(ends).toHaveLength(1);
+    expect(ends[0].data).toMatchObject({ id: "A", result: "done", deferredProjection: true });
+    const stats = gateway.getDroppedFrameStats();
+    expect(stats.total).toBe(0);
+    expect(stats.deferredSubagentFrames).toBe(1);
+  });
+
+  it("counts a deferral as deferred, not dropped: 0 before, 1 after (1.7a)", () => {
+    const { gateway, client } = subscribed();
+    expect(gateway.getDroppedFrameStats().deferredSubagentFrames).toBe(0);
+    const totalBefore = gateway.getDroppedFrameStats().total;
+    client.saturate();
+    gateway.broadcastEvent("S", 5, { eventType: "subagent_failed", timestamp: 1, data: { id: "A", error: "x" } });
+    expect(gateway.getDroppedFrameStats().deferredSubagentFrames).toBe(1);
+    expect(gateway.getDroppedFrameStats().total).toBe(totalBefore);
+  });
+
+  it("sends the full frame unchanged on a healthy socket (#F8)", () => {
+    const { gateway, client } = subscribed(4 * 1024 * 1024);
+    const entries = Array.from({ length: 50 }, (_, i) => ({ i }));
+    const data = { id: "A", result: "r".repeat(20 * 1024), details: { status: "completed", entries } };
+    gateway.broadcastEvent("S", 5, { eventType: "subagent_completed", timestamp: 1, data });
+    const [end] = eventsOf(client);
+    expect(end.data).toEqual(data);
+    expect(end.data.deferredProjection).toBeUndefined();
+    expect(gateway.getDroppedFrameStats().deferredSubagentFrames).toBe(0);
+  });
+
+  it("keeps the real end, the stop answer and the heal, in order (#F9)", () => {
+    const { gateway, client } = subscribed();
+    client.saturate();
+    gateway.broadcastEvent("S", 5, { eventType: "subagent_completed", timestamp: 1, data: { id: "A" } });
+    gateway.broadcastEvent("S", 6, { eventType: "subagent_stop_result", timestamp: 2, data: { agentId: "A", phase: "terminal" } });
+    gateway.broadcastEvent("S", 7, { eventType: "subagent_failed", timestamp: 3, data: { id: "A", healedBy: "session_ended" } });
+    client.drain();
+    vi.advanceTimersByTime(250);
+    expect(eventsOf(client).map((e) => e.eventType)).toEqual(["subagent_completed", "subagent_stop_result", "subagent_failed"]);
+  });
+
+  it("delivers ten projected ends with 2 MB timelines without terminating (#F10)", () => {
+    const { gateway, client } = subscribed(4 * 1024 * 1024);
+    const entries = Array.from({ length: 2000 }, (_, i) => ({ i, text: "e".repeat(1000) }));
+    client.ws.bufferedAmount = 4 * 1024 * 1024 + 1;
+    for (let i = 0; i < 10; i++) {
+      gateway.broadcastEvent("S", 10 + i, { eventType: "subagent_completed", timestamp: 1, data: { id: `A${i}`, details: { entries } } });
+    }
+    client.drain();
+    vi.advanceTimersByTime(250);
+    const ends = eventsOf(client).filter((e) => e.eventType === "subagent_completed");
+    expect(ends.map((e) => e.data.id)).toEqual(Array.from({ length: 10 }, (_, i) => `A${i}`));
+    expect(client.ws.terminatedCount()).toBe(0);
+    expect(gateway.getDroppedFrameStats().stalledSocketsTerminated).toBe(0);
+  });
+
+  it("sheds an end without an id like any transcript frame (#X6)", () => {
+    const { gateway, client } = subscribed();
+    client.saturate();
+    gateway.broadcastEvent("S", 5, { eventType: "subagent_completed", timestamp: 1, data: {} });
+    client.drain();
+    vi.advanceTimersByTime(250);
+    expect(eventsOf(client)).toHaveLength(0);
+    const stats = gateway.getDroppedFrameStats();
+    expect(stats.total).toBe(1);
+    expect(stats.deferredSubagentFrames).toBe(0);
   });
 });

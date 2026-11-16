@@ -19,3 +19,5 @@ Contracts: empty `sessionId` = token-only call (no record / registry-by-id rung)
 See change: fix-session-reclaim-tmux.
 
 Resolves pid target once before registry rung (registry pid as `ownEntryPid`). Unattended non-`host` ⇒ `refused-identity` before liveness. `TerminateOptions.operator`; operator + non-local ⇒ new outcome `not-local` (registry rung still runs). Deps `pidContext`, `resolvePidTarget`. See change: scope-pids-to-namespace.
+
+Registry rung calls `killBySessionIdChecked(sid,{verifyIdentity})` when present (fallback `killBySessionId`). `refused-identity` ⇒ ladder returns `refused-identity` at once (no escalate; reaper gives up immediately). Partial outcome: a pid in `refusedPids` is never signalled by the ladder. `IDENTITY_TOLERANCE_MS` now re-exported from `restored-identity.ts`. See change: guard-restored-headless-identity.

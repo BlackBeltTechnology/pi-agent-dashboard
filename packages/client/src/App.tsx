@@ -209,7 +209,7 @@ import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
-import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo, SteerEntryView } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
 import { DialogPortal } from "./components/primitives/DialogPortal.js";
@@ -423,7 +423,7 @@ function PiResourceFileRoute({
 // Referentially-stable empty steering array so the common (no-pending) case
 // does not hand ChatView a fresh [] literal every render, which would defeat
 // its React.memo. See change: reduce-chat-render-cpu-umbrella (Phase 4).
-const EMPTY_STEERING: string[] = [];
+const EMPTY_STEERING: readonly (SteerEntryView | string)[] = [];
 /** A frozen underlay renders a dock it can never open. */
 const NOOP_OPEN_LANE = () => {};
 
@@ -814,6 +814,9 @@ export default function App() {
   // by `sessions_snapshot`, maintained by `session_archived` /
   // `archived_count_updated`. Drives the per-folder `Archive (N)` fold.
   const [archivedCountMap, setArchivedCountMap] = useState<Map<string, number>>(new Map());
+  // Platform the server keys `archivedCountMap` with; SessionList folds folder
+  // paths with it. See change: fix-archive-fold-key-and-filter-chips.
+  const [pathKeyPlatform, setPathKeyPlatform] = useState<NodeJS.Platform | undefined>(undefined);
   // Read-only archived deep link (`/session/:id?archived=1`): summary row
   // fetched from `/api/sessions/archived/:id` to seed the header when the
   // session is not (and must not be) in the live `sessions` Map.
@@ -1034,6 +1037,7 @@ export default function App() {
           // against server B. See change: fix-connect-snapshot-frame-loss.
           setEndedTotalsMap(new Map());
           setArchivedCountMap(new Map());
+          setPathKeyPlatform(undefined);
           setPagedCount(new Map());
           // Per-session refresh failures are scoped to one server's bridges;
           // a stale notice from server A must not render against server B.
@@ -1225,7 +1229,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration, setLookupOnlyIds },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPathKeyPlatform, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration, setLookupOnlyIds },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, onSpawnFailed, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
   );
 
@@ -1950,6 +1954,7 @@ export default function App() {
     handleListFiles,
     // Bridge-owned follow-up buffer mutation senders. See change: rework-mid-turn-prompt-queue.
     removeFollowUpEntry, editFollowUpEntry, promoteFollowUpEntry, clearFollowUpEntries,
+    removeSteeringEntry, clearSteeringEntries,
     markPromptUndelivered,
   } = sessionActions;
 
@@ -2268,6 +2273,7 @@ export default function App() {
       onArchiveSession={handleArchiveSession}
       onUnarchiveSession={handleUnarchiveSession}
       archivedCountMap={archivedCountMap}
+      archiveKeyPlatform={pathKeyPlatform}
       onSpawnSession={handleSpawnSession}
       spawningCwds={spawningCwds}
       addSpawningCwd={addSpawningCwd}
@@ -2678,7 +2684,7 @@ export default function App() {
                 See change: harden-server-capability-bounds. */}
             {selectedSession && <TerminalLimitNotice cwd={selectedSession.cwd} inline />}
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onRetryPendingPrompt={selectedId ? handleRetryPendingPrompt : undefined} onForkPendingPrompt={selectedId ? handleForkPendingPrompt : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} historyPhase={selectedHistoryPhase?.phase ?? "idle"} historyStartedAt={selectedHistoryPhase?.startedAt} onRetryHistory={selectedId ? handleRetryHistory : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onRetryPendingPrompt={selectedId ? handleRetryPendingPrompt : undefined} onForkPendingPrompt={selectedId ? handleForkPendingPrompt : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} onCancelSteer={selectedId ? removeSteeringEntry : undefined} onClearSteers={selectedId ? clearSteeringEntries : undefined} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} historyPhase={selectedHistoryPhase?.phase ?? "idle"} historyStartedAt={selectedHistoryPhase?.startedAt} onRetryHistory={selectedId ? handleRetryHistory : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command

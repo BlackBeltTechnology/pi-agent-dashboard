@@ -35,3 +35,5 @@ New setter `setLookupOnlyIds`: `sessions_page_result` removes the ids it deliver
 `flows_list` case removed (flow list plugin-owned). See change: flows-dock-chip-and-panel-actions.
 
 See change: add-spawn-model-choice. `spawn_result` success + `choiceWarning` → `showToast(choiceWarning, "warning")`; never marks the spawn failed.
+
+Optional `setPathKeyPlatform` dep. `sessions_snapshot` calls it with `msg.pathKeyPlatform` UNCONDITIONALLY (undefined included) — older server clears a stale platform. See change: fix-archive-fold-key-and-filter-chips.

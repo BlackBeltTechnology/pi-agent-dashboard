@@ -1881,6 +1881,8 @@ export const huCatalog: Record<string, string> = {
   "session.spawnsASessionRunningTheNew": "Elindít egy munkamenetet, amely az új-változtatás folyamatot futtatja. A létrehozott változtatás a kiválasztott csoportba kerül.",
   "session.startingNewSession": "Új munkamenet indítása…",
   "session.steering": "Irányítás",
+  "session.cancelSteer": "Irányítás visszavonása",
+  "session.clearAllSteering": "Összes irányítás törlése",
   "session.stopEndsSession": "Leállítás (befejezi a munkamenetet)",
   "session.archiveSession": "Munkamenet archiválása",
   "session.restoreSession": "Munkamenet visszaállítása",

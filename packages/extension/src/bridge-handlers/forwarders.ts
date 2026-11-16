@@ -194,7 +194,8 @@ export function registerEnrichedForwarders(inst: BridgeInstance): void {
               // Only nudge when nothing else will already re-run the session
               // (no user/system follow-up pending). A pending entry means the
               // session is not idling, so the guard can safely no-op.
-              if (inst.bridgeFollowUp.length === 0) {
+              // Held steers re-run the session at settle too.
+              if (inst.bridgeFollowUp.length === 0 && inst.bridgeSteer.length === 0) {
                 inst.enqueueSystemFollowup(decision.nudge);
               }
             } else if (decision.action === "surface") {
@@ -352,15 +353,18 @@ export function registerEnrichedForwarders(inst: BridgeInstance): void {
           // agent_start (in-flight) / agent_end (waiting) / agent_settled
           // (terminal). See change: retry-forever-with-stop-control.
           if (role === "user") {
-            // Per-entry shadow-queue drain matcher: mirror pi's internal
+            // Per-entry follow-up drain matcher: mirror pi's internal
             // logic (`_processAgentEvent` in pi-coding-agent
             // agent-session.js). When pi delivers a queued user message,
-            // find its text in `bridgeSteering` first then `bridgeFollowUp`,
-            // remove the first occurrence, and emit a fresh `queue_update`.
+            // find its text in `bridgeFollowUp`, remove the first
+            // occurrence, and emit a fresh `queue_update`.
             //
-            // POST-rework-mid-turn-prompt-queue: the steer side is
-            // unchanged — pi still owns steering. The follow-up side is
-            // now reduced in scope: dashboard-buffered follow-ups never
+            // Held steers are NEVER touched here: a held steer is not in pi
+            // yet, so a user message with the same text is a different
+            // message. Steers leave the steer buffer only at hand-off,
+            // cancel or reset. See change: bridge-owned-cancellable-steer.
+            //
+            // The follow-up side is reduced in scope: dashboard-buffered follow-ups never
             // reach pi via {deliverAs:"followUp"} (the drain loop ships
             // them as no-deliverAs fresh-turn sends, popped from the
             // buffer BEFORE the pi call). So this matcher will splice
@@ -379,16 +383,10 @@ export function registerEnrichedForwarders(inst: BridgeInstance): void {
             // update-pi-core-1-3-adopt-apis (design D3).
             const text = inst.extractUserMessageText(messageRef);
             if (text) {
-              const sIdx = inst.bridgeSteering.indexOf(text);
-              if (sIdx !== -1) {
-                inst.bridgeSteering.splice(sIdx, 1);
+              const fIdx = inst.bridgeFollowUp.indexOfText(text);
+              if (fIdx !== -1) {
+                inst.bridgeFollowUp.removeAt(fIdx);
                 inst.emitQueueUpdate();
-              } else {
-                const fIdx = inst.bridgeFollowUp.indexOfText(text);
-                if (fIdx !== -1) {
-                  inst.bridgeFollowUp.removeAt(fIdx);
-                  inst.emitQueueUpdate();
-                }
               }
             }
             setTimeout(() => {

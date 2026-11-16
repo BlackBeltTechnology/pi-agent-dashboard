@@ -13,10 +13,11 @@
  *    true — the original bug. Tests `record*Sent + wasStreaming`
  *    encode that contract.
  *
- * 2. Internal gate (defense in depth): `recordSteerSent` /
- *    `recordFollowupSent` themselves re-check `isStreaming()` so a
- *    caller that forgets to capture pre-send still doesn't corrupt
- *    the shadow queue.
+ * 2. Internal gate (defense in depth): the recorders re-check
+ *    `isStreaming()` so a caller that forgets to capture pre-send still
+ *    doesn't corrupt the shadow queue. (Production steers are no longer
+ *    shadow-recorded: the bridge holds them in `steer-buffer.ts` — see
+ *    change: bridge-owned-cancellable-steer. This file keeps the pure gate model.)
  *
  * The follow-up boundary is `agent_settled` (the drain moved off `agent_end`).
  *
