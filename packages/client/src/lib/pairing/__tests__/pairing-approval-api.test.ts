@@ -41,6 +41,19 @@ describe("approvePending tier argument", () => {
   });
 });
 
+// See change: device-key-mutual-check (task 4.5): allowCompanion rides the body only when true.
+describe("approvePending allowCompanion argument", () => {
+  it("sends allowCompanion:true only when ticked; omitted otherwise", async () => {
+    fetchJsonResponse.mockResolvedValue({ json: { success: true, data: DEVICE } });
+    await approvePending("pid", "12345678", "Laptop", "observe", true);
+    expect(sentBody()).toEqual({ pendingId: "pid", confirmCode: "12345678", label: "Laptop", tier: "observe", allowCompanion: true });
+    await approvePending("pid", "12345678", "Laptop", "observe", false);
+    expect(sentBody()).toEqual({ pendingId: "pid", confirmCode: "12345678", label: "Laptop", tier: "observe" });
+    await approvePending("pid", "12345678", undefined, undefined, true);
+    expect(sentBody()).toEqual({ pendingId: "pid", confirmCode: "12345678", allowCompanion: true });
+  });
+});
+
 /**
  * 401 refusal bodies carry `reason` + `remedies` (change:
  * fix-pairing-approval-credential, test-plan E54). Absent fields stay undefined

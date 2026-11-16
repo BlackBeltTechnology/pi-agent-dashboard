@@ -35,6 +35,12 @@ export interface PendingPairing {
   requesterName?: string;
   /** Knock arrived over plain http (knock only). */
   unencrypted?: boolean;
+  /** Short id (`dk:` + 12 chars) of the verified device key the request carries. See change: device-key-mutual-check. */
+  keyId?: string;
+  /** Verified companion: the origin the requester CLAIMS (control chars stripped) — untrusted display text, never HTML. */
+  companionOrigin?: string;
+  /** Verified companion's short key id. */
+  companionId?: string;
 }
 
 /** List pending devices. Throws on transport / non-2xx (caller shows nothing). */
@@ -85,6 +91,8 @@ export async function approvePending(
   label?: string,
   /** Omitted ⇒ not sent ⇒ the server defaults to operate. */
   tier?: Tier,
+  /** Sent only when `true` (the operator ticked "Allow this status check"); absent ⇒ the server keeps no companion. */
+  allowCompanion?: boolean,
 ): Promise<ApprovePendingOutcome> {
   const { json } = await fetchJsonResponse<{
     success: boolean;
@@ -101,6 +109,7 @@ export async function approvePending(
       confirmCode,
       ...(label === undefined ? {} : { label }),
       ...(tier === undefined ? {} : { tier }),
+      ...(allowCompanion === true ? { allowCompanion: true } : {}),
     }),
   });
   if (json.success && json.data) return { ok: true, device: json.data };

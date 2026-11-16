@@ -139,6 +139,8 @@ interface ChallengeResponse {
   publicKey: string;
   signature: string;
   v: number;
+  /** Single-use server nonce for a device-key proof (device-key-mutual-check). */
+  deviceNonce?: string;
 }
 
 /** Import a base64url SPKI DER Ed25519 public key for verification. */
@@ -171,6 +173,8 @@ export interface IdentityProof {
   publicKey: string;
   /** Signature over the nonce verified against `publicKey`. */
   verified: boolean;
+  /** Present when the server issues device-key nonces. */
+  deviceNonce?: string;
 }
 
 /**
@@ -182,7 +186,8 @@ export async function challengeIdentity(base: string): Promise<IdentityProof> {
   const nonce = bytesToB64url(crypto.getRandomValues(new Uint8Array(32)));
   const data = await postJson<ChallengeResponse>(base, "/api/pair/challenge", { nonce });
   const verified = await verifyNonce(data.publicKey, data.signature, nonce);
-  return { fingerprint: data.fingerprint, publicKey: data.publicKey, verified };
+  const deviceNonce = typeof data.deviceNonce === "string" ? data.deviceNonce : undefined;
+  return { fingerprint: data.fingerprint, publicKey: data.publicKey, verified, ...(deviceNonce ? { deviceNonce } : {}) };
 }
 
 /** `/api/pair/poll` response body. */

@@ -15,6 +15,7 @@
  *
  * See change: add-electron-server-windows (D9, D13), group-servers-by-identity (D8, D9).
  */
+import { DEVICE_ROW_LABELS, type DeviceRowStateId, type DeviceTier, TIER_LABELS } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import type { ElectronServersState } from "./server-list-model.js";
 
 
@@ -51,15 +52,22 @@ type DiscoveredState = ElectronServersState["discovered"][number];
 const objects = (v: unknown): Record<string, unknown>[] =>
   Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === "object") : [];
 
+const DEVICE_STATES: ReadonlySet<string> = new Set(["paired", ...Object.keys(DEVICE_ROW_LABELS)]);
+const TIERS: ReadonlySet<string> = new Set(Object.keys(TIER_LABELS));
+
 function sanitizePaired(p: Record<string, unknown>): PairedState | null {
   const fingerprint = str(p.fingerprint);
   if (!fingerprint) return null;
   const host = str(p.host);
+  const deviceState = typeof p.deviceState === "string" && DEVICE_STATES.has(p.deviceState) ? (p.deviceState as DeviceRowStateId) : undefined;
+  const tier = typeof p.tier === "string" && TIERS.has(p.tier) ? (p.tier as DeviceTier) : undefined;
   return {
     fingerprint,
     label: str(p.label) ?? "",
     state: p.state === "needs-pairing" ? "needs-pairing" : "paired",
     ...(host ? { host } : {}),
+    ...(deviceState ? { deviceState } : {}),
+    ...(deviceState && tier ? { tier } : {}),
   };
 }
 

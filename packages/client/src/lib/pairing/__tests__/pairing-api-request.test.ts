@@ -32,6 +32,20 @@ describe("requestAccess", () => {
     expect(JSON.parse(String(init?.body))).toEqual({ name: "Laptop" });
   });
 
+  // See change: device-key-mutual-check (task 4.3/4.4): the knock body carries deviceKey and companion when given.
+  it("adds deviceKey and companion to the body only when supplied; absent ⇒ byte-identical", async () => {
+    const f = vi.fn(async (_u: string, _i?: RequestInit) => json(200, { success: true, data: { pendingId: "p", confirmCode: "1", expiresAt: 1, fingerprint: "f" } }));
+    vi.stubGlobal("fetch", f);
+    const deviceKey = { deviceNonce: "N".repeat(43), pub: "P".repeat(43), sig: "S".repeat(86) };
+    const companion = { pub: "Q".repeat(43), ts: 1_700_000_000, sig: "T".repeat(86), origin: "http://192.168.16.31:8000" };
+    await requestAccess("L", { deviceKey, companion });
+    expect(JSON.parse(String(f.mock.calls[0][1]?.body))).toEqual({ name: "L", deviceKey, companion });
+    await requestAccess("L", { companion });
+    expect(JSON.parse(String(f.mock.calls[1][1]?.body))).toEqual({ name: "L", companion });
+    await requestAccess("L", {});
+    expect(String(f.mock.calls[2][1]?.body)).toBe(JSON.stringify({ name: "L" }));
+  });
+
   it("omits an empty name", async () => {
     const f = vi.fn(async (_u: string, _i?: RequestInit) => json(200, { success: true, data: { pendingId: "p", confirmCode: "1", expiresAt: 1, fingerprint: "f" } }));
     vi.stubGlobal("fetch", f);

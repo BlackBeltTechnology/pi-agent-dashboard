@@ -219,6 +219,19 @@ describe("PairingApprovalHost", () => {
     expect(screen.getByText("Pairing request handled in another window.")).toBeTruthy();
   });
 
+  // See change: device-key-mutual-check (task 4.5): the operator's tick reaches approvePending.
+  it("a companion request forwards the tick as approvePending's fifth argument", async () => {
+    const h = setup();
+    h.setList([{ ...entry("aaa"), provenance: "knock", keyId: "dk:AbCdEfGhIjKl", companionOrigin: "http://192.168.16.31:8000" }]);
+    h.connect();
+    await screen.findByTestId("pairing-dialog");
+    fireEvent.click(screen.getByLabelText("Allow this status check"));
+    fireEvent.change(screen.getByTestId("pairing-code-input"), { target: { value: "12345678" } });
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    await waitFor(() => expect(h.api.approvePending).toHaveBeenCalledTimes(1));
+    expect(h.api.approvePending).toHaveBeenCalledWith("aaa", "12345678", expect.anything(), "operate", true);
+  });
+
   it("deny calls the API for the open request and closes without a toast", async () => {
     const h = setup();
     h.setList([entry("aaa")]);

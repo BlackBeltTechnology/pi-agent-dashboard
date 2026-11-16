@@ -24,7 +24,7 @@ const ENTRY: PendingPairing = {
 function renderDialog(
   opts: {
     entry?: PendingPairing;
-    approve?: (code: string, label: string | undefined, tier?: Tier) => Promise<ApprovePendingOutcome>;
+    approve?: (code: string, label: string | undefined, tier?: Tier, allowCompanion?: boolean) => Promise<ApprovePendingOutcome>;
     queued?: number;
     deny?: () => Promise<RefusalRemedies | undefined>;
   } = {},
@@ -543,5 +543,83 @@ describe("credential refusal remedies", () => {
     const err = await screen.findByTestId("pairing-dialog-error");
     expect(err.textContent).toContain("Approval needs an operator credential");
     expect(screen.queryByTestId("pairing-dialog-remedies")).toBeNull();
+  });
+});
+
+// See change: device-key-mutual-check (test-plan F1, task 4.5): key row, companion statement and choice.
+describe("device key row and companion choice (F1)", () => {
+  const KEYED: PendingPairing = { ...KNOCK, keyId: "dk:AbCdEfGhIjKl" };
+  const WITH_COMPANION: PendingPairing = { ...KEYED, companionOrigin: "http://192.168.16.31:8000", companionId: "dk:ZZZZZZZZZZZZ" };
+  const OK: ApprovePendingOutcome = { ok: true, device: { id: "d", label: "x", createdAt: "", lastSeen: null, source: "pairing", tier: "operate" } };
+  const approveOk = async () => OK;
+  const submit = (input: HTMLInputElement) => {
+    type(input, "12345678");
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+  };
+
+  it("key present → Device key row with the short id", () => {
+    renderDialog({ entry: KEYED });
+    const row = screen.getByTestId("pairing-dialog-device-key");
+    expect(row.textContent).toContain("Device key");
+    expect(row.textContent).toContain("dk:AbCdEfGhIjKl");
+  });
+
+  it("no key → the row reads none", () => {
+    renderDialog({ entry: KNOCK });
+    expect(screen.getByTestId("pairing-dialog-device-key").textContent).toContain("none");
+    expect(screen.queryByText(/dk:/)).toBeNull();
+  });
+
+  it("companion → statement with the claimed origin and the unticked 'Allow this status check' box", () => {
+    renderDialog({ entry: WITH_COMPANION });
+    const block = screen.getByTestId("pairing-dialog-companion");
+    expect(block.textContent).toContain("http://192.168.16.31:8000");
+    expect(block.textContent).toContain("claimed by the requester");
+    expect(block.textContent).toContain("can only see the pairing and cannot sign in or act with it");
+    const box = screen.getByLabelText("Allow this status check") as HTMLInputElement;
+    expect(box.type).toBe("checkbox");
+    expect(box.checked).toBe(false);
+  });
+
+  it("no companion → neither the statement nor the checkbox", () => {
+    renderDialog({ entry: KEYED });
+    expect(screen.queryByTestId("pairing-dialog-companion")).toBeNull();
+    expect(screen.queryByLabelText("Allow this status check")).toBeNull();
+    expect(screen.queryByText(/cannot sign in or act with it/)).toBeNull();
+  });
+
+  it("the origin is a text node: markup in it never becomes an element", () => {
+    renderDialog({ entry: { ...WITH_COMPANION, companionOrigin: "http://a<b>.example" } });
+    const block = screen.getByTestId("pairing-dialog-companion");
+    expect(block.querySelector("b")).toBeNull();
+    expect(block.textContent).toContain("http://a<b>.example");
+  });
+
+  it("untouched → approve passes allowCompanion false", async () => {
+    const { input, onApprove } = renderDialog({ entry: WITH_COMPANION, approve: approveOk });
+    submit(input);
+    await waitFor(() => expect(onApprove).toHaveBeenCalledWith("12345678", "Roberts-MacBook-Pro", "operate", false));
+  });
+
+  it("ticked at submit → allowCompanion true", async () => {
+    const { input, onApprove } = renderDialog({ entry: WITH_COMPANION, approve: approveOk });
+    fireEvent.click(screen.getByLabelText("Allow this status check"));
+    submit(input);
+    await waitFor(() => expect(onApprove).toHaveBeenCalledWith("12345678", "Roberts-MacBook-Pro", "operate", true));
+  });
+
+  it("tick then untick → false", async () => {
+    const { input, onApprove } = renderDialog({ entry: WITH_COMPANION, approve: approveOk });
+    const box = screen.getByLabelText("Allow this status check");
+    fireEvent.click(box);
+    fireEvent.click(box);
+    submit(input);
+    await waitFor(() => expect(onApprove).toHaveBeenCalledWith("12345678", "Roberts-MacBook-Pro", "operate", false));
+  });
+
+  it("no companion → the call keeps its previous shape (no fourth argument)", async () => {
+    const { input, onApprove } = renderDialog({ entry: KEYED, approve: approveOk });
+    submit(input);
+    await waitFor(() => expect(onApprove).toHaveBeenCalledWith("12345678", "Roberts-MacBook-Pro", "operate"));
   });
 });

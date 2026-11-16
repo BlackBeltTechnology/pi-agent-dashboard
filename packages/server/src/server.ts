@@ -261,7 +261,7 @@ import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knoc
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import { stampSocketLocality } from "./pairing/socket-locality.js";
-import { sweepRevokedSockets, type TieredSocket } from "./pairing/ws-tier-gate.js";
+import { closeDeviceSockets, sweepRevokedSockets, type TieredSocket } from "./pairing/ws-tier-gate.js";
 import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
@@ -1489,6 +1489,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const replayState = createReplayState(config.replayTimings);
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore, browseRoots, replayState);
+  // A revoke closes every open socket of that device (4401 / `device revoked`): browser sockets (tagged at
+  // upgrade from the ticket) and bridge sockets. See change: device-key-mutual-check (D7).
+  pairedDeviceRegistry.onRevoked((deviceId) => {
+    const closed = closeDeviceSockets(browserGateway.wss.clients, deviceId) + piGateway.closeDeviceSockets(deviceId);
+    if (closed > 0) console.log(`[ws-gate] device revoke closed ${closed} socket(s)`);
+  });
   // Transition-only feed behind `GET /api/events/stream` (registry frames + question changes).
   // See change: add-agent-event-stream.
   const agentEventHub = createAgentEventHub({
@@ -3641,7 +3647,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const identity = authed.principal
         ? { principal: authed.principal, principalExpiresAt: authed.principalExpiresAt }
         : undefined;
-      return { success: true as const, data: { ticket: wsTicketStore.mint(scope, undefined, identity) } };
+      // A device-bearer caller's id rides the ticket (like a bridge ticket), so the socket it opens is
+      // tagged with it, a revoke closes it, and a pre-revoke ticket is refused at upgrade.
+      // See change: device-key-mutual-check (D7).
+      const deviceId = (request as { principalDeviceId?: string }).principalDeviceId;
+      return { success: true as const, data: { ticket: wsTicketStore.mint(scope, deviceId, identity) } };
     },
   );
   registerPluginConfigRoutes(fastify, {
@@ -5005,6 +5015,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             : null,
           // A revoked / disabled passkey user's cookie opens no socket (D4).
           isSessionLive: (p) => effectiveSessionTier(p, passkeyService, sessionProviderRejected) !== null,
+          // A ticket minted before its device was revoked opens nothing (D7).
+          isDeviceActive: (id) => pairedDeviceRegistry.activeIds().has(id),
         });
         // Cookie-session sockets carry the session's LIVE tier (passkey users
         // re-read the directory). Terminals need operate, live previews
@@ -5100,6 +5112,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               stampSocketLocality(ws, request, localTrust);
               if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               if (sessionTierOf) (ws as TieredSocket).sessionTier = sessionTierOf;
+              // Tag with the minting device so `closeDeviceSockets` can find it on revoke (D7).
+              if (upgradeAuth.deviceId) (ws as { deviceId?: string }).deviceId = upgradeAuth.deviceId;
               browserGateway.wss.emit("connection", ws, request);
             });
             if (identityEnforced() && policyRegistry.hasPolicy()) {

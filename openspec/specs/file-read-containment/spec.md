@@ -7,10 +7,11 @@ Define how the localhost file routes contain resolved absolute paths: anchor at 
 
 ### Requirement: File-read containment anchors at the git common root with a layered cwd fast path
 
-The localhost file routes SHALL contain every resolved absolute path using a layered check evaluated in order, at each of the ten containment sites: seven in `file-routes.ts` (`GET /api/file` read, `GET /api/file/tree`, `GET /api/file/exists`, `GET /api/file/raw`, `GET /api/file/render`, and the two gate helpers `gateFilePath` / `gateOfficeFile` — `gateFilePath` gates the EML routes and the `POST /api/open-in-system` / `POST /api/reveal-in-file-manager` system-open endpoints, `gateOfficeFile` the office/render/sheet routes), the grep-result filter in `grep-routes.ts`, the file-mention resolver in `resolve-file-mention.ts`, and the session-directory check in `session-routes.ts` (which carries its own rejection string, `"path outside session directory"`). The local lexical cwd check in `openspec-routes.ts` is NOT a containment site and is out of scope. Each site passes its own set of **containment anchors** — the session `cwd`, plus any site-specific anchor: `homePiAnchor()` (`~/.pi`) for the read, raw, render, and mention sites, and the pinned directories for `exists`. Per-site anchor sets are unchanged by this requirement, except that a path inside the dashboard state directory, or that is a pi-agent credential file, is first decided by the "Dashboard state is never served to an unproven caller" requirement of `trust-and-credential-boundaries` (on the resolved real path, before containment, and at the session-directory site before its in-cwd shortcut): an always-refused path (`<dashboard dir>/local/**`, `identity.key` and the pi-agent credential files) is refused for every caller, and a trust-gated path is refused for a caller that is not locally trusted and holds no login session; a path that passes falls through to these anchors unchanged. For each containment anchor:
+The localhost file routes SHALL contain every resolved absolute path using a layered check evaluated in order, at each of the ten containment sites: seven in `file-routes.ts` (`GET /api/file` read, `GET /api/file/tree`, `GET /api/file/exists`, `GET /api/file/raw`, `GET /api/file/render`, and the two gate helpers `gateFilePath` / `gateOfficeFile` — `gateFilePath` gates the EML routes and the `POST /api/open-in-system` / `POST /api/reveal-in-file-manager` system-open endpoints, `gateOfficeFile` the office/render/sheet routes), the grep-result filter in `grep-routes.ts`, the file-mention resolver in `resolve-file-mention.ts`, and the session-directory check in `session-routes.ts` (which carries its own rejection string, `"path outside session directory"`). The local lexical cwd check in `openspec-routes.ts` is NOT a containment site and is out of scope. Each site passes its own set of **containment anchors** — the session `cwd`, plus any site-specific anchor: `homePiAnchor()` (`~/.pi`) for the read, raw, render, and mention sites, and the pinned directories for `exists`. Per-site anchor sets are unchanged by this requirement, except that a path inside the dashboard state directory, or that is a pi-agent credential file, is first decided by the "Dashboard state is never served to an unproven caller" requirement of `trust-and-credential-boundaries` (on the resolved real path, before containment, and at the session-directory site before containment, which has no lexical in-cwd shortcut): an always-refused path (`<dashboard dir>/local/**`, `identity.key` and the pi-agent credential files) is refused for every caller, and a trust-gated path is refused for a caller that is not locally trusted and holds no login session; a path that passes falls through to these anchors unchanged. For each containment anchor:
 
-1. If the resolved path is the anchor or under `anchor + path.sep`, it SHALL
-   be allowed without invoking git.
+1. If the resolved path is the anchor or under `anchor + path.sep`, and its real
+   path is the anchor's real path or under it ("Layer ① is decided on real
+   paths"), it SHALL be allowed without invoking git.
 2. Otherwise, let the **checkout roots** of the anchor be the resolved checkout
    roots of that anchor (`git-checkout-root-resolution`) that are BOUND to the
    anchor's repository: `thisCheckout` (the checkout containing the anchor)
@@ -40,7 +41,7 @@ Layer 1 is a performance fast path and MUST NOT allow anything layer 2 would rej
 
 No checkout root SHALL reach beyond the checkouts the anchor's repository owns. In particular a submodule session SHALL NOT gain reach into its superproject, a worktree of a bare hub SHALL NOT gain reach into the directory holding the hub, and a `--separate-git-dir` session SHALL NOT gain reach into the directory holding its git dir.
 
-Layers 1 and 2 and their per-site anchor sets SHALL be unchanged by this change, including the `homePiAnchor()` (`~/.pi`) anchor on the read, raw, render, and mention sites and the pinned-directory anchor on `GET /api/file/exists`. With an empty grant store, the outcome of every check SHALL be identical to layers 1–2 alone.
+Layer 2 and the per-site anchor sets SHALL be unchanged by this change (layer 1's lexical test is kept and is now also required to hold on real paths), including the `homePiAnchor()` (`~/.pi`) anchor on the read, raw, render, and mention sites and the pinned-directory anchor on `GET /api/file/exists`. With an empty grant store, the outcome of every check SHALL be identical to layers 1–2 alone.
 
 Two of the ten sites have no response body in which to carry remedy fields: `grep-routes.ts` filters non-contained matches out of its result set, and `resolve-file-mention.ts` returns no mention. They SHALL consume grants and SHALL NOT be changed to emit a denial body.
 
@@ -187,7 +188,7 @@ Two of the ten sites have no response body in which to carry remedy fields: `gre
 
 - **GIVEN** a session whose cwd is `$HOME`
 - **WHEN** a path under `~/.pi/agent` naming a pi-agent credential file is requested at the session-directory site (`GET /api/session-file`) by a path lexically inside the cwd
-- **THEN** the credential-and-state refusal SHALL run before the in-cwd shortcut and the request SHALL be refused with `"path outside session directory"`
+- **THEN** the credential-and-state refusal SHALL run before containment (the site has no lexical in-cwd shortcut) and the request SHALL be refused with `"path outside session directory"`
 
 ### Requirement: git-root resolution fails closed to cwd-only containment
 
@@ -344,7 +345,7 @@ unchanged.
 
 ### Requirement: Containment decisions are bound to the path they decided
 
-`evaluateContainment` SHALL return, on every outcome (including the dashboard-secret refusal, the post-hold re-evaluation allow and a `quiet` refusal), the exact `resolved` string it was asked to decide, in addition to `allowed` and `viaGrant`. `@blackbelt-technology/pi-dashboard-shared` SHALL export `containmentAllows(decision, resolved)`, a synchronous predicate that returns true only when `decision.allowed` is true AND `decision.resolved` is exactly equal to `resolved`; its `decision` parameter SHALL be a branded type that only `containment-gate.ts` constructs. `containment-gate.ts` SHALL also export `decidePassive(resolved, anchors, { allowGrant })` for sites that consume grants without originating a denial: it decides on layers ①/② and, only with `allowGrant`, the grant layer, records no denial, holds nothing, and returns the same decision shape. Every containment site SHALL admit a path only when `containmentAllows(decision, resolved)` is true, and SHALL use the same `resolved` string for the read or serve that follows. A refusal keeps its existing form: a 403 body at body-bearing sites, a filtered-out match in `grep-routes.ts`, a `null` mention in `resolve-file-mention.ts`. Relative to the behaviour of the change that introduced this binding, allowed paths, refused paths, refusal bodies, status codes, per-site anchors, the Layer-③ artifact-root order at the raw site, grant consumption and the suspend/hold flow SHALL be unchanged; the only permitted differences are refusals added later by the credential-and-state refusal of `trust-and-credential-boundaries` (dashboard state and pi-agent credential files, including its opened-handle recheck) and the grep identity filter that drops matches whose device and inode equal an always-refused file.
+`evaluateContainment` SHALL return, on every outcome (including the dashboard-secret refusal, the post-hold re-evaluation allow and a `quiet` refusal), the exact `resolved` string it was asked to decide, in addition to `allowed` and `viaGrant`. `@blackbelt-technology/pi-dashboard-shared` SHALL export `containmentAllows(decision, resolved)`, a synchronous predicate that returns true only when `decision.allowed` is true AND `decision.resolved` is exactly equal to `resolved`; its `decision` parameter SHALL be a branded type that only `containment-gate.ts` constructs. `containment-gate.ts` SHALL also export `decidePassive(resolved, anchors, { allowGrant })` for sites that consume grants without originating a denial: it decides on layers ①/② and, only with `allowGrant`, the grant layer, records no denial, holds nothing, and returns the same decision shape. Every containment site SHALL admit a path only when `containmentAllows(decision, resolved)` is true, and SHALL use the same `resolved` string for the read or serve that follows. A refusal keeps its existing form: a 403 body at body-bearing sites, a filtered-out match in `grep-routes.ts`, a `null` mention in `resolve-file-mention.ts`. Relative to the behaviour of the change that introduced this binding, allowed paths, refused paths, refusal bodies, status codes, per-site anchors, the Layer-③ artifact-root order at the raw site, grant consumption and the suspend/hold flow SHALL be unchanged; the only permitted differences are refusals added later by the credential-and-state refusal of `trust-and-credential-boundaries` (dashboard state and pi-agent credential files, including its opened-handle recheck), the grep identity filter that drops matches whose device and inode equal an always-refused file, and the real-path refusal of a lexically contained path whose real path escapes ("Layer ① is decided on real paths"). An admitting decision additionally carries the real path it decided.
 
 #### Scenario: A decision for one path does not admit another
 - **WHEN** `containmentAllows` is called with a decision for `/p/a.txt` and the path `/p/b.txt`
@@ -379,3 +380,132 @@ unchanged.
 - **WHEN** a grep match comes from a file whose device and inode equal an always-refused file
 - **THEN** the match SHALL be dropped
 - **AND** matches from every other contained path SHALL be kept as before
+
+#### Scenario: A real-path refusal is not a containment regression
+- **WHEN** a lexically contained path is refused because its real path escapes every anchor, checkout root and grant
+- **THEN** the refusal keeps the site's existing refusal form
+- **AND** it is not a change to allowed paths, anchors or status codes for any path whose real path is contained
+
+### Requirement: Layer ① is decided on real paths
+
+Layer ① SHALL admit a path only when it is lexically under the anchor and its real path (nearest existing ancestor when absent) is under the anchor's real path; a failing path SHALL be decided by layer ②, the grant layer and the remedy like any outside path. Every site deciding through `isAllowed`, including `GET /api/session-file`, SHALL apply this and SHALL NOT use a lexical in-cwd shortcut.
+
+#### Scenario: an in-cwd symlink to an outside file is refused
+
+- **GIVEN** `<cwd>/link` is a symlink to `/srv/other/secret.txt` and no grant covers `/srv/other`
+- **WHEN** an `observe` caller requests `GET /api/file?cwd=<cwd>&path=link`
+- **THEN** the response SHALL be HTTP 403 `{ success: false, error: "path outside working directory" }` carrying the remedy subject `/srv/other`
+- **AND** no byte of the target SHALL be served
+
+#### Scenario: an in-cwd symlink through a directory link is refused
+
+- **GIVEN** `<cwd>/d` is a symlink to `/etc` and `/etc/hosts` exists
+- **WHEN** `GET /api/file` requests `d/hosts`
+- **THEN** the request SHALL be refused with HTTP 403
+
+#### Scenario: a symlink that stays inside the anchor is admitted
+
+- **GIVEN** `<cwd>/node_modules/a` is a symlink to `<cwd>/node_modules/.pnpm/a@1/node_modules/a`
+- **WHEN** a file under it is read
+- **THEN** the read SHALL be allowed without spawning git
+
+#### Scenario: a symlink to a granted directory is admitted
+
+- **GIVEN** `<cwd>/link` points into `/other/repo/sub` and `/other/repo/sub` is a persisted grant
+- **WHEN** the link is read
+- **THEN** the read SHALL be allowed at the grant layer
+
+#### Scenario: a symlinked anchor is compared on its real path
+
+- **GIVEN** `~/.pi` is a symlink to `/dotfiles/pi`
+- **WHEN** a file under `~/.pi/agent/skills` is read through the `~/.pi` anchor
+- **THEN** the read SHALL be allowed exactly as before
+
+#### Scenario: passive sites drop an escaping link
+
+- **WHEN** a grep match or a file mention resolves through a symlink whose real target is outside every anchor, root and grant
+- **THEN** the match SHALL be dropped and the mention SHALL be null
+
+#### Scenario: a link loop or dangling link keeps the site's not-found mapping
+
+- **GIVEN** `<cwd>/a` is a symlink loop, or `<cwd>/l` is a symlink whose target does not exist
+- **WHEN** `GET /api/file` requests it
+- **THEN** the response SHALL be the site's existing not-found answer (HTTP 404 `"not found"`) and no byte SHALL be served
+
+#### Scenario: the session-file route has no lexical shortcut
+
+- **GIVEN** a session whose cwd contains a symlink to `/etc/hosts`
+- **WHEN** `GET /api/session-file` requests the link by a path lexically inside the cwd
+- **THEN** the response SHALL be HTTP 403 `"path outside session directory"`
+
+### Requirement: An opened handle is the file containment decided
+
+An admitting containment decision, including a grant or post-hold one, SHALL carry the real path it decided. Every content open that follows such a decision SHALL, after opening and before reading, require that `fs.realpath` of the opened path equals that real path and that the handle's device and inode equal those of that real path; otherwise it SHALL close the handle and refuse in the site's existing refusal form. Opens with no decision in scope are unchanged.
+
+#### Scenario: a link swapped in after the decision serves nothing
+
+- **GIVEN** a regular file `<cwd>/a` was admitted by a decision
+- **WHEN** `<cwd>/a` is replaced by a symlink to an outside file before the open completes
+- **THEN** the open SHALL be refused with the site's existing 403 shape and no byte SHALL be read
+
+#### Scenario: a swapped intermediate directory is refused
+
+- **GIVEN** `<cwd>/d/a` was admitted and `<cwd>/d` is then replaced by a symlink to an outside directory
+- **WHEN** the open of `<cwd>/d/a` completes
+- **THEN** the open SHALL be refused
+
+#### Scenario: a link into a granted directory is opened bound to the grant's real path
+
+- **GIVEN** `<cwd>/link` points to `/other/repo/sub/a`, `/other/repo/sub` is a grant, and the decision carries `/other/repo/sub/a`
+- **WHEN** `/other/repo/sub/a` is replaced by a symlink to an outside file before the open completes
+- **THEN** the open SHALL be refused with the site's existing 403 shape
+
+#### Scenario: a read admitted after an operator hold is opened bound
+
+- **GIVEN** a read was held, allowed once by the operator and re-evaluated as allowed
+- **WHEN** the file is swapped for a symlink before the open completes
+- **THEN** the open SHALL be refused
+
+#### Scenario: an I/O error inside the binding check refuses
+
+- **WHEN** the post-open `fs.realpath` or the handle's `stat` fails (for example `EACCES` or `EIO`)
+- **THEN** the handle SHALL be closed and the open refused in the site's existing 403 shape, never as a 2xx or 500
+
+#### Scenario: an unchanged file opens normally
+
+- **WHEN** nothing changes between the decision and the open
+- **THEN** the read SHALL be served exactly as before
+
+### Requirement: A program handed a gated path receives the decided real path
+
+A route that, after an admitting containment decision, hands a file path to an out-of-process program (the document converter, the OS opener) SHALL pass the decision's real path, not the lexical path; the docx HTML-fallback read SHALL open bound to it. After any conversion (`rendered-pdf`, `/api/file/render`) the real path's device and inode SHALL equal those taken before it; otherwise the output SHALL be deleted, no cache entry kept, and the request refused with the site's 403 shape.
+
+#### Scenario: the converter is given the real path
+
+- **GIVEN** `<cwd>/a.docx` is a regular file admitted by the gate
+- **WHEN** `GET /api/file/rendered-pdf` converts it
+- **THEN** the converter SHALL receive the decided real path of `<cwd>/a.docx`
+
+#### Scenario: a file swapped during conversion is not streamed
+
+- **GIVEN** a conversion of an admitted `.docx` is running
+- **WHEN** the real path's device or inode differs after it finishes
+- **THEN** the output SHALL be discarded and the response SHALL be HTTP 403 `"path outside working directory"`
+
+#### Scenario: a docx swapped during the HTML fallback is refused
+
+- **GIVEN** `GET /api/file/render` falls back to HTML for an admitted `<cwd>/a.docx`
+- **WHEN** `<cwd>/a.docx` is replaced by a symlink to an outside file before the fallback read completes
+- **THEN** the response SHALL be HTTP 403 `"path outside working directory"` and no byte of the target SHALL be rendered
+
+#### Scenario: a swap during render conversion leaves no cache entry
+
+- **GIVEN** `GET /api/file/render` converts an admitted `.docx` or `.pptx` to PDF
+- **WHEN** the real path's device or inode differs after the conversion
+- **THEN** the output SHALL be deleted, no cache entry SHALL remain, the response SHALL be HTTP 403, and a later `GET /api/file/rendered-pdf` SHALL re-convert or refuse
+
+#### Scenario: the OS opener launches the decided real path
+
+- **GIVEN** `<cwd>/l` is an in-anchor symlink to `<cwd>/real.txt`
+- **WHEN** `POST /api/open-in-system` or its reveal twin names `l`
+- **THEN** the opener SHALL be launched with the real path of `<cwd>/real.txt`

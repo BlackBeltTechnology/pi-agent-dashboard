@@ -11,6 +11,7 @@ Files in this directory. One row per source file.
 | `build-version.ts` | Windows-safe build version helper. Exports `deriveWindowsBuildVersion(pkgVersion, runNumber)` → 4-integer… → see `build-version.ts.AGENTS.md` |
 | `bundled-node.ts` | Resolves bundled Node.js/npm paths in Electron resources |
 | `connecting-window.ts` | `openConnectingWindow(initial, onClosed)` → `ConnectingHandle{push,focus,close,isOpen}`;… → see `connecting-window.ts.AGENTS.md` |
+| `device-key.ts` | Main-process Ed25519 device key: `generateDeviceKey`, `deviceKeyFromPrivate`, `DeviceKey{pub,signDevbind,signDevcheck,exportPrivate}`; `proveWithDeviceNonce` = shared prover + challenge `deviceNonce`. Private key never leaves main. See change: device-key-mutual-check. |
 | `delivered-routes.ts` | `recordDeliveredRoutes`: validate, prove, keep <=3 delivered https routes; hostile routes never contacted. See change: group-servers-by-identity. |
 | `dependency-detector.ts` | Detects pi, openspec, Node.js on system PATH + managed install. → see `dependency-detector.ts.AGENTS.md` |
 | `doctor-bridge-contract.ts` | `DoctorBridge` TypeScript interface. Imported by preload + renderer. Channel-name-drift breaks type-check. |
@@ -24,7 +25,7 @@ Files in this directory. One row per source file.
 | `lock-metadata.ts` | Read per-HOME dashboard lock sidecar. Exports `DashboardLockMetadata` interface, `getLockMetaPath()`,… → see `lock-metadata.ts.AGENTS.md` |
 | `managed-paths.ts` | Managed install paths, mirrored locally (no shared-pkg import for ESM resolution in packaged app). → see `managed-paths.ts.AGENTS.md` |
 | `pairing-client.ts` | `startPairing(target, deps)` → `PairingSession{send,stop,done}`. → see `pairing-client.ts.AGENTS.md` |
-| `pairing-code-client.ts` | In-app code redeem: decode pasted text, refuse wrong fingerprint before any request, prove at first https URL, redeem, wait approval, store bearer. No secrets logged. See change: group-servers-by-identity. |
+| `pairing-code-client.ts` | In-app code redeem: decode pasted text, refuse wrong fingerprint before any request, prove at first https URL, redeem, wait approval, store bearer. No secrets logged. Redeem body carries device key (stored on approval only). See change: group-servers-by-identity, device-key-mutual-check. |
 | `permissions.ts` | Default-session permission policy. `ALLOWED_PERMISSIONS` (`clipboard-sanitized-write`,`notifications`,`fullscreen`), `isPermissionAllowed`, `installDefaultSessionPermissions(session, getAllowedOrigin, warn?)`. Grant only main frame at `getAllowedOrigin()`; document-less check (no `requestingUrl`) → `notifications` by `requestingOrigin` only. Opaque (`file:`) origin never matches; throwing getter ⇒ deny; `openExternal` denied; one `warn` per (permission, origin). Server windows reuse `isPermissionAllowed`. Installed in `main.ts` right after `whenReady`, before `showSplash`. See change: close-local-listener-and-egress-gaps. |
 | `pick-node.ts` | `pickNodeForServer(PickNodeInput): PickNodeResult` — bundled → system → qualifying embedded → unavailable… → see `pick-node.ts.AGENTS.md` |
 | `quit-guard.ts` | `installQuitGuard(app, {isQuitting, requestQuit})`: `before-quit` → full quit (stop server, tray, exit) for… → see `quit-guard.ts.AGENTS.md` |
@@ -39,7 +40,7 @@ Files in this directory. One row per source file.
 | `server-keyring.ts` | `ServerKeyring` / `loadKeyring`: paired servers by fingerprint in `~/.pi-dashboard/server-keyring.json` (v1). → see `server-keyring.ts.AGENTS.md` |
 | `server-lifecycle.ts` | Thin `selectLaunchSource + spawnFromSource` shim under R3. → see `server-lifecycle.ts.AGENTS.md` |
 | `server-windows-main.ts` | `startServerWindows(opts)`: Electron binding for server windows. → see `server-windows-main.ts.AGENTS.md` |
-| `server-windows.ts` | `createServerWindows(deps)`: one window per paired server on its own origin. → see `server-windows.ts.AGENTS.md` |
+| `server-windows.ts` | `createServerWindows(deps)`: one window per paired server on its own origin; device check after a refused exchange, key-pending bind, `deviceView`/`deviceNote`. → see `server-windows.ts.AGENTS.md` |
 | `servers-ipc.ts` | `servers:*` IPC (own family). `registerServersIpc(deps)`; `isServerWindowsSender` accepts only TOP frame of… → see `servers-ipc.ts.AGENTS.md` |
 | `servers-menu.ts` | Servers submenu for app + tray menus: `buildServersSubmenu`, `serversMenuItem`, `setServersMenuHooks`,… → see `servers-menu.ts.AGENTS.md` |
 | `tray.ts` | System tray with platform-specific icons (template on macOS, ico/png on Win/Linux) → see `tray.ts.AGENTS.md` |

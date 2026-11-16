@@ -33,6 +33,21 @@ beforeEach(() => {
 });
 
 describe("Servers submenu (E33)", () => {
+  it("device-key-mutual-check: a display-only note follows the name (access removed, network not allowed, access expired)", () => {
+    setServersMenuHooks({
+      entries: () => [
+        { fingerprint: F, label: "a", needsPairing: false, note: "access removed" },
+        { fingerprint: F, label: "b", needsPairing: false, note: "network not allowed" },
+        { fingerprint: F, label: "c", needsPairing: true, note: "access expired" },
+        { fingerprint: F, label: "d", needsPairing: true },
+      ],
+      open,
+      connectAnother,
+    });
+    const sub = serversMenuItem().submenu as Array<{ label?: string }>;
+    expect(labels(sub).slice(0, 4)).toEqual(["a — access removed", "b — network not allowed", "c — access expired", "d — needs pairing"]);
+  });
+
   it("lists entries by sanitised label with state in words, then Connect to another dashboard…", () => {
     const sub = serversMenuItem().submenu as Array<{ label?: string; type?: string; click?: () => void }>;
     expect(labels(sub)).toEqual(["home-imac", "lab-box — needs pairing", "Connect to another dashboard…"]);

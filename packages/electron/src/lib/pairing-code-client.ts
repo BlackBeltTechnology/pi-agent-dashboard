@@ -13,12 +13,18 @@
  * a log line, or any state pushed to a window (the compare code goes to the Connecting window
  * only). Electron-free (ports injected) — unit-tested in `__tests__/pairing-code-client.test.ts`.
  *
- * See change: group-servers-by-identity (D8).
+ * Device key (`device-key-mutual-check`, D3): the redeem generates an in-memory Ed25519 key and carries
+ * `deviceKey` in the redeem body (the proving challenge's nonce while ≤ 30 s old, else a fresh challenge at
+ * the proven origin); the keyring gets it only on approval, never on reject / expiry / stop / quit
+ * (`__tests__/pairing-device-key.test.ts`).
+ *
+ * See change: group-servers-by-identity (D8), device-key-mutual-check (D3).
  */
 import { knockRefusalCopy } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock.js";
-import { type KnockOutcome, type ProveFn, redeemPairingCode } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock-client.js";
+import { type DeviceKeyProvider, type KnockOutcome, type ProveFn, redeemPairingCode } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock-client.js";
 import { originToRoute, validateDeliveredRoutes } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
 import { recordDeliveredRoutes } from "./delivered-routes.js";
+import { type DeviceKey, generateDeviceKey } from "./device-key.js";
 import type { ConnectingState, PairingPhaseName, PairingResult } from "./pairing-client.js";
 import { isFingerprint, shortFingerprint } from "./server-discovery.js";
 import { MAX_DELIVERED_STORED, type ServerKeyring } from "./server-keyring.js";
@@ -34,6 +40,13 @@ export interface PairingPayloadText {
 }
 
 const PAYLOAD_PREFIX = "pi:pair:v1.";
+
+/** The origin that proved the pin, its key, and the proving challenge's device nonce (aged from the call start). */
+interface Proof {
+  origin: string;
+  publicKey?: string;
+  challenge?: { deviceNonce: string; at: number };
+}
 
 /**
  * Decode the pasted text (deep link `https://…/pair#<payload>`, `pi:pair:v1.<b64url>`, bare
@@ -75,6 +88,8 @@ export interface CodePairingDeps {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   pollIntervalMs?: number;
+  /** Device key factory (default: a new in-memory Ed25519 key). Test seam. */
+  generateKey?: () => DeviceKey;
 }
 
 export interface CodePairingSession {
@@ -140,18 +155,21 @@ export function startCodePairing(target: CodePairingTarget, deps: CodePairingDep
   }
 
   /** One origin's challenge: the pinned identity (with its key), another identity, or nothing usable. */
-  async function proveOne(origin: string): Promise<{ publicKey?: string } | { other: string } | null> {
+  async function proveOne(origin: string): Promise<Omit<Proof, "origin"> | { other: string } | null> {
+    const at = (deps.now ?? Date.now)();
     try {
       const r = await deps.prove(origin);
       if (!("proven" in r)) return null;
-      return r.proven === target.fingerprint ? { ...(r.publicKey ? { publicKey: r.publicKey } : {}) } : { other: r.proven };
+      return r.proven === target.fingerprint
+        ? { ...(r.publicKey ? { publicKey: r.publicKey } : {}), ...(r.deviceNonce ? { challenge: { deviceNonce: r.deviceNonce, at } } : {}) }
+        : { other: r.proven };
     } catch {
       return null; // unreachable — the caller tries the next
     }
   }
 
   /** First payload origin that proves the pinned fingerprint; otherwise the other identity seen, if any. */
-  async function proveFirst(origins: string[]): Promise<{ origin: string; publicKey?: string } | { other?: string }> {
+  async function proveFirst(origins: string[]): Promise<Proof | { other?: string }> {
     let other: string | undefined;
     for (const origin of origins) {
       if (abort.signal.aborted) break;
@@ -176,12 +194,14 @@ export function startCodePairing(target: CodePairingTarget, deps: CodePairingDep
 
   async function finishApproved(
     outcome: Extract<KnockOutcome, { status: "approved" }>,
-    proof: { origin: string; publicKey?: string },
+    proof: Proof,
     others: string[],
+    deviceKey?: DeviceKey,
   ): Promise<PairingResult> {
     const route = originToRoute(proof.origin);
     try {
       deps.keyring.savePaired({
+        ...(deviceKey ? { deviceKey } : {}),
         fingerprint: target.fingerprint,
         label: target.label,
         ...(proof.publicKey ? { pinnedPubkey: proof.publicKey } : {}),
@@ -215,7 +235,7 @@ export function startCodePairing(target: CodePairingTarget, deps: CodePairingDep
   }
 
   /** Decode the pasted text and prove the pin at the first usable payload url; or the terminal result. */
-  async function intake(text: string): Promise<{ payload: PairingPayloadText; origins: string[]; proof: { origin: string; publicKey?: string } } | { result: PairingResult }> {
+  async function intake(text: string): Promise<{ payload: PairingPayloadText; origins: string[]; proof: Proof } | { result: PairingResult }> {
     const payload = decodePairingText(text);
     if (!payload) return { result: refuse(NOT_A_CODE, "malformed") };
     // A payload for another server: nothing named in it is contacted.
@@ -246,9 +266,21 @@ export function startCodePairing(target: CodePairingTarget, deps: CodePairingDep
     shortFp = shortFingerprint(target.fingerprint);
     emit(base("proving"));
 
+    // The key is created when the redeem is about to carry it — in memory only. No device nonce at the
+    // proving challenge (an older server) ⇒ the plain redeem, no key and no extra challenge.
+    let key: DeviceKey | undefined;
+    const deviceKey: DeviceKeyProvider | undefined = proof.challenge && {
+      prove: deps.prove,
+      challenge: proof.challenge,
+      sign: async (fingerprint, deviceNonce) => {
+        key ??= (deps.generateKey ?? generateDeviceKey)();
+        return { pub: key.pub, sig: key.signDevbind(fingerprint, deviceNonce) };
+      },
+    };
     let outcome: KnockOutcome;
     try {
       outcome = await redeemPairingCode(proof.origin, target.fingerprint, payload.code, {
+        ...(deviceKey ? { deviceKey } : {}),
         signal: abort.signal,
         redirect: "manual",
         ...(deps.now ? { now: deps.now } : {}),
@@ -262,13 +294,13 @@ export function startCodePairing(target: CodePairingTarget, deps: CodePairingDep
       emit(base("unreachable", { message: `Could not reach ${target.label} to redeem the pairing code. Check that it is running and try again.` }));
       return { status: "unreachable" };
     }
-    return finish(outcome, proof, origins.filter((o) => o !== proof.origin));
+    return finish(outcome, proof, origins.filter((o) => o !== proof.origin), key);
   }
 
-  function finish(outcome: KnockOutcome, proof: { origin: string; publicKey?: string }, others: string[]): Promise<PairingResult> | PairingResult {
+  function finish(outcome: KnockOutcome, proof: Proof, others: string[], deviceKey?: DeviceKey): Promise<PairingResult> | PairingResult {
     switch (outcome.status) {
       case "approved":
-        return finishApproved(outcome, proof, others);
+        return finishApproved(outcome, proof, others, deviceKey);
       case "refused":
         return redeemRefusal(outcome);
       case "rejected":

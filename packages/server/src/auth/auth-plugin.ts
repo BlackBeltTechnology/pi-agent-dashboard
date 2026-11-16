@@ -807,6 +807,11 @@ export interface WsUpgradeAuthResult {
    * are exempt, as on REST). See change: add-passkey-user-auth.
    */
   session?: TokenPayload;
+  /**
+   * The paired device that minted the consumed ticket, when it carried one (a device-bearer REST
+   * caller). The socket is tagged with it so a revoke can close it. See change: device-key-mutual-check (D7).
+   */
+  deviceId?: string;
 }
 
 /**
@@ -853,6 +858,12 @@ export function authorizeWsUpgrade(opts: {
    * JWT. See change: add-passkey-user-auth (D4).
    */
   isSessionLive?: (payload: TokenPayload) => boolean;
+  /**
+   * Is the device a consumed ticket names still active? A ticket minted before the device was revoked
+   * is refused at upgrade (the ticket is spent either way). Absent ⇒ no check.
+   * See change: device-key-mutual-check (D7).
+   */
+  isDeviceActive?: (deviceId: string) => boolean;
 }): WsUpgradeAuthResult {
   const {
     cookieHeader,
@@ -868,7 +879,11 @@ export function authorizeWsUpgrade(opts: {
     requireIdentityTicket,
     isSessionLive,
     liveCapability,
+    isDeviceActive,
   } = opts;
+  /** A consumed ticket is usable unless it names a device that has since left the active registry. */
+  const ticketUsable = (c: { deviceId?: string }): boolean =>
+    c.deviceId === undefined || isDeviceActive === undefined || isDeviceActive(c.deviceId);
   const capability = scope === "live" ? (liveCapability ?? null) : null;
 
   // Identity-ticket-only mode (§9.2): a principal-bearing ticket is the sole
@@ -877,8 +892,13 @@ export function authorizeWsUpgrade(opts: {
   if (requireIdentityTicket) {
     if (consumeTicket && scope && ticket) {
       const consumed = consumeTicket(ticket, scope);
-      if (consumed.ok && consumed.principal) {
-        return { ok: true, principal: consumed.principal, principalExpiresAt: consumed.principalExpiresAt };
+      if (consumed.ok && consumed.principal && ticketUsable(consumed)) {
+        return {
+          ok: true,
+          principal: consumed.principal,
+          principalExpiresAt: consumed.principalExpiresAt,
+          ...(consumed.deviceId ? { deviceId: consumed.deviceId } : {}),
+        };
       }
     }
     // A live-preview capability satisfies the floor only if an identity
@@ -896,8 +916,13 @@ export function authorizeWsUpgrade(opts: {
   if (localToken && hasLocalCredential(headers)) return { ok: true };
   if (consumeTicket && scope && ticket) {
     const consumed = consumeTicket(ticket, scope);
-    if (consumed.ok) {
-      return { ok: true, principal: consumed.principal, principalExpiresAt: consumed.principalExpiresAt };
+    if (consumed.ok && ticketUsable(consumed)) {
+      return {
+        ok: true,
+        principal: consumed.principal,
+        principalExpiresAt: consumed.principalExpiresAt,
+        ...(consumed.deviceId ? { deviceId: consumed.deviceId } : {}),
+      };
     }
   }
   if (capability) {
