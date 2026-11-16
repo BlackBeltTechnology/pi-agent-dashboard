@@ -6,15 +6,32 @@
  * filesystem-root refusals, stack-detected vs. inert `worktreeInit`, and the
  * `autoSeedProjects: false` switch.
  */
+
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   configureProjectSeed,
   resetSeededRoots,
+  resolveAutoSeedEnabled,
   seedProjectDefaults,
 } from "../project-seed.js";
+
+// Pass-through spy on the git root probe, so tests can count probes.
+const probe = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", async (orig) => {
+  const mod = await orig<typeof import("@blackbelt-technology/pi-dashboard-shared/platform/git.js")>();
+  return {
+    ...mod,
+    checkoutRoots: (...args: Parameters<typeof mod.checkoutRoots>) => {
+      probe.calls++;
+      return mod.checkoutRoots(...args);
+    },
+  };
+});
 
 let tmp: string;
 
@@ -147,6 +164,38 @@ describe("seedProjectDefaults", () => {
     expect(seedProjectDefaults(file).reason).toBe("not a directory");
   });
 
+  it("refuses a bare repository (no config root) instead of writing into the git dir", () => {
+    const hub = path.join(tmp, "hub.git");
+    execFileSync("git", ["init", "--bare", "-q", hub]);
+
+    const outcome = seedProjectDefaults(hub);
+
+    expect(outcome.seeded).toBe(false);
+    expect(outcome.reason).toBe("bare repository");
+    expect(fs.existsSync(path.join(hub, ".pi"))).toBe(false);
+    expect(fs.existsSync(path.join(hub, "AGENTS.md"))).toBe(false);
+  });
+
+  it("does not re-probe git when the same directory is scheduled again", () => {
+    seedProjectDefaults(tmp);
+    const after = probe.calls;
+
+    const again = seedProjectDefaults(tmp);
+
+    expect(probe.calls).toBe(after);
+    expect(again.reason).toBe("already seeded");
+    expect(again.root).toBe(path.resolve(tmp));
+  });
+
+  it("force bypasses the directory memo", () => {
+    seedProjectDefaults(tmp);
+    const after = probe.calls;
+
+    seedProjectDefaults(tmp, { force: true });
+
+    expect(probe.calls).toBe(after + 1);
+  });
+
   it("writes nothing when autoSeedProjects is disabled", () => {
     configureProjectSeed(false);
 
@@ -154,5 +203,27 @@ describe("seedProjectDefaults", () => {
 
     expect(outcome.reason).toBe("disabled");
     expect(exists(".pi", "settings.json")).toBe(false);
+  });
+});
+
+describe("resolveAutoSeedEnabled", () => {
+  const cfgFile = () => path.join(tmp, "config.json");
+
+  it("uses the loaded config value when present", () => {
+    expect(resolveAutoSeedEnabled({ autoSeedProjects: false }, cfgFile())).toBe(false);
+    expect(resolveAutoSeedEnabled({ autoSeedProjects: true }, cfgFile())).toBe(true);
+  });
+
+  it("preserves a file opt-out when an older loader dropped the field", () => {
+    fs.writeFileSync(cfgFile(), JSON.stringify({ autoSeedProjects: false }));
+    expect(resolveAutoSeedEnabled({}, cfgFile())).toBe(false);
+  });
+
+  it("defaults to true when the field is absent, non-boolean, or the file is unreadable", () => {
+    expect(resolveAutoSeedEnabled({}, cfgFile())).toBe(true);
+    fs.writeFileSync(cfgFile(), JSON.stringify({ autoSeedProjects: "false" }));
+    expect(resolveAutoSeedEnabled({}, cfgFile())).toBe(true);
+    fs.writeFileSync(cfgFile(), "not json");
+    expect(resolveAutoSeedEnabled({}, cfgFile())).toBe(true);
   });
 });

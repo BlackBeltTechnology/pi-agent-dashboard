@@ -301,7 +301,7 @@ import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAcmeRoutes } from "./routes/acme-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
 import { registerAddonsRoutes } from "./routes/addons-routes.js";
-import { configureProjectSeed, sweepKnownProjects } from "./project-seed.js";
+import { configureProjectSeed, resolveAutoSeedEnabled, sweepKnownProjects } from "./project-seed.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCspViolationRoutes } from "./routes/csp-violations-routes.js";
@@ -761,9 +761,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // workspace folders, the same set `recognizedRoots` spans; folders learned
   // later are covered by the pin handler and bridge registration. Each dir is
   // deferred onto its own tick, so a large pin list never stalls startup.
-  configureProjectSeed(
-    (loadConfig() as DashboardConfig & { autoSeedProjects?: boolean }).autoSeedProjects ?? true,
-  );
+  configureProjectSeed(resolveAutoSeedEnabled(loadConfig(), CONFIG_FILE));
   sweepKnownProjects([
     ...preferencesStore.getPinnedDirectories(),
     ...preferencesStore.getWorkspaces().flatMap((w) => w.folders),

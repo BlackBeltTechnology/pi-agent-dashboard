@@ -45,7 +45,8 @@ import {
   planScaffold,
   scaffoldProfile,
 } from "@blackbelt-technology/pi-dashboard-extension/project-init/scaffold.js";
-import { resolveConfigRoot } from "./git-worktree/git-operations.js";
+import { checkoutRoots } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { CHECKOUT_ROOTS_TIMEOUT_MS } from "./git-worktree/git-operations.js";
 
 /** Profile seeded for every project. User-shadowable via `~/.pi/project-profiles/coding`. */
 const SEED_PROFILE_NAME = "coding";
@@ -92,6 +93,13 @@ export interface SeedProjectDefaultsOptions {
 const seededRoots = new Set<string>();
 
 /**
+ * Trigger directory → config root it resolved to (once its root was seeded or
+ * found configured). Repeat triggers for the same directory (every session
+ * registration) short-circuit here BEFORE the sync git probe.
+ */
+const resolvedDirs = new Map<string, string>();
+
+/**
  * Boot-time switch mirroring `DashboardConfig.autoSeedProjects`. Module-level
  * because the three trigger points (pin handler, session registration, boot
  * sweep) sit behind surfaces that carry no `DashboardConfig` — threading it
@@ -101,6 +109,24 @@ const seededRoots = new Set<string>();
  */
 let autoSeedEnabled = true;
 
+/**
+ * Resolve the boot switch. A worktree may resolve an OLDER shared `loadConfig`
+ * that drops `autoSeedProjects`; when the field is missing, read it straight
+ * from the config file so an explicit `false` opt-out survives. Anything other
+ * than a boolean (absent, `"false"`, unreadable file) keeps the `true` default.
+ */
+export function resolveAutoSeedEnabled(config: object, configFile: string): boolean {
+  const loaded = (config as { autoSeedProjects?: unknown }).autoSeedProjects;
+  if (typeof loaded === "boolean") return loaded;
+  try {
+    const raw = JSON.parse(fs.readFileSync(configFile, "utf8")) as { autoSeedProjects?: unknown };
+    if (typeof raw?.autoSeedProjects === "boolean") return raw.autoSeedProjects;
+  } catch {
+    // missing / unreadable config — keep the default
+  }
+  return true;
+}
+
 /** Apply `DashboardConfig.autoSeedProjects`. Called once at server boot. */
 export function configureProjectSeed(enabled: boolean): void {
   autoSeedEnabled = enabled;
@@ -109,6 +135,7 @@ export function configureProjectSeed(enabled: boolean): void {
 /** Test seam — clears the per-process memo and re-enables seeding. */
 export function resetSeededRoots(): void {
   seededRoots.clear();
+  resolvedDirs.clear();
   autoSeedEnabled = true;
 }
 
@@ -146,24 +173,18 @@ export function seedProjectDefaults(
 ): SeedOutcome {
   try {
     if (!autoSeedEnabled) return skip(null, "disabled");
-    if (!dir) return skip(null, "empty path");
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(dir);
-    } catch {
-      return skip(null, "not found");
+    const absDir = path.resolve(dir);
+    const knownRoot = resolvedDirs.get(absDir);
+    if (dir && !opts.force && knownRoot !== undefined) return skip(knownRoot, "already seeded");
+
+    const resolved = resolveSeedRoot(dir, opts.homeDir);
+    if (typeof resolved !== "string") return resolved;
+    const root = resolved;
+
+    if (!opts.force && seededRoots.has(root)) {
+      resolvedDirs.set(absDir, root);
+      return skip(root, "already seeded");
     }
-    if (!stat.isDirectory()) return skip(null, "not a directory");
-
-    // The checklist stats the CONFIG ROOT, so seed there; a bare directory that
-    // is not a git checkout seeds itself.
-    const root = path.resolve(resolveConfigRoot(dir) ?? dir);
-
-    const home = path.resolve(opts.homeDir ?? os.homedir());
-    if (root === home) return skip(root, "refusing to seed $HOME");
-    if (root === path.parse(root).root) return skip(root, "refusing to seed filesystem root");
-
-    if (!opts.force && seededRoots.has(root)) return skip(root, "already seeded");
 
     const profiles = opts.profiles ?? resolveProfiles();
     const profile = profiles.find((p) => p.name === SEED_PROFILE_NAME);
@@ -173,6 +194,7 @@ export function seedProjectDefaults(
     // overwhelmingly common case on every trigger.
     if (isFullySeeded(profile, root)) {
       seededRoots.add(root);
+      resolvedDirs.set(absDir, root);
       return skip(root, "already configured");
     }
 
@@ -187,6 +209,7 @@ export function seedProjectDefaults(
     });
 
     seededRoots.add(root);
+    resolvedDirs.set(absDir, root);
     const skippedSet = new Set(result.skipped);
     const written = result.writes.filter((p) => !skippedSet.has(p));
     return { root, seeded: written.length > 0, written, skipped: result.skipped };
@@ -195,7 +218,32 @@ export function seedProjectDefaults(
   }
 }
 
-/** True when every artifact the seed would write is already present. */
+/**
+ * Validate `dir` and resolve the config root to seed, or the refusal outcome.
+ * The checklist stats the CONFIG ROOT, so seed there; a directory that is not
+ * a git checkout seeds itself. A bare repository has NO config root — the
+ * checklist can never read files written into it, so it is refused.
+ */
+function resolveSeedRoot(dir: string, homeDir: string | undefined): string | SeedOutcome {
+  if (!dir) return skip(null, "empty path");
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(dir);
+  } catch {
+    return skip(null, "not found");
+  }
+  if (!stat.isDirectory()) return skip(null, "not a directory");
+
+  const roots = checkoutRoots({ cwd: dir, timeout: CHECKOUT_ROOTS_TIMEOUT_MS });
+  if (roots && !roots.mainCheckout) return skip(null, "bare repository");
+  const root = path.resolve(roots?.mainCheckout ?? dir);
+
+  const home = path.resolve(homeDir ?? os.homedir());
+  if (root === home) return skip(root, "refusing to seed $HOME");
+  if (root === path.parse(root).root) return skip(root, "refusing to seed filesystem root");
+  return root;
+}
+
 /**
  * True when every file the profile would write already exists — checked per
  * planned file (each prompt individually), so a partial `.pi/prompts/` or a
