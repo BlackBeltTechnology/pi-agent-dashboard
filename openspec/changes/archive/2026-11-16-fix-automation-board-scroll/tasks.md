@@ -23,9 +23,9 @@ L3 cases extend `tests/e2e/overlay-layout.spec.ts` in a new `describe("automatio
 - [x] 2.10 L3 board Back while scrolled: the 12-definition state, scroll the board to its end. `automation-board-back` is inside the panel and is the hit-test target at its centre, and clicking it leaves `/automations`. Exemplar: the occlusion probe in `tests/e2e/overlay-layout.spec.ts` F5 (test-plan #F1)
 - [x] 2.11 L3 run monitor Back while scrolled: the 200-line run state, scroll to the end. `automation-run-monitor-back` is inside the panel and is the hit-test target. Exemplar `tests/e2e/overlay-layout.spec.ts` F5 (test-plan #F2)
 - [x] 2.12 L3 create dialog reachable: open Create Automation from the board at 375x667 and at 1440x900, scroll the dialog panel to its end. The Save button is inside the viewport at both sizes; if it is not, do task 1.4's portal fix. Exemplar `tests/e2e/automation-fanout.spec.ts` (create flow) (test-plan #F3)
-- [ ] 2.13 Manual check, post-merge: on desktop and mobile, with the board scrolled mid-list, confirm the sticky `--bg-primary` header strip reads as intentional (KB parity) with no content showing through above it (test-plan: manual-only, #F4)
+- [x] 2.13 Manual check, post-merge: on desktop and mobile, with the board scrolled mid-list, confirm the sticky `--bg-primary` header strip reads as intentional (KB parity) with no content showing through above it (test-plan: manual-only, #F4)
 
 ## 3. Docs and closeout
 
 - [x] 3.1 Update the `AutomationBoard.tsx` and `AutomationRunMonitor.tsx` rows in `packages/automation-plugin/src/client/AGENTS.md` with `See change: fix-automation-board-scroll`; if a row is over the size cap, promote it to a per-file `<File>.AGENTS.md` sidecar per the dox size rule.
-- [ ] 3.2 After the PR is merged, close GitHub issue #1158 with a comment naming the merged PR number: `gh issue close 1158 --comment "Fixed by #PR_NUMBER (fix-automation-board-scroll)"`, substituting the real number.
+- [x] 3.2 After the PR is merged, close GitHub issue #1158 with a comment naming the merged PR number: `gh issue close 1158 --comment "Fixed by #PR_NUMBER (fix-automation-board-scroll)"`, substituting the real number.
