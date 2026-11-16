@@ -74,4 +74,34 @@ describe("decided-real binding", () => {
     await convertBound({ available: async () => true, toPdf: async (_p, o) => fsp.writeFile(o, "%PDF") }, target, out);
     await expect(fsp.readFile(out, "utf-8")).resolves.toBe("%PDF");
   });
+
+  it("convertBound leaves no temp file when publishing (rename) fails", async () => {
+    const target = path.join(dir, "doc.docx");
+    const out = path.join(dir, "out.pdf");
+    await fsp.writeFile(target, "orig");
+    // a non-empty directory at `out` makes the final rename fail
+    await fsp.mkdir(out);
+    await fsp.writeFile(path.join(out, "keep"), "x");
+    await expect(
+      convertBound({ available: async () => true, toPdf: async (_p, o) => fsp.writeFile(o, "%PDF") }, target, out),
+    ).rejects.toThrow();
+    expect((await fsp.readdir(dir)).filter((n) => n.endsWith(".tmp.pdf"))).toEqual([]);
+  });
+
+  it("a swap during conversion leaves a pre-existing cache entry untouched", async () => {
+    const target = path.join(dir, "doc.docx");
+    const out = path.join(dir, "out.pdf");
+    await fsp.writeFile(target, "orig");
+    await fsp.writeFile(out, "GOOD");
+    const engine = {
+      available: async () => true,
+      toPdf: async (_p: string, o: string) => {
+        await fsp.writeFile(o, "POISONED");
+        await fsp.rm(target);
+        await fsp.writeFile(target, "swapped");
+      },
+    };
+    await expect(convertBound(engine, target, out)).rejects.toBeInstanceOf(ContainmentBindingRefused);
+    await expect(fsp.readFile(out, "utf-8")).resolves.toBe("GOOD");
+  });
 });

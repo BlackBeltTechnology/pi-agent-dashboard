@@ -181,7 +181,12 @@ export async function convertBound(engine: DocxPdfEngine, real: string, out: str
     await discard();
     throw err instanceof ContainmentBindingRefused ? err : new ContainmentBindingRefused();
   }
-  await fs.rename(tmp, out);
+  try {
+    await fs.rename(tmp, out);
+  } catch (err) {
+    await discard();
+    throw err;
+  }
 }
 
 // ── docx: render (design D8) ─────────────────────────────────────────────────
@@ -209,7 +214,7 @@ export type DocxRenderMode = "pdf" | "html" | "auto";
  * DOMPurify, and applies the image cap.
  */
 export async function renderDocx(
-  resolved: string,
+  real: string,
   stat: { mtimeMs: number; size: number },
   opts: { mode: DocxRenderMode; engine: DocxPdfEngine; caps: OfficeCaps },
 ): Promise<DocxRenderResult> {
@@ -218,12 +223,12 @@ export async function renderDocx(
   if (mode !== "html") {
     try {
       if (await engine.available()) {
-        const out = pdfCachePath(resolved, stat.mtimeMs, stat.size);
+        const out = pdfCachePath(real, stat.mtimeMs, stat.size);
         await fs.mkdir(pdfCacheDir(), { recursive: true });
         try {
           await fs.access(out);
         } catch {
-          await convertBound(engine, resolved, out);
+          await convertBound(engine, real, out);
         }
         return { success: true, mode: "pdf" };
       }
@@ -234,7 +239,7 @@ export async function renderDocx(
   }
 
   try {
-    const buffer = await readFileStateChecked(resolved, undefined, { decidedReal: resolved });
+    const buffer = await readFileStateChecked(real, undefined, { decidedReal: real });
     const mammoth = (await import("mammoth")).default ?? (await import("mammoth"));
     let imageCount = 0;
     const convertImage = mammoth.images.imgElement((img: any) =>
@@ -277,18 +282,18 @@ export type PptxRenderResult =
  * `DOCKER_UNAVAILABLE` / convert failure → `{ success:false }`. Never throws.
  */
 export async function renderPptx(
-  resolved: string,
+  real: string,
   stat: { mtimeMs: number; size: number },
   opts: { engine: DocxPdfEngine },
 ): Promise<PptxRenderResult> {
   try {
     if (await opts.engine.available()) {
-      const out = pdfCachePath(resolved, stat.mtimeMs, stat.size);
+      const out = pdfCachePath(real, stat.mtimeMs, stat.size);
       await fs.mkdir(pdfCacheDir(), { recursive: true });
       try {
         await fs.access(out);
       } catch {
-        await convertBound(opts.engine, resolved, out);
+        await convertBound(opts.engine, real, out);
       }
       return { success: true, mode: "pdf" };
     }
