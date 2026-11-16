@@ -758,8 +758,12 @@ export function registerFileRoutes(
           : await openStateChecked(gate.real, "r", { decidedReal: gate.real });
         let kindResult;
         let content: string | undefined;
+        // size/mtime come from the SAME checked handle as the content, so a link retargeted after the
+        // decision can never pair A's bytes with B's mtime (the editor's optimistic-concurrency token).
+        let handleStat: import("node:fs").Stats;
         try {
-          const sniffLen = Math.min(1024, stat.size);
+          handleStat = await fh.stat();
+          const sniffLen = Math.min(1024, handleStat.size);
           const sniff = Buffer.alloc(sniffLen);
           if (sniffLen > 0) await fh.read(sniff, 0, sniffLen, 0);
           kindResult = fileKind(resolved, sniff);
@@ -779,13 +783,13 @@ export function registerFileRoutes(
             type: "file",
             kind: kindResult.kind,
             mimeType: kindResult.mimeType,
-            size: stat.size,
+            size: handleStat.size,
             // mtime drives the editor's optimistic-concurrency check on write.
             // Full precision: `/api/file/write` compares against raw `mtimeMs`,
             // so a rounded token 409s on every save on sub-ms filesystems.
             // See change: directory-settings-page-and-scoped-md-editing,
             // fix-editor-mtime-token-precision.
-            mtime: stat.mtimeMs,
+            mtime: handleStat.mtimeMs,
             ...(content !== undefined ? { content } : {}),
           },
         } satisfies ApiResponse;

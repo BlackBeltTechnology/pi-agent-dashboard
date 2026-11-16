@@ -18,6 +18,12 @@ beforeEach(() => setProbeLookupAll(async () => [{ address: "93.184.216.34", fami
 afterEach(() => setProbeLookupAll(null));
 
 describe("buildProbeRequest", () => {
+  it("a query/fragment on the Base URL never swallows the endpoint suffix", () => {
+    const req = buildProbeRequest({ baseUrl: "https://h/v1?x=1#f", apiKey: "k", api: "openai-completions" });
+    expect(req.url).toBe("https://h/v1/models");
+    expect(buildProbeRequest({ baseUrl: "https://h?x=1", apiKey: "k", api: "anthropic-messages" }).url).toBe("https://h/v1/models");
+  });
+
   it("openai-completions: GET {baseUrl}/models with Authorization: Bearer", () => {
     const req = buildProbeRequest({
       baseUrl: "https://api.example.com/v1",

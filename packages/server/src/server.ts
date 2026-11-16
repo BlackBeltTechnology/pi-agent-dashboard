@@ -3713,7 +3713,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // address. See change: close-local-listener-and-egress-gaps (NET-04).
   setProbeSelfPort(() => {
     const addr = fastify.server.address();
-    return addr && typeof addr === "object" ? addr.port : null;
+    const ports = addr && typeof addr === "object" ? [addr.port] : [];
+    const tls = loadConfig().tls; // the TLS listener is the dashboard too (same idiom as `ownPorts` above)
+    if (tls?.enabled) ports.push(tls.port);
+    return ports.length ? ports : null;
   });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
 

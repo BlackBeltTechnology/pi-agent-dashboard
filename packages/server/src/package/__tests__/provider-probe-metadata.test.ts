@@ -443,6 +443,15 @@ describe("provider egress vet", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("every dashboard listener port is refused (HTTP and TLS)", async () => {
+    setProbeSelfPort(() => [18123, 18443]);
+    setProbeLookupAll(async () => [{ address: "127.0.0.1", family: 4 }]);
+    for (const url of ["http://127.0.0.1:18123", "https://127.0.0.1:18443"]) {
+      expect(await probe(url), url).toEqual({ ok: false, error: SELF_ERR });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("own-port boundaries: neighbours, public host, elided ports, unset getter (E109)", async () => {
     setProbeLookupAll(async (h) => (h === "localhost" ? [{ address: "127.0.0.1", family: 4 }] : PUBLIC_ADDR));
     setProbeSelfPort(() => 18123);

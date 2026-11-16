@@ -454,6 +454,12 @@ describe("serve_mockup listener hardening", () => {
       }
     });
 
+    it("an omitted Host port is not accepted on a non-default bound port", async () => {
+      const { port, token } = await start();
+      expect(port).not.toBe(80);
+      expect((await raw(port, `/${token}/index.html`, { host: "localhost" })).status).toBe(421);
+    });
+
     it("check order: wrong token + evil Host is 404, not 421", async () => {
       const { port } = await start();
       expect((await raw(port, "/wrong/index.html", { host: `evil.example:${port}` })).status).toBe(404);

@@ -62,6 +62,12 @@ interface StoredProviderEntry {
 
 // -- Pure: build per-API-type probe request --------------------------------
 
+/** Drop `?query` / `#fragment` so an endpoint suffix stays part of the pathname. */
+function stripQueryAndFragment(url: string): string {
+  const cut = url.search(/[?#]/);
+  return cut === -1 ? url : url.slice(0, cut);
+}
+
 function stripTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
@@ -71,7 +77,7 @@ export function buildProbeRequest(input: {
   apiKey: string;
   api: ProbeApi;
 }): ProbeRequest {
-  const base = stripTrailingSlash(input.baseUrl);
+  const base = stripTrailingSlash(stripQueryAndFragment(input.baseUrl));
   switch (input.api) {
     case "openai-completions":
     case "openai-responses":
@@ -141,11 +147,11 @@ export function normalizeBaseUrl(raw: string): string | null {
   return `${url.protocol}//${userinfo}${url.host}${path}`;
 }
 
-let selfPortGetter: () => number | null = () => null;
+let selfPortGetter: () => readonly number[] | number | null = () => null;
 let lookupAllImpl: LookupAll = defaultLookupAll;
 
 /** Register the dashboard's own listen port (called once by `server.ts`). Unset → own-port rule skipped. */
-export function setProbeSelfPort(getter: () => number | null): void {
+export function setProbeSelfPort(getter: () => readonly number[] | number | null): void {
   selfPortGetter = getter;
 }
 
@@ -177,7 +183,7 @@ export async function vetProbeTarget(baseUrl: string, signal?: AbortSignal): Pro
   stalled.catch(() => {}); // the race below observes it; never leave it unhandled
   try {
     const vet = await Promise.race([
-      resolveAndVet(url.hostname, effectivePort(url), selfPortGetter(), lookupAllImpl, "provider"),
+      resolveAndVet(url.hostname, effectivePort(url), ownPortFor(effectivePort(url)), lookupAllImpl, "provider"),
       stalled,
     ]);
     if (!vet.ok) {
@@ -191,6 +197,14 @@ export async function vetProbeTarget(baseUrl: string, signal?: AbortSignal): Pro
   } finally {
     if (onAbort) signal?.removeEventListener("abort", onAbort);
   }
+}
+
+/** The dashboard's own listener port (HTTP or TLS) that `port` hits, else `null` — `resolveAndVet` refuses it. */
+function ownPortFor(port: number): number | null {
+  const own = selfPortGetter();
+  if (own === null) return null;
+  const ports = typeof own === "number" ? [own] : own;
+  return ports.includes(port) ? port : null;
 }
 
 // -- Pure: resolve an apiKey value (literal / $ENV / *** REDACTED) --------

@@ -88,8 +88,9 @@ function isWithin(root: string, target: string): boolean {
 
 /** Exact loopback Host forms (host part case-insensitive) carrying the bound port. */
 function isLoopbackHost(host: string | undefined, port: number): boolean {
-  const m = /^(localhost|127\.0\.0\.1|\[::1\]):(\d+)$/i.exec(host ?? "");
-  return !!m && Number(m[2]) === port;
+  const m = /^(localhost|127\.0\.0\.1|\[::1\])(?::(\d+))?$/i.exec(host ?? "");
+  // A browser drops the default port from `Host`, so an omitted port means 80.
+  return !!m && (m[2] === undefined ? port === 80 : Number(m[2]) === port);
 }
 
 /**
@@ -100,7 +101,8 @@ function isLoopbackHost(host: string | undefined, port: number): boolean {
  * the served directory).
  */
 function startStaticServer(rootDir: string, port: number, opts: { lan: boolean; token: string }): Promise<http.Server> {
-  const root = fs.realpathSync(path.resolve(rootDir));
+  // `rootDir` is the canonical root the tool already admitted against the session cwd; never re-resolve it here.
+  const root = rootDir;
   const prefix = `/${opts.token}/`;
   const send = (res: http.ServerResponse, status: number, body = ""): void => {
     res.writeHead(status, { "content-type": "text/plain" }).end(body);
