@@ -154,7 +154,7 @@ export function setProbeLookupAll(impl: LookupAll | null): void {
   lookupAllImpl = impl ?? defaultLookupAll;
 }
 
-export type ProbeVet = { ok: true } | { ok: false; error: string };
+type ProbeVet = { ok: true } | { ok: false; error: string };
 
 /**
  * Egress vet for a probe target: refuse a host that resolves to a link-local /
