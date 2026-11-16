@@ -809,7 +809,7 @@ async function scrollToEnd(scroller: Locator): Promise<ScrollProbe> {
       scrollHeight: el.scrollHeight,
       scrollWidth: el.scrollWidth,
       clientWidth: el.clientWidth,
-      atEnd: el.scrollTop + el.clientHeight >= el.scrollHeight - EPS,
+      atEnd: el.scrollTop + el.clientHeight >= el.scrollHeight - 4,
     };
   });
 }
