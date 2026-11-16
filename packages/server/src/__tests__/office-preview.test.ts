@@ -329,12 +329,12 @@ describe("office routes bind the converter + fallback read to the decided real p
     const key = await cachePathOf("a.docx");
     behaviour = async (real, out) => {
       await fsp.writeFile(out, "%PDF-POISON");
-      const realStat = fsp.stat.bind(fsp);
-      vi.spyOn(fsp, "stat").mockImplementation((async (p: Parameters<typeof fsp.stat>[0], ...rest: unknown[]) => {
-        const st = await (realStat as (...a: unknown[]) => Promise<import("node:fs").Stats>)(p, ...rest);
+      const realLstat = fsp.lstat.bind(fsp);
+      vi.spyOn(fsp, "lstat").mockImplementation((async (p: Parameters<typeof fsp.lstat>[0], ...rest: unknown[]) => {
+        const st = await (realLstat as (...a: unknown[]) => Promise<import("node:fs").Stats>)(p, ...rest);
         if (p === real) st.dev += 1;
         return st;
-      }) as typeof fsp.stat);
+      }) as typeof fsp.lstat);
     };
     const res = await pdf("a.docx");
     vi.restoreAllMocks();

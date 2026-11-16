@@ -59,8 +59,9 @@ describe("decided-real binding", () => {
       available: async () => true,
       toPdf: async (_p: string, o: string) => {
         await fsp.writeFile(o, "%PDF");
-        await fsp.rm(target);
-        await fsp.writeFile(target, "swapped-in-different-inode");
+        // new inode allocated while the old one still exists (an rm+write can reuse the inode on ext4)
+        await fsp.writeFile(`${target}.new`, "swapped-in-different-inode");
+        await fsp.rename(`${target}.new`, target);
       },
     };
     await expect(convertBound(engine, target, out)).rejects.toBeInstanceOf(ContainmentBindingRefused);
@@ -97,8 +98,8 @@ describe("decided-real binding", () => {
       available: async () => true,
       toPdf: async (_p: string, o: string) => {
         await fsp.writeFile(o, "POISONED");
-        await fsp.rm(target);
-        await fsp.writeFile(target, "swapped");
+        await fsp.writeFile(`${target}.new`, "swapped");
+        await fsp.rename(`${target}.new`, target);
       },
     };
     await expect(convertBound(engine, target, out)).rejects.toBeInstanceOf(ContainmentBindingRefused);

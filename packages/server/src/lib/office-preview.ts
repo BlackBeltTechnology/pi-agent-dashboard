@@ -163,7 +163,7 @@ export function createDefaultDocxPdfEngine(opts?: {
  * is refused with {@link ContainmentBindingRefused}. See change: close-local-listener-and-egress-gaps (D2).
  */
 export async function convertBound(engine: DocxPdfEngine, real: string, out: string): Promise<void> {
-  const before = await fs.stat(real);
+  const before = await fs.lstat(real);
   // Convert to a private temp name and publish to `out` only after the binding check passes, so a
   // discard that fails (e.g. EPERM) can never leave a poisoned file at the cache path.
   const tmp = `${out.replace(/\.pdf$/, "")}.${randomUUID()}.tmp.pdf`;
@@ -175,7 +175,7 @@ export async function convertBound(engine: DocxPdfEngine, real: string, out: str
     throw err;
   }
   try {
-    const [afterReal, after] = await Promise.all([fs.realpath(real), fs.stat(real)]);
+    const [afterReal, after] = await Promise.all([fs.realpath(real), fs.lstat(real)]);
     if (afterReal !== real || after.dev !== before.dev || after.ino !== before.ino) throw new ContainmentBindingRefused();
   } catch (err) {
     await discard();

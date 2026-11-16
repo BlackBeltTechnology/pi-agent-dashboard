@@ -458,8 +458,9 @@ describe("open bound to the decided real path, at every content site", () => {
         expect(o.body).not.toContain(MARKER);
         if (o.status === 200) expect(JSON.parse(o.body).data.content).toBe("INSIDE-BYTES");
         else {
-          expect(o.status).toBe(403);
-          expect(JSON.parse(o.body)).toMatchObject({ success: false, error: "path outside working directory" });
+          // The property is "never outside bytes"; a flip landing mid-lookup may legitimately read as not-found.
+          expect([403, 404]).toContain(o.status);
+          expect(JSON.parse(o.body)).toMatchObject({ success: false });
         }
       }
     }, 60_000);

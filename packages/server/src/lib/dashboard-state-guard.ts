@@ -447,7 +447,9 @@ export async function assertHandleBoundToDecided(
 ): Promise<void> {
   try {
     if ((await fs.realpath(p)) !== decidedReal) throw new ContainmentBindingRefused();
-    const [handleStat, realStat] = await Promise.all([fh.stat(), fs.stat(decidedReal)]);
+    // lstat, not stat: if the path flipped to a link after the realpath above, `stat` would follow it to the
+    // very file the handle already holds and the check would pass; `lstat` sees the link's own identity.
+    const [handleStat, realStat] = await Promise.all([fh.stat(), fs.lstat(decidedReal)]);
     if (handleStat.dev !== realStat.dev || handleStat.ino !== realStat.ino) throw new ContainmentBindingRefused();
   } catch (err) {
     throw err instanceof ContainmentBindingRefused ? err : new ContainmentBindingRefused();
