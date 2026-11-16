@@ -7,3 +7,5 @@ Browser `/pair` landing — phone-camera counterpart of the Electron shell `Pair
 Constant / same-origin navigation sink carries a `client-sinks: allow — <reason>` annotation. See change: harden-client-sinks.
 
 QR flow sends `...browserHolderBody()` on redeem + poll (`{holder:"browser"}` only for a cross-origin API); poll's `expiresAt` flows to `finishDevicePairing(token, expiresAt)`. See change: harden-auth-credentials.
+
+QR flow reuses the pinning challenge (`findVerifiedUrl` returns `{url, proof}`) for a `deviceKey` on `/api/pair/redeem` (keyless where unsupported/no `deviceNonce`); key pending while polling, settled on the outcome. See change: device-key-mutual-check.

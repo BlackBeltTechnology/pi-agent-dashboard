@@ -78,3 +78,31 @@ function auditActor(request: FastifyRequest): string {
 export function auditRequestFields(request: FastifyRequest): { actor: string; ip: string } {
   return { actor: auditActor(request), ip: request.ip };
 }
+
+/** Device lifecycle verbs written in the shape of the original `revoked` line. */
+export type DeviceAuditVerb = "revoked" | "restored" | "deleted" | "purged";
+
+/**
+ * `[pairing] <verb> id=<8> [actor=… ip=…]`. Pass `request` when an operator request caused it;
+ * omit it for a purge. Call after a successful change only (never on 404/409).
+ * See change: device-key-mutual-check (D6).
+ */
+export function auditDeviceEvent(verb: DeviceAuditVerb, deviceId: string, request?: FastifyRequest): void {
+  auditLine("pairing", verb, { id: auditPrefix(deviceId), ...(request ? auditRequestFields(request) : {}) });
+}
+
+/** Key-state transitions, one line each, never per answer. */
+export type KeyAuditVerb = "key_bound" | "key_replaced" | "key_ignored" | "companion_allowed" | "companion_removed";
+
+/**
+ * `[pairing] <verb> [id=<8>] key=dk:<12> [actor=… ip=…]`. `keyId` is the short `dk:` id only —
+ * never pass a public key, signature or nonce. `deviceId` may be absent (e.g. `key_ignored` at approval).
+ * See change: device-key-mutual-check (D10).
+ */
+export function auditKeyEvent(verb: KeyAuditVerb, deviceId: string | undefined, keyId: string, request?: FastifyRequest): void {
+  auditLine("pairing", verb, {
+    id: deviceId === undefined ? undefined : auditPrefix(deviceId),
+    key: keyId,
+    ...(request ? auditRequestFields(request) : {}),
+  });
+}

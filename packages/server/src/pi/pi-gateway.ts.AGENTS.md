@@ -27,3 +27,7 @@ Explicit `session_unregister` handler passes `{ endSource: "bridge_unregister" }
 `start()` stays sync `void`; bind outcome via `tcpListening(): Promise<void>` (#978) — resolves on `listening` (or at once when no TCP start), rejects on bind `error` (tears down wss, clears `tcpKind`); pre-handled so an unobserved failure raises no unhandled rejection. Post-bind TCP errors logged `[pi-gateway] TCP listener error`. `startLoopbackFallback` awaits the same `startTcp` promise.
 
 Pid-target gating. Sanitises provisional `pidNamespace`; forwards it on direct + committed register. `carrierLossReason()` resolves pid target before `classifyCarrierLoss` (4 callers). Register target gates same-pid contention (`pidTargets`) and watchdog `clearByPid` (skipped for non-local; cwd tier kept). Options `pidContext`, `carrierLossKill`. See change: scope-pids-to-namespace.
+
+## device-key-mutual-check (D7)
+
+`PiGateway.closeDeviceSockets(deviceId)` closes every open bridge socket admitted under that ticket device with 4401 / `device revoked` (per-socket `socketDeviceIds` WeakMap set from `upgradeDeviceId` in the connection handler); returns the count. `server.ts` calls it from `registry.onRevoked`. See change: device-key-mutual-check.

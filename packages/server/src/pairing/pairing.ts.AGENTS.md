@@ -13,3 +13,7 @@ Knock surface. `knock()` admits a LAN request as a pending device; `liveKnocks()
 `INVISIBLE_OR_SEPARATOR` moved to `shared/src/terminal-safe.ts` (imported here; behaviour unchanged). See change: fix-pairing-approval-credential.
 
 `RedeemMeta.holder` (redeem + knock body) and `poll(pendingId, holder?)`: only exact `"browser"` counts; `PendingDevice.browserHolder`/`deviceId`; `approve` passes holder to `registry.add`; late poll declaration converts the uncollected row via `registry.browserExpiryFor`. `PollResult.approved` gains `expiresAt?` (epoch ms, expiring rows only). See change: harden-auth-credentials.
+
+## device-key-mutual-check (D3, D5)
+
+`RedeemMeta` gains `deviceKey?` (verified raw pub) and `companion?{pub,origin}`; verification is the route's job (`device-key-intake.ts`). `PendingDevice` holds both; a companion equal to the key is dropped; cleared on approve / deny / lockout. `PendingDeviceView` gains `keyId?` (`dk:`+12), `companionOrigin?` (`storedCompanionOrigin`, plain text), `companionId?`; NEVER a pub. `approve(code, typed, label?, tier?, {allowCompanion?})` and `approvePending(id, typed, label?, tier?, opts?)`: key passes to `registry.add({key})` (held meanwhile → dropped, pairing keyless); companion only when `allowCompanion === true` (default false). `ApproveResult` ok gains `keys?: ApprovedKeys {key?{id,bound}, companion?{id,allowed}}` for the route's audit lines (response body unchanged). Exports `ApprovedKeys`, `ApproveOptions`. Tests: `__tests__/pairing-device-keys.test.ts`. See change: device-key-mutual-check.

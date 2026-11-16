@@ -6,7 +6,9 @@ import nodeCrypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { base64urlToBytes, devbindMessage, rawEd25519PubToSpki } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { generateDeviceKey } from "../device-key.js";
 import type { ConnectingState } from "../pairing-client.js";
 import type { DiscoveredEntry } from "../server-discovery.js";
 import { loadKeyring, type ServerKeyring } from "../server-keyring.js";
@@ -14,6 +16,7 @@ import {
   classifyExchange,
   composeTitle,
   createServerWindows,
+  deviceNote,
   isLoopbackHost,
   isServerWindowPermissionAllowed,
   parseManualUrl,
@@ -150,7 +153,15 @@ interface Rig {
   ifaces: { value: Record<string, unknown[]> };
   local: { value: string | "none" | undefined };
   codeSessions: Array<{ submitCode: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; resolve: (r: unknown) => void }>;
+  /** device-key-mutual-check: scripted device-status / device-key answers + every request made with them. */
+  devFetch: ReturnType<typeof vi.fn>;
+  status: { reply: unknown | "throw" | "http500" };
+  bind: { status: number | "throw" };
+  nonce: { value: string | undefined };
+  deviceChanged: ReturnType<typeof vi.fn>;
 }
+const NONCE = `${"n".repeat(42)}A`;
+const PAIRED_FULL = { status: "paired", scope: "full", tier: "operate" };
 
 let dir: string;
 let rig: Rig;
@@ -161,11 +172,25 @@ function makeRig(opts: { encrypt?: boolean } = {}): Rig {
   const sessions = new Map<string, FakeSession>();
   const windows: FakeWindow[] = [];
   const provenBy = new Map<string, string | "unreachable" | "badsig">([[ORIGIN, F]]);
+  const nonce: Rig["nonce"] = { value: NONCE };
   const prove = vi.fn(async (origin: string) => {
     const v = provenBy.get(origin) ?? "unreachable";
     if (v === "unreachable") return { refused: "challenge failed" };
     if (v === "badsig") return { refused: "signature invalid", identityFailure: true as const };
-    return { proven: v };
+    return { proven: v, ...(nonce.value ? { deviceNonce: nonce.value } : {}) };
+  });
+  const status: Rig["status"] = { reply: PAIRED_FULL };
+  // Default: the server refuses a bind, so entries made keyless by a test stay keyless; X5 tests answer 200 explicitly.
+  const bind: Rig["bind"] = { status: 500 };
+  const deviceChanged = vi.fn();
+  const devFetch = vi.fn(async (url: string, _init?: unknown) => {
+    if (String(url).endsWith("/api/pair/device-key")) {
+      if (bind.status === "throw") throw new Error("ECONNRESET");
+      return new Response(JSON.stringify({ success: bind.status === 200 }), { status: bind.status });
+    }
+    if (status.reply === "throw") throw new Error("ECONNRESET");
+    if (status.reply === "http500") return new Response("{}", { status: 500 });
+    return new Response(JSON.stringify(status.reply), { status: 200 });
   });
   const external: string[] = [];
   const notices: Array<[string, string]> = [];
@@ -235,11 +260,13 @@ function makeRig(opts: { encrypt?: boolean } = {}): Rig {
     interfaces: () => ifaces.value as never,
     ports,
     prove,
+    fetch: devFetch as never,
+    onDeviceChange: deviceChanged,
     log: (l) => logs.push(l),
     startPairing: startPairing as never,
     startCodePairing: startCodePairing as never,
   });
-  return { keyring, sw, windows, sessions, prove, provenBy, external, notices, askNeedsPairing, connectingOpened, adverts, discovered, bounds, logs, resume, startPairing, startCodePairing, lookup, lookupTable, ifaces, local, codeSessions };
+  return { keyring, sw, windows, sessions, prove, provenBy, external, notices, askNeedsPairing, connectingOpened, adverts, discovered, bounds, logs, resume, startPairing, startCodePairing, lookup, lookupTable, ifaces, local, codeSessions, devFetch, status, bind, nonce, deviceChanged };
 }
 
 const pairHome = (r: Rig) =>
@@ -473,9 +500,9 @@ describe("credential exchange outcomes (E26/X4/X9)", () => {
     expect(rig.askNeedsPairing).not.toHaveBeenCalled();
   });
 
-  it("X4: exchange refused (403 network_not_allowed) ⇒ needs pairing, no load, ONE dialog with Pair again/Forget", async () => {
+  it("X4: exchange refused (401, keyless entry) ⇒ needs pairing, no load, ONE dialog with Pair again/Forget", async () => {
     const part = partitionOfKeyring(rig);
-    rig.sessions.set(part, Object.assign(new FakeSession(), { exchange: { status: 403, body: { error: "network_not_allowed" } } }));
+    rig.sessions.set(part, Object.assign(new FakeSession(), { exchange: { status: 401 } }));
     const r = await (async () => {
       const p = rig.sw.open(F, { notify: true });
       await flush();
@@ -621,7 +648,7 @@ describe("runtime credential re-check (E27–E29)", () => {
 
   it("E29 refused re-check unpairs once: needs pairing, bearer gone, cookie removed, dialog exactly once", async () => {
     await rig.sw.open(F);
-    ses(rig).exchange = { status: 403, body: { error: "network_not_allowed" } };
+    ses(rig).exchange = { status: 401 };
     vi.setSystemTime(1000);
     completed(rig, 403);
     await flush();
@@ -1226,5 +1253,599 @@ describe("observability without secrets (#X5)", () => {
     expect(all).not.toContain(BEARER);
     expect(all).not.toContain("pi_dash_device");
     expect(all).not.toMatch(/\b\d{8}\b/); // no 8-digit pairing code
+  });
+});
+
+// ── device-key-mutual-check: refused exchange × device check, key-pending bind (X5–X9, X20, X21) ──
+
+const keyHome = (r: Rig, key = generateDeviceKey()) => {
+  r.keyring.savePaired({ fingerprint: F, label: "home-imac", host: { scheme: "http", host: "192.168.16.204", port: 8000 }, bearer: BEARER, pinnedPubkey: "PUB", deviceKey: key });
+  return key;
+};
+const partitionFor = (fp: string) => `persist:server-${nodeCrypto.createHash("sha256").update(fp).digest("hex").slice(0, 32)}`;
+const scriptExchange = (r: Rig, exchange: FakeSession["exchange"], fp = F): FakeSession => {
+  const s = Object.assign(new FakeSession(), { exchange });
+  r.sessions.set(partitionFor(fp), s);
+  return s;
+};
+const keyringText = () => fs.readFileSync(path.join(dir, "server-keyring.json"), "utf8");
+const NNA = { status: 403, body: { error: "network_not_allowed" } } as const;
+const statusUrls = (r: Rig) => r.devFetch.mock.calls.map((c) => String(c[0])).filter((u) => u.endsWith("/api/pair/device-status"));
+const openF = async (r: Rig, fp = F) => {
+  const p = r.sw.open(fp, { notify: true });
+  await flush();
+  return p;
+};
+
+describe("X6/X20: refused exchange × device check (key held)", () => {
+  beforeEach(() => {
+    rig = makeRig();
+    keyHome(rig);
+  });
+
+  it.each([
+    ["401", { status: 401 }],
+    ["403 network_not_allowed", NNA],
+  ])("revoked + %s ⇒ Access removed: bearer and key kept, nothing loaded, Pair again / Forget offered", async (_n, ex) => {
+    const key = rig.keyring.deviceKeyFor(F)!;
+    const s = scriptExchange(rig, ex);
+    rig.status.reply = { status: "revoked" };
+    const before = keyringText();
+    expect(await openF(rig)).toEqual({ ok: false, reason: "needs_pairing" });
+    expect(rig.windows).toHaveLength(0);
+    expect(keyringText()).toBe(before);
+    expect(rig.keyring.bearerFor(F)).toBe(BEARER);
+    expect(rig.keyring.deviceKeyFor(F)?.pub).toBe(key.pub);
+    expect(s.cookiesRemoved).toEqual([]);
+    expect(rig.askNeedsPairing).toHaveBeenCalledTimes(1);
+    expect(rig.askNeedsPairing).toHaveBeenCalledWith("home-imac", "access-removed");
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "access-removed" });
+    expect(statusUrls(rig)).toEqual([`${ORIGIN}/api/pair/device-status`]);
+  });
+
+  it("the device-status body carries a devcheck signature over the fresh challenge's nonce", async () => {
+    scriptExchange(rig, { status: 401 });
+    rig.status.reply = { status: "revoked" };
+    await openF(rig);
+    const call = rig.devFetch.mock.calls.find((c) => String(c[0]).endsWith("/device-status"))!;
+    const body = JSON.parse((call[1] as { body: string }).body);
+    expect(body).toMatchObject({ deviceNonce: NONCE, pub: rig.keyring.deviceKeyFor(F)!.pub });
+    expect(body.sig).toBe(rig.keyring.deviceKeyFor(F)!.signDevcheck(F, NONCE));
+  });
+
+  it("paired + 403 network_not_allowed ⇒ display-only 'network not allowed': nothing written, nothing discarded, nothing loaded", async () => {
+    const s = scriptExchange(rig, NNA);
+    rig.status.reply = PAIRED_FULL;
+    const before = keyringText();
+    const r = await openF(rig);
+    expect(r).toEqual({ ok: false, reason: "unreachable" });
+    expect(rig.notices[0]?.[1]).toMatch(/network not allowed/i);
+    expect(rig.windows).toHaveLength(0);
+    expect(keyringText()).toBe(before);
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: false, keyHeld: true });
+    expect(rig.keyring.bearerFor(F)).toBe(BEARER);
+    expect(s.cookiesRemoved).toEqual([]);
+    expect(rig.askNeedsPairing).not.toHaveBeenCalled();
+    expect(rig.sw.deviceView(F)).toMatchObject({ networkNotAllowed: true });
+    // the next open runs the exchange and the check again
+    await openF(rig);
+    expect(s.fetchCalls).toHaveLength(2);
+    expect(statusUrls(rig)).toHaveLength(2);
+  });
+
+  it("paired + 401 ⇒ the open fails 'could not confirm, nothing changed'; keyring and state unchanged", async () => {
+    const s = scriptExchange(rig, { status: 401 });
+    rig.status.reply = PAIRED_FULL;
+    const before = keyringText();
+    expect(await openF(rig)).toEqual({ ok: false, reason: "unreachable" });
+    expect(rig.notices[0]?.[1]).toMatch(/could not confirm/i);
+    expect(rig.notices[0]?.[1]).toMatch(/nothing was changed/i);
+    expect(keyringText()).toBe(before);
+    expect(rig.keyring.bearerFor(F)).toBe(BEARER);
+    expect(s.cookiesRemoved).toEqual([]);
+    expect(rig.askNeedsPairing).not.toHaveBeenCalled();
+    expect(rig.sw.deviceView(F)?.networkNotAllowed).toBeUndefined();
+  });
+
+  it.each([
+    ["401", { status: 401 }],
+    ["403 network_not_allowed", NNA],
+  ])("unknown + %s ⇒ needs pairing: bearer, key and device cookie discarded, offered once", async (_n, ex) => {
+    const s = scriptExchange(rig, ex);
+    rig.status.reply = { status: "unknown" };
+    expect(await openF(rig)).toEqual({ ok: false, reason: "needs_pairing" });
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: true, keyHeld: false, pinnedPubkey: "PUB" });
+    expect(rig.keyring.bearerFor(F)).toBeNull();
+    expect(rig.keyring.deviceKeyFor(F)).toBeNull();
+    expect(s.cookiesRemoved).toEqual([[`${ORIGIN}/api/`, "pi_dash_device"]]);
+    expect(rig.askNeedsPairing).toHaveBeenCalledTimes(1);
+    expect(rig.windows).toHaveLength(0);
+  });
+
+  it.each([
+    ["401 bearer_expired", { status: 401, body: { error: "bearer_expired" } }],
+    ["403 network_not_allowed", NNA],
+  ])("expired + %s ⇒ needs pairing with the reason 'Access expired'; bearer, key and cookie discarded; offered once", async (_n, ex) => {
+    const s = scriptExchange(rig, ex);
+    rig.status.reply = { status: "expired" };
+    expect(await openF(rig)).toEqual({ ok: false, reason: "needs_pairing" });
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: true, keyHeld: false });
+    expect(rig.keyring.bearerFor(F)).toBeNull();
+    expect(s.cookiesRemoved).toEqual([[`${ORIGIN}/api/`, "pi_dash_device"]]);
+    expect(rig.askNeedsPairing).toHaveBeenCalledTimes(1);
+    expect(rig.askNeedsPairing).toHaveBeenCalledWith("home-imac", "access-expired");
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "access-expired" });
+  });
+
+  it("exchange ok + expired ⇒ nothing discarded, the window loads", async () => {
+    scriptExchange(rig, { status: 200 });
+    rig.status.reply = { status: "expired" };
+    const before = keyringText();
+    expect(await openF(rig)).toEqual({ ok: true });
+    await flush();
+    expect(win(rig).loaded).toEqual([`${ORIGIN}/`]);
+    expect(keyringText()).toBe(before);
+    expect(rig.askNeedsPairing).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["unverified", "unverified"],
+    ["http 500", "http500"],
+    ["no answer", "throw"],
+  ] as const)("inconclusive check (%s) ⇒ 'could not confirm', nothing discarded or stored; the next open re-runs exchange and check", async (_n, reply) => {
+    const s = scriptExchange(rig, { status: 401 });
+    rig.status.reply = reply === "unverified" ? { status: "unverified" } : reply;
+    const before = keyringText();
+    expect(await openF(rig)).toEqual({ ok: false, reason: "unreachable" });
+    expect(rig.notices[0]?.[1]).toMatch(/could not confirm/i);
+    expect(keyringText()).toBe(before);
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: false, keyHeld: true });
+    expect(s.cookiesRemoved).toEqual([]);
+    expect(rig.askNeedsPairing).not.toHaveBeenCalled();
+    rig.status.reply = { status: "revoked" };
+    await openF(rig);
+    expect(s.fetchCalls).toHaveLength(2);
+    expect(statusUrls(rig)).toHaveLength(2);
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "access-removed" });
+  });
+
+  it("an older server (no deviceNonce in the challenge) ⇒ no device-status request, the open fails 'could not confirm'", async () => {
+    scriptExchange(rig, { status: 401 });
+    rig.nonce.value = undefined;
+    expect(await openF(rig)).toEqual({ ok: false, reason: "unreachable" });
+    expect(statusUrls(rig)).toEqual([]);
+    expect(rig.keyring.bearerFor(F)).toBe(BEARER);
+  });
+
+  it("an open window: 401 ⇒ re-run exchange refused ⇒ revoked ⇒ Access removed, credential kept, offered once", async () => {
+    await openF(rig);
+    await flush();
+    const s = ses(rig);
+    s.exchange = { status: 401 };
+    rig.status.reply = { status: "revoked" };
+    vi.setSystemTime(1000);
+    s.onCompleted!({ statusCode: 401, url: `${ORIGIN}/api/x` });
+    await flush();
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: false, keyHeld: true });
+    expect(rig.keyring.bearerFor(F)).toBe(BEARER);
+    expect(rig.askNeedsPairing).toHaveBeenCalledWith("home-imac", "access-removed");
+    expect(rig.askNeedsPairing).toHaveBeenCalledTimes(1);
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "access-removed" });
+  });
+
+  it("an open window: refused + unknown ⇒ needs pairing, credential discarded", async () => {
+    await openF(rig);
+    await flush();
+    const s = ses(rig);
+    s.exchange = NNA;
+    rig.status.reply = { status: "unknown" };
+    vi.setSystemTime(1000);
+    s.onCompleted!({ statusCode: 403, url: `${ORIGIN}/api/x` });
+    await flush();
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: true, keyHeld: false });
+    expect(rig.keyring.bearerFor(F)).toBeNull();
+    expect(s.cookiesRemoved).toEqual([[`${ORIGIN}/api/`, "pi_dash_device"]]);
+  });
+});
+
+describe("X7: keyless entries, non-refusals, tier refusal", () => {
+  it("keyless + 401 ⇒ needs pairing, bearer discarded; no device-status request", async () => {
+    const s = scriptExchange(rig, { status: 401 });
+    expect(await openF(rig)).toEqual({ ok: false, reason: "needs_pairing" });
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: true });
+    expect(rig.keyring.bearerFor(F)).toBeNull();
+    expect(s.cookiesRemoved).toHaveLength(1);
+    expect(statusUrls(rig)).toEqual([]);
+    expect(rig.askNeedsPairing).toHaveBeenCalledTimes(1);
+  });
+
+  it("keyless + 403 network_not_allowed ⇒ bearer kept, 'network not allowed', Pair again offered, nothing loaded", async () => {
+    const s = scriptExchange(rig, NNA);
+    const before = keyringText();
+    expect(await openF(rig)).toEqual({ ok: false, reason: "unreachable" });
+    expect(rig.windows).toHaveLength(0);
+    expect(rig.keyring.bearerFor(F)).toBe(BEARER);
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: false });
+    expect(keyringText()).toBe(before);
+    expect(s.cookiesRemoved).toEqual([]);
+    expect(rig.askNeedsPairing).toHaveBeenCalledTimes(1);
+    expect(rig.askNeedsPairing).toHaveBeenCalledWith("home-imac", "network-not-allowed");
+    expect(rig.sw.deviceView(F)).toMatchObject({ networkNotAllowed: true });
+    expect(statusUrls(rig)).toEqual([]);
+  });
+
+  it("keyless 403 network_not_allowed ⇒ choosing Pair again starts pairing", async () => {
+    scriptExchange(rig, NNA);
+    rig.askNeedsPairing.mockResolvedValueOnce("pair-again");
+    await openF(rig);
+    await flush();
+    expect(rig.startPairing).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["403 insufficient_scope", { status: 403, body: { error: "insufficient_scope" } }],
+    ["403 host_not_allowed", { status: 403, body: { error: "host_not_allowed" } }],
+    ["timeout / transport failure", "throw" as const],
+    ["500", { status: 500 }],
+  ])("keyed + %s ⇒ nothing discarded, reported unreachable, no device check", async (_n, ex) => {
+    keyHome(rig);
+    const s = scriptExchange(rig, ex);
+    const before = keyringText();
+    expect(await openF(rig)).toEqual({ ok: false, reason: "unreachable" });
+    expect(rig.notices[0]?.[1]).toMatch(/unreachable/);
+    expect(keyringText()).toBe(before);
+    expect(s.cookiesRemoved).toEqual([]);
+    expect(statusUrls(rig)).toEqual([]);
+    expect(rig.askNeedsPairing).not.toHaveBeenCalled();
+  });
+
+  it("tier refusal in an open window with a succeeding re-exchange ⇒ stays Paired, no reload, no device check", async () => {
+    keyHome(rig);
+    await openF(rig);
+    await flush();
+    const loaded = win(rig).loaded.length;
+    const checks = statusUrls(rig).length;
+    vi.setSystemTime(1000);
+    ses(rig).onCompleted!({ statusCode: 403, url: `${ORIGIN}/api/x` });
+    await flush();
+    expect(ses(rig).fetchCalls).toHaveLength(2);
+    expect(win(rig).loaded.length).toBe(loaded);
+    expect(statusUrls(rig)).toHaveLength(checks);
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: false });
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "paired", tier: "operate" });
+  });
+});
+
+describe("X8: re-check exchange rate limit (key held, two windows)", () => {
+  it("ten 401s in a minute ⇒ one exchange; none at 4:59; one at 5:01; the second window has its own budget; no reload", async () => {
+    keyHome(rig);
+    rig.keyring.savePaired({ fingerprint: G, label: "work", host: { scheme: "http", host: "192.168.16.77", port: 8000 }, bearer: "B2", deviceKey: generateDeviceKey() });
+    const GORIGIN = "http://192.168.16.77:8000";
+    rig.provenBy.set(GORIGIN, G);
+    await openF(rig, F);
+    await openF(rig, G);
+    await flush();
+    const sf = rig.sessions.get(partitionFor(F))!;
+    const sg = rig.sessions.get(partitionFor(G))!;
+    const wf = rig.windows.find((w) => w.options.webPreferences.partition === partitionFor(F))!;
+    const loaded = wf.loaded.length;
+    const exchanges = (s: FakeSession) => s.fetchCalls.length - 1;
+    for (let t = 0; t < 10; t++) {
+      vi.setSystemTime(t * 6000);
+      sf.onCompleted!({ statusCode: 401, url: `${ORIGIN}/api/x` });
+      await flush();
+    }
+    expect(exchanges(sf)).toBe(1);
+    expect(exchanges(sg)).toBe(0);
+    vi.setSystemTime(299_000);
+    sf.onCompleted!({ statusCode: 401, url: `${ORIGIN}/api/x` });
+    await flush();
+    expect(exchanges(sf)).toBe(1);
+    vi.setSystemTime(301_000);
+    sf.onCompleted!({ statusCode: 401, url: `${ORIGIN}/api/x` });
+    await flush();
+    expect(exchanges(sf)).toBe(2);
+    sg.onCompleted!({ statusCode: 401, url: `${GORIGIN}/api/x` });
+    await flush();
+    expect(exchanges(sg)).toBe(1);
+    expect(wf.loaded.length).toBe(loaded);
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: false });
+    expect(rig.askNeedsPairing).not.toHaveBeenCalled();
+  });
+});
+
+describe("X9: Access removed — transitions and re-pairing", () => {
+  beforeEach(() => {
+    rig = makeRig();
+    keyHome(rig);
+  });
+  const removeAccess = async () => {
+    scriptExchange(rig, { status: 401 });
+    rig.status.reply = { status: "revoked" };
+    await openF(rig);
+    rig.askNeedsPairing.mockClear();
+  };
+
+  it("operator undo: check paired + exchange ok ⇒ Paired, no pairing needed, window loads", async () => {
+    await removeAccess();
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "access-removed" });
+    scriptExchange(rig, { status: 200 });
+    rig.status.reply = { status: "paired", scope: "full", tier: "control" };
+    expect(await openF(rig)).toEqual({ ok: true });
+    await flush();
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "paired", tier: "control" });
+    expect(rig.startPairing).not.toHaveBeenCalled();
+    expect(rig.keyring.bearerFor(F)).toBe(BEARER);
+  });
+
+  it("`unknown` alone (exchange ok) discards nothing", async () => {
+    await removeAccess();
+    scriptExchange(rig, { status: 200 });
+    rig.status.reply = { status: "unknown" };
+    await openF(rig);
+    await flush();
+    expect(rig.keyring.bearerFor(F)).toBe(BEARER);
+    expect(rig.keyring.deviceKeyFor(F)).not.toBeNull();
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: false });
+  });
+
+  it("an Access-removed entry whose check now answers `expired` alone is unchanged", async () => {
+    await removeAccess();
+    const before = keyringText();
+    scriptExchange(rig, { status: 200 });
+    rig.status.reply = { status: "expired" };
+    await openF(rig);
+    await flush();
+    expect(keyringText()).toBe(before);
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "access-removed" });
+  });
+
+  it("refused exchange + unknown ⇒ needs pairing, bearer and key discarded", async () => {
+    await removeAccess();
+    rig.status.reply = { status: "unknown" };
+    await openF(rig);
+    expect(rig.keyring.get(F)).toMatchObject({ needsPairing: true, keyHeld: false });
+    expect(rig.keyring.bearerFor(F)).toBeNull();
+    expect(rig.askNeedsPairing).toHaveBeenCalledTimes(1);
+  });
+
+  it("Pair again from Access removed starts pairing; the approval replaces the key with a new one and clears the state", async () => {
+    const old = rig.keyring.deviceKeyFor(F)!;
+    scriptExchange(rig, { status: 401 });
+    rig.status.reply = { status: "revoked" };
+    rig.askNeedsPairing.mockResolvedValueOnce("pair-again");
+    let approve!: (r: unknown) => void;
+    rig.startPairing.mockImplementationOnce(((_t: unknown, d: { keyring: ServerKeyring }) => {
+      // The pairing client persists the new entry on approval, before it resolves `done`.
+      const done = new Promise((resolve) => {
+        approve = (r) => {
+          d.keyring.savePaired({ fingerprint: F, label: "home-imac", host: { scheme: "http", host: "192.168.16.204", port: 8000 }, bearer: "B2", deviceKey: generateDeviceKey() });
+          resolve(r);
+        };
+      });
+      return { send: vi.fn(), stop: vi.fn(), done };
+    }) as never);
+    await openF(rig);
+    await flush();
+    expect(rig.startPairing).toHaveBeenCalledTimes(1);
+    expect((rig.startPairing.mock.calls[0]![0] as { pinnedFp?: string }).pinnedFp).toBe(F);
+    // the old key is still the one held until the approval
+    expect(rig.keyring.deviceKeyFor(F)?.pub).toBe(old.pub);
+    scriptExchange(rig, { status: 200 });
+    rig.status.reply = { status: "paired", scope: "full", tier: "operate" };
+    approve({ status: "approved", fingerprint: F });
+    await flush();
+    expect(rig.keyring.deviceKeyFor(F)!.pub).not.toBe(old.pub);
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "paired", tier: "operate" });
+  });
+});
+
+describe("X21: the check goes only to the address that proved the pin", () => {
+  it("http name resolving to this machine and to the server: the check (challenge nonce + device-status) goes to the proving literal only", async () => {
+    rig = freshRig({ scheme: "http", host: NAME, port: 8000 });
+    keyHome(rig);
+    rig.keyring.savePaired({ fingerprint: F, label: "home-imac", host: { scheme: "http", host: NAME, port: 8000 }, bearer: BEARER, pinnedPubkey: "PUB", deviceKey: rig.keyring.deviceKeyFor(F) ?? generateDeviceKey() });
+    rig.local.value = L;
+    rig.lookupTable.set(NAME, [OWN_BRIDGE, B_HOST]);
+    rig.provenBy.set(OWN, L);
+    rig.provenBy.set(B, F);
+    const s = scriptExchange(rig, { status: 401 });
+    rig.status.reply = { status: "revoked" };
+    await openF(rig);
+    expect(s.fetchCalls.map((c) => c.url)).toEqual([`${B}/api/device-session`]);
+    expect(statusUrls(rig)).toEqual([`${B}/api/pair/device-status`]);
+    expect(rig.devFetch.mock.calls.every((c) => String(c[0]).startsWith(`${B}/`))).toBe(true);
+    expect(rig.prove.mock.calls.at(-1)![0]).toBe(B);
+    expect(rig.prove.mock.calls.some((c) => String(c[0]).includes(NAME))).toBe(false);
+  });
+
+  it("an https host keeps its name for the check", async () => {
+    rig = freshRig({ scheme: "https", host: "studio.example", port: 443 });
+    rig.keyring.savePaired({ fingerprint: F, label: "home-imac", host: { scheme: "https", host: "studio.example", port: 443 }, bearer: BEARER, pinnedPubkey: "PUB", deviceKey: generateDeviceKey() });
+    rig.provenBy.set("https://studio.example:443", F);
+    scriptExchange(rig, { status: 401 });
+    rig.status.reply = { status: "revoked" };
+    await openF(rig);
+    expect(statusUrls(rig)).toEqual(["https://studio.example:443/api/pair/device-status"]);
+  });
+
+  it("no literal proves the pin ⇒ no exchange, no device request of any kind", async () => {
+    rig = freshRig({ scheme: "http", host: NAME, port: 8000 });
+    rig.keyring.savePaired({ fingerprint: F, label: "home-imac", host: { scheme: "http", host: NAME, port: 8000 }, bearer: BEARER, pinnedPubkey: "PUB", deviceKey: generateDeviceKey() });
+    rig.lookupTable.set(NAME, [B_HOST, OWN_BRIDGE]);
+    rig.provenBy.set(B, G);
+    rig.provenBy.set(OWN, G);
+    const s = scriptExchange(rig, { status: 401 });
+    const r = await openF(rig);
+    expect(r.ok).toBe(false);
+    expect(rig.devFetch).not.toHaveBeenCalled();
+    expect(s.fetchCalls).toEqual([]);
+  });
+
+  it("the check re-proves the identity at that literal: an impostor answering the second challenge gets nothing", async () => {
+    keyHome(rig);
+    scriptExchange(rig, { status: 401 });
+    let n = 0;
+    rig.prove.mockImplementation(async () => (++n === 1 ? { proven: F, deviceNonce: NONCE } : { proven: G, deviceNonce: NONCE }));
+    expect(await openF(rig)).toEqual({ ok: false, reason: "unreachable" });
+    expect(rig.devFetch).not.toHaveBeenCalled();
+    expect(rig.keyring.bearerFor(F)).toBe(BEARER);
+  });
+});
+
+describe("X5: key-pending bind (Electron main)", () => {
+  const bindCalls = (r: Rig) => r.devFetch.mock.calls.filter((c) => String(c[0]).endsWith("/api/pair/device-key"));
+
+  it("credential and no key: one bind per app start at the proven literal; the key is stored only on 200", async () => {
+    rig.bind.status = 200;
+    scriptExchange(rig, { status: 200 });
+    await openF(rig);
+    await flush();
+    expect(bindCalls(rig)).toHaveLength(1);
+    const [url, init] = bindCalls(rig)[0]! as [string, { method: string; headers: Record<string, string>; body: string }];
+    expect(url).toBe(`${ORIGIN}/api/pair/device-key`);
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe(`Bearer ${BEARER}`);
+    const body = JSON.parse(init.body);
+    expect(body.deviceNonce).toBe(NONCE);
+    const stored = rig.keyring.deviceKeyFor(F)!;
+    expect(stored.pub).toBe(body.pub);
+    expect(
+      nodeCrypto.verify(
+        null,
+        Buffer.from(devbindMessage(F, NONCE)),
+        nodeCrypto.createPublicKey({ key: Buffer.from(rawEd25519PubToSpki(base64urlToBytes(body.pub))), format: "der", type: "spki" }),
+        Buffer.from(base64urlToBytes(body.sig)),
+      ),
+    ).toBe(true);
+    expect(rig.keyring.get(F)).toMatchObject({ keyHeld: true, needsPairing: false });
+    // reopening in the same app run never binds again
+    win(rig).close();
+    await openF(rig);
+    await flush();
+    expect(bindCalls(rig)).toHaveLength(1);
+  });
+
+  it.each([
+    ["500", 500],
+    ["409 key_held", 409],
+    ["400", 400],
+    ["401", 401],
+    ["network error", "throw" as const],
+  ])("a failed bind (%s) stores nothing and is not retried in this run; the next start tries once more", async (_n, st) => {
+    scriptExchange(rig, { status: 200 });
+    rig.bind.status = st;
+    await openF(rig);
+    await flush();
+    expect(bindCalls(rig)).toHaveLength(1);
+    expect(rig.keyring.get(F)).toMatchObject({ keyHeld: false });
+    win(rig).close();
+    await openF(rig);
+    await flush();
+    vi.advanceTimersByTime(10 * 60_000);
+    await flush();
+    expect(bindCalls(rig)).toHaveLength(1);
+    // next app start: a fresh instance over the same keyring file
+    const next = makeRig();
+    next.sessions.set(partitionFor(F), Object.assign(new FakeSession(), { exchange: { status: 200 } }));
+    await openF(next);
+    await flush();
+    expect(bindCalls(next)).toHaveLength(1);
+  });
+
+  it("an entry that already holds a key never binds", async () => {
+    rig = makeRig();
+    keyHome(rig);
+    scriptExchange(rig, { status: 200 });
+    await openF(rig);
+    await flush();
+    expect(bindCalls(rig)).toEqual([]);
+  });
+
+  it("a refused exchange never binds", async () => {
+    scriptExchange(rig, { status: 401 });
+    await openF(rig);
+    await flush();
+    expect(bindCalls(rig)).toEqual([]);
+  });
+
+  it("the bind (challenge + request) goes only to the literal that proved the pin", async () => {
+    rig = freshRig({ scheme: "http", host: NAME, port: 8000 });
+    rig.local.value = L;
+    rig.lookupTable.set(NAME, [OWN_BRIDGE, B_HOST]);
+    rig.provenBy.set(OWN, L);
+    rig.provenBy.set(B, F);
+    rig.bind.status = 200;
+    scriptExchange(rig, { status: 200 });
+    await openF(rig);
+    await flush();
+    expect(bindCalls(rig).map((c) => String(c[0]))).toEqual([`${B}/api/pair/device-key`]);
+    expect(rig.prove.mock.calls.at(-1)![0]).toBe(B);
+  });
+
+  it("an https host keeps its name for the bind", async () => {
+    rig = freshRig({ scheme: "https", host: "studio.example", port: 443 });
+    rig.provenBy.set("https://studio.example:443", F);
+    rig.bind.status = 200;
+    scriptExchange(rig, { status: 200 });
+    await openF(rig);
+    await flush();
+    expect(bindCalls(rig).map((c) => String(c[0]))).toEqual(["https://studio.example:443/api/pair/device-key"]);
+  });
+
+  it("a bind whose fresh challenge proves another identity sends nothing", async () => {
+    scriptExchange(rig, { status: 200 });
+    let n = 0;
+    rig.prove.mockImplementation(async () => (++n === 1 ? { proven: F, deviceNonce: NONCE } : { proven: G, deviceNonce: NONCE }));
+    await openF(rig);
+    await flush();
+    expect(bindCalls(rig)).toEqual([]);
+    expect(rig.keyring.get(F)).toMatchObject({ keyHeld: false });
+  });
+});
+
+describe("deviceNote (Servers menu words)", () => {
+  it("names only the states that need words", () => {
+    expect(deviceNote(undefined)).toBeUndefined();
+    expect(deviceNote({ state: "paired", tier: "operate" })).toBeUndefined();
+    expect(deviceNote({ state: "access-removed" })).toBe("access removed");
+    expect(deviceNote({ state: "access-expired" })).toBe("access expired");
+    expect(deviceNote({ state: "paired", networkNotAllowed: true })).toBe("network not allowed");
+  });
+});
+
+describe("device row state for the servers list (deviceView)", () => {
+  beforeEach(() => {
+    rig = makeRig();
+    keyHome(rig);
+  });
+  const after = async (exchange: FakeSession["exchange"], reply: unknown) => {
+    scriptExchange(rig, exchange);
+    rig.status.reply = reply;
+    await openF(rig);
+    await flush();
+    return rig.sw.deviceView(F);
+  };
+
+  it("nothing before any check", () => expect(rig.sw.deviceView(F)).toBeUndefined());
+  it("paired full ⇒ paired + tier", async () => expect(await after({ status: 200 }, { status: "paired", scope: "full", tier: "control" })).toEqual({ state: "paired", tier: "control" }));
+  it("paired status-only", async () => expect(await after({ status: 200 }, { status: "paired", scope: "status-only" })).toEqual({ state: "paired-status-only" }));
+  it("revoked ⇒ access-removed", async () => expect(await after({ status: 401 }, { status: "revoked" })).toMatchObject({ state: "access-removed" }));
+  it("refused + expired ⇒ access-expired", async () => expect(await after({ status: 401 }, { status: "expired" })).toMatchObject({ state: "access-expired" }));
+  it("inconclusive ⇒ status-unknown", async () => expect(await after({ status: 200 }, "throw")).toMatchObject({ state: "status-unknown" }));
+  it("credential and no key ⇒ key-pending once a check has run", async () => {
+    rig = makeRig();
+    rig.keyring.savePaired({ fingerprint: F, label: "home-imac", host: { scheme: "http", host: "192.168.16.204", port: 8000 }, bearer: BEARER, pinnedPubkey: "PUB" });
+    scriptExchange(rig, NNA);
+    await openF(rig);
+    expect(rig.sw.deviceView(F)).toMatchObject({ state: "key-pending", networkNotAllowed: true });
+  });
+  it("a changed view tells the Servers list / menu", async () => {
+    await after({ status: 401 }, { status: "revoked" });
+    expect(rig.deviceChanged).toHaveBeenCalled();
+  });
+  it("no private key or bearer in the view", async () => {
+    const v = await after({ status: 200 }, PAIRED_FULL);
+    expect(JSON.stringify(v)).not.toMatch(/priv|BEARER|B1-secret/i);
   });
 });

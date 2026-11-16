@@ -4,13 +4,14 @@
 Hold a per-device keyring of paired servers in a neutral, origin-independent client, pinning each server's public key and racing its endpoints so a network change needs no re-pairing.
 
 ## Requirements
+
 ### Requirement: Neutral shell holds a per-device server keyring
 A stateless static PWA shell (published to a stable HTTPS origin) SHALL store a
 per-device keyring in IndexedDB, each entry being
-`{ id, label, urls[], pinnedPubkey, pinnedFingerprint, bearerToken }` (where `id`
+`{ id, label, urls[], pinnedPubkey, pinnedFingerprint, bearerToken, deviceKey? }` (where `id`
 and `pinnedFingerprint` are the pinned server identity checked at connect time),
 and SHALL NOT be bound to any
-server origin.
+server origin. `deviceKey`, when present, is the per-server device key defined by `device-key-mutual-check`, held as a non-extractable key where the environment supports it.
 
 #### Scenario: Paired server persisted
 - **WHEN** a user completes pairing in the neutral shell
@@ -19,6 +20,10 @@ server origin.
 #### Scenario: Server keyring survives shell reload
 - **WHEN** the user reloads the shell
 - **THEN** previously paired servers remain listed without re-pairing
+
+#### Scenario: Entry carries the device key
+- **WHEN** a user pairs in the neutral shell where Ed25519 WebCrypto is available
+- **THEN** the keyring entry SHALL also hold the device key for that server
 
 ### Requirement: Client pins identity and races endpoints
 On connect the client SHALL verify the server's nonce signature against the pinned
@@ -40,4 +45,3 @@ a QR code, producing an equivalent keyring entry.
 #### Scenario: Paste to pair
 - **WHEN** a user pastes a valid copy-string into the shell's pairing input
 - **THEN** the shell parses the payload and pairs exactly as if the QR had been scanned
-

@@ -298,5 +298,34 @@ else
   echo "  SKIP: openspec seed unavailable — skipping config-read assertion"
 fi
 
+# ── Server keyring at rest (device-key-mutual-check, test-plan #X18, static part) ──
+# When a keyring exists: mode 0600, and every stored device key keeps its private part
+# encrypted by safeStorage — no clear `privateKey`/PKCS#8 field. Pair→restart→keychain-delete
+# needs a second dashboard and stays a manual release check.
+KEYRING_FILE="$HOME/.pi-dashboard/server-keyring.json"
+if [ -f "$KEYRING_FILE" ]; then
+  KEYRING_MODE=$(stat -f '%Lp' "$KEYRING_FILE")
+  if [ "$KEYRING_MODE" != "600" ]; then
+    echo "FAIL: $KEYRING_FILE mode is $KEYRING_MODE, expected 600"
+    exit 1
+  fi
+  if ! node -e '
+    const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    const entries = Array.isArray(j) ? j : Array.isArray(j.entries) ? j.entries : Object.values(j.entries || j.servers || {});
+    for (const e of entries) {
+      const k = e && e.deviceKey;
+      if (!k) continue;
+      if ("privateKey" in k || "pkcs8" in k) process.exit(2);
+      if (!k.priv || k.priv.enc !== "safeStorage") process.exit(3);
+    }
+  ' "$KEYRING_FILE"; then
+    echo "FAIL: $KEYRING_FILE holds a device key whose private part is not safeStorage-encrypted"
+    exit 1
+  fi
+  echo "  ✓ server keyring 0600, device private keys encrypted at rest"
+else
+  echo "  SKIP: no server keyring yet — keyring-at-rest assertion not applicable"
+fi
+
 echo "PASS: Electron macOS real-launch smoke succeeded"
 exit 0

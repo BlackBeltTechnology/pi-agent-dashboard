@@ -15,6 +15,7 @@
  *
  * See change: add-lan-knock-pairing (D9, ui-plan D5–D10).
  */
+import { type CompanionClaim, parseCompanionFragment } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import { KNOCK_NO_RETRY, KNOCK_REFUSAL_COPY, KNOCK_REFUSAL_GENERIC } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock.js";
 import { mdiCancel, mdiCheckCircle, mdiClockOutline, mdiInformationOutline, mdiLockOpenVariantOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -32,6 +33,7 @@ import {
 } from "../../lib/pairing/knock-state.js";
 import { postJson } from "../../lib/pairing/pair-protocol.js";
 import { requestAccess } from "../../lib/pairing/pairing-api.js";
+import { deviceKeyBody, type PreparedDeviceKey, prepareDeviceKey, requestKeyLife } from "../../lib/pairing/pairing-device-key.js";
 import { INPUT } from "./connectivity-ui.js";
 import { PairKeepFailedNotice } from "./PairKeepFailedNotice.js";
 import { CALLOUT_ERROR, CALLOUT_INFO, CALLOUT_SUCCESS, CALLOUT_WARNING, LANDING_PRIMARY, LANDING_SECONDARY } from "./pair-landing-ui.js";
@@ -65,9 +67,14 @@ const readStored = readStoredKnock;
 const writeStored = writeStoredKnock;
 const clearStored = clearStoredKnock;
 
-/** True for `/pair?request` without a payload fragment (the QR flow owns a fragment). */
+/**
+ * True for `/pair?request` without a payload fragment (the QR flow owns a fragment). The one fragment
+ * request mode keeps is `#companion=…` (lowercase, exact); any other — `#Companion=`, `#pi:pair:…` — is a QR payload.
+ * See change: device-key-mutual-check (D5).
+ */
 export function isRequestMode(): boolean {
-  if (window.location.hash.replace(/^#/, "").trim()) return false;
+  const frag = window.location.hash.replace(/^#/, "");
+  if (frag.trim() && !frag.startsWith("companion=")) return false;
   return new URLSearchParams(window.location.search).has("request");
 }
 
@@ -154,6 +161,12 @@ function classifyPoll(r: PollResult, expiresAt: number): PollOutcome | null {
   if (r.status === "pending") return Date.now() < expiresAt ? null : { phase: "expired" };
   // `unknown` (or any status this client does not know) is terminal.
   return { phase: Date.now() < expiresAt ? "missed" : "expired" };
+}
+
+/** The knock: device key and companion ride along only when there is something to send. */
+function knock(name: string, prepared: PreparedDeviceKey | null, companion: CompanionClaim | null) {
+  const extra = { ...deviceKeyBody(prepared), ...(companion ? { companion } : {}) };
+  return Object.keys(extra).length > 0 ? requestAccess(name, extra) : requestAccess(name);
 }
 
 function Title() {
@@ -386,12 +399,22 @@ export function PairRequestLanding({ onPaired }: { onPaired?: (token: string) =>
   const [now, setNow] = useState(() => Date.now());
   const mounted = useRef(true);
   const issuedToken = useRef<string | null>(null);
+  // The other dashboard's companion claim, read once at mount (pure: StrictMode may run this twice) and
+  // stripped from the address bar in the effect below. Over 512 chars or malformed ⇒ null ⇒ knock without one.
+  const [companion] = useState(() => parseCompanionFragment(window.location.hash));
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
+  }, []);
+
+  // A fragment never reaches a server, but it must not linger in the address bar / history either.
+  useEffect(() => {
+    if (!window.location.hash) return;
+    const url = new URL(window.location.href);
+    window.history.replaceState(window.history.state, "", url.pathname + url.search);
   }, []);
 
   // One-second clock while a countdown is on screen (waiting, or a rate-limit cooldown).
@@ -424,10 +447,12 @@ export function PairRequestLanding({ onPaired }: { onPaired?: (token: string) =>
 
   const onResolved = useCallback(
     (outcome: PollOutcome) => {
+      // `approved` keeps the pending device key; rejected / expired / missed delete it (design D3).
+      requestKeyLife(request?.keyFp ? { fingerprint: request.keyFp } : null).settled(outcome.phase);
       setPhase(outcome.phase);
       if (outcome.phase === "approved") void finishPaired(outcome.token);
     },
-    [finishPaired],
+    [finishPaired, request],
   );
   useKnockPoll(phase === "waiting", request, resumed?.pendingId, onResolved);
 
@@ -437,9 +462,14 @@ export function PairRequestLanding({ onPaired }: { onPaired?: (token: string) =>
     clearStoredRefusal();
     setPhase("sending");
     let result: Awaited<ReturnType<typeof requestAccess>>;
+    // Where Ed25519 WebCrypto exists: one identity challenge, then a knock carrying the device key. Elsewhere
+    // (plain http) nothing is challenged and `crypto.subtle` is never read. Never blocks the knock.
+    const prepared = await prepareDeviceKey("");
+    const keyLife = requestKeyLife(prepared);
     try {
-      result = await requestAccess(name);
+      result = await knock(name, prepared, companion);
     } catch (err) {
+      keyLife.failed();
       if (!mounted.current) return;
       const message = err instanceof Error ? err.message : String(err);
       setError(t("landing.request.err.transport", { message }, `Couldn't reach the dashboard: ${message}`));
@@ -448,6 +478,7 @@ export function PairRequestLanding({ onPaired }: { onPaired?: (token: string) =>
     }
     if (!mounted.current) return;
     if (!result.ok) {
+      keyLife.failed();
       const refused = {
         code: result.error,
         ...(result.retryAfter ? { cooldownUntil: Date.now() + result.retryAfter * 1000 } : {}),
@@ -458,12 +489,18 @@ export function PairRequestLanding({ onPaired }: { onPaired?: (token: string) =>
       setPhase("refused");
       return;
     }
-    const live: StoredRequest = { pendingId: result.pendingId, confirmCode: result.confirmCode, expiresAt: result.expiresAt };
+    const live: StoredRequest = {
+      pendingId: result.pendingId,
+      confirmCode: result.confirmCode,
+      expiresAt: result.expiresAt,
+      keyFp: prepared?.fingerprint,
+    };
+    await keyLife.admitted(result.pendingId);
     writeStored(live);
     setRequest(live);
     setNow(Date.now());
     setPhase("waiting");
-  }, [name, t]);
+  }, [name, t, companion]);
 
   const again = () => void send();
   switch (phase) {

@@ -42,6 +42,21 @@ describe("keyring", () => {
     expect(list.map((e) => e.id)).toEqual(["sha256:ddd"]);
   });
 
+  // See change: device-key-mutual-check (X13).
+  it("round-trips an entry with a device key, and still loads one without", async () => {
+    const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"])) as CryptoKeyPair;
+    await addServer({ ...entry("sha256:kkk"), deviceKey: { pub: "P".repeat(43), privateKey: pair.privateKey } });
+    await addServer(entry("sha256:nnn"));
+    const list = await listServers();
+    const withKey = list.find((e) => e.id === "sha256:kkk");
+    const without = list.find((e) => e.id === "sha256:nnn");
+    expect(withKey?.deviceKey?.pub).toBe("P".repeat(43));
+    expect(withKey?.deviceKey?.privateKey.type).toBe("private");
+    expect(withKey?.deviceKey?.privateKey.extractable).toBe(false);
+    expect(without?.deviceKey).toBeUndefined();
+    expect(without?.bearerToken).toBe("bearer-sha256:nnn");
+  });
+
   it("survives a fresh store handle (persisted across reload)", async () => {
     await addServer(entry("sha256:eee"));
     // A second listServers() opens a new IDB connection — simulates reload.

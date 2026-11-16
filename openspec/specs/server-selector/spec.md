@@ -45,7 +45,7 @@ Availability probing SHALL run once per dropdown open — not on mount, not on a
 
 #### Scenario: Browser pair action navigates to the peer
 - **WHEN** a browser lists a server whose only route is the on-link `http://192.168.16.77:8000` and activates its "Request access…" menu item
-- **THEN** a new browsing context SHALL open `http://192.168.16.77:8000/pair?request` with no opener reference and no proof request SHALL precede it
+- **THEN** a new browsing context SHALL open `http://192.168.16.77:8000/pair?request` (followed by a companion fragment only where the server-identity-routes pair action allows one) with no opener reference and no proof request SHALL precede it
 
 ### Requirement: Server switching
 Outside the Electron app's local dashboard window (in a browser, or in an Electron window that cannot open server windows), selecting a different server in the dropdown SHALL perform a transactional switch: a staging WebSocket connection is opened to the target while the current ("live") connection remains active, and the switch is committed only after the staging connection reaches the `OPEN` state. If the staging connection fails or times out, the switch is aborted and the live connection is preserved with no state loss.

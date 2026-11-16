@@ -15,16 +15,25 @@
  *   confirmation code goes to the connecting window's state ONLY and is never
  *   logged; the bearer is never put in any state or log.
  *
- * Electron-free (ports injected) — unit-tested in `__tests__/pairing-client.test.ts`.
+ * Device key (`device-key-mutual-check`, D3): at "Send request" the main process generates an Ed25519
+ * key IN MEMORY (once the proving challenge offered a device nonce) and the knock carries `deviceKey {deviceNonce, pub, sig}` (the proving challenge's nonce
+ * while ≤ 30 s old, a fresh challenge at the bound literal otherwise). It is handed to the keyring only
+ * on approval and only when the knock actually carried it; reject, expiry, "Stop waiting" and a quit
+ * leave no trace — nothing is written before approval.
+ *
+ * Electron-free (ports injected) — unit-tested in `__tests__/pairing-client.test.ts`
+ * and `__tests__/pairing-device-key.test.ts`.
  *
  * Delivered routes: an approval's `routes` are stored only after validation and a
  * proving challenge (`delivered-routes.ts`); `done` resolves after that bounded step.
  *
- * See change: add-electron-server-windows (D3, D11), group-servers-by-identity (D7).
+ * See change: add-electron-server-windows (D3, D11), group-servers-by-identity (D7),
+ * device-key-mutual-check (D3).
  */
 
 import { knockRefusalCopy } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock.js";
 import {
+  type DeviceKeyProvider,
   type KnockHooks,
   type KnockOutcome,
   type ProveFn,
@@ -33,6 +42,7 @@ import {
 import { classifyProof } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import type { RouteSource } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
 import { recordDeliveredRoutes } from "./delivered-routes.js";
+import { type DeviceKey, generateDeviceKey } from "./device-key.js";
 import {
   expandRef,
   type HostRef,
@@ -118,6 +128,8 @@ export interface PairingClientDeps {
   lookup?: LookupFn;
   /** This machine's own fingerprint (`"none"` = no local server, `undefined` = not yet known). Default: none. */
   localFp?: () => string | "none" | undefined;
+  /** Device key factory (default: a new in-memory Ed25519 key). Test seam. */
+  generateKey?: () => DeviceKey;
 }
 
 export type PairingResult =
@@ -143,6 +155,8 @@ function retryText(seconds: number): string {
 interface ProvenIdentity {
   fingerprint: string;
   publicKey?: string;
+  /** The challenge's server-issued device nonce and when that challenge was started (`now` clock). */
+  challenge?: { deviceNonce: string; at: number };
 }
 
 export function startPairing(target: PairingTarget, deps: PairingClientDeps): PairingSession {
@@ -238,10 +252,11 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
     | { kind: "skip"; self: boolean };
 
   /** The identity an address proved, or `null` (unreachable, refused or invalid: try the next address). */
-  async function proveAt(r: HostRef): Promise<Extract<Awaited<ReturnType<ProveFn>>, { proven: string }> | null> {
+  async function proveAt(r: HostRef): Promise<(Extract<Awaited<ReturnType<ProveFn>>, { proven: string }> & { at: number }) | null> {
+    const at = (deps.now ?? Date.now)(); // the nonce lives from the request: age it from the start of the call
     try {
       const proof = await deps.prove(serverOrigin(r));
-      return "proven" in proof ? proof : null;
+      return "proven" in proof ? { ...proof, at } : null;
     } catch {
       return null;
     }
@@ -261,7 +276,14 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
     switch (cls) {
       case "ok":
         bind(r);
-        return { kind: "proof", proof: { fingerprint: proof.proven, ...(proof.publicKey ? { publicKey: proof.publicKey } : {}) } };
+        return {
+          kind: "proof",
+          proof: {
+            fingerprint: proof.proven,
+            ...(proof.publicKey ? { publicKey: proof.publicKey } : {}),
+            ...(proof.deviceNonce ? { challenge: { deviceNonce: proof.deviceNonce, at: proof.at } } : {}),
+          },
+        };
       case "foreign":
         bind(r);
         return { kind: "result", result: mismatchAt(pin ?? "", proof.proven) };
@@ -347,7 +369,19 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
 
   /** KNOCK + POLL, then the terminal outcome. */
   async function knockAndFinish(p: ProvenIdentity, name: string): Promise<PairingResult> {
+    // The key is created when the knock is about to carry it — in memory only. A server that offered
+    // no device nonce at the proving challenge (an older one) gets the plain knock, no key and no extra challenge.
+    let key: DeviceKey | undefined;
+    const deviceKey: DeviceKeyProvider | undefined = p.challenge && {
+      prove: deps.prove,
+      challenge: p.challenge,
+      sign: async (fingerprint, deviceNonce) => {
+        key ??= (deps.generateKey ?? generateDeviceKey)();
+        return { pub: key.pub, sig: key.signDevbind(fingerprint, deviceNonce) };
+      },
+    };
     const hooks: KnockHooks = {
+      ...(deviceKey ? { deviceKey } : {}),
       signal: abort.signal,
       redirect: "manual",
       ...(deps.now ? { now: deps.now } : {}),
@@ -356,7 +390,7 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
       onWaiting: (w) => emit(base("waiting", { confirmCode: w.confirmCode, expiresAt: w.expiresAt })),
     };
     try {
-      return await finish(await sendKnock(origin, p.fingerprint, name, hooks), p);
+      return await finish(await sendKnock(origin, p.fingerprint, name, hooks), p, key);
     } catch {
       logLine("unreachable", p.fingerprint);
       emit(base("unreachable", { message: `Could not reach ${target.label} to send the request. Check that it is running and try again.` }));
@@ -365,9 +399,10 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
   }
 
   /** Store the bearer + pin (approval only). */
-  function storeApproval(p: ProvenIdentity, token: string): PairingResult {
+  function storeApproval(p: ProvenIdentity, token: string, deviceKey?: DeviceKey): PairingResult {
     try {
       deps.keyring.savePaired({
+        ...(deviceKey ? { deviceKey } : {}),
         fingerprint: p.fingerprint,
         label: target.label,
         ...(p.publicKey ? { pinnedPubkey: p.publicKey } : {}),
@@ -406,8 +441,8 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
   }
 
   /** Approval: store the credential, then (bounded) the delivered routes that prove the pin. */
-  async function finishApproved(outcome: Extract<KnockOutcome, { status: "approved" }>, p: ProvenIdentity): Promise<PairingResult> {
-    const result = storeApproval(p, outcome.token);
+  async function finishApproved(outcome: Extract<KnockOutcome, { status: "approved" }>, p: ProvenIdentity, deviceKey?: DeviceKey): Promise<PairingResult> {
+    const result = storeApproval(p, outcome.token, deviceKey);
     if (result.status !== "approved" || !outcome.routes) return result;
     try {
       await recordDeliveredRoutes(p.fingerprint, outcome.routes, deps);
@@ -417,10 +452,10 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
     return result;
   }
 
-  function finish(outcome: KnockOutcome, p: ProvenIdentity): PairingResult | Promise<PairingResult> {
+  function finish(outcome: KnockOutcome, p: ProvenIdentity, deviceKey?: DeviceKey): PairingResult | Promise<PairingResult> {
     switch (outcome.status) {
       case "approved":
-        return finishApproved(outcome, p);
+        return finishApproved(outcome, p, deviceKey);
       case "rejected":
         return endWith("rejected", p.fingerprint, `${target.label} rejected the request.`);
       case "expired":

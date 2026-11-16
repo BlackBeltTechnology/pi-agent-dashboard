@@ -20,6 +20,7 @@ import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { createMutationOriginGate } from "../auth/mutation-origin-gate.js";
 import { createRouteTierGate, type TierRefusal } from "../auth/route-tier-gate.js";
 import { admissionTrustedNetworks } from "../auth/trust-mode.js";
+import { hasRouteTier, routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { registerBearerRotateRoute } from "../routes/pairing-routes.js";
 import { registerPluginRuntimeClientRoutes } from "../routes/plugin-runtime-client-routes.js";
@@ -535,5 +536,28 @@ describe("AE50 — rotate is an observe-tier route, the CSP counter reset stays 
     const { routeTier } = await import("@blackbelt-technology/pi-dashboard-shared/route-tiers.js");
     expect(routeTier("POST", "/api/paired-devices/rotate")).toBe("observe");
     expect(routeTier("POST", "/api/csp-reports/reset")).toBe("operate");
+  });
+});
+
+describe("E12 — device-check routes are observe, ceremony routes keep operate", () => {
+  it("challenge, device-status and device-key are observe", () => {
+    for (const p of ["/api/pair/challenge", "/api/pair/device-status", "/api/pair/device-key"]) {
+      expect(routeTier("POST", p), p).toBe("observe");
+    }
+  });
+
+  it("request / redeem / poll / approve / deny stay operate; the held-device operator routes are operate", () => {
+    for (const p of ["/api/pair/request", "/api/pair/redeem", "/api/pair/poll", "/api/pair/approve", "/api/pair/approve-pending", "/api/pair/deny"]) {
+      expect(routeTier("POST", p), p).toBe("operate");
+    }
+    expect(routeTier("GET", "/api/paired-devices/revoked")).toBe("operate");
+    expect(routeTier("POST", "/api/paired-devices/:id/restore")).toBe("operate");
+    expect(routeTier("DELETE", "/api/paired-devices/revoked/:id")).toBe("operate");
+    expect(routeTier("DELETE", "/api/paired-devices/:id/companions/:companionId")).toBe("operate");
+  });
+
+  it("an unlisted route still defaults to operate", () => {
+    expect(hasRouteTier("POST", "/api/pair/not-a-route")).toBe(false);
+    expect(routeTier("POST", "/api/pair/not-a-route")).toBe("operate");
   });
 });

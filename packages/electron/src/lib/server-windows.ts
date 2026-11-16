@@ -20,11 +20,25 @@
  * whole lifecycle is unit-tested with fakes (`__tests__/server-windows.test.ts`).
  * No bearer or confirmation code is ever logged.
  *
- * See change: add-electron-server-windows (D5–D8, D12, D14), group-servers-by-identity (D8).
+ * Refused exchange + device key: the device check (`POST /api/pair/device-status`) runs ONLY at the
+ * address the same selection proved (`origin` = proving literal for `http`, the name for `https`),
+ * after a fresh challenge there; its answer decides discard / keep / Access removed (D9). A credential
+ * with no key binds one once per app start (`POST /api/pair/device-key`), at the same address.
+ *
+ * See change: add-electron-server-windows (D5–D8, D12, D14), group-servers-by-identity (D8),
+ * device-key-mutual-check (D1, D9).
  */
 import type { NetworkInterfaceInfo } from "node:os";
+import {
+  type DeviceCheckReply,
+  type DeviceRowStateId,
+  type DeviceTier,
+  deviceRowState,
+  parseDeviceStatusReply,
+} from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import type { ProveFn } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock-client.js";
 import { classifyProof, type ProveResult } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
+import { generateDeviceKey } from "./device-key.js";
 import { decideServerWindowNavigation } from "./link-handling.js";
 import {
   type ConnectingState,
@@ -58,6 +72,7 @@ const REVERIFY_INTERVAL_MS = 60_000;
 const FOCUS_REVERIFY_MIN_MS = 60_000;
 const RECHECK_MIN_INTERVAL_MS = 5 * 60_000;
 const EXCHANGE_TIMEOUT_MS = 10_000;
+const DEVICE_REQUEST_TIMEOUT_MS = 10_000;
 const EXTERNAL_MIN_INTERVAL_MS = 1000;
 const DEVICE_COOKIE = "pi_dash_device";
 /**
@@ -70,6 +85,41 @@ const MARK_COOKIE_PAIRED_JS = 'try{localStorage.setItem("pi-dashboard:device-pai
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 
 export type ExchangeVerdict = "ok" | "refused" | "transport";
+
+/** Why a refused exchange was refused: `401`, or `403 network_not_allowed`. */
+type Refusal = "unauthorized" | "network_not_allowed";
+interface ExchangeOutcome {
+  verdict: ExchangeVerdict;
+  refusal?: Refusal;
+}
+
+/** Why the user is asked to pair again (the dialog wording). */
+export type RepairReason = "refused" | "access-removed" | "access-expired" | "network-not-allowed";
+
+/** What a Servers row / menu shows about the last device check. No key, no bearer. */
+export interface DeviceView {
+  state: DeviceRowStateId;
+  tier?: DeviceTier;
+  /** Display-only: the exchange was refused with `403 network_not_allowed` yet the credential is kept. */
+  networkNotAllowed?: true;
+}
+
+/** The words after a server's name in the Servers menu, from its device view. */
+export function deviceNote(v: DeviceView | undefined): string | undefined {
+  if (!v) return undefined;
+  if (v.networkNotAllowed) return "network not allowed";
+  if (v.state === "access-removed") return "access removed";
+  if (v.state === "access-expired") return "access expired";
+  return undefined;
+}
+
+/** In-memory result of the last device check (never persisted; the keyring cannot express it). */
+interface DeviceRecord {
+  reply: DeviceCheckReply;
+  mark?: "access-removed" | "access-expired" | "network-not-allowed";
+  /** Public key held when this was recorded (`null` = none); a different key makes the record stale. */
+  keyPub: string | null;
+}
 
 /**
  * Classify the `/api/device-session` exchange. `status === null` ⇒ timeout/transport.
@@ -164,12 +214,18 @@ export interface ConnectingHandle {
 
 type NeedsPairingChoice = "pair-again" | "forget" | "close";
 
+/** Outcomes after which the user was offered Pair again / Forget (once per window). */
+const OFFERED_OUTCOMES: ReadonlySet<string> = new Set(["discarded", "access-removed", "network-not-allowed-keyless"]);
+
+/** What a refused exchange led to (D9). */
+type RefusalOutcome = "discarded" | "access-removed" | "network-not-allowed" | "network-not-allowed-keyless" | "not-confirmed" | "gone";
+
 export interface ServerWindowPorts {
   createWindow(options: ServerWindowOptions): ServerWindowLike;
   sessionFor(partition: string): SessionLike;
   openExternal(url: string): void;
   /** One main-owned dialog offered when credentials are refused. */
-  askNeedsPairing(label: string): Promise<NeedsPairingChoice>;
+  askNeedsPairing(label: string, reason?: RepairReason): Promise<NeedsPairingChoice>;
   /** Plain information to the user (unreachable, mismatch, forget message). */
   notify(title: string, message: string): void;
   openConnectingWindow(initial: ConnectingState): ConnectingHandle;
@@ -187,6 +243,10 @@ export interface ServerWindowsDeps {
   /** This machine's interfaces (`os.networkInterfaces`) — locality ordering of candidates. */
   interfaces?: () => NodeJS.Dict<NetworkInterfaceInfo[]>;
   prove: ProveFn;
+  /** HTTP client for the device check and the key bind (tests); default global `fetch`. */
+  fetch?: typeof fetch;
+  /** The in-memory device view changed (Servers list / menu refresh). */
+  onDeviceChange?: () => void;
   log: (line: string) => void;
   now?: () => number;
   /** Test seam: pairing client factory. */
@@ -261,6 +321,8 @@ export interface ServerWindows {
   /** Connecting-window intent: the pasted pairing text (never logged). */
   submitCode(text: string): void;
   forget(fp: string): Promise<{ ok: boolean; message: string }>;
+  /** Last device-check result for a Servers row (`undefined` until one ran, or when it is stale). */
+  deviceView(fp: string): DeviceView | undefined;
   /** Connecting-window intents. */
   sendRequest(deviceName: string): void;
   stopWaiting(): void;
@@ -274,6 +336,11 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
   const { keyring, discovery, ports, log } = deps;
   const now = deps.now ?? Date.now;
   const registry = new Map<string, OpenWindow>();
+  const doFetch = deps.fetch ?? fetch;
+  /** Last device check per fingerprint (memory only). */
+  const records = new Map<string, DeviceRecord>();
+  /** Fingerprints a key bind was tried for in this app run (one attempt per start, never a loop). */
+  const bindAttempted = new Set<string>();
   const downloadWired = new WeakSet<SessionLike>();
   /** Run `p` in the background; a rejection is logged (message only), never an unhandled rejection. */
   const background = (p: Promise<unknown>, what: string): void => {
@@ -375,7 +442,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
 
   // ── credential exchange ────────────────────────────────────────────────────
 
-  async function exchange(ses: SessionLike, origin: string, bearer: string): Promise<ExchangeVerdict> {
+  async function exchange(ses: SessionLike, origin: string, bearer: string): Promise<ExchangeOutcome> {
     try {
       const res = await ses.fetch(`${origin}/api/device-session`, {
         method: "POST",
@@ -385,9 +452,10 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       });
       let body: unknown;
       if (res.status === 403) body = await res.json().catch(() => undefined);
-      return classifyExchange(res.status, body);
+      const verdict = classifyExchange(res.status, body);
+      return verdict === "refused" ? { verdict, refusal: res.status === 401 ? "unauthorized" : "network_not_allowed" } : { verdict };
     } catch {
-      return "transport";
+      return { verdict: "transport" };
     }
   }
 
@@ -399,11 +467,142 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
   }
 
   /** The one main-owned dialog after a refusal: Pair again / Forget / Close. */
-  async function offerRepair(fp: string, label: string): Promise<OpenResult | undefined> {
-    const choice = await ports.askNeedsPairing(label);
+  async function offerRepair(fp: string, label: string, reason: RepairReason = "refused"): Promise<OpenResult | undefined> {
+    const choice = await ports.askNeedsPairing(label, reason);
     if (choice === "pair-again") return pairAgain(fp);
     if (choice === "forget") await forget(fp);
     return undefined;
+  }
+
+  // ── device check + key bind (device-key-mutual-check D1, D3, D9) ────────────
+
+  const setRecord = (fp: string, rec: DeviceRecord | null): void => {
+    if (rec) records.set(fp, rec);
+    else records.delete(fp);
+    deps.onDeviceChange?.();
+  };
+
+  /** One identity challenge at `origin`; `null` unless it still proves `fp` (no device proof goes to an unproven route). */
+  async function freshNonce(fp: string, origin: string): Promise<{ nonce: string | undefined } | null> {
+    const r = await deps.prove(origin).catch(() => null);
+    if (!r || !("proven" in r) || r.proven !== fp) return null;
+    return { nonce: r.deviceNonce };
+  }
+
+  /** The two-step check, at `origin` only (the literal that proved the pin). Never throws, never discards. */
+  async function runDeviceCheck(fp: string, origin: string, key: NonNullable<ReturnType<typeof keyring.deviceKeyFor>>): Promise<DeviceCheckReply> {
+    const challenge = await freshNonce(fp, origin);
+    if (!challenge) return { kind: "no-answer" };
+    if (!challenge.nonce) return { kind: "no-nonce" };
+    try {
+      const res = await doFetch(`${origin}/api/pair/device-status`, {
+        method: "POST",
+        redirect: "manual",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceNonce: challenge.nonce, pub: key.pub, sig: key.signDevcheck(fp, challenge.nonce) }),
+        signal: AbortSignal.timeout(DEVICE_REQUEST_TIMEOUT_MS),
+      });
+      if (res.status !== 200) return { kind: "answer", status: "unverified" };
+      return { kind: "answer", ...parseDeviceStatusReply(await res.json().catch(() => null)) };
+    } catch {
+      return { kind: "no-answer" };
+    }
+  }
+
+  /** Credential refused and conclusive: drop bearer + key + cookie, offer Pair again / Forget once. */
+  async function discard(fp: string, label: string, origin: string, ses: SessionLike, why: string, reason: RepairReason): Promise<RefusalOutcome> {
+    await unpair(fp, origin, ses, why);
+    setRecord(fp, reason === "access-expired" ? { reply: { kind: "answer", status: "expired" }, mark: "access-expired", keyPub: null } : null);
+    background(offerRepair(fp, label, reason), "re-pair offer");
+    return "discarded";
+  }
+
+  /**
+   * The exchange was refused at a route that proved the pin: decide what to discard (D9). Only a refusal
+   * discards; the device check only separates a dead credential from a contradiction (stale bearer, wrong
+   * route, proxy). An inconclusive check changes nothing.
+   */
+  async function onRefused(fp: string, label: string, origin: string, ses: SessionLike, refusal: Refusal): Promise<RefusalOutcome> {
+    const key = keyring.deviceKeyFor(fp);
+    if (!key) {
+      // Keyless: a dead credential and a refused network look the same on 403, so only 401 is conclusive.
+      if (refusal === "unauthorized") return discard(fp, label, origin, ses, "exchange refused, no device key", "refused");
+      setRecord(fp, { reply: { kind: "no-answer" }, mark: "network-not-allowed", keyPub: null });
+      background(offerRepair(fp, label, "network-not-allowed"), "re-pair offer");
+      return "network-not-allowed-keyless";
+    }
+    const reply = await runDeviceCheck(fp, origin, key);
+    if (!keyring.has(fp)) return "gone";
+    if (reply.kind !== "answer") return "not-confirmed";
+    switch (reply.status) {
+      case "revoked":
+        log(`[server-windows] access removed fp=${shortFingerprint(fp)} host=${origin}`);
+        setRecord(fp, { reply, mark: "access-removed", keyPub: key.pub });
+        background(offerRepair(fp, label, "access-removed"), "re-pair offer");
+        return "access-removed";
+      case "paired":
+        if (refusal === "network_not_allowed") {
+          setRecord(fp, { reply, mark: "network-not-allowed", keyPub: key.pub });
+          return "network-not-allowed";
+        }
+        setRecord(fp, { reply, keyPub: key.pub });
+        return "not-confirmed";
+      case "unknown":
+        return discard(fp, label, origin, ses, "exchange refused, server does not know the key", "refused");
+      case "expired":
+        return discard(fp, label, origin, ses, "exchange refused, access expired", "access-expired");
+      default:
+        return "not-confirmed";
+    }
+  }
+
+  /**
+   * After a successful exchange: refresh the row from a device check. `paired` / `revoked` replace the
+   * view (an operator's undo returns "Access removed" to Paired); `unknown`, `expired` and inconclusive
+   * answers change nothing by themselves over an "Access removed" mark, and discard nothing ever.
+   */
+  async function refreshDeviceView(fp: string, origin: string): Promise<void> {
+    const key = keyring.deviceKeyFor(fp);
+    if (!key) return;
+    const reply = await runDeviceCheck(fp, origin, key);
+    if (keyring.deviceKeyFor(fp)?.pub !== key.pub) return;
+    const answered = reply.kind === "answer" ? reply.status : undefined;
+    if (answered === "revoked") return setRecord(fp, { reply, mark: "access-removed", keyPub: key.pub });
+    if (answered !== "paired" && records.get(fp)?.mark === "access-removed") return;
+    setRecord(fp, { reply, keyPub: key.pub });
+  }
+
+  /** Credential and no key: make one and bind it with the credential, once per app start (D3). */
+  async function bindDeviceKey(fp: string, origin: string, bearer: string): Promise<void> {
+    const challenge = await freshNonce(fp, origin);
+    if (!challenge?.nonce) return log(`[server-windows] device key bind skipped fp=${shortFingerprint(fp)}: no proven challenge nonce`);
+    const key = generateDeviceKey();
+    try {
+      const res = await doFetch(`${origin}/api/pair/device-key`, {
+        method: "POST",
+        redirect: "manual",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${bearer}` },
+        body: JSON.stringify({ deviceNonce: challenge.nonce, pub: key.pub, sig: key.signDevbind(fp, challenge.nonce) }),
+        signal: AbortSignal.timeout(DEVICE_REQUEST_TIMEOUT_MS),
+      });
+      if (res.status !== 200) return log(`[server-windows] device key bind refused fp=${shortFingerprint(fp)} status=${res.status}`);
+    } catch {
+      return log(`[server-windows] device key bind failed fp=${shortFingerprint(fp)}: no answer`);
+    }
+    // Stored only when the same credential is still held (a re-pair meanwhile owns its own key).
+    if (keyring.bearerFor(fp) !== bearer || !keyring.setDeviceKey(fp, key)) return;
+    log(`[server-windows] device key bound fp=${shortFingerprint(fp)}`);
+    await refreshDeviceView(fp, origin);
+  }
+
+  function deviceView(fp: string): DeviceView | undefined {
+    const entry = keyring.get(fp);
+    const rec = records.get(fp);
+    if (!entry || !rec || (keyring.deviceKeyFor(fp)?.pub ?? null) !== rec.keyPub) return undefined;
+    if (rec.mark === "access-expired") return entry.needsPairing ? { state: "access-expired" } : undefined;
+    if (entry.needsPairing) return undefined;
+    const row = deviceRowState({ credential: "held", keyHeld: entry.keyHeld, reply: rec.reply });
+    return { state: row.state, ...(row.tier ? { tier: row.tier } : {}), ...(rec.mark === "network-not-allowed" ? { networkNotAllowed: true as const } : {}) };
   }
 
   // ── open ───────────────────────────────────────────────────────────────────
@@ -467,13 +666,9 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
 
     const partition = partitionFor(fp, entry.remembered);
     const ses = ports.sessionFor(partition);
-    const verdict = await exchange(ses, origin, bearer);
-    if (verdict === "refused") {
-      await unpair(fp, origin, ses, "exchange refused at open");
-      background(offerRepair(fp, entry.label), "re-pair offer");
-      return { ok: false, reason: "needs_pairing" };
-    }
-    if (verdict === "transport") {
+    const outcome = await exchange(ses, origin, bearer);
+    if (outcome.verdict === "refused") return refusedAtOpen(entry, origin, ses, outcome.refusal!, opts);
+    if (outcome.verdict === "transport") {
       return failOpen(entry, "unreachable", `${entry.label} is unreachable right now (the credential exchange failed). Nothing was changed.`, opts);
     }
     // Forgotten while the exchange was in flight: undo what it planted and load nothing.
@@ -481,10 +676,37 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       await ses.cookies.remove(`${origin}/api/`, DEVICE_COOKIE).catch(() => {});
       return { ok: false, reason: "unknown_server" };
     }
+    startDeviceWork(fp, origin, bearer);
     // A concurrent open may have created the window while we were awaiting.
     if (focusExisting(fp)) return { ok: true };
     createWindow(entry, host.ref, origin, ses, partition);
     return { ok: true };
+  }
+
+  /** The credential works: refresh the row from a device check, or bind the missing key (once per start). */
+  function startDeviceWork(fp: string, origin: string, bearer: string): void {
+    if (keyring.deviceKeyFor(fp)) return background(refreshDeviceView(fp, origin), "device check");
+    if (bindAttempted.has(fp)) return;
+    bindAttempted.add(fp);
+    background(bindDeviceKey(fp, origin, bearer), "device key bind");
+  }
+
+  /** A refused exchange before load: the device check decides; nothing loads either way. */
+  async function refusedAtOpen(entry: KeyringEntryView, origin: string, ses: SessionLike, refusal: Refusal, opts: { notify?: boolean }): Promise<OpenResult> {
+    const outcome = await onRefused(entry.fingerprint, entry.label, origin, ses, refusal);
+    switch (outcome) {
+      case "discarded":
+      case "access-removed":
+        return { ok: false, reason: "needs_pairing" };
+      case "gone":
+        return { ok: false, reason: "unknown_server" };
+      case "network-not-allowed-keyless":
+        return { ok: false, reason: "unreachable" }; // the re-pair dialog already told the user
+      case "network-not-allowed":
+        return failOpen(entry, "unreachable", `${entry.label}: network not allowed — this network is not permitted to reach it. Nothing was changed.`, opts);
+      default:
+        return failOpen(entry, "unreachable", `Could not confirm ${entry.label} accepts this device (the check did not settle). Nothing was changed.`, opts);
+    }
   }
 
   function createWindow(entry: KeyringEntryView, ref: HostRef, origin: string, ses: SessionLike, partition: string): void {
@@ -657,10 +879,11 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       if (p.kind === "self" || p.kind === "foreign") return reselect(ow, p);
       if (p.kind !== "ok") return;
       // "ok": a tier refusal — change nothing (no reload). "transport": try again after the window.
-      if ((await exchange(ses, ow.origin, bearer)) !== "refused") return;
-      ow.unpaired = true;
-      await unpair(ow.fp, ow.origin, ses, "exchange refused while open");
-      background(offerRepair(ow.fp, ow.label), "re-pair offer");
+      const outcome = await exchange(ses, ow.origin, bearer);
+      if (outcome.verdict !== "refused") return;
+      const result = await onRefused(ow.fp, ow.label, ow.origin, ses, outcome.refusal!);
+      // A conclusive outcome was offered once: no further re-checks for this window.
+      ow.unpaired = OFFERED_OUTCOMES.has(result);
     } finally {
       ow.rechecking = false;
     }
@@ -814,6 +1037,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       .then((res: PairingResult) => {
         if (!isCurrent()) return; // superseded
         if (res.status === "approved") {
+          setRecord(res.fingerprint, null); // the new pairing starts from a clean device view
           connecting?.close();
           connecting = null;
           background(open(res.fingerprint, { notify: true }), "open after pairing");
@@ -939,6 +1163,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     if (!entry) return { ok: false, message: "That server is not paired." };
     // Remove first: the window's `close` handler then sees a forgotten fp and does not re-save its bounds.
     keyring.remove(fp);
+    records.delete(fp);
     ports.bounds.remove(fp);
     const ow = registry.get(fp);
     if (ow && !ow.win.isDestroyed()) ow.win.close();
@@ -963,6 +1188,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     pairWithCode,
     submitCode: (text) => codeSession?.submitCode(text),
     forget,
+    deviceView,
     sendRequest: (name) => session?.send(name),
     stopWaiting: () => {
       session?.stop();

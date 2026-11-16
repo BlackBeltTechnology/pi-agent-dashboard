@@ -13,6 +13,8 @@ export interface StoredKnock {
   confirmCode: string;
   /** Epoch ms. */
   expiresAt: number;
+  /** Fingerprint the pending device key of this request is stored under (device-key-mutual-check); absent ⇒ no key. */
+  keyFp?: string;
 }
 
 /** The last refusal the server returned to this tab. */
@@ -56,7 +58,12 @@ function clear(key: string): void {
 export function readStoredKnock(): StoredKnock | null {
   const v = readJson(KNOCK_STORE_KEY) as Partial<StoredKnock> | null;
   if (v && typeof v.pendingId === "string" && typeof v.confirmCode === "string" && typeof v.expiresAt === "number") {
-    return { pendingId: v.pendingId, confirmCode: v.confirmCode, expiresAt: v.expiresAt };
+    return {
+      pendingId: v.pendingId,
+      confirmCode: v.confirmCode,
+      expiresAt: v.expiresAt,
+      ...(typeof v.keyFp === "string" && v.keyFp ? { keyFp: v.keyFp } : {}),
+    };
   }
   return null;
 }

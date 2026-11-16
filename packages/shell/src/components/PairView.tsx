@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createDeviceKey, deviceKeyProofForRedeem, type ShellDeviceKey } from "../lib/device-key.js";
 import { addServer } from "../lib/keyring.js";
 import {
   challengeIdentity,
@@ -39,12 +40,14 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
     //    first reachable url. Refuse on mismatch.
     let verifiedUrl: string | null = null;
     let pinnedPubkey: string | null = null;
+    let deviceNonce: string | undefined;
     for (const url of payload.urls) {
       try {
         const proof = await challengeIdentity(url);
         if (proof.verified && proof.fingerprint === payload.id) {
           verifiedUrl = url;
           pinnedPubkey = proof.publicKey;
+          deviceNonce = proof.deviceNonce;
           break;
         }
       } catch {
@@ -58,10 +61,25 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
     }
 
     // 2. Redeem the pairing code → get the confirm code to show the operator.
+    //    With Ed25519 and a server nonce, a fresh device key rides along; it is
+    //    kept in memory and saved only on approval (device-key-mutual-check D3).
+    let deviceKey: ShellDeviceKey | null = null;
+    let keyProof: Awaited<ReturnType<typeof deviceKeyProofForRedeem>> | null = null;
+    if (deviceNonce) {
+      deviceKey = await createDeviceKey();
+      if (deviceKey) {
+        try {
+          keyProof = await deviceKeyProofForRedeem(deviceKey, payload.id, deviceNonce);
+        } catch {
+          deviceKey = null;
+        }
+      }
+    }
     let redeemed: RedeemResult;
     try {
       redeemed = await postJson<RedeemResult>(verifiedUrl, "/api/pair/redeem", {
         code: payload.code,
+        ...(keyProof ? { deviceKey: keyProof } : {}),
       });
     } catch (err) {
       setPhase("error");
@@ -95,6 +113,7 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
             pinnedPubkey,
             pinnedFingerprint: payload.id,
             bearerToken: outcome.token,
+            ...(deviceKey && keyProof ? { deviceKey } : {}),
           });
         } catch (err) {
           setPhase("error");

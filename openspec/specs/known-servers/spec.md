@@ -448,7 +448,7 @@ The Servers settings section (saved servers and network discovery) SHALL paint o
 - **THEN** every contrast, size and focus failure list is empty
 
 ### Requirement: Network discovery is a source of the Servers section
-The Servers section SHALL include network discovery as one of its sources, with a scan button, a diagnostic empty-state, and an inline manual-add form; there SHALL be no separate Network Discovery list. A discovered server SHALL be shown with its advertised display name when it has one and SHALL join the card of the identity it advertises; it SHALL be recognised as already saved when its fingerprint and port match a saved entry or its host:port matches a saved route. A discovered server that advertises no fingerprint SHALL be its own card marked "identity not advertised". Local and remote discovered servers SHALL use the same Local and Remote identity pills as the server selector. Every input SHALL have a visible label, and every confirm or cancel control SHALL have an accessible name that names the server. A remote discovered server for which this device holds no credential SHALL offer the pair action defined by the server-identity-routes capability; in a browser the "Request access" action SHALL open that server's own `/pair?request` landing (`http://<host>:<port>/pair?request`, IPv6 literals bracketed) in a new browsing context without an opener reference and without any prior proof. A saved route that is on-link (kind `lan` or `mdns` over `http`) SHALL offer the same browser action. A local discovered server SHALL NOT offer a pair action.
+The Servers section SHALL include network discovery as one of its sources, with a scan button, a diagnostic empty-state, and an inline manual-add form; there SHALL be no separate Network Discovery list. A discovered server SHALL be shown with its advertised display name when it has one and SHALL join the card of the identity it advertises; it SHALL be recognised as already saved when its fingerprint and port match a saved entry or its host:port matches a saved route. A discovered server that advertises no fingerprint SHALL be its own card marked "identity not advertised". Local and remote discovered servers SHALL use the same Local and Remote identity pills as the server selector. Every input SHALL have a visible label, and every confirm or cancel control SHALL have an accessible name that names the server. A remote discovered server for which this device holds no credential SHALL offer the pair action defined by the server-identity-routes capability; in a browser the "Request access" action SHALL open that server's own `/pair?request` landing (`http://<host>:<port>/pair?request`, IPv6 literals bracketed) in a new browsing context without an opener reference and without any prior proof, followed by a companion fragment only where the server-identity-routes pair action allows one. A saved route that is on-link (kind `lan` or `mdns` over `http`) SHALL offer the same browser action. A local discovered server SHALL NOT offer a pair action.
 
 #### Scenario: Trigger network scan
 - **WHEN** the user clicks "Scan network"
@@ -463,11 +463,11 @@ The Servers section SHALL include network discovery as one of its sources, with 
 
 #### Scenario: Request access opens the peer's request landing
 - **WHEN** the user activates "Request access" on remote discovered server `home-imac` at `192.168.16.204:8000` in a browser
-- **THEN** a new browsing context SHALL open `http://192.168.16.204:8000/pair?request` with no opener reference
+- **THEN** a new browsing context SHALL open `http://192.168.16.204:8000/pair?request` (plus a companion fragment only where allowed) with no opener reference
 
 #### Scenario: Request access brackets IPv6 hosts
 - **WHEN** the user activates "Request access" on a remote discovered server at `fd12::4` port `8000` in a browser
-- **THEN** the opened URL SHALL be `http://[fd12::4]:8000/pair?request`
+- **THEN** the opened URL SHALL begin with `http://[fd12::4]:8000/pair?request`, and any fragment SHALL follow it
 
 #### Scenario: Local server offers no pair action
 - **WHEN** a discovered server is local

@@ -14,7 +14,7 @@ The keyring SHALL store each paired server as an entry keyed by its pinned serve
 
 - **WHEN** a server is added to the keyring
 - **THEN** the entry is stored keyed by its pinned fingerprint id
-- **AND** the entry retains its label, its list of URLs, its pinned public key, its pinned fingerprint, and its bearer token
+- **AND** the entry retains its label, its list of URLs, its pinned public key, its pinned fingerprint, its bearer token and, when one was created, its device key
 
 #### Scenario: Overwrite an existing entry
 

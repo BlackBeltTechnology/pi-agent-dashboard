@@ -8,6 +8,7 @@
  * When `indexedDB` is unavailable (e.g. some test runners) the store falls
  * back to an in-memory Map so the same API works everywhere.
  */
+import type { ShellDeviceKey } from "./device-key.js";
 
 export interface KeyringEntry {
   /** Pinned server fingerprint (`sha256:<base64url>`) — the primary key. */
@@ -18,6 +19,12 @@ export interface KeyringEntry {
   pinnedPubkey: string;
   pinnedFingerprint: string;
   bearerToken: string;
+  /**
+   * Per-server device key, when the shell could create one at pairing.
+   * Absent on entries paired before device keys or without Ed25519.
+   * See change: device-key-mutual-check.
+   */
+  deviceKey?: ShellDeviceKey;
 }
 
 const DB_NAME = "pi-dashboard-shell";
