@@ -74,7 +74,7 @@ Boundaries that do NOT hold:
 | 1 Network bind + host admission | `bindHost`, Host gate (DNS rebinding), TLS, tunnels | bind `127.0.0.1`, Host gate `enforce` | [network-surface](security/network-surface.md) |
 | 2 HTTP gate chain | rate-limit, CORS, mutation-origin (CSRF), Host gate, CSP, network guard | all on; CSP `report` only | [http-gates-and-routes](security/http-gates-and-routes.md) |
 | 3 Identity + tier | local proof, device bearer, OAuth/passkey session, identity resolver; tiers `observe < control < operate` | `requireLocalProof=true`; unlisted route → `operate` | [http-gates-and-routes](security/http-gates-and-routes.md) |
-| 4 Route preHandler + cwd + containment | per-route guards, `admitRouteCwd`, file containment, dashboard-state guard | on; containment lexical (DEP-02) | [http-gates-and-routes](security/http-gates-and-routes.md), [deployment-process-supply-chain](security/deployment-process-supply-chain.md) |
+| 4 Route preHandler + cwd + containment | per-route guards, `admitRouteCwd`, file containment, dashboard-state guard | on; containment real-path anchored (DEP-02 closed) | [http-gates-and-routes](security/http-gates-and-routes.md), [deployment-process-supply-chain](security/deployment-process-supply-chain.md) |
 | 5 WS ticket / bridge upgrade auth | Origin gate, `authorizeWsUpgrade`, single-use tickets, `decideBridgeUpgrade` | tickets 15 s; loopback tokenless grace open (WS-01) | [websocket-and-bridge](security/websocket-and-bridge.md) |
 | 6 Agent tool guards | Agent Path Gate, opt-in containment, taint guard, chat-gw/team guards | path gate ON for `read`/`write`/`edit` only | [tool-call-guards](security/tool-call-guards.md) |
 | 7 Secret storage + redaction | `0600` files, hashed bearers, vault masking, `safeStorage` (Electron) | plaintext at rest except Electron bearer | [credentials-and-secrets](security/credentials-and-secrets.md) |
@@ -102,10 +102,10 @@ Full table (L1–L18, config keys, notes): [network-surface § Inventory A](secu
 | L5 | Model-proxy second port `/v1/*` | HTTP | none (`secondPort` unset) | `127.0.0.1` hardcoded | `proxyAuthGate` Bearer key only; no network guard | No | `packages/server/src/server.ts:5049-5083`; `packages/server/src/model-proxy/auth-gate.ts:39,51` |
 | L6 | Recovery server (dependency-missing boot) | HTTP | 8000 | `config.host` | local token or loopback + same Origin for `POST /api/recovery/*` | Only on `ERR_MODULE_NOT_FOUND` | `packages/server/src/cli.ts:310-319`; `packages/server/src/lifecycle/recovery-server.ts:431-458,538` |
 | L7 | rpc-keeper per headless session | unix socket / named pipe | `~/.pi/dashboard/sessions/<id>.rpc.sock` | fs | file mode 0600; win32 pipe ACL | Per headless session | `packages/server/src/rpc-keeper/keeper.cjs:44-53,203,232-236` |
-| L8 | `serve_mockup` agent tool | HTTP static | caller port or ephemeral | `0.0.0.0` | NONE (NET-02) | On tool call | `packages/mockup-loop/src/extension.ts:75-112,197-212` |
+| L8 | `serve_mockup` agent tool | HTTP static | caller port or ephemeral | `127.0.0.1` (`0.0.0.0` with `lan:true`) | token path + loopback Host check (NET-02 closed; NET-21) | On tool call | `packages/mockup-loop/src/extension.ts:75-112,197-212` |
 | L9 | `deck3d serve` | HTTP + SSE | `opts.port` or ephemeral | `127.0.0.1` | NONE | On CLI run | `packages/deck3d/src/serve/index.ts:97,401-411,434-446,535` |
-| L10 | document-converter PlantUML container | HTTP (docker publish) | random | all host interfaces | NONE (NET-03) | On conversion | `packages/document-converter/engine/document_converter/plantuml_server.py:27,59,163-168` |
-| L11 | document-converter Gotenberg container | HTTP (docker publish) | random | all host interfaces | NONE (NET-03) | On PDF conversion | `packages/document-converter/engine/document_converter/pdf_server.py:29,64,177` |
+| L10 | document-converter PlantUML container | HTTP (docker publish) | random | `127.0.0.1` | NONE, loopback only (NET-03 closed) | On conversion | `packages/document-converter/engine/document_converter/plantuml_server.py:27,59,163-168` |
+| L11 | document-converter Gotenberg container | HTTP (docker publish) | random | `127.0.0.1` | NONE, loopback only (NET-03 closed) | On PDF conversion | `packages/document-converter/engine/document_converter/pdf_server.py:29,64,177` |
 | L12 | OAuth loopback callback | HTTP | ephemeral | `127.0.0.1` | `state` match, 300 s timeout | During OAuth flow | `packages/dashboard-plugin-runtime/src/server/loopback-callback.ts:65-67,81-88,127` |
 | L13 | Electron browser-host shim | HTTP/WS | ephemeral | `127.0.0.1` | pinned Origin + single-use `linkId` | Electron, on demand | `packages/electron/src/lib/browser-host/shim.ts:29-31,99-110,140` |
 | L14 | system-one engines (`von`/`laya`) | HTTP | configured | `127.0.0.1` | engine-native | When plugin starts engine | `packages/system-one-plugin/src/server/engines.ts:38,47` |
@@ -118,7 +118,7 @@ Notes:
 - Tunnels (zrok / ngrok / tailscale / zerotier) forward to `localhost:<dashboard port>`. `tunnel.enabled` default `true`, needs enrolled provider (`packages/shared/src/config.ts:1807-1808`).
 - Gateway port 9999 never tunnelled.
 - mDNS advert skipped for loopback bind (`packages/shared/src/mdns-discovery.ts:112-129`).
-- Egress with operator/agent URL: `POST /api/providers/test` (NET-04).
+- Egress with operator/agent URL: `POST /api/providers/test` (NET-04 closed: secrets bound to saved `baseUrl`, target vetted).
 
 ## Callable surfaces
 
@@ -223,7 +223,7 @@ High findings:
 | ELEC-04 | Desktop binaries unsigned | [plugins-client-electron](security/plugins-client-electron.md#findings) |
 | DEP-01 | File-read routes anchor `~/.pi`; provider credentials readable at `observe`. **closed by close-security-map-high-findings** | [deployment-process-supply-chain](security/deployment-process-supply-chain.md#findings) |
 
-TOOL-01 re-rated Low 2026-10-22, then closed by close-security-map-high-findings (see register Corrections). TOOL-04 NOT closed. 2026-10-26 re-verification: HTTP-02 → High; HTTP-03, CRED-03, NET-02, NET-03, NET-04, TOOL-03, TOOL-05, TOOL-07 → Low (see register Corrections). Counts are map-time; new residuals in [register](security/residual-risks.md#residuals-added-after-the-map). Closed statuses assume the change ships in the same PR — see ship-time instruction in [register](security/residual-risks.md#closed-findings).
+TOOL-01 re-rated Low 2026-10-22, then closed by close-security-map-high-findings (see register Corrections). TOOL-04 NOT closed. 2026-10-26 re-verification: HTTP-02 → High; HTTP-03, CRED-03, NET-02, NET-03, NET-04, TOOL-03, TOOL-05, TOOL-07 → Low (see register Corrections). Counts are map-time; new residuals in [register](security/residual-risks.md#residuals-added-after-the-map). DEP-02, ELEC-01, NET-02, NET-03, NET-04 closed by close-local-listener-and-egress-gaps; new residuals DEP-18/19, NET-18…24, TOOL-22, ELEC-11. Closed statuses assume the changes ship in the same PR — see ship-time instructions in [register](security/residual-risks.md#closed-findings).
 
 Also in the register:
 - Fix order: [Top priorities](security/residual-risks.md#top-priorities).

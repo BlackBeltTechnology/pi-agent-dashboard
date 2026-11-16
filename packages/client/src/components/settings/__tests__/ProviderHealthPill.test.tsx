@@ -144,3 +144,15 @@ describe("derivePillView precedence (the derivation the row and pane feed)", () 
     expect(derivePillView({ testing: true, live: { ok: true, modelCount: 1 } })).toEqual({ kind: "testing" });
   });
 });
+
+describe("derivePillView — NET-04 refusals (no status) render Unreachable with the error verbatim", () => {
+  it.each([
+    "Re-enter the API key to test a changed Base URL",
+    "provider target is a link-local or metadata address",
+    "provider target is this dashboard",
+  ])("%s", async (error) => {
+    render(<ProviderHealthPill view={derivePillView({ live: { ok: false, error } })} />);
+    expect(screen.getByTestId("health-pill").getAttribute("data-state")).toBe("unreachable");
+    expect(await copiedPayload()).toContain(error);
+  });
+});

@@ -40,3 +40,20 @@ describe("no-data-text-html-mainwindow", () => {
     expect(offenders, `mainWindow.loadURL("data:text/html…") is forbidden — use loadFile(loading.html)\n${offenders.join("\n")}`).toEqual([]);
   });
 });
+
+/**
+ * E83: default-session permission policy is installed before any window or the splash.
+ * @structural-pin repo lint on electron main.ts: ordering of installDefaultSessionPermissions vs whenReady/showSplash/new BrowserWindow; main.ts imports electron and cannot be loaded
+ * See change: close-local-listener-and-egress-gaps (D3).
+ */
+describe("main.ts installs default-session permissions early", () => {
+  it("whenReady < installDefaultSessionPermissions(session.defaultSession, …) < showSplash() and first window", () => {
+    const src = readFileSync(MAIN_TS, "utf-8");
+    const body = src.indexOf("await app.whenReady()");
+    expect(body).toBeGreaterThan(-1);
+    const install = src.indexOf("installDefaultSessionPermissions(session.defaultSession,", body);
+    expect(install).toBeGreaterThan(body);
+    expect(install).toBeLessThan(src.indexOf("showSplash();", body));
+    expect(src.slice(body, install)).not.toMatch(/new BrowserWindow\(/);
+  });
+});

@@ -33,6 +33,8 @@ import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+import { randomBytes } from "node:crypto";
+import { pipeline } from "node:stream";
 import { listPresets, resolvePreset } from "./presets/registry.js";
 import { loadContract, refreshContract } from "./presets/contract.js";
 import { loadRubric, validateMockup } from "./presets/validators.js";
@@ -78,44 +80,89 @@ function lanIp(): string | null {
   return null;
 }
 
-function startStaticServer(rootDir: string, port: number): Promise<http.Server> {
-  const root = path.resolve(rootDir);
-  const server = http.createServer((req, res) => {
+/** True when `target` is `root` or below it (real paths; not a string prefix, so `<root>-x` is outside). */
+function isWithin(root: string, target: string): boolean {
+  const rel = path.relative(root, target);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
+/** Exact loopback Host forms (host part case-insensitive) carrying the bound port. */
+function isLoopbackHost(host: string | undefined, port: number): boolean {
+  const m = /^(localhost|127\.0\.0\.1|\[::1\]):(\d+)$/i.exec(host ?? "");
+  return !!m && Number(m[2]) === port;
+}
+
+/**
+ * Static server. Check order: token (404) → loopback Host (421, loopback mode
+ * only) → path (400 malformed, 403 escaping `..`, 404 dotfile segment) →
+ * realpath confinement (404 ELOOP/ENOENT, 403 other failure or outside root).
+ * The realpath-then-open race is a named residual (the agent already writes
+ * the served directory).
+ */
+function startStaticServer(rootDir: string, port: number, opts: { lan: boolean; token: string }): Promise<http.Server> {
+  const root = fs.realpathSync(path.resolve(rootDir));
+  const prefix = `/${opts.token}/`;
+  const send = (res: http.ServerResponse, status: number, body = ""): void => {
+    res.writeHead(status, { "content-type": "text/plain" }).end(body);
+  };
+
+  /** realpath + confinement; returns the real path or the status to answer. */
+  async function resolveInside(target: string): Promise<string | number> {
+    let real: string;
     try {
-      const urlPath = decodeURIComponent((req.url ?? "/").split("?")[0]);
-      let rel = path.normalize(urlPath).replace(/^(\.\.[/\\])+/, "");
-      let target = path.join(root, rel);
-      // Confine to root — reject traversal escapes.
-      if (!target.startsWith(root)) {
-        res.writeHead(403).end("Forbidden");
-        return;
-      }
-      let stat: fs.Stats | null = null;
-      try {
-        stat = fs.statSync(target);
-      } catch {
-        stat = null;
-      }
-      if (stat?.isDirectory()) {
-        target = path.join(target, "index.html");
-      }
-      if (!fs.existsSync(target)) {
-        res.writeHead(404, { "content-type": "text/plain" }).end(`Not found: ${rel}`);
-        return;
-      }
-      const ext = path.extname(target).toLowerCase();
-      res.writeHead(200, {
-        "content-type": MIME[ext] ?? "application/octet-stream",
-        "cache-control": "no-store",
-      });
-      fs.createReadStream(target).pipe(res);
+      real = await fsp.realpath(target);
     } catch (err) {
-      res.writeHead(500, { "content-type": "text/plain" }).end(String(err));
+      const code = (err as NodeJS.ErrnoException).code;
+      return code === "ELOOP" || code === "ENOENT" || code === "ENOTDIR" ? 404 : 403;
     }
+    return isWithin(root, real) ? real : 403;
+  }
+
+  async function handle(req: http.IncomingMessage, res: http.ServerResponse, boundPort: number): Promise<void> {
+    const rawPath = (req.url ?? "/").split(/[?#]/)[0];
+    if (!rawPath.startsWith(prefix)) return send(res, 404);
+    if (!opts.lan && !isLoopbackHost(req.headers.host, boundPort)) return send(res, 421, "Misdirected Request");
+
+    let rel: string;
+    try {
+      rel = decodeURIComponent(rawPath.slice(prefix.length));
+    } catch {
+      return send(res, 400, "Bad Request");
+    }
+    if (rel.includes("\0")) return send(res, 400, "Bad Request");
+
+    const segments = rel.split(/[\\/]/).filter(Boolean);
+    let depth = 0;
+    for (const seg of segments) {
+      depth += seg === ".." ? -1 : seg === "." ? 0 : 1;
+      if (depth < 0) return send(res, 403, "Forbidden");
+    }
+    if (segments.some((seg) => seg.startsWith("."))) return send(res, 404, `Not found: ${rel}`);
+
+    let real = await resolveInside(path.join(root, ...segments));
+    if (typeof real === "string" && (await fsp.stat(real)).isDirectory()) {
+      real = await resolveInside(path.join(real, "index.html"));
+    }
+    if (typeof real === "number") return send(res, real, real === 404 ? `Not found: ${rel}` : "Forbidden");
+    if (!(await fsp.stat(real)).isFile()) return send(res, 404, `Not found: ${rel}`);
+
+    res.writeHead(200, {
+      "content-type": MIME[path.extname(real).toLowerCase()] ?? "application/octet-stream",
+      "cache-control": "no-store",
+    });
+    pipeline(fs.createReadStream(real), res, () => {});
+  }
+
+  const server = http.createServer((req, res) => {
+    const addr = server.address();
+    handle(req, res, typeof addr === "object" && addr ? addr.port : port).catch(() => {
+      if (!res.headersSent) send(res, 500, "Internal Server Error");
+      else res.destroy();
+    });
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, "0.0.0.0", () => resolve(server));
+    server.listen(port, opts.lan ? "0.0.0.0" : "127.0.0.1", () => resolve(server));
   });
 }
 
@@ -203,19 +250,28 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
     name: "serve_mockup",
     label: "Serve Mockup",
     description:
-      "Serve a directory of static mockup files over HTTP on 0.0.0.0 and return a clickable local + LAN URL (LAN URL works on a phone). Hand the URL to the human for live review instead of a screenshot. Pass stop:true with a port to stop a running server.",
+      "Serve a directory of static mockup files over HTTP, bound to loopback (127.0.0.1) by default so the URL works only on this machine; pass lan:true to also reach it from the LAN (e.g. a phone). `dir` must be inside the session working directory. Every URL carries a private path token; use relative asset links (style.css) — root-relative links (/style.css) drop the token and 404. Hand the returned URL to the human for live review instead of a screenshot. Pass stop:true with a port to stop a running server.",
     parameters: Type.Object({
       dir: Type.Optional(
-        Type.String({ description: "Directory to serve (required unless stopping)." }),
+        Type.String({ description: "Directory to serve, inside the session working directory (required unless stopping)." }),
       ),
       port: Type.Optional(
         Type.Number({ description: "Port to bind. Omit for an ephemeral free port." }),
+      ),
+      lan: Type.Optional(
+        Type.Boolean({ description: "Also listen on the LAN (0.0.0.0) for a phone check. Default false: loopback only." }),
       ),
       stop: Type.Optional(
         Type.Boolean({ description: "Stop the server bound to `port` instead of starting one." }),
       ),
     }),
-    async execute(_id: string, params: { dir?: string; port?: number; stop?: boolean }): ToolReturn {
+    async execute(
+      _id: string,
+      params: { dir?: string; port?: number; lan?: boolean; stop?: boolean },
+      _signal?: unknown,
+      _onUpdate?: unknown,
+      ctx?: { cwd?: string },
+    ): ToolReturn {
       try {
         if (params.stop) {
           if (params.port == null) {
@@ -233,25 +289,46 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
         if (!params.dir) {
           return { content: [{ type: "text", text: "Error: dir required to start a server." }], details: {} };
         }
-        const root = path.resolve(params.dir);
-        if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
-          return { content: [{ type: "text", text: `Error: not a directory: ${root}` }], details: {} };
+        // Root follows the session cwd (ctx.cwd), never the server's; process.cwd() only without ctx.
+        const cwd = ctx?.cwd ?? process.cwd();
+        const resolved = path.resolve(cwd, params.dir);
+        let root: string;
+        try {
+          root = await fsp.realpath(resolved);
+          if (!(await fsp.stat(root)).isDirectory()) throw new Error("not a directory");
+        } catch {
+          return { content: [{ type: "text", text: `Error: not a directory: ${resolved}` }], details: {} };
         }
-        const server = await startStaticServer(root, params.port ?? 0);
+        const realCwd = await fsp.realpath(cwd);
+        if (!isWithin(realCwd, root)) {
+          return {
+            content: [{ type: "text", text: `Error: dir must be inside the session working directory (${cwd}); ${root} is outside it. Move the mockup into the project and serve it from there.` }],
+            details: {},
+          };
+        }
+        const lan = params.lan === true;
+        const token = randomBytes(16).toString("hex");
+        const server = await startStaticServer(root, params.port ?? 0, { lan, token });
         const addr = server.address();
         const port = typeof addr === "object" && addr ? addr.port : params.port ?? 0;
         servers.set(port, server);
-        const ip = lanIp();
-        const local = `http://localhost:${port}`;
-        const lan = ip ? `http://${ip}:${port}` : "(no LAN IPv4 detected)";
+        // eslint-disable-next-line no-console
+        console.info(`[mockup-loop] serve_mockup bind=${lan ? "0.0.0.0" : "127.0.0.1"}:${port} lan=${lan} root=${root}`);
+        const local = `http://localhost:${port}/${token}/`;
+        const ip = lan ? lanIp() : null;
+        const lanUrl = lan ? (ip ? `http://${ip}:${port}/${token}/` : "(no LAN IPv4 detected)") : undefined;
+        const lines = [`Serving ${root}`, `  local: ${local}`];
+        if (lanUrl) lines.push(`  LAN:   ${lanUrl}`);
+        lines.push(
+          "",
+          lan
+            ? "Show the local URL to the user. Use the LAN URL only for a phone check."
+            : "Show the local URL to the user. It is loopback-only (this machine); pass lan:true for a phone check.",
+          `Use relative asset links (style.css, not /style.css). Stop with serve_mockup{stop:true,port:${port}}.`,
+        );
         return {
-          content: [
-            {
-              type: "text",
-              text: `Serving ${root}\n  local: ${local}\n  LAN:   ${lan}\n\nShow the local URL to the user. Use the LAN URL only for a phone check. Stop with serve_mockup{stop:true,port:${port}}.`,
-            },
-          ],
-          details: { port, root, local, lan },
+          content: [{ type: "text", text: lines.join("\n") }],
+          details: { port, root, local, ...(lanUrl ? { lan: lanUrl } : {}) },
         };
       } catch (err) {
         return { content: [{ type: "text", text: `serve_mockup failed: ${String(err)}` }], details: {} };

@@ -26,6 +26,7 @@ import type { NetworkInterfaceInfo } from "node:os";
 import type { ProveFn } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock-client.js";
 import { classifyProof, type ProveResult } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { decideServerWindowNavigation } from "./link-handling.js";
+import { isPermissionAllowed } from "./permissions.js";
 import {
   type ConnectingState,
   type PairingResult,
@@ -82,11 +83,9 @@ export function classifyExchange(status: number | null, body: unknown): Exchange
   return "transport";
 }
 
-const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set(["clipboard-sanitized-write", "notifications", "fullscreen"]);
-
 /** Server windows may write the clipboard, show notifications and go fullscreen — nothing else. */
 export function isServerWindowPermissionAllowed(permission: string): boolean {
-  return ALLOWED_PERMISSIONS.has(permission);
+  return isPermissionAllowed(permission);
 }
 
 /** `‹label› — ‹page title›`, both sanitised; `suffix` replaces the page title ("not reachable"). */

@@ -17,6 +17,7 @@ import path from "node:path";
 import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { DOCX_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
+import { ContainmentBindingRefused, readFileStateChecked } from "./dashboard-state-guard.js";
 import { loadPurify } from "./purify.js";
 
 /** Bounded-preview + size caps (design D3). Overridable per-call for tests. */
@@ -156,6 +157,23 @@ export function createDefaultDocxPdfEngine(opts?: {
   };
 }
 
+/**
+ * `engine.toPdf(real, out)` bound to the decided real path: identity before, identity after. If the
+ * path was swapped during conversion the output is deleted (no poisoned cache entry) and the caller
+ * is refused with {@link ContainmentBindingRefused}. See change: close-local-listener-and-egress-gaps (D2).
+ */
+export async function convertBound(engine: DocxPdfEngine, real: string, out: string): Promise<void> {
+  const before = await fs.stat(real);
+  await engine.toPdf(real, out);
+  try {
+    const [afterReal, after] = await Promise.all([fs.realpath(real), fs.stat(real)]);
+    if (afterReal !== real || after.dev !== before.dev || after.ino !== before.ino) throw new ContainmentBindingRefused();
+  } catch (err) {
+    await fs.rm(out, { force: true }).catch(() => undefined);
+    throw err instanceof ContainmentBindingRefused ? err : new ContainmentBindingRefused();
+  }
+}
+
 // ── docx: render (design D8) ─────────────────────────────────────────────────
 
 export type DocxRenderResult =
@@ -195,17 +213,18 @@ export async function renderDocx(
         try {
           await fs.access(out);
         } catch {
-          await engine.toPdf(resolved, out);
+          await convertBound(engine, resolved, out);
         }
         return { success: true, mode: "pdf" };
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof ContainmentBindingRefused) throw err;
       // fall through to html
     }
   }
 
   try {
-    const buffer = await fs.readFile(resolved);
+    const buffer = await readFileStateChecked(resolved, undefined, { decidedReal: resolved });
     const mammoth = (await import("mammoth")).default ?? (await import("mammoth"));
     let imageCount = 0;
     const convertImage = mammoth.images.imgElement((img: any) =>
@@ -230,6 +249,7 @@ export async function renderDocx(
       ...(truncated ? { note: "Images trimmed — download for the full document." } : {}),
     };
   } catch (err) {
+    if (err instanceof ContainmentBindingRefused) throw err;
     return { success: false, error: err instanceof Error ? err.message : "failed to render docx" };
   }
 }
@@ -258,11 +278,12 @@ export async function renderPptx(
       try {
         await fs.access(out);
       } catch {
-        await opts.engine.toPdf(resolved, out);
+        await convertBound(opts.engine, resolved, out);
       }
       return { success: true, mode: "pdf" };
     }
   } catch (err) {
+    if (err instanceof ContainmentBindingRefused) throw err;
     return { success: false, error: err instanceof Error ? err.message : "failed to render pptx" };
   }
   return { success: false, error: "presentation rendering requires the document engine" };

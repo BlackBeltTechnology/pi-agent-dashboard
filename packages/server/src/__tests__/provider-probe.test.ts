@@ -4,11 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildProbeRequest,
   listProviderModels,
+  normalizeBaseUrl,
   type ProbeInput,
   probeProvider,
   resolveProbeApiKey,
+  setProbeLookupAll,
+  validateProbeBaseUrl,
 } from "../package/provider-probe.js";
 import { startStalledUpstream } from "./stalled-upstream.js";
+
+// Fixture hosts (api.example.com ...) do not resolve; give the egress vet a public answer.
+beforeEach(() => setProbeLookupAll(async () => [{ address: "93.184.216.34", family: 4 }]));
+afterEach(() => setProbeLookupAll(null));
 
 describe("buildProbeRequest", () => {
   it("openai-completions: GET {baseUrl}/models with Authorization: Bearer", () => {
@@ -416,5 +423,154 @@ describe("probeProvider redirect handling (real servers)", () => {
     const result = await probeProvider({ baseUrl: a.url, apiKey: "sk-abc", api: "openai-completions" });
     expect(result).toEqual({ ok: true, status: 200, modelCount: 2, sample: ["m1", "m2"] });
     expect((await listProviderModels({ baseUrl: a.url, apiKey: "sk-abc", api: "openai-completions" })).map((m) => m.id)).toEqual(["m1", "m2"]);
+  });
+});
+
+// -- NET-04: Base URL normalisation + secret binding (test-plan E94, E97-E99, E102, E103) --
+// See change: close-local-listener-and-egress-gaps (design D7).
+
+describe("normalizeBaseUrl / validateProbeBaseUrl", () => {
+  it("equates case, default port, one trailing slash, query and fragment", () => {
+    const saved = normalizeBaseUrl("https://api.example.com/v1");
+    for (const v of [
+      "HTTPS://API.Example.com/v1",
+      "https://api.example.com:443/v1",
+      "https://api.example.com/v1/",
+      "https://api.example.com/v1?x=1",
+      "https://api.example.com/v1#f",
+    ]) {
+      expect(normalizeBaseUrl(v), v).toBe(saved);
+    }
+    expect(normalizeBaseUrl("http://h:80/v1")).toBe(normalizeBaseUrl("http://h/v1"));
+  });
+
+  it("keeps userinfo, a second slash, a trailing-dot host, path case, port, scheme", () => {
+    const saved = normalizeBaseUrl("https://h/v1");
+    for (const v of [
+      "https://u:p@h/v1",
+      "https://h/v1//",
+      "https://h./v1",
+      "https://h/V1",
+      "https://h:8443/v1",
+      "http://h/v1",
+      "https://h/v1/models",
+      "https://h2/v1",
+      "https://h.evil.net/v1",
+    ]) {
+      expect(normalizeBaseUrl(v), v).not.toBe(saved);
+    }
+  });
+
+  it("returns null for a non-URL; validate refuses without a request", () => {
+    expect(normalizeBaseUrl("not a url")).toBeNull();
+    expect(validateProbeBaseUrl("not a url")).toEqual({ ok: false, error: "Base URL is not a valid URL" });
+    expect(validateProbeBaseUrl("/v1")).toEqual({ ok: false, error: "Base URL is not a valid URL" });
+    expect(validateProbeBaseUrl("ftp://h/")).toEqual({ ok: false, error: "Base URL must use http or https" });
+    expect(validateProbeBaseUrl("file:///etc")).toEqual({ ok: false, error: "Base URL must use http or https" });
+    expect(validateProbeBaseUrl("https://h/v1").ok).toBe(true);
+  });
+});
+
+describe("resolveProbeApiKey — requestBaseUrl secret binding", () => {
+  const CHANGED = "Re-enter the API key to test a changed Base URL";
+  const BOUND = "Environment-variable keys can only be tested with the Base URL saved with them";
+  const saved = {
+    p: { baseUrl: "https://api.example.com/v1", apiKey: "sk-saved" },
+    e1: { baseUrl: "https://one.example/v1", apiKey: "$BIND_KEY" },
+    e2: { baseUrl: "https://two.example/v1", apiKey: "$BIND_KEY" },
+    lit: { baseUrl: "https://lit.example/v1", apiKey: "literal" },
+  };
+  const readProviders = () => saved;
+  beforeEach(() => {
+    process.env.BIND_KEY = "env-secret";
+  });
+  afterEach(() => {
+    delete process.env.BIND_KEY;
+  });
+
+  it("*** with the same / normalised-equal Base URL resolves the saved key", () => {
+    for (const requestBaseUrl of ["https://api.example.com/v1", "HTTPS://API.Example.com/v1/", "https://api.example.com:443/v1?x=1"]) {
+      expect(resolveProbeApiKey({ apiKey: "***", name: "p", readProviders, requestBaseUrl }), requestBaseUrl).toEqual({
+        ok: true,
+        key: "sk-saved",
+      });
+    }
+  });
+
+  it("*** with a changed / unparseable Base URL is refused", () => {
+    for (const requestBaseUrl of ["https://evil.example/v1", "https://api.example.com/v1/models", "https://u:p@api.example.com/v1", "not a url"]) {
+      expect(resolveProbeApiKey({ apiKey: "***", name: "p", readProviders, requestBaseUrl }), requestBaseUrl).toEqual({
+        ok: false,
+        error: CHANGED,
+      });
+    }
+  });
+
+  it("*** with no requestBaseUrl keeps today's behaviour (saved-provider probes)", () => {
+    expect(resolveProbeApiKey({ apiKey: "***", name: "p", readProviders })).toEqual({ ok: true, key: "sk-saved" });
+  });
+
+  it("$NAME resolves only for a saved provider holding that ref at the same URL (any-of)", () => {
+    expect(resolveProbeApiKey({ apiKey: "$BIND_KEY", readProviders, requestBaseUrl: "https://one.example/v1/" })).toEqual({ ok: true, key: "env-secret" });
+    expect(resolveProbeApiKey({ apiKey: "$BIND_KEY", readProviders, requestBaseUrl: "https://two.example/v1" })).toEqual({ ok: true, key: "env-secret" });
+  });
+
+  it("$NAME bound elsewhere / unsaved / case-differing is refused, env value or not (E98, E99)", () => {
+    expect(resolveProbeApiKey({ apiKey: "$BIND_KEY", readProviders, requestBaseUrl: "https://three.example/v1" })).toEqual({ ok: false, error: BOUND });
+    // Pb saved with a LITERAL at the URL does not bind the env ref
+    expect(resolveProbeApiKey({ apiKey: "$BIND_KEY", readProviders, requestBaseUrl: "https://lit.example/v1" })).toEqual({ ok: false, error: BOUND });
+    process.env.my_key = "x";
+    expect(resolveProbeApiKey({ apiKey: "$my_key", readProviders, requestBaseUrl: "https://one.example/v1" })).toEqual({ ok: false, error: BOUND });
+    delete process.env.my_key;
+    const r = resolveProbeApiKey({ apiKey: "$ANY_UNSET", readProviders, requestBaseUrl: "https://x.example/v1" });
+    expect(r).toEqual({ ok: false, error: BOUND });
+    expect((r as { error: string }).error).not.toMatch(/save first|please save/i);
+  });
+
+  it("binding is checked before the env lookup: an unsaved unset $X answers the binding error", () => {
+    delete process.env.BIND_KEY;
+    expect(resolveProbeApiKey({ apiKey: "$BIND_KEY", readProviders, requestBaseUrl: "https://three.example/v1" })).toEqual({ ok: false, error: BOUND });
+    expect(resolveProbeApiKey({ apiKey: "$BIND_KEY", readProviders, requestBaseUrl: "https://one.example/v1" })).toEqual({
+      ok: false,
+      error: "Environment variable BIND_KEY is not set",
+    });
+  });
+
+  it("a literal key is untouched by the binding", () => {
+    expect(resolveProbeApiKey({ apiKey: "sk-typed", readProviders, requestBaseUrl: "https://anywhere.example/v1" })).toEqual({ ok: true, key: "sk-typed" });
+  });
+});
+
+// -- NET-04: the 8 s budget boundary (test-plan X31) ------------------------
+
+describe("probeProvider 8 s budget boundary (fake timers)", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.fetch = realFetch;
+  });
+
+  it.each([
+    [7999, true],
+    [8000, false],
+    [8001, false],
+  ])("upstream answering at %i ms -> ok=%s, no status on failure, no timer left", async (delay, ok) => {
+    vi.useFakeTimers();
+    globalThis.fetch = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise((resolve, reject) => {
+          const t = setTimeout(() => resolve(new Response(JSON.stringify({ data: [{ id: "m" }] }), { status: 200 })), delay);
+          init.signal?.addEventListener("abort", () => {
+            clearTimeout(t);
+            reject(new Error("aborted"));
+          });
+        }),
+    ) as any;
+    const p = probeProvider({ baseUrl: "https://api.example.com/v1", apiKey: "k", api: "openai-completions" });
+    await vi.advanceTimersByTimeAsync(delay);
+    const r = await p;
+    expect(r.ok).toBe(ok);
+    if (!r.ok) expect("status" in r).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

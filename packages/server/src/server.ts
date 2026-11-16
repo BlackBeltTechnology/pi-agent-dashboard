@@ -253,6 +253,7 @@ import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec
 import { fetchPackageMeta } from "./package/npm-search-proxy.js";
 import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
+import { setProbeSelfPort } from "./package/provider-probe.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
 import { bearerChannelOf, isProvenTls } from "./auth/proven-tls.js";
@@ -3697,6 +3698,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     setPluginsEnabled,
     // Fastify here runs with logger:false, so its log would drop every toggle line.
     log: { info: (m) => console.log(m), warn: (m) => console.warn(m), error: (m) => console.error(m) },
+  });
+  // Egress vet for provider probes refuses the dashboard's own port on a local
+  // address. See change: close-local-listener-and-egress-gaps (NET-04).
+  setProbeSelfPort(() => {
+    const addr = fastify.server.address();
+    return addr && typeof addr === "object" ? addr.port : null;
   });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
 

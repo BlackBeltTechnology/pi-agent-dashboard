@@ -22,7 +22,10 @@ import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:f
 import { homedir } from "node:os";
 import { join } from "node:path";
 import Fastify from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { discoverProviderModels } from "../model-proxy/custom-provider-discovery.js";
+import { setProbeLookupAll } from "../package/provider-probe.js";
+import { clearProviderHealth, getAllProviderHealth } from "../routes/provider-health-cache.js";
 import { registerProviderRoutes } from "../routes/provider-routes.js";
 
 const PROVIDERS_DIR = join(homedir(), ".pi", "agent");
@@ -108,6 +111,45 @@ describe("providers.json write mode — the file stores API keys", () => {
     expect(res.statusCode).toBe(200);
     expect(mode() & 0o077).toBe(0);
     expect(mode()).toBe(0o600);
+    await app.close();
+  });
+});
+
+// -- NET-04: save road (PUT) never sends an env key to a metadata Base URL (test-plan E111) --
+// See change: close-local-listener-and-egress-gaps (design D7).
+
+describe("PUT /api/providers — metadata Base URL + $ENV key", () => {
+  let originalFetch: typeof globalThis.fetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    clearProviderHealth();
+    process.env.NET04_ANY_ENV = "env-secret";
+    setProbeLookupAll(async () => [{ address: "93.184.216.34", family: 4 }]);
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    delete process.env.NET04_ANY_ENV;
+    setProbeLookupAll(null);
+    clearProviderHealth();
+  });
+
+  it("sends no request, caches ok:false with the refusal text, and discovery returns no models", async () => {
+    const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
+    globalThis.fetch = fetchSpy as any;
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/providers",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        providers: { meta: { baseUrl: "http://169.254.169.254/", apiKey: "$NET04_ANY_ENV", api: "openai-completions" } },
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(getAllProviderHealth().meta).toMatchObject({ ok: false, error: "provider target is a link-local or metadata address" });
+    const models = await discoverProviderModels("meta", { baseUrl: "http://169.254.169.254/", apiKey: "$NET04_ANY_ENV", api: "openai-completions" });
+    expect(models).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
     await app.close();
   });
 });

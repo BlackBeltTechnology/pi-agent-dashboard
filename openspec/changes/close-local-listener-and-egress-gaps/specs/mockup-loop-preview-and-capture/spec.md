@@ -2,7 +2,7 @@
 
 ### Requirement: Serve a mockup directory over static HTTP
 
-The `serve_mockup` tool SHALL serve the files of a directory over HTTP bound to `127.0.0.1`, or to `0.0.0.0` only when called with `lan: true`. `dir` SHALL resolve, through its real path, to the session working directory or below. Every returned URL SHALL carry a random per-server path token. Its result text SHALL tell the agent to pass the localhost URL, not the LAN URL, to the dashboard `canvas` tool. The capability Purpose's LAN reachability holds only with `lan: true`.
+The `serve_mockup` tool SHALL serve the files of a directory over HTTP bound to `127.0.0.1`, or to `0.0.0.0` only when called with `lan: true`. `dir` SHALL resolve, through its real path, to the session working directory or below. Every returned URL SHALL carry a random per-server path token. Its result text SHALL tell the agent to show the local URL to the user, name no host-specific tool, and state that the server is loopback-only unless `lan: true`. The capability Purpose's LAN reachability holds only with `lan: true`.
 
 #### Scenario: Start a server on an ephemeral port
 
@@ -16,10 +16,10 @@ The `serve_mockup` tool SHALL serve the files of a directory over HTTP bound to 
 - **WHEN** `serve_mockup` is called with `dir` and a `port`
 - **THEN** it binds the HTTP server on host `127.0.0.1` on that port and returns the localhost URL for it
 
-#### Scenario: Result steers canvas to the localhost URL
+#### Scenario: Result says to show the localhost URL to the user
 
 - **WHEN** `serve_mockup` starts a server
-- **THEN** its result text states that the local URL is the one to pass to `canvas()`
+- **THEN** its result text says to show the local URL to the user, and names no host-specific tool
 
 #### Scenario: No LAN IPv4 address is available
 

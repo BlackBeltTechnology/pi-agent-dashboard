@@ -23,6 +23,12 @@ export interface PathDecision {
   readonly viaGrant: boolean;
   /** The exact string passed to the decision function. */
   readonly resolved: string;
+  /**
+   * The real path the decision was made on (symlinks resolved once). Callers open THIS, bound by
+   * `decidedReal`, never the lexical `resolved`. Equals `resolved` on a refusal.
+   * See change: close-local-listener-and-egress-gaps.
+   */
+  readonly real: string;
   readonly [pathDecisionBrand]: true;
 }
 

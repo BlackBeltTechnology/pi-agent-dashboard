@@ -13,11 +13,14 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  allowedOrigins,
   loadWithLocalProof,
   localApiBase,
   localProofHeaders,
+  mainWindowAllowedOrigin,
   mintLocalProofUrl,
   navigateToServer,
+  originOf,
   sanitizeNextPath,
 } from "../local-proof-bootstrap.js";
 
@@ -289,5 +292,50 @@ describe("navigateToServer — mint faults degrade to the plain target (X11–X1
     const win = { loadURL: vi.fn(async () => { throw new Error("ERR_ABORTED"); }) };
     const res = await navigateToServer(win, "http://localhost:8000", { config, fetchImpl: fetchOk("C"), token: "tok" });
     expect(res.navigated).toBe(false);
+  });
+});
+
+describe("main-window allowed origin (ELEC-01)", () => {
+  const config = { port: 8000, host: "localhost", knownServers: [{ host: "10.0.0.5", port: 9000 }] } as any;
+  const deps = (windowServerUrl?: string) => ({ config, windowServerUrl });
+
+  it("originOf / allowedOrigins are exported and normalise", () => {
+    expect(originOf("HTTP://LOCALHOST:8000/x")).toBe("http://localhost:8000");
+    expect(originOf("not a url")).toBeNull();
+    expect(allowedOrigins(deps()).has("http://127.0.0.1:8000")).toBe(true);
+  });
+
+  it("E78: file:// and unlisted URLs yield undefined; a known server is accepted", () => {
+    expect(mainWindowAllowedOrigin(() => "file:///x/doctor.html", deps("http://localhost:8000"))).toBeUndefined();
+    expect(mainWindowAllowedOrigin(() => "http://unlisted.example:8000/", deps("http://localhost:8000"))).toBeUndefined();
+    expect(mainWindowAllowedOrigin(() => "http://10.0.0.5:9000/x", deps("http://localhost:8000"))).toBe("http://10.0.0.5:9000");
+  });
+
+  it("E77: empty URL, no URL, a throwing getURL (destroyed window) → undefined", () => {
+    expect(mainWindowAllowedOrigin(() => "", deps("http://localhost:8000"))).toBeUndefined();
+    expect(mainWindowAllowedOrigin(undefined, deps("http://localhost:8000"))).toBeUndefined();
+    expect(
+      mainWindowAllowedOrigin(() => {
+        throw new Error("Object has been destroyed");
+      }, deps("http://localhost:8000")),
+    ).toBeUndefined();
+  });
+
+  it("E80: follows navigation (A → loopback variant B → known server C → unlisted D → A)", () => {
+    let url = "http://localhost:8000/";
+    const get = () => mainWindowAllowedOrigin(() => url, deps("http://localhost:8000"));
+    expect(get()).toBe("http://localhost:8000");
+    url = "http://127.0.0.1:8000/";
+    expect(get()).toBe("http://127.0.0.1:8000");
+    url = "http://10.0.0.5:9000/";
+    expect(get()).toBe("http://10.0.0.5:9000");
+    url = "http://evil.example:1/";
+    expect(get()).toBeUndefined();
+    url = "http://localhost:8000/";
+    expect(get()).toBe("http://localhost:8000");
+  });
+
+  it("the window's own server (remote mode) is accepted even when not configured", () => {
+    expect(mainWindowAllowedOrigin(() => "https://dash.example.com/", deps("https://dash.example.com"))).toBe("https://dash.example.com");
   });
 });
