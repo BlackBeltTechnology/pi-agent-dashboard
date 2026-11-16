@@ -1,0 +1,3 @@
+# pid-namespace.ts — index
+
+`buildPidNamespace(opts)`: single builder of pi process's pid-namespace report `{platform, kind:"host" \| "wsl", distro?, nsId?, hostId?}`. WSL from `WSL_DISTRO_NAME`. Linux `nsId` = `/proc/self/ns/pid` link, `hostId` = `/proc/sys/kernel/random/boot_id` (no hostname fallback). Non-Linux `hostId` = `os.hostname()`. Unreadable fields omitted; never throws; injectable `PidNamespaceOpts`. `processPidNamespace()` memoised per process. `buildServerPidContext()` → `ServerPidContext {platform, hostId?, nsId?}`. Node-only (fs/os): never import from client. See change: scope-pids-to-namespace.

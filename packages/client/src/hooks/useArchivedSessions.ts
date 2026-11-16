@@ -41,6 +41,11 @@ export function useArchivedSessions() {
   // state without re-subscribing on every cache change.
   const cacheRef = useRef<Cache>({});
   cacheRef.current = cache;
+  // Per-key request generation. `invalidate` bumps it, so every request that
+  // started before the invalidation is stale and its completion (success or
+  // failure) is dropped instead of overwriting the replacement request's page.
+  // See change: fix-archive-fold-key-and-filter-chips.
+  const genRef = useRef<Record<string, number>>({});
 
   const patch = useCallback((key: string, partial: Partial<ArchivedKeyState>) => {
     setCache((prev) => {
@@ -53,9 +58,12 @@ export function useArchivedSessions() {
   const runPage = useCallback(
     (key: string, opts: { append: boolean }) => {
       const current = cacheRef.current[key];
+      const gen = genRef.current[key] ?? 0;
+      const stale = () => (genRef.current[key] ?? 0) !== gen;
       patch(key, { loading: true, error: undefined });
       fetchArchivedSessions(paramsForKey(key, current?.nextCursor))
         .then((page) => {
+          if (stale()) return;
           setCache((prev) => {
             const existing = prev[key] ?? EMPTY_STATE;
             return {
@@ -71,6 +79,7 @@ export function useArchivedSessions() {
           });
         })
         .catch((err: unknown) => {
+          if (stale()) return;
           patch(key, { loading: false, loaded: opts.append ? true : false, error: err instanceof Error ? err.message : String(err) });
         });
     },
@@ -108,12 +117,13 @@ export function useArchivedSessions() {
   );
 
   const invalidate = useCallback((key: string) => {
-    if (!(key in cacheRef.current)) return;
+    genRef.current[key] = (genRef.current[key] ?? 0) + 1;
     // Update the ref SYNCHRONOUSLY so an immediate loadFirst(key) in the
     // same tick (open fold refetch on count change) sees `loaded:false`.
-    const next = { ...cacheRef.current, [key]: EMPTY_STATE };
-    cacheRef.current = next;
-    setCache(next);
+    if (key in cacheRef.current) cacheRef.current = { ...cacheRef.current, [key]: EMPTY_STATE };
+    // Functional update also resets an entry queued but not yet rendered (a
+    // `loading:true` patch from a now-stale request), so it cannot stick.
+    setCache((prev) => (key in prev ? { ...prev, [key]: EMPTY_STATE } : prev));
   }, []);
 
   const get = useCallback((key: string): ArchivedKeyState => cache[key] ?? EMPTY_STATE, [cache]);

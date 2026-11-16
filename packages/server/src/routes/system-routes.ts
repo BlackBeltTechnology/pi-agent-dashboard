@@ -1444,6 +1444,9 @@ export function registerSystemRoutes(
           // See change: fix-backpressure-status-and-subagent-frames.
           statusReconcileQueued: serverToBrowser.statusReconcileQueued,
           statusReconcileSent: serverToBrowser.statusReconcileSent,
+          // Subagent end / liveness frames deferred instead of shed. Not a
+          // drop. See change: fix-background-subagent-ghost-rows (D6).
+          deferredSubagentFrames: serverToBrowser.deferredSubagentFrames,
         };
       })(),
       // Browser-socket `bufferedAmount` occupancy. The drop counters are

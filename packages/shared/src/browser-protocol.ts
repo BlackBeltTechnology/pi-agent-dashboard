@@ -28,6 +28,7 @@ import type {
   OpenSpecData,
   OpenSpecGroup,
   PiSessionInfo,
+  SteerEntryView,
   ViewTarget,
 } from "./types.js";
 
@@ -674,6 +675,13 @@ export interface SessionsSnapshotMessage {
    * archive-sessions-lazy-load.
    */
   archivedCountByCwd: Record<string, number>;
+  /**
+   * Platform the server folds archive keys with (`pathKey(…, platform)`), so
+   * the client looks `archivedCountByCwd` up with the same key. Optional and
+   * additive: absent from an older server (client falls back to its inferred
+   * platform). See change: fix-archive-fold-key-and-filter-chips.
+   */
+  pathKeyPlatform?: "linux" | "darwin" | "win32";
 }
 
 export interface PinnedDirsUpdatedMessage {
@@ -1490,6 +1498,23 @@ export interface RemoveFollowupEntryFromBrowserMessage {
   index: number;
 }
 
+/**
+ * Cancels one bridge-held steer by its stable id. Mutates the bridge steer
+ * buffer only — no pi call. An id already handed to pi (or unknown) is refused
+ * with "already sent or cancelled" feedback. See change: bridge-owned-cancellable-steer.
+ */
+export interface RemoveSteeringEntryFromBrowserMessage {
+  type: "remove_steering_entry";
+  sessionId: string;
+  id: string;
+}
+
+/** Cancels every bridge-held steer. Follow-ups untouched; no pi call. See change: bridge-owned-cancellable-steer. */
+export interface ClearSteeringEntriesFromBrowserMessage {
+  type: "clear_steering_entries";
+  sessionId: string;
+}
+
 /** Moves `bridgeFollowUp[index]` to position 0 via splice + unshift. Silent no-op when `index <= 0`. No pi call. */
 export interface PromoteFollowupEntryFromBrowserMessage {
   type: "promote_followup_entry";
@@ -1505,7 +1530,8 @@ export interface PromoteFollowupEntryFromBrowserMessage {
 export interface QueueUpdateToBrowserMessage {
   type: "queue_update";
   sessionId: string;
-  steering: string[];
+  /** Bridge-held steer views; a plain string is a legacy bridge entry (one release). See change: bridge-owned-cancellable-steer. */
+  steering: (SteerEntryView | string)[];
   /** Entry views: text + image COUNT. Image bytes never cross the wire (design D2). */
   followUp: FollowUpEntryView[];
 }
@@ -2274,6 +2300,8 @@ export type BrowserToServerMessage =
   | ClearFollowupEntriesFromBrowserMessage
   | EditFollowupEntryFromBrowserMessage
   | RemoveFollowupEntryFromBrowserMessage
+  | RemoveSteeringEntryFromBrowserMessage
+  | ClearSteeringEntriesFromBrowserMessage
   | PromoteFollowupEntryFromBrowserMessage
   | WorktreeInitSubscribeMessage
   | WorktreeInitUnsubscribeMessage

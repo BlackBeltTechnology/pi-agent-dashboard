@@ -338,6 +338,8 @@ interface SessionsSnapshotMessage {
   sessions: DashboardSession[];
   orders: Record<string, string[]>;      // cwd → ordered session ids (windowed)
   endedTotals: Record<string, number>;   // session group key → count of ended sessions regardless of window
+  archivedCountByCwd: Record<string, number>; // archive index key → archived session count
+  pathKeyPlatform?: "linux" | "darwin" | "win32"; // platform whose path normalisation produced the archive keys
 }
 ```
 
@@ -354,6 +356,11 @@ This message SHALL be a member of the `ServerToBrowserMessage` union.
 - **AND** `orders` SHALL contain, for every cwd whose persisted order is non-empty, that order restricted to ids present in `sessions`
 - **AND** `endedTotals[cwd]` SHALL equal the number of ended sessions for that cwd regardless of window, for every cwd with at least one ended session
 - **AND** no row in `sessions` SHALL carry `notifyLog`
+
+#### Scenario: Snapshot names the archive key platform
+- **WHEN** the server constructs a snapshot for a browser connect
+- **THEN** `pathKeyPlatform` SHALL equal the platform the archive index normalises its keys with
+- **AND** a consumer that ignores the field SHALL still parse the message
 
 ### Requirement: `session_register` carries optional `spawnToken`
 The `SessionRegisterMessage` (extension → server) SHALL include an optional `spawnToken?: string` field. The bridge SHALL populate this field with `process.env.PI_DASHBOARD_SPAWN_TOKEN` IFF `bc.hasRegisteredOnce === false` at the time of the register. The bridge SHALL omit the field on every subsequent register (reattach, in-process session change). The server SHALL accept messages where the field is absent and treat them as legacy.

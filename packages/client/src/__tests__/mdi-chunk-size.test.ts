@@ -120,7 +120,15 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // orphan notice, stop-confirm and run-history copy, since every plugin catalog ships eagerly (+~1.2 KB gz).
 // 618,595 B on CI, 99 B over the old cap; 605 KiB (619,520 B) leaves ~925 B for CI's compressor variance.
 // Smallest KiB step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 605 * 1024;
+// fix-background-subagent-ghost-rows (2026-11-10): 605 -> 607 KiB. Unavoidably eager: the subagents plugin's
+// Agent finalizer reconcile arms (`subagent_stop_result` / `subagent_registry_snapshot` -> untracked /
+// session_reconcile, the `lastFrameAt` freshness guard, the untracked revive) and the slice's two extra owned
+// event types, because the shell reduces every session event through the plugin's slice + finalizer
+// synchronously; plus the plugin's zh-CN + hu `subagentUntracked` rows. +966 B gz measured locally against the
+// same develop base (618,011 -> 618,977 B); 620,150 B on CI, 630 B over the old cap. 606 KiB would leave ~390 B
+// (below the ~570 B judged too thin above), so 607 KiB (621,568 B, ~1.4 KB headroom for CI's compressor
+// variance). Smallest step with headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 607 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

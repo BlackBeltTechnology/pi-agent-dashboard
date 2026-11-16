@@ -561,12 +561,13 @@ export interface DashboardSession {
    * `steering[]` typically empties every turn boundary (1-15 s); `followUp`
    * holds up to 20 entries (and a 32 MiB aggregate byte ceiling, both bridge-
    * enforced) and drains ONE entry per `agent_end`.
-   * `followUp` carries entry objects (text + image COUNT); `steering` stays a
-   * plain string array (pi-owned, display-only).
+   * `followUp` carries entry objects (text + image COUNT); `steering` carries
+   * bridge-held steer views `{ id, text, imageCount }` (legacy bridges still
+   * send plain strings for one release — clients normalise on read).
    * See capability `mid-turn-prompt-queue`. See change: add-followup-edit-and-steer-cancel,
-   *   fix-bridge-followup-image-drop.
+   *   fix-bridge-followup-image-drop, bridge-owned-cancellable-steer.
    */
-  pendingQueues?: { steering: string[]; followUp: FollowUpEntryView[] };
+  pendingQueues?: { steering: (SteerEntryView | string)[]; followUp: FollowUpEntryView[] };
   /**
    * Session classification. Currently the only non-default value is
    * `"automation"`, stamped on sessions spawned by the automation-plugin's
@@ -838,6 +839,19 @@ export interface ImageContent {
  * See change: fix-bridge-followup-image-drop.
  */
 export interface FollowUpEntryView {
+  text: string;
+  imageCount: number;
+}
+
+/**
+ * Wire view of one bridge-held steer: stable `id` (`<instanceNonce>:<seq>`,
+ * never reused across bridge lifetimes), text, image COUNT. Image bytes never
+ * cross the wire. A plain `string` in a `steering` array is a legacy (pre-
+ * cancellable) bridge entry and carries no id — clients render it without a
+ * cancel control. See change: bridge-owned-cancellable-steer (D8).
+ */
+export interface SteerEntryView {
+  id: string;
   text: string;
   imageCount: number;
 }

@@ -718,10 +718,26 @@ export class ConnectionManager {
     this.draining = false;
   }
 
+  /** `session_register` / `session_unregister` — never evicted from the outbound ring. */
+  private static isLifecycleFrame(data: string): boolean {
+    // Cheap substring gate first; parse only candidates so key order does not matter.
+    if (!data.includes('"session_register"') && !data.includes('"session_unregister"')) return false;
+    try {
+      const type = (JSON.parse(data) as { type?: unknown } | null)?.type;
+      return type === "session_register" || type === "session_unregister";
+    } catch {
+      return false;
+    }
+  }
+
   private bufferMessage(data: string): void {
     this.buffer.push(data);
     if (this.buffer.length > this.maxBufferSize) {
-      const evicted = this.buffer.shift();
+      // Never evict session lifecycle frames: the server ignores a session until
+      // its register arrives, and a lost unregister on a session switch leaves the
+      // old session routable. Evict the oldest non-lifecycle frame instead.
+      const idx = Math.max(0, this.buffer.findIndex((d) => !ConnectionManager.isLifecycleFrame(d)));
+      const [evicted] = this.buffer.splice(idx, 1);
       this.droppedBufferedCount++;
       let droppedType = "unknown";
       try {

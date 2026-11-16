@@ -68,6 +68,13 @@ export interface SubagentState {
    * terminal or a running state. Lets a live tick revive a subagent a
    * fabricated `session_ended` heal failed, without reviving a real failure.
    * See change: fix-replay-fabricates-orphan-end-for-live-calls (D5).
+   *
+   * Liveness reconcile values (subagents plugin): `"untracked"` = the owning
+   * session answered a stop with `unknown` or left the subagent out of its
+   * registry snapshot (ended, not tracked; a live frame revives it);
+   * `"session_reconcile"` = the terminal status came from the session's stop
+   * answer or snapshot, not from a real end (a real end overwrites it).
+   * See change: fix-background-subagent-ghost-rows.
    */
   healedBy?: string;
   result?: string;

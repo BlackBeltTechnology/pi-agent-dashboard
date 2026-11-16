@@ -62,3 +62,10 @@ Optional `lookupOnlyIds` prop feeds `heldEndedByGroup` (deep-link lookup rows do
 - Tests: `__tests__/SessionList.folder-visibility.test.tsx`, eject block in `SessionList.folder-membership-drag.test.tsx` (thin `DndContext` mock tracks `active`).
 
 See change: add-spawn-model-choice. Folder spawn forwards `AgentSpawnPicker` choice into opts. Initialize (menu item + both banners) → `initializeSpawnOpts(cwd, PROJECT_INIT_PROMPT)` (pi + effective choice). Card sibling → `siblingSpawnOpts(s)` (ACP agent, or pi model/thinking).
+
+See change: fix-archive-fold-key-and-filter-chips.
+- `archiveKeyPlatform` prop + `archiveKey(p) = pathKey(p, archiveKeyPlatform ?? collapsePlatform)`: sole key for fold count lookup, `getArchivedPage`, `archiveExpanded`, load-first/more/retry, `archivedMatchesByGroup` build + readers. No raw `group.cwd` read of `archivedCountMap`/`archivedMatchesByGroup`.
+- Count-change effect skips keys its invalidation pass already refetched (no duplicate first-page request).
+- `ToggleButton` optional `icon`: set → full-width row, leading icon, trailing `mdiCheck` (`<testId>-check`, `aria-hidden`) while active; unset → markup unchanged (scope toggles). Funnel `Archived` (`mdiArchiveOutline`, `search-include-archive`) + `Hidden` (`mdiEyeOffOutline`, `show-hidden-toggle`) both render through it.
+- `card-pill-surfaces-no-literals.test.ts` anchors 3 regions (ToggleButton, renderAddToWorkspaceButton, folder-pinned-indicator-); archive chip no longer a separate anchor.
+- Tests: `SessionList.folder-visibility.test.tsx` (archive fold keyed by archiveKeyPlatform), `SessionList.header-declutter.test.tsx` (E12/E13 fold-key change).

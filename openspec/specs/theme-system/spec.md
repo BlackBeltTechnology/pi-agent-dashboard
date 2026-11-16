@@ -371,13 +371,13 @@ The folder-card and session-card pill surfaces SHALL source every colour from th
 - `FolderActionBanner.tsx`, `WorktreeInitButton.tsx`, `WorktreeInitChip.tsx`, `WorktreeInitStack.tsx`;
 - the shared `SlotPill.tsx`, `FolderAutomationSection.tsx`, `FolderGoalsSection.tsx`, `FolderMcpSection.tsx`, `FolderOpenSpecSection.tsx`;
 - `OpenSpecActivityBadge.tsx`, `openspec-helpers.tsx`, `OpenSpecGroupPills.tsx`, `FlowActivityBadge.tsx`;
-- in `SessionList.tsx`, only four sites: the sidebar filter chip, the include-archive chip, the add-to-workspace menu node and the folder pinned indicator.
+- in `SessionList.tsx`, only three sites: the `ToggleButton` chips (the Sessions/Folders scope toggles and the funnel `Archived` / `Hidden` toggles), the add-to-workspace menu node and the folder pinned indicator.
 
 Readable text on these surfaces SHALL NOT paint `--text-muted` (permitted only on disabled variants and `aria-hidden="true"` elements). Control labels SHALL render at 12 px or larger; all other text at 11 px or larger.
 
 #### Scenario: Pill surface files contain no colour literals
 - **WHEN** the string and template literals of the listed files are scanned with the `rawPalette` class pattern, `#[0-9a-fA-F]{3,8}`, `rgba(` and `var(--…, <literal>)`
-- **AND** in `SessionList.tsx` only the literals inside the `ToggleButton` component, the `renderAddToWorkspaceButton` function, the element carrying `data-testid="search-include-archive"` and the element carrying `data-testid` prefix `folder-pinned-indicator-` are scanned
+- **AND** in `SessionList.tsx` only the literals inside the `ToggleButton` component, the `renderAddToWorkspaceButton` function and the element carrying `data-testid` prefix `folder-pinned-indicator-` are scanned
 - **THEN** no match SHALL be found
 
 #### Scenario: Readable metadata replaces muted text

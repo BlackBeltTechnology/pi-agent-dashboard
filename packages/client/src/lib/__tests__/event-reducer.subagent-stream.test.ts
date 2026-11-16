@@ -139,6 +139,10 @@ describe("plugin-registered session event reducer slice (E41)", () => {
       "subagent_delta",
       "subagent_completed",
       "subagent_failed",
+      // Liveness reconcile frames, claimed by the Agent finalizer.
+      // See change: fix-background-subagent-ghost-rows.
+      "subagent_stop_result",
+      "subagent_registry_snapshot",
     ]);
     expect(entry?.toolRowFinalizers?.map((f) => f.toolName)).toEqual(["Agent"]);
   });

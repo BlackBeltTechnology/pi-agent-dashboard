@@ -227,3 +227,52 @@ test.describe("Max parallel subagents on the global save state (L3)", () => {
     expect(readProducerSettingsRaw()).toBe(fileBefore);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stop on a ghost background row: the session answers `unknown` / `terminal`
+// and the row leaves. Needs producer >= 0.8.0 (stop verdicts); the harness pins
+// 0.7.0, so the scenario is skipped until the pin moves.
+// See change: fix-background-subagent-ghost-rows (task 5.3, test-plan #X2).
+// ---------------------------------------------------------------------------
+test.describe("Stop on a ghost background row (L3, producer >= 0.8.0)", () => {
+  test("#X2 Stopping… then the row leaves within 2 s; no abort; full-screen view shows the final status", async ({
+    page,
+    request,
+    context,
+  }) => {
+    test.skip(true, "needs producer pi-dashboard-subagents >= 0.8.0 (stop verdicts); harness pins 0.7.0");
+    test.setTimeout(240_000);
+    await op.arm(request, context);
+    const { dropServerFrames } = await import("./helpers/drop-ws-frames.js");
+    await dropServerFrames(page, (f) =>
+      f.type === "event" && (f.event?.eventType === "subagent_completed" || f.event?.eventType === "subagent_failed"),
+    );
+    const aborts: string[] = [];
+    page.on("websocket", (ws) => {
+      ws.on("framesent", (f) => {
+        const p = typeof f.payload === "string" ? f.payload : "";
+        if (p.includes('"type":"abort"')) aborts.push(p);
+      });
+    });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+    await sendPrompt(page, "[[faux:subagent-background]] go");
+    const lane = page.getByTestId("composer-dock-lane-processes");
+    await expect(lane).toBeVisible({ timeout: 60_000 });
+    if ((await lane.getAttribute("data-open")) !== "true") await lane.locator('[data-dock-toggle="processes"]').click();
+    const row = lane.getByTestId("composer-dock-row").filter({ hasText: "faux background child" });
+    await expect(row).toHaveCount(1, { timeout: 60_000 });
+    const href = await row.getByRole("link", { name: /^Open subagent / }).getAttribute("href");
+    // The child (~6 s) ends in the session; its end frames never reach the page.
+    await page.waitForTimeout(10_000);
+    await expect(row).toHaveCount(1);
+
+    await row.getByRole("button", { name: /^Stop subagent / }).click();
+    await expect(row.getByTestId("composer-dock-row-meta")).toHaveText("Stopping…");
+    await expect(row).toHaveCount(0, { timeout: 2_000 });
+    expect(aborts, "no session abort was sent").toEqual([]);
+    await page.goto(href!);
+    await expect(page.getByText(/completed|no longer tracks it/i).first()).toBeVisible({ timeout: 30_000 });
+  });
+});

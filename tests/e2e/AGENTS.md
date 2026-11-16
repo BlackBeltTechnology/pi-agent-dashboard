@@ -258,6 +258,7 @@ One row per file.
 | `spawn-correlation-recovery.spec.ts` | → `spawn-correlation-recovery.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | → `split-composer-overflow.spec.ts.AGENTS.md` |
 | `split-divider-drag.spec.ts` | #F1-F4 divider drag |
+| `steer-cancel.spec.ts` | → `steer-cancel.spec.ts.AGENTS.md` |
 | `subagent-detail-dialog.spec.ts` | → `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | → `subagent-inspector.spec.ts.AGENTS.md` |
 | `subagent-live-timeline.spec.ts` | → `subagent-live-timeline.spec.ts.AGENTS.md` |

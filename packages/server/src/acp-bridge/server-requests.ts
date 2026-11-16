@@ -123,6 +123,10 @@ export function handleServerMessage(m: ServerToExtensionMessage, ctx: ServerRequ
     case "preferences_update":
     case "subagent_resync_request":
     case "vault_snapshot":
+    // ACP sessions have no bridge steer buffer: steer cancel is out of scope
+    // (non-goal), so both mutations are dropped. See change: bridge-owned-cancellable-steer.
+    case "remove_steering_entry":
+    case "clear_steering_entries":
       return ctx.ignored(m.type);
 
     default: {

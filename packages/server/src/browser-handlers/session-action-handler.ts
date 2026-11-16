@@ -1178,9 +1178,12 @@ export function handleStopAfterTurn(
 // session's bridge. The bridge mutates `bridgeFollowUp` locally; nothing
 // touches pi. The OLD pi-mutation message types from Phase 3
 // (`clear_steering_queue`, `clear_followup_slot`, `edit_followup_slot`)
-// remain permanently deleted. Steer mutation is never exposed.
+// remain permanently deleted.
 //
-// See change: rework-mid-turn-prompt-queue.
+// Steer mutation (`remove_steering_entry` / `clear_steering_entries`) targets
+// the bridge-owned steer buffer — held steers not yet handed to pi.
+//
+// See change: rework-mid-turn-prompt-queue, bridge-owned-cancellable-steer.
 
 export function handleClearFollowupEntries(
   msg: Extract<BrowserToServerMessage, { type: "clear_followup_entries" }>,
@@ -1233,6 +1236,29 @@ export function handlePromoteFollowupEntry(
 
 
 
+
+export function handleRemoveSteeringEntry(
+  msg: Extract<BrowserToServerMessage, { type: "remove_steering_entry" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (!ctx.sessionManager.get(msg.sessionId)) return;
+  ctx.piGateway.sendToSession(msg.sessionId, {
+    type: "remove_steering_entry",
+    sessionId: msg.sessionId,
+    id: msg.id,
+  });
+}
+
+export function handleClearSteeringEntries(
+  msg: Extract<BrowserToServerMessage, { type: "clear_steering_entries" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (!ctx.sessionManager.get(msg.sessionId)) return;
+  ctx.piGateway.sendToSession(msg.sessionId, {
+    type: "clear_steering_entries",
+    sessionId: msg.sessionId,
+  });
+}
 
 export function handleKillProcess(
   msg: Extract<BrowserToServerMessage, { type: "kill_process" }>,
@@ -1329,6 +1355,9 @@ export type ForceKillDeps = Pick<
 /** Refusal text for a force-kill of a pid outside this host's namespace. */
 const FORCE_KILL_NOT_LOCAL_MESSAGE = "Process not on this host — use Shutdown";
 
+/** Refusal text for a force-kill of a restored pid reused by another process. */
+const FORCE_KILL_IDENTITY_REUSE_MESSAGE = "Process identity reuse: the recorded pid now belongs to another process — not signalled";
+
 /**
  * The force-kill ladder, shared by the browser `force_kill` message and
  * `POST /api/session/:id/lifecycle { action: "force_kill" }` (change:
@@ -1384,6 +1413,16 @@ export async function forceKillSession(
   if (!operatorMaySignal(target, ctxPid)) {
     console.warn(`[dashboard] force_kill(${sessionId}): refused — pid ${pid} target ${target.kind} is not on this host`);
     return { success: false, message: FORCE_KILL_NOT_LOCAL_MESSAGE };
+  }
+
+  // A pid of a RESTORED registry entry that fails start-time verification
+  // belongs to an unrelated process: never signal it, even for an operator
+  // (G2). An unverifiable pid is still signalled here (operator path, D5); the
+  // registry logs it. See change: guard-restored-headless-identity.
+  const identity = await headlessPidRegistry.verifySessionPid?.(sessionId, pid);
+  if (identity === "mismatch") {
+    console.warn(`[dashboard] force_kill(${sessionId}): refused — pid ${pid} identity reuse (restored entry)`);
+    return { success: false, message: FORCE_KILL_IDENTITY_REUSE_MESSAGE };
   }
 
   markIntentionalClose();

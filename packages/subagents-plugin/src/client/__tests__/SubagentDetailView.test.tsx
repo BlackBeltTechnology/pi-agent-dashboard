@@ -406,3 +406,28 @@ describe("SubagentDetailView — failed run with a timeline shows its error", ()
     expect(screen.queryByTestId("subagent-error-note")).toBeNull();
   });
 });
+
+// See change: fix-background-subagent-ghost-rows (test-plan #F5): an untracked
+// end reads "no longer tracks it", never "parent session ended".
+describe("SubagentDetailView — untracked end (#F5)", () => {
+  afterEach(() => cleanup());
+
+  it.each([
+    ["with a timeline", [{ kind: "text" as const, text: "hi", ts: 1 }]],
+    ["without a timeline", undefined],
+  ])("%s shows the no-longer-tracked line", (_label, entries) => {
+    const session = makeSession({
+      id: "u1",
+      type: "Explore",
+      description: "d",
+      status: "failed",
+      error: "no longer tracked by its session",
+      healedBy: "untracked",
+      ...(entries ? { entries } : {}),
+    });
+    renderWithPrimitives(<SubagentDetailView session={session} agentId="u1" />);
+    expect(screen.getByTestId("subagent-untracked-note").textContent).toBe("Ended — its session no longer tracks it");
+    expect(screen.queryByText(/parent session ended/)).toBeNull();
+    expect(screen.queryByTestId("subagent-error-note")).toBeNull();
+  });
+});
