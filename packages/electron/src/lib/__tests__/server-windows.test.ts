@@ -7,6 +7,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mainWindowAllowedOrigin } from "../local-proof-bootstrap.js";
+import { installDefaultSessionPermissions } from "../permissions.js";
 import type { ConnectingState } from "../pairing-client.js";
 import type { DiscoveredEntry } from "../server-discovery.js";
 import { loadKeyring, type ServerKeyring } from "../server-keyring.js";
@@ -581,6 +583,52 @@ describe("navigation (E23, E34-ish)", () => {
       ses(rig).permissionHandler!({}, p, (g) => (results[p] = g));
     }
     expect(results).toEqual({ "clipboard-sanitized-write": true, notifications: true, fullscreen: true, media: false, geolocation: false });
+  });
+
+  it("T.173 X43: the permission request handler answers exactly once on every path (allow, deny, odd inputs)", async () => {
+    await opened();
+    const h = ses(rig).permissionHandler!;
+    for (const p of ["notifications", "fullscreen", "clipboard-sanitized-write", "media", "openExternal", "", "unknown-perm", undefined as any, null as any, 42 as any]) {
+      const cb = vi.fn();
+      expect(() => h({}, p, cb)).not.toThrow();
+      expect(cb, String(p)).toHaveBeenCalledTimes(1);
+      expect(typeof cb.mock.calls[0][0]).toBe("boolean");
+    }
+  });
+
+  it("T.173 X43: the default-session request handler answers exactly once on allow, each deny, throwing getURL/config, malformed URL", () => {
+    const ORIGIN_ = "http://localhost:8000";
+    let request!: (wc: unknown, perm: string, cb: (g: boolean) => void, d: Record<string, unknown>) => void;
+    let getURL: () => string = () => `${ORIGIN_}/`;
+    let loadConfig: () => unknown = () => ({ port: 8000, knownServers: [] });
+    installDefaultSessionPermissions(
+      { setPermissionRequestHandler: (hh) => void (request = hh as any), setPermissionCheckHandler: () => {} },
+      () => mainWindowAllowedOrigin(getURL, { config: loadConfig() as any }),
+      () => {},
+    );
+    const run = (perm: string, details: Record<string, unknown>) => {
+      const cb = vi.fn();
+      expect(() => request({}, perm, cb, details)).not.toThrow();
+      expect(cb).toHaveBeenCalledTimes(1);
+      return cb.mock.calls[0][0] as boolean;
+    };
+    const ok = { isMainFrame: true, requestingUrl: `${ORIGIN_}/x` };
+    expect(run("notifications", ok)).toBe(true); // allow
+    expect(run("media", ok)).toBe(false); // denied permission
+    expect(run("notifications", { ...ok, isMainFrame: false })).toBe(false); // subframe
+    expect(run("notifications", { ...ok, requestingUrl: "http://evil.test/" })).toBe(false); // foreign origin
+    expect(run("notifications", { ...ok, requestingUrl: "not a url" })).toBe(false); // malformed URL
+    expect(run("notifications", { ...ok, requestingUrl: undefined })).toBe(false); // missing URL
+    expect(run("notifications", {} as any)).toBe(false); // empty details
+    getURL = () => {
+      throw new Error("Object has been destroyed");
+    };
+    expect(run("notifications", ok)).toBe(false); // throwing getURL
+    getURL = () => `${ORIGIN_}/`;
+    loadConfig = () => {
+      throw new Error("config unreadable");
+    };
+    expect(run("notifications", ok)).toBe(false); // throwing config load
   });
 });
 

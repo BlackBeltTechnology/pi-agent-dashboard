@@ -574,3 +574,167 @@ describe("probeProvider 8 s budget boundary (fake timers)", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+// -- NET-04 / probe contract rows (test-plan E131-E134, E136, E137, X32) --
+// See change: close-local-listener-and-egress-gaps.
+
+describe("probeProvider response contract (mocked upstream)", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+  const mockFetch = (impl: (url: string, init: RequestInit) => Promise<Response>) => {
+    globalThis.fetch = vi.fn(impl) as any;
+  };
+  const base = { baseUrl: "https://api.example.com/v1", api: "openai-completions" as const };
+
+  it("model count / sample: 0, 1, 2, 5, 6 ids and a missing `data` (E131)", async () => {
+    for (const n of [0, 1, 2, 5, 6]) {
+      const ids = Array.from({ length: n }, (_, i) => `m${i}`);
+      mockFetch(async () => new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), { status: 200 }));
+      expect(await probeProvider({ ...base, apiKey: "k" }), `n=${n}`).toEqual({
+        ok: true,
+        status: 200,
+        modelCount: n,
+        sample: ids.slice(0, Math.min(n, 5)),
+      });
+    }
+    mockFetch(async () => new Response(JSON.stringify({}), { status: 200 }));
+    expect(await probeProvider({ ...base, apiKey: "k" })).toEqual({ ok: true, status: 200, modelCount: 0, sample: [] });
+  });
+
+  it("google key `a b&c+d/é` is encodeURIComponent-ed, no Authorization, and never appears in an error (E133)", async () => {
+    const key = "a b&c+d/é";
+    let seen: { url: string; headers: Record<string, string> } | undefined;
+    mockFetch(async (url, init) => {
+      seen = { url, headers: (init.headers ?? {}) as Record<string, string> };
+      return new Response(`bad key ${key} / ${encodeURIComponent(key)}`, { status: 400 });
+    });
+    const r = await probeProvider({ baseUrl: "https://generativelanguage.googleapis.com/v1beta", apiKey: key, api: "google-generative-ai" });
+    expect(seen!.url).toBe(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+    expect(seen!.headers.Authorization).toBeUndefined();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).not.toContain(key);
+      // a thrown fetch error that embeds the request URL must not carry the key either
+    }
+    mockFetch(async (url) => {
+      throw new Error(`request to ${url} failed, key ${key}`);
+    });
+    const t = await probeProvider({ baseUrl: "https://generativelanguage.googleapis.com/v1beta", apiKey: key, api: "google-generative-ai" });
+    expect(t.ok).toBe(false);
+    if (!t.ok) expect(t.error).not.toContain(key);
+  });
+
+  it("upstream error bodies of 0 / 499 / 500 / 501 chars: capped at 500, status kept (E134)", async () => {
+    for (const status of [401, 404, 500]) {
+      for (const len of [0, 499, 500, 501]) {
+        mockFetch(async () => new Response("x".repeat(len), { status }));
+        const r = await probeProvider({ ...base, apiKey: "k" });
+        expect(r.ok, `${status}/${len}`).toBe(false);
+        if (!r.ok) {
+          expect(r.status).toBe(status);
+          expect(r.error!.length).toBeLessThanOrEqual(500);
+          if (len === 499 || len === 500) expect(r.error).toBe("x".repeat(len));
+          if (len === 501) expect(r.error).toHaveLength(500);
+        }
+      }
+    }
+  });
+
+  it("literal key, Bearer string and an env-resolved value never reach the response, on success and failure (E137)", async () => {
+    const literal = "sk-literalkey000000000000";
+    const bearer = "Bearer tokenvalue0123456789";
+    const envValue = "resolved-env-secret-value";
+    const echo = `${literal} Authorization: ${bearer} ${envValue}`;
+    // upstream error body echoes all three
+    mockFetch(async () => new Response(echo, { status: 502 }));
+    const bodyFail = await probeProvider({ ...base, apiKey: literal });
+    expect(JSON.stringify(bodyFail)).not.toContain(literal);
+    expect(JSON.stringify(bodyFail)).not.toContain("tokenvalue0123456789");
+    // the env-resolved value is the key actually sent (resolveProbeApiKey output)
+    const failEnv = await probeProvider({ ...base, apiKey: envValue });
+    expect(JSON.stringify(failEnv)).not.toContain(envValue);
+    // fetch error message embeds the key
+    mockFetch(async () => {
+      throw new Error(`socket hang up ${literal} ${bearer}`);
+    });
+    const thrown = await probeProvider({ ...base, apiKey: literal });
+    expect(JSON.stringify(thrown)).not.toContain(literal);
+    expect(JSON.stringify(thrown)).not.toContain("tokenvalue0123456789");
+    // success path: a model id that equals the key is not part of the response contract's secret set,
+    // but the response carries only {ok,status,modelCount,sample}
+    mockFetch(async () => new Response(JSON.stringify({ data: [{ id: "m1" }] }), { status: 200 }));
+    const ok = await probeProvider({ ...base, apiKey: literal });
+    expect(Object.keys(ok).sort()).toEqual(["modelCount", "ok", "sample", "status"]);
+    expect(JSON.stringify(ok)).not.toContain(literal);
+  });
+});
+
+describe("probeProvider redirect matrix and body stall (real loopback servers)", () => {
+  const servers: Server[] = [];
+  const listen = async (handler: (req: IncomingMessage, res: import("node:http").ServerResponse) => void) => {
+    let seen = 0;
+    const server = createServer((req, res) => {
+      seen++;
+      handler(req, res);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push(server);
+    return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen: () => seen };
+  };
+  afterEach(async () => {
+    await Promise.all(
+      servers.splice(0).map((s) => {
+        s.closeAllConnections?.();
+        return new Promise((resolve) => s.close(resolve));
+      }),
+    );
+  });
+
+  const apis = ["openai-completions", "anthropic-messages", "google-generative-ai"] as const;
+  const locations = ["other-host", "same-host-other-path", "relative", "absent", "metadata"] as const;
+
+  it.each(apis)("%s: every 3xx x Location variant is ok:false/redirect, no status, target gets 0 requests (E136)", async (api) => {
+    for (const status of [301, 302, 303, 307, 308]) {
+      for (const loc of locations) {
+        const target = await listen((_req, res) => res.writeHead(200).end("{}"));
+        const origin = await listen((req, res) => {
+          const location =
+            loc === "other-host" ? `${target.url}/models`
+            : loc === "same-host-other-path" ? `http://${req.headers.host}/elsewhere`
+            : loc === "relative" ? "/elsewhere"
+            : loc === "metadata" ? "http://169.254.169.254/"
+            : undefined;
+          res.writeHead(status, location ? { location } : {}).end();
+        });
+        const r = await probeProvider({ baseUrl: origin.url, apiKey: "SECRET", api });
+        const tag = `${api} ${status} ${loc}`;
+        expect(r.ok, tag).toBe(false);
+        if (!r.ok) {
+          expect(r.error, tag).toMatch(/redirect/i);
+          expect("status" in r, tag).toBe(false);
+          expect(r.error, tag).not.toContain("SECRET");
+        }
+        expect(target.seen(), tag).toBe(0);
+        expect(origin.seen(), tag).toBe(1);
+      }
+    }
+  }, 60_000);
+
+  it.each([
+    ["200 body stall", 200],
+    ["500 body stall", 500],
+  ])("%s: aborted at the budget, not hung; ok:false, no status (X32)", async (_name, status) => {
+    const origin = await listen((_req, res) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.write('{"data":[');
+      // never end
+    });
+    const t0 = Date.now();
+    const r = await probeProvider({ baseUrl: origin.url, apiKey: "k", api: "openai-completions", timeoutMs: 400 });
+    expect(Date.now() - t0).toBeLessThan(3_000);
+    expect(r.ok).toBe(false);
+    expect("status" in r).toBe(false);
+  }, 10_000);
+});

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { setProbeLookupAll, setProbeSelfPort } from "../package/provider-probe.js";
 import { clearProviderHealth, getAllProviderHealth } from "../routes/provider-health-cache.js";
 import { registerProviderRoutes } from "../routes/provider-routes.js";
@@ -297,5 +298,43 @@ describe("POST /api/providers/test", () => {
     expect(getAllProviderHealth().stall?.ok).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
     await app.close();
+  });
+  it("a literal key is probed verbatim for every api type, saved or not (E91)", async () => {
+    seed({ saved: { baseUrl: "https://saved.example.com/v1", apiKey: "sk-other", api: "openai-completions" } });
+    const fetchSpy = vi.fn(async (_u: string, _i: RequestInit) => new Response(JSON.stringify({ data: [{ id: "m" }] }), { status: 200 }));
+    globalThis.fetch = fetchSpy as any;
+    const cases: [string, (u: string, h: Record<string, string>) => void][] = [
+      ["openai-completions", (_u, h) => expect(h.Authorization).toBe("Bearer sk-literal")],
+      ["openai-responses", (_u, h) => expect(h.Authorization).toBe("Bearer sk-literal")],
+      ["anthropic-messages", (_u, h) => expect(h["x-api-key"]).toBe("sk-literal")],
+      ["google-generative-ai", (u) => expect(u).toContain("key=sk-literal")],
+    ];
+    for (const baseUrl of ["https://saved.example.com/v1", "https://never-saved.example.com/v1"]) {
+      for (const [api, check] of cases) {
+        fetchSpy.mockClear();
+        const body = await test({ baseUrl, apiKey: "sk-literal", api });
+        expect(body.ok, `${api} ${baseUrl}`).toBe(true);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        const [url, init] = fetchSpy.mock.calls[0];
+        check(url, (init.headers ?? {}) as Record<string, string>);
+      }
+    }
+  });
+
+  it("an untrusted, unauthenticated non-loopback origin is rejected by networkGuard before any probe (E138)", async () => {
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as any;
+    const app = Fastify();
+    registerProviderRoutes(app, { networkGuard: createNetworkGuard([]) as any });
+    await app.ready();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/providers/test",
+      remoteAddress: "203.0.113.9",
+      payload: { baseUrl: "https://api.example.com/v1", apiKey: "sk-literal", api: "openai-completions" },
+    });
+    await app.close();
+    expect([401, 403]).toContain(res.statusCode);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

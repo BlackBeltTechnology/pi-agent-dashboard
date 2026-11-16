@@ -38,7 +38,8 @@ def bindings(cport, *host_ips):
 
 class FakeDocker:
     def __init__(self, name, *, exists=False, running=False, inspect_out="",
-                 inspect_rc=0, rm_rc=0, rm_stderr=""):
+                 inspect_rc=0, rm_rc=0, rm_stderr="", run_rc=0,
+                 run_stderr="", inspect_stderr=""):
         self.name = name
         self.exists = exists or running
         self.running = running
@@ -46,6 +47,9 @@ class FakeDocker:
         self.inspect_rc = inspect_rc
         self.rm_rc = rm_rc
         self.rm_stderr = rm_stderr
+        self.run_rc = run_rc
+        self.run_stderr = run_stderr
+        self.inspect_stderr = inspect_stderr
         self.calls = []
 
     def __call__(self, argv, **kwargs):
@@ -56,7 +60,7 @@ class FakeDocker:
             listed = (self.exists if "-a" in argv else self.running)
             out = self.name + "\n" if listed else ""
         elif verb == "inspect":
-            out, rc = self.inspect_out, self.inspect_rc
+            out, rc, err = self.inspect_out, self.inspect_rc, self.inspect_stderr
         elif verb == "port":
             out = "127.0.0.1:5555\n" if self.running else ""
         elif verb == "rm":
@@ -64,7 +68,9 @@ class FakeDocker:
             if rc == 0:
                 self.exists = self.running = False
         elif verb == "run":
-            self.exists = self.running = True
+            rc, err = self.run_rc, self.run_stderr
+            if rc == 0:
+                self.exists = self.running = True
         elif verb == "start":
             self.running = True
         return SimpleNamespace(returncode=rc, stdout=out, stderr=err)
@@ -208,12 +214,37 @@ def test_recreate_bookkeeping(env):
     assert len(env.registered) == 1
 
 
-def test_rm_failure_fails_closed(env):
-    fake = env.make(running=False, exists=True, rm_rc=1, rm_stderr="boom",
+@pytest.mark.parametrize("running", [True, False])
+def test_rm_failure_fails_closed(env, running):
+    # T.163 / X20: wildcard container never reused, docker error surfaced.
+    fake = env.make(running=running, exists=True, rm_rc=1,
+                    rm_stderr="permission denied: boom",
                     inspect_out=bindings(env.cport, "0.0.0.0"))
-    with pytest.raises(env.err):
+    with pytest.raises(env.err, match="permission denied: boom"):
         env.server.ensure_running()
     assert not {"start", "run"} & set(fake.verbs())
+    assert env.server._started_by_us is False
+    assert env.registered == []
+
+
+def test_run_failure_after_rm_surfaces_stderr(env):
+    # T.164 / X21: rm ok, docker run fails -> create-failure error, no start.
+    fake = env.make(running=True, run_rc=125, run_stderr="port is already allocated",
+                    inspect_out=bindings(env.cport, "0.0.0.0"))
+    with pytest.raises(env.err, match="port is already allocated"):
+        env.server.ensure_running()
+    verbs = fake.verbs()
+    assert verbs.index("rm") < verbs.index("run")
+    assert "start" not in verbs
+    assert env.server._started_by_us is False
+
+
+def test_inspect_vanished_container_ends_in_loopback_create(env):
+    # T.165 / X22: `ps -a` lists it, `inspect` says it vanished.
+    fake = env.make(exists=True, running=False, inspect_rc=1, inspect_out="",
+                    inspect_stderr="Error: No such container: x")
+    env.server.ensure_running()
+    assert_recreated(fake, env.server, env.cport)
 
 
 def test_rm_no_such_container_continues_to_create(env):
@@ -221,8 +252,11 @@ def test_rm_no_such_container_continues_to_create(env):
                     rm_stderr="Error response from daemon: No such container: x",
                     inspect_out=bindings(env.cport, "0.0.0.0"))
     env.server.ensure_running()
+    # T.166 / X23: vanished-meanwhile error ignored; loopback create follows.
     assert len(fake.runs()) == 1
     assert "start" not in fake.verbs()
+    assert f"127.0.0.1:{NEW_PORT}:{env.cport}" in fake.runs()[0]
+    assert env.server._started_by_us is True
 
 
 def test_published_on_loopback_helper(env):

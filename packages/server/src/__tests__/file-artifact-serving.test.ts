@@ -11,7 +11,14 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as accessGrants from "../access/access-grants.js";
+
+vi.mock("../access/access-grants.js", async (orig) => ({
+  ...(await orig<typeof import("../access/access-grants.js")>()),
+  grantedSubjects: vi.fn((await orig<typeof import("../access/access-grants.js")>()).grantedSubjects),
+}));
+
 import { resetArtifactRootsCache } from "../lib/artifact-roots.js";
 import { registerFileRoutes } from "../routes/file-routes.js";
 
@@ -220,5 +227,65 @@ describe("artifact anchor is NOT shared with /api/file or /api/file/render", () 
     });
     expect(res.statusCode).toBe(403);
     expectContainmentDenial(res.json(), "path outside working directory");
+  });
+});
+
+describe("artifact layer ③ vs the grant layer (T.19, close-local-listener-and-egress-gaps)", () => {
+  let app: FastifyInstance;
+  let cwd: string;
+  let artifactRoot: string;
+  let store: string;
+  const prevEnv = process.env.AGENT_BROWSER_SCREENSHOT_DIR;
+  const prevStore = process.env.PI_ACCESS_GRANTS_STORE;
+
+  beforeEach(async () => {
+    cwd = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "artifact-cwd3-")));
+    artifactRoot = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "artifact-root3-")));
+    store = path.join(cwd, "grants.json");
+    process.env.PI_ACCESS_GRANTS_STORE = store;
+    process.env.AGENT_BROWSER_SCREENSHOT_DIR = artifactRoot;
+    accessGrants.__resetAccessGrants();
+    resetArtifactRootsCache();
+    vi.mocked(accessGrants.grantedSubjects).mockClear();
+    app = makeApp([cwd]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    if (prevEnv === undefined) delete process.env.AGENT_BROWSER_SCREENSHOT_DIR;
+    else process.env.AGENT_BROWSER_SCREENSHOT_DIR = prevEnv;
+    if (prevStore === undefined) delete process.env.PI_ACCESS_GRANTS_STORE;
+    else process.env.PI_ACCESS_GRANTS_STORE = prevStore;
+    accessGrants.__resetAccessGrants();
+    resetArtifactRootsCache();
+    await fsp.rm(cwd, { recursive: true, force: true });
+    await fsp.rm(artifactRoot, { recursive: true, force: true });
+  });
+
+  const raw = (p: string) =>
+    app.inject({ method: "GET", url: `/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(p)}` });
+
+  it("a plain artifact image is admitted without ever consulting the grant layer; an escaping link stays refused", async () => {
+    const shot = path.join(artifactRoot, "shot.png");
+    await fsp.writeFile(shot, PNG_BYTES);
+    const res = await raw(shot);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(accessGrants.grantedSubjects).not.toHaveBeenCalled();
+
+    // A link inside the artifact root whose real target escapes it keeps following the artifact-root
+    // real-path rule (refused) — the empty grant store changes nothing.
+    const outside = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "artifact-out3-")));
+    try {
+      await fsp.writeFile(path.join(outside, "secret.png"), PNG_BYTES);
+      await fsp.symlink(path.join(outside, "secret.png"), path.join(artifactRoot, "esc.png"));
+      const denied = await raw(path.join(artifactRoot, "esc.png"));
+      expect(denied.statusCode).toBe(403);
+      expectContainmentDenial(denied.json(), "path outside working directory");
+      expect(denied.rawPayload.equals(PNG_BYTES)).toBe(false);
+    } finally {
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
   });
 });

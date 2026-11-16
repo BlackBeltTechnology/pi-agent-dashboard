@@ -501,5 +501,51 @@ describe("serve_mockup listener hardening", () => {
       await new Promise((r) => setTimeout(r, 100));
       expect((await raw(port, `/${token}/index.html`)).status).toBe(200);
     });
+
+    it("T.162 X10: client abort mid-stream releases the file handle; no uncaught exception; server keeps serving", async () => {
+      // The read stream is created inside the handler (namespace-imported fs, not spy-able), so its destruction is
+      // observed through the process fd table. /dev/fd exists on Linux and macOS; elsewhere the fd assertion is skipped
+      // and the no-crash + keeps-serving assertions carry the row.
+      const fdCount = (): number | null => {
+        try {
+          return fs.readdirSync("/dev/fd").length;
+        } catch {
+          return null;
+        }
+      };
+      const uncaught: unknown[] = [];
+      const onUncaught = (e: unknown) => void uncaught.push(e);
+      process.on("uncaughtException", onUncaught);
+      process.on("unhandledRejection", onUncaught);
+      try {
+        fs.writeFileSync(path.join(mock, "huge.bin"), Buffer.alloc(64 * 1024 * 1024));
+        const { port, token } = await start();
+        await raw(port, `/${token}/index.html`); // warm up: lazily opened fds settle before the baseline
+        const baseline = fdCount();
+        const client = await new Promise<net.Socket>((resolve, reject) => {
+          const s = net.connect(port, "127.0.0.1", () => {
+            s.write(`GET /${token}/huge.bin HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`);
+            s.once("data", () => resolve(s));
+          });
+          s.once("error", reject);
+        });
+        const during = fdCount();
+        client.destroy();
+        let after = fdCount();
+        for (let i = 0; i < 40 && baseline !== null && after !== null && after > baseline; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          after = fdCount();
+        }
+        if (baseline !== null && after !== null) {
+          expect(during, "stream held descriptors while the client was connected").toBeGreaterThan(baseline);
+          expect(after, "fd count back to baseline after the abort").toBeLessThanOrEqual(baseline);
+        }
+        expect((await raw(port, `/${token}/index.html`)).status).toBe(200);
+        expect(uncaught).toEqual([]);
+      } finally {
+        process.off("uncaughtException", onUncaught);
+        process.off("unhandledRejection", onUncaught);
+      }
+    });
   });
 });

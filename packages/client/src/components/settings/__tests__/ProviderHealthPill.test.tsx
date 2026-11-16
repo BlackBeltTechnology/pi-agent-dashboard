@@ -40,6 +40,17 @@ describe("ProviderHealthPill register matrix (moved from LlmProviderCard.health)
     expect(errorLine()).toBeNull();
   });
 
+  it.each([
+    [3, "Connected · 3 models"],
+    [0, "Connected"],
+    [undefined, "Connected"],
+  ])("modelCount %s renders %j with the success tone (F4)", (modelCount, label) => {
+    const { pill } = renderPillFromHealth({ ok: true, ...(modelCount === undefined ? {} : { modelCount }), testedAt: 1 });
+    expect(pill.getAttribute("data-state")).toBe("ok");
+    expect(pill.textContent?.trim()).toBe(label);
+    expect(pill.querySelector("[data-tone]")?.getAttribute("data-tone")).toBe("success");
+  });
+
   it("connected register with zero models: 'Connected' without a count", () => {
     const { pill } = renderPillFromHealth({ ok: true, modelCount: 0, testedAt: 1 });
     expect(pill.getAttribute("data-state")).toBe("ok");

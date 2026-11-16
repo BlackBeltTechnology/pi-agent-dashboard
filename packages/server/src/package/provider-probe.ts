@@ -420,26 +420,26 @@ export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  // `finally` clears the timer so the 8 s budget stays armed through the response BODY:
+  // a provider that sends headers and then stalls is aborted, not hung (test-plan X32).
   try {
     // Vet BEFORE any request; the lookup shares the 8 s abort budget.
     const vet = await vetProbeTarget(input.baseUrl, controller.signal);
-    if (!vet.ok) {
-      clearTimeout(timer);
-      return { ok: false, error: vet.error };
-    }
+    if (!vet.ok) return { ok: false, error: vet.error };
     const response = await fetch(req.url, {
       method: "GET",
       headers: req.headers,
       signal: controller.signal,
       redirect: "error", // never forward the credential to a redirect target (D3 #19)
     });
-    clearTimeout(timer);
 
     if (!response.ok) {
       let bodyText = "";
       try {
         bodyText = await response.text();
-      } catch {
+      } catch (err) {
+        // A budget abort mid-body is a stall, not an unreadable body: no status.
+        if (controller.signal.aborted) throw err;
         bodyText = "";
       }
       const excerpt = redactErrorText(
@@ -452,7 +452,8 @@ export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
     let body: any = null;
     try {
       body = await response.json();
-    } catch {
+    } catch (err) {
+      if (controller.signal.aborted) throw err;
       body = null;
     }
     const ids = extractModelIds(body);
@@ -463,11 +464,12 @@ export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
       sample: ids.slice(0, SAMPLE_LIMIT),
     };
   } catch (err: any) {
-    clearTimeout(timer);
     // undici reports a refused redirect as `TypeError: fetch failed` with the reason in `cause`.
     const message = /redirect/i.test(String(err?.cause?.message ?? ""))
       ? "Provider answered with a redirect; probes do not follow redirects. Use the final URL as the base URL."
       : (err?.message ?? String(err));
     return { ok: false, error: redactErrorText(message, input.apiKey) };
+  } finally {
+    clearTimeout(timer);
   }
 }

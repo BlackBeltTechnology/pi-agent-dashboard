@@ -10,7 +10,7 @@
  * `{ success:false, error }` (design D5). See change: render-office-previews.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -164,14 +164,24 @@ export function createDefaultDocxPdfEngine(opts?: {
  */
 export async function convertBound(engine: DocxPdfEngine, real: string, out: string): Promise<void> {
   const before = await fs.stat(real);
-  await engine.toPdf(real, out);
+  // Convert to a private temp name and publish to `out` only after the binding check passes, so a
+  // discard that fails (e.g. EPERM) can never leave a poisoned file at the cache path.
+  const tmp = `${out.replace(/\.pdf$/, "")}.${randomUUID()}.tmp.pdf`;
+  const discard = () => fs.rm(tmp, { force: true }).catch(() => undefined);
+  try {
+    await engine.toPdf(real, tmp);
+  } catch (err) {
+    await discard();
+    throw err;
+  }
   try {
     const [afterReal, after] = await Promise.all([fs.realpath(real), fs.stat(real)]);
     if (afterReal !== real || after.dev !== before.dev || after.ino !== before.ino) throw new ContainmentBindingRefused();
   } catch (err) {
-    await fs.rm(out, { force: true }).catch(() => undefined);
+    await discard();
     throw err instanceof ContainmentBindingRefused ? err : new ContainmentBindingRefused();
   }
+  await fs.rename(tmp, out);
 }
 
 // ── docx: render (design D8) ─────────────────────────────────────────────────

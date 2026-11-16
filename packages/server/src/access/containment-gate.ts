@@ -75,7 +75,7 @@ async function remedySubject(resolved: string, kind: SubjectKind): Promise<strin
 export type ContainmentDecision = PathDecision;
 
 /** The one constructor of a {@link ContainmentDecision}. */
-function decision(resolved: string, allowed: boolean, viaGrant: boolean, real: string = resolved): ContainmentDecision {
+function decision(resolved: string, allowed: boolean, viaGrant: boolean, real?: string): ContainmentDecision {
   return { allowed, viaGrant, resolved, real } as ContainmentDecision;
 }
 

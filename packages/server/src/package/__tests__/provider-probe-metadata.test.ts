@@ -13,7 +13,7 @@
 import os from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { discoverProviderModels } from "../../model-proxy/custom-provider-discovery.js";
-import type { LookupAll } from "../../push/push-transports/webhook-url.js";
+import { isBlockedAddress, type LookupAll } from "../../push/push-transports/webhook-url.js";
 import {
   listProviderModelIds,
   listProviderModels,
@@ -509,5 +509,25 @@ describe("provider egress vet", () => {
     expect(await listed).toEqual([]);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("provider egress vet parity with the webhook blocklist (E101)", () => {
+  it("refuses exactly the targets the webhook isBlockedAddress refuses; named residuals are not asserted", async () => {
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    globalThis.fetch = fetchSpy as any;
+    const refuse = ["169.254.170.2", "fd00:ec2::254", "::ffff:169.254.169.254", "fe80::1"];
+    for (const ip of refuse) {
+      expect(isBlockedAddress(ip), ip).toBe(true);
+      const host = ip.includes(":") ? `[${ip}]` : ip;
+      const r = await probeProvider({ baseUrl: `http://${host}/`, apiKey: "k", api: "openai-completions" });
+      expect(r, ip).toEqual({ ok: false, error: "provider target is a link-local or metadata address" });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // metadata.google.internal resolves (stub) to the blocked address
+    setProbeLookupAll(async () => [{ address: "169.254.169.254", family: 4 }]);
+    expect(isBlockedAddress("169.254.169.254")).toBe(true);
+    expect((await probeProvider({ baseUrl: "http://metadata.google.internal/", apiKey: "k", api: "openai-completions" })).ok).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

@@ -61,6 +61,7 @@ import { admitFileCwd, CWD_UNAVAILABLE_FAILURE, cwdAnchors, type GateWire, relea
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
 import {
+  convertBound,
   createDefaultDocxPdfEngine,
   type DocxPdfEngine,
   type DocxRenderMode,

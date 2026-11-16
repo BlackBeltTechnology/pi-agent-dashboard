@@ -12,6 +12,7 @@ import {
   verifyProofMac,
 } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { installDefaultSessionPermissions } from "../permissions.js";
 import {
   allowedOrigins,
   loadWithLocalProof,
@@ -337,5 +338,73 @@ describe("main-window allowed origin (ELEC-01)", () => {
 
   it("the window's own server (remote mode) is accepted even when not configured", () => {
     expect(mainWindowAllowedOrigin(() => "https://dash.example.com/", deps("https://dash.example.com"))).toBe("https://dash.example.com");
+  });
+});
+
+describe("default-session handlers fail closed when the origin source breaks (T.171 X40, T.172 X41)", () => {
+  type Req = (wc: unknown, perm: string, cb: (g: boolean) => void, d: Record<string, unknown>) => void;
+  type Chk = (wc: unknown, perm: string, origin: string, d: Record<string, unknown>) => boolean;
+  const ORIGIN = "http://localhost:8000";
+
+  /** Wire the handlers exactly like main.ts: origin = mainWindowAllowedOrigin(getURL, { config: loadMinimalConfig() }). */
+  function wire(getURL: () => string, loadMinimalConfig: () => unknown) {
+    let request!: Req;
+    let check!: Chk;
+    installDefaultSessionPermissions(
+      {
+        setPermissionRequestHandler: (h) => void (request = h as unknown as Req),
+        setPermissionCheckHandler: (h) => void (check = h as unknown as Chk),
+      },
+      () => mainWindowAllowedOrigin(getURL, { config: loadMinimalConfig() as any, windowServerUrl: ORIGIN }),
+      () => {},
+    );
+    const ask = (perm: string) => {
+      const cb = vi.fn();
+      request({}, perm, cb, { isMainFrame: true, requestingUrl: `${ORIGIN}/` });
+      return cb;
+    };
+    const chk = (perm: string) => check({}, perm, ORIGIN, { isMainFrame: true, requestingUrl: `${ORIGIN}/` });
+    return { ask, chk };
+  }
+  const goodConfig = () => ({ port: 8000, host: "localhost", knownServers: [] });
+
+  it("sanity: healthy getURL + config grants notifications", () => {
+    const w = wire(() => `${ORIGIN}/`, goodConfig);
+    expect(w.chk("notifications")).toBe(true);
+    expect(w.ask("notifications")).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
+  it("T.171: getURL throws (destroyed webContents) -> request and check handlers deny, nothing thrown", () => {
+    const w = wire(() => {
+      throw new Error("Object has been destroyed");
+    }, goodConfig);
+    for (const p of ["notifications", "fullscreen", "clipboard-sanitized-write", "media"]) {
+      expect(() => w.chk(p)).not.toThrow();
+      expect(w.chk(p), p).toBe(false);
+      const cb = w.ask(p);
+      expect(cb).toHaveBeenCalledExactlyOnceWith(false);
+    }
+  });
+
+  it("T.172: loadMinimalConfig throws -> denied, no origin trusted, no crash", () => {
+    const w = wire(() => `${ORIGIN}/`, () => {
+      throw new Error("ENOENT config");
+    });
+    expect(() => w.chk("notifications")).not.toThrow();
+    expect(w.chk("notifications")).toBe(false);
+    expect(w.ask("notifications")).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "garbage"],
+    ["an empty object (no knownServers)", {}],
+    ["knownServers not an array", { port: 8000, knownServers: 5 }],
+    ["knownServers with junk entries", { port: 8000, knownServers: [null, 7] }],
+  ])("T.172: corrupt config (%s) -> denied, no crash", (_n, cfg) => {
+    const w = wire(() => `${ORIGIN}/`, () => cfg);
+    expect(() => w.chk("notifications")).not.toThrow();
+    expect(w.chk("notifications")).toBe(false);
+    expect(w.ask("notifications")).toHaveBeenCalledExactlyOnceWith(false);
   });
 });

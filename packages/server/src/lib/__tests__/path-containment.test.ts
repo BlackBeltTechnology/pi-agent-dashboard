@@ -12,9 +12,8 @@
  * See change: widen-containment-to-resolved-checkout.
  */
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
-import Fastify from "fastify";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as gitMod from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import {
   buildGitFixtures,
@@ -26,7 +25,10 @@ import {
   makeGitShim,
   useGitPath,
 } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-shim.js";
-import { checkoutAnchors, isAllowed, within } from "../path-containment.js";
+import Fastify from "fastify";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { decidePassive } from "../../access/containment-gate.js";
+import { checkoutAnchors, isAllowed, isAllowedReal, within } from "../path-containment.js";
 
 // Spy on the resolver/binding seams so "git was never spawned" is assertable.
 // `importOriginal` keeps the real implementations in place. `vi.mock` is
@@ -278,5 +280,120 @@ describe("isAllowed — degraded git fails closed", () => {
     expect(await isAllowed(path.join(repo, "esc", "secret.txt"), { anchors: [cwd] })).toBe(false);
     // Control: a real file in the checkout is allowed.
     expect(await isAllowed(path.join(repo, "seed.txt"), { anchors: [cwd] })).toBe(true);
+  });
+});
+
+// close-local-listener-and-egress-gaps — layer ① compares REAL paths (D1).
+describe("isAllowedReal — real-path layer ① (close-local-listener-and-egress-gaps)", () => {
+  it("T.3 an in-anchor link (pnpm-style node_modules) is admitted with ZERO git spawns, bytes equal", async () => {
+    const cwd = subdir(fx.normal, "t3");
+    const real = subdir(cwd, "node_modules", ".pnpm", "a@1", "node_modules", "a");
+    writeFileSync(path.join(real, "index.js"), "module.exports = 1;\n");
+    symlinkSync(real, path.join(cwd, "node_modules", "a"));
+
+    const link = path.join(cwd, "node_modules", "a", "index.js");
+    const verdict = await isAllowedReal(link, { anchors: [cwd] });
+    expect(verdict.allowed).toBe(true);
+    expect(verdict.real).toBe(await fsp.realpath(path.join(real, "index.js")));
+    expect(await fsp.readFile(verdict.real, "utf-8")).toBe("module.exports = 1;\n");
+    expect(gitMod.checkoutRootsAsync).not.toHaveBeenCalled();
+    expect(gitMod.isBoundCheckoutAsync).not.toHaveBeenCalled();
+  });
+
+  it.skipIf(isWin)("T.11 a worktree link into the MAIN checkout (above the worktree) is admitted via layer ②", async () => {
+    const repo = cloneFixture("t11-repo");
+    const wt = path.join(repo, ".worktrees", "x");
+    fixtureGit(repo, ["worktree", "add", "-q", "-b", "t11", wt]);
+    const target = path.join(subdir(repo, "node_modules", "vitest"), "package.json");
+    writeFileSync(target, "{}\n");
+    symlinkSync(target, path.join(wt, "l"));
+
+    const verdict = await isAllowedReal(path.join(wt, "l"), { anchors: [wt] });
+    expect(verdict).toEqual({ allowed: true, real: await fsp.realpath(target) });
+    // Layer ① missed (the real path leaves the anchor), so git WAS consulted: that is layer ②.
+    expect(gitMod.checkoutRootsAsync).toHaveBeenCalled();
+    // A link from the same worktree to a file outside every bound checkout stays refused.
+    const outside = path.join(subdir(fx.root, "t11-outside"), "s.txt");
+    writeFileSync(outside, "s\n");
+    symlinkSync(outside, path.join(wt, "l2"));
+    expect((await isAllowedReal(path.join(wt, "l2"), { anchors: [wt] })).allowed).toBe(false);
+  });
+
+  it.skipIf(isWin)("T.160 with git missing an in-anchor link is admitted (layer ① needs no git); an escaping link is refused", async () => {
+    const repo = cloneFixture("t160-repo");
+    const wt = path.join(fx.root, "t160-wt");
+    fixtureGit(repo, ["worktree", "add", "-q", "-b", "t160", wt]);
+    writeFileSync(path.join(wt, "in.txt"), "in\n");
+    symlinkSync(path.join(wt, "in.txt"), path.join(wt, "inlink"));
+    symlinkSync(path.join(repo, "seed.txt"), path.join(wt, "mainlink"));
+
+    // Control (git present): the main-checkout link IS reachable through layer ②.
+    expect((await isAllowedReal(path.join(wt, "mainlink"), { anchors: [wt] })).allowed).toBe(true);
+
+    const restore = useGitPath(null);
+    try {
+      expect((await isAllowedReal(path.join(wt, "inlink"), { anchors: [wt] })).allowed).toBe(true);
+      expect((await isAllowedReal(path.join(wt, "mainlink"), { anchors: [wt] })).allowed).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("real-path layer ① — structural budget (P1)", () => {
+  it("T.138 one layer-① decision over 3 anchors spawns no git and keeps realpath calls structurally bounded", async () => {
+    const cwd = subdir(fx.normal, "t138");
+    writeFileSync(path.join(cwd, "f.txt"), "f\n");
+    symlinkSync(path.join(cwd, "f.txt"), path.join(cwd, "inlink"));
+    const pi = subdir(fx.root, "t138-home", ".pi");
+    const pinned = subdir(fx.root, "t138-pinned");
+    const anchors = [cwd, pi, pinned];
+
+    const rootReal = await fsp.realpath(fx.root);
+    const spy = vi.spyOn(fsp, "realpath");
+    try {
+      for (const name of ["f.txt", "inlink"]) {
+        spy.mockClear();
+        const target = path.join(cwd, name);
+        expect((await isAllowedReal(target, { anchors })).allowed, name).toBe(true);
+        // Only calls on the fixture tree count: the dashboard-state guard pre-check also resolves
+        // pi-agent credential files under HOME, which is not part of the layer-① cost.
+        const calls = spy.mock.calls.map((c) => String(c[0])).filter((p) => p.startsWith(fx.root) || p.startsWith(rootReal));
+        // 1 decision realpath + ≤ 3 anchor realpaths (this hit stops at the first anchor) + the state
+        // guard's own single resolution of the same path = 5 at most; never one per match × anchor.
+        expect(calls.length, `${name}: ${calls.join(", ")}`).toBeLessThanOrEqual(5);
+        expect(calls.filter((p) => !p.endsWith(name)).length, "anchor realpaths").toBeLessThanOrEqual(3);
+        expect(gitMod.checkoutRootsAsync).not.toHaveBeenCalled();
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("empty grant store ≡ layers ①–② alone (T.39)", () => {
+  it.skipIf(isWin)("T.39 decidePassive with an empty grant list decides exactly as isAllowed on a fixed corpus", async () => {
+    const repo = cloneFixture("t39-repo");
+    const wt = path.join(fx.root, "t39-wt");
+    fixtureGit(repo, ["worktree", "add", "-q", "-b", "t39", wt]);
+    const outside = subdir(fx.root, "t39-outside");
+    writeFileSync(path.join(outside, "o.txt"), "o\n");
+    writeFileSync(path.join(wt, "in.txt"), "i\n");
+    symlinkSync(path.join(wt, "in.txt"), path.join(wt, "in-link"));
+    symlinkSync(path.join(outside, "o.txt"), path.join(wt, "out-link"));
+    const corpus: Array<[string, boolean]> = [
+      [path.join(wt, "in.txt"), true], // in-anchor
+      [path.join(wt, "in-link"), true], // symlinked, stays inside
+      [path.join(repo, "seed.txt"), true], // checkout root (layer ②)
+      [path.join(outside, "o.txt"), false], // outside
+      [path.join(wt, "out-link"), false], // symlinked, escapes
+    ];
+    for (const [p, expected] of corpus) {
+      const bare = await isAllowed(p, { anchors: [wt] });
+      const withEmptyGrants = await decidePassive(p, [wt], { allowGrant: true, grantSubjects: [] });
+      expect(bare, p).toBe(expected);
+      expect(withEmptyGrants.allowed, p).toBe(bare);
+      expect(withEmptyGrants.viaGrant, p).toBe(false);
+    }
   });
 });

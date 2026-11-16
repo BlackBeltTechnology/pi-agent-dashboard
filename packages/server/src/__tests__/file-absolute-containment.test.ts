@@ -448,3 +448,119 @@ describe("GET /api/file — `~/.pi` anchor preserved on read/raw/render (E26)", 
     expectContainmentDenial(exists.json(), "path outside cwd");
   });
 });
+
+// close-local-listener-and-egress-gaps — layer ① is anchored on REAL paths. Each anchor is compared
+// on its own real path, and the lexical and real checks must hold for the SAME anchor.
+describe("GET /api/file — real-path anchors (close-local-listener-and-egress-gaps)", () => {
+  let base: string;
+  let home: string;
+  let savedHome: string | undefined;
+  let savedStore: string | undefined;
+  let app: FastifyInstance | undefined;
+
+  beforeEach(async () => {
+    base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "file-realanchor-")));
+    home = path.join(base, "home");
+    await fsp.mkdir(home);
+    savedHome = process.env.HOME;
+    process.env.HOME = home;
+    savedStore = process.env.PI_ACCESS_GRANTS_STORE;
+    process.env.PI_ACCESS_GRANTS_STORE = path.join(base, "grants.json");
+    __resetAccessGrants();
+  });
+
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+    __resetAccessGrants();
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedStore === undefined) delete process.env.PI_ACCESS_GRANTS_STORE;
+    else process.env.PI_ACCESS_GRANTS_STORE = savedStore;
+    await fsp.rm(base, { recursive: true, force: true });
+  });
+
+  const url = (route: string, cwd: string, p: string) =>
+    `${route}?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(p)}`;
+
+  it("T.5 a symlinked `~/.pi` anchor is compared on its real path (read via the anchor stays 200)", async () => {
+    const dotfiles = path.join(base, "dotfiles", "pi");
+    await fsp.mkdir(path.join(dotfiles, "agent", "skills", "x"), { recursive: true });
+    await fsp.writeFile(path.join(dotfiles, "agent", "skills", "x", "SKILL.md"), "# skill\n");
+    await fsp.symlink(dotfiles, path.join(home, ".pi"));
+    const cwd = path.join(base, "cwd");
+    await fsp.mkdir(cwd);
+    app = makeApp([cwd]);
+    await app.ready();
+
+    const target = path.join(home, ".pi", "agent", "skills", "x", "SKILL.md");
+    for (const route of ["/api/file", "/api/file/raw"]) {
+      const res = await app.inject({ method: "GET", url: url(route, cwd, target) });
+      expect(res.statusCode, route).toBe(200);
+    }
+  });
+
+  it("T.6 a symlinked cwd: real-spelled abs, link-spelled abs and relative paths admit; `..` escapes refuse", async () => {
+    const real = path.join(base, "real");
+    const proj = path.join(real, "proj");
+    await fsp.mkdir(proj, { recursive: true });
+    await fsp.writeFile(path.join(proj, "a.txt"), "A\n");
+    await fsp.writeFile(path.join(real, "outside.txt"), "O\n");
+    const link = path.join(base, "link");
+    await fsp.symlink(proj, link);
+    app = makeApp([link]);
+    await app.ready();
+
+    for (const p of [path.join(proj, "a.txt"), path.join(link, "a.txt"), "a.txt"]) {
+      const res = await app.inject({ method: "GET", url: url("/api/file", link, p) });
+      expect(res.statusCode, p).toBe(200);
+      expect(res.json().data.content).toBe("A\n");
+    }
+    const esc = await app.inject({ method: "GET", url: url("/api/file", link, "../outside.txt") });
+    expect(esc.statusCode).toBe(403);
+    expectContainmentDenial(esc.json(), "path outside working directory");
+  });
+
+  it("T.15 a path through a dir link to an outside dir with an ABSENT tail is 403, never a 404 existence probe", async () => {
+    const cwd = path.join(base, "cwd");
+    const out = path.join(base, "out");
+    await fsp.mkdir(cwd);
+    await fsp.mkdir(out);
+    await fsp.symlink(out, path.join(cwd, "d"));
+    app = makeApp([cwd]);
+    await app.ready();
+
+    const res = await app.inject({ method: "GET", url: url("/api/file", cwd, "d/new.txt") });
+    expect(res.statusCode).toBe(403);
+    expectContainmentDenial(res.json(), "path outside working directory");
+    // The remedy names the REAL target (under the outside dir), not the in-cwd link spelling.
+    expect(res.json().subject.startsWith(out)).toBe(true);
+  });
+
+  it("T.18 lexically under cwd but really under the `~/.pi` anchor is refused at read, raw, render and mention (BREAKING pin)", async () => {
+    const real = path.join(home, ".pi", "agent", "skills", "x");
+    await fsp.mkdir(real, { recursive: true });
+    await fsp.writeFile(path.join(real, "SKILL.md"), "# skill\n");
+    await fsp.writeFile(path.join(real, "doc.adoc"), "= doc\n");
+    const cwd = path.join(base, "cwd");
+    await fsp.mkdir(path.join(cwd, ".pi", "skills"), { recursive: true });
+    await fsp.symlink(real, path.join(cwd, ".pi", "skills", "x"));
+    app = makeApp([cwd]);
+    await app.ready();
+
+    const md = ".pi/skills/x/SKILL.md";
+    for (const route of ["/api/file", "/api/file/raw"]) {
+      const res = await app.inject({ method: "GET", url: url(route, cwd, md) });
+      expect(res.statusCode, route).toBe(403);
+      expect(res.json().error, route).toBe("path outside working directory");
+    }
+    const render = await app.inject({ method: "GET", url: url("/api/file/render", cwd, ".pi/skills/x/doc.adoc") });
+    expect(render.statusCode).toBe(403);
+    expect(render.json().error).toBe("path outside working directory");
+
+    const { resolveFileMention } = await import("../lib/resolve-file-mention.js");
+    expect(await resolveFileMention(md, { cwd })).toBeNull();
+    // The same file through the `~/.pi` anchor spelling is still admitted (anchor pairing is per anchor).
+    expect(await resolveFileMention(path.join(real, "SKILL.md"), { cwd })).toMatchObject({ kind: "abs" });
+  });
+});

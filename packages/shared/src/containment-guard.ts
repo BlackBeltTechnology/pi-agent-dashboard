@@ -25,17 +25,21 @@ export interface PathDecision {
   readonly resolved: string;
   /**
    * The real path the decision was made on (symlinks resolved once). Callers open THIS, bound by
-   * `decidedReal`, never the lexical `resolved`. Equals `resolved` on a refusal.
+   * `decidedReal`, never the lexical `resolved`. `undefined` on every refusal.
    * See change: close-local-listener-and-egress-gaps.
    */
-  readonly real: string;
+  readonly real: string | undefined;
   readonly [pathDecisionBrand]: true;
 }
 
 /**
- * True only when `decision` allowed AND was made for exactly `resolved`. Sync, so
- * static analysis treats a branch on it as a guard for `resolved`.
+ * True only when `decision` allowed AND was made for exactly `resolved` AND carries the real path it
+ * decided on (an admitting decision without `real` cannot bind an open, so it fails closed). Sync, so
+ * static analysis treats a branch on it as a guard for `resolved`; narrows `real` to `string`.
  */
-export function containmentAllows(decision: PathDecision, resolved: string): boolean {
-  return decision.allowed === true && decision.resolved === resolved;
+export function containmentAllows<D extends PathDecision>(
+  decision: D,
+  resolved: string,
+): decision is D & { readonly real: string } {
+  return decision.allowed === true && decision.resolved === resolved && decision.real !== undefined;
 }
