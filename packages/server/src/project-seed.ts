@@ -146,12 +146,17 @@ export function resetSeededRoots(): void {
  */
 export function scheduleProjectSeed(dir: string): void {
   if (!autoSeedEnabled) return;
-  setImmediate(() => {
-    const outcome = seedProjectDefaults(dir);
-    if (outcome.seeded) {
-      console.log(`[project-seed] seeded ${outcome.root} (${outcome.written.length} file(s))`);
-    }
-  });
+  setImmediate(() => runSeed(dir));
+}
+
+/** Seed `dir` and log a write. Never throws (`seedProjectDefaults` swallows). */
+function runSeed(dir: string): void {
+  const outcome = seedProjectDefaults(dir);
+  if (outcome.seeded) {
+    console.log(`[project-seed] seeded ${outcome.root} (${outcome.written.length} file(s))`);
+  } else if (outcome.reason?.startsWith("unresolved placeholders")) {
+    console.warn(`[project-seed] skipped ${outcome.root}: ${outcome.reason}`);
+  }
 }
 
 const skip = (root: string | null, reason: string): SeedOutcome => ({
@@ -201,6 +206,16 @@ export function seedProjectDefaults(
     const stack = detectStack(root);
     const substitutions = stack ? stackSubstitutions(stack) : NO_STACK_SUBSTITUTIONS;
 
+    // `scaffoldProfile` writes before it reports `leftover`, so refuse BEFORE
+    // writing: an unfilled placeholder (a user profile's `{{CUSTOM_GATE}}`)
+    // would otherwise persist as literal text and gap-fill never revisits it.
+    const unresolved = unresolvedPlaceholders(profile, root, substitutions);
+    if (unresolved.length > 0) {
+      seededRoots.add(root);
+      resolvedDirs.set(absDir, root);
+      return skip(root, `unresolved placeholders: ${unresolved.join(", ")}`);
+    }
+
     const result = scaffoldProfile({
       profile,
       targetDir: root,
@@ -236,12 +251,50 @@ function resolveSeedRoot(dir: string, homeDir: string | undefined): string | See
 
   const roots = checkoutRoots({ cwd: dir, timeout: CHECKOUT_ROOTS_TIMEOUT_MS });
   if (roots && !roots.mainCheckout) return skip(null, "bare repository");
-  const root = path.resolve(roots?.mainCheckout ?? dir);
+  // Canonicalize so a symlink alias of $HOME (or of /) cannot pass the refusals.
+  const root = canonical(roots?.mainCheckout ?? dir);
 
-  const home = path.resolve(homeDir ?? os.homedir());
+  const home = canonical(homeDir ?? os.homedir());
   if (root === home) return skip(root, "refusing to seed $HOME");
   if (root === path.parse(root).root) return skip(root, "refusing to seed filesystem root");
   return root;
+}
+
+/** Filesystem-canonical absolute path; falls back to the lexical path when unresolvable. */
+function canonical(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/** `{{KEY}}` syntax, matching `scaffold.ts`'s renderer. */
+const PLACEHOLDER_RE = /\{\{([A-Z_]+)\}\}/g;
+
+/**
+ * Placeholders no substitution fills, in the templates of files that WILL be
+ * written (an existing target is skipped by gap-fill, so its template's
+ * placeholders are irrelevant). `PROJECT_NAME` is always supplied by scaffold.
+ */
+function unresolvedPlaceholders(
+  profile: Profile,
+  root: string,
+  substitutions: Record<string, string>,
+): string[] {
+  const templates: Array<[string, string]> = [
+    ["AGENTS.md.tmpl", path.join(root, "AGENTS.md")],
+    ["settings.json.tmpl", path.join(root, ".pi", "settings.json")],
+  ];
+  const missing = new Set<string>();
+  for (const [tmpl, target] of templates) {
+    if (fs.existsSync(target)) continue;
+    const text = fs.readFileSync(path.join(profile.dir, tmpl), "utf8");
+    for (const [, key] of text.matchAll(PLACEHOLDER_RE)) {
+      if (key !== "PROJECT_NAME" && !Object.hasOwn(substitutions, key!)) missing.add(key!);
+    }
+  }
+  return [...missing].sort();
 }
 
 /**
@@ -256,9 +309,18 @@ function isFullySeeded(profile: Profile, root: string): boolean {
 
 /**
  * Boot sweep over the directories the dashboard already knows about (pinned
- * dirs + workspace folders). Each directory is deferred onto its own tick so a
- * large pin list cannot stall startup with a burst of sync git probes.
+ * dirs + workspace folders). Seeds are CHAINED — each directory starts on a
+ * later event-loop iteration than the previous one — so a large pin list never
+ * runs a burst of sync git probes in one loop turn.
  */
 export function sweepKnownProjects(dirs: Iterable<string>): void {
-  for (const dir of dirs) scheduleProjectSeed(dir);
+  if (!autoSeedEnabled) return;
+  const queue = [...dirs];
+  const next = (): void => {
+    const dir = queue.shift();
+    if (dir === undefined) return;
+    runSeed(dir);
+    setImmediate(next);
+  };
+  setImmediate(next);
 }

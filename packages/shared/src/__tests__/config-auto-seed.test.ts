@@ -10,18 +10,28 @@ import { loadConfig } from "../config.js";
  */
 
 let dir: string;
-let origHome: string;
+let origHome: string | undefined;
+let origUserProfile: string | undefined;
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-cfg-auto-seed-"));
-  origHome = process.env.HOME!;
+  origHome = process.env.HOME;
+  origUserProfile = process.env.USERPROFILE;
+  // os.homedir() reads USERPROFILE on Windows, HOME elsewhere — isolate both.
   process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
 });
 
 afterEach(() => {
-  process.env.HOME = origHome;
+  restoreEnv("HOME", origHome);
+  restoreEnv("USERPROFILE", origUserProfile);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
 
 function write(value: unknown): void {
   fs.mkdirSync(path.join(dir, ".pi", "dashboard"), { recursive: true });
