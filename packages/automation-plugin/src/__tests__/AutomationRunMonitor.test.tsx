@@ -5,7 +5,7 @@
 
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -81,5 +81,18 @@ describe("AutomationRunMonitor", () => {
     await waitFor(() => expect(getByTestId("run-status").textContent).toBe("run not found"));
     expect(queryByTestId("run-live-hint")).toBeNull();
     expect(getByTestId("run-archived-transcript")).toBeTruthy();
+  });
+
+  // test-plan #U2: bounded vertical scroller + sticky Back header.
+  // See change: fix-automation-board-scroll.
+  it("is a bounded vertical scroller with Back in a sticky header", () => {
+    const onBack = vi.fn();
+    const { getByTestId } = wrap(<AutomationRunMonitor session={run("ended")} onBack={onBack} />);
+    const root = getByTestId("automation-run-monitor");
+    for (const tok of ["flex-1", "min-h-0", "overflow-y-auto"]) expect(root.classList).toContain(tok);
+    const back = getByTestId("automation-run-monitor-back");
+    expect(back.closest(".sticky")).not.toBeNull();
+    fireEvent.click(back);
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 });

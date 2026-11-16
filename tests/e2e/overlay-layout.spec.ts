@@ -1,6 +1,10 @@
+import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { APIRequestContext } from "@playwright/test";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
+import { resolveContainer } from "./helpers/container-proc.js";
 import { ensureGitSession, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 
 /**
@@ -688,4 +692,353 @@ test.describe("overlay layout — shared roots outside the overlay", () => {
     expect(geo.height, "collapsed in the mobile mount").toBeGreaterThan(100);
     expect(geo.clipped, "clipped in the mobile mount").toBeLessThanOrEqual(EPS);
   });
+});
+
+// ── automation overlay scroll (#1158) ────────────────────────────────────────
+
+/**
+ * The automations board and run monitor own their vertical scroll: the slot
+ * wrapper clips (`absolute inset-0 overflow-hidden`), so a claim body that does
+ * not scroll itself cuts off everything below the fold. E8 above only ever saw
+ * short fixture content, which is how #1158 shipped. These cases seed TALL
+ * content and assert the END of it is reachable, Back stays on screen, and no
+ * horizontal or nested vertical scroller appears.
+ *
+ * Seeding: definitions through the create/delete REST endpoints (cron Feb 31,
+ * never fires); runs written straight into the folder run store inside the
+ * harness container — the run monitor resolves a non-resident session id from
+ * disk (`findRunBySessionId`), so no restart is needed. Every seeded name
+ * carries `sbs-`; cleanup runs on entry and in `afterAll`, so a crashed run
+ * heals on the next.
+ *
+ * See change: fix-automation-board-scroll (test-plan E1–E7, F1–F3).
+ */
+const SBS_CRON = "0 0 31 2 *";
+const SBS_NAMES = Array.from({ length: 12 }, (_, i) => `sbs-${String(i + 1).padStart(2, "0")}`);
+const SBS_LONG = `sbs-${"x".repeat(110)}`;
+const SBS_RUNS_ABS = `${FIXTURE_GIT}/.pi/automation/runs`;
+const SBS_RUN_TAG = "e2e-sbs";
+const BOARD_URL = `/folder/${CWD}/automations`;
+
+function sbsRunNode(script: string): string {
+  return execFileSync("docker", ["exec", "-i", resolveContainer(), "node"], {
+    input: script,
+    encoding: "utf8",
+    timeout: 60_000,
+  }).trim();
+}
+
+/** Seed one ended flat run record (+ `result.md`) for a non-resident session id. */
+function seedRun(slug: string, resultMd: string): string {
+  const sessionId = crypto.randomUUID();
+  const name = `${SBS_RUN_TAG}-${slug}`;
+  const runId = `2026-01-01-000000-${name}-00001`;
+  const dir = `${SBS_RUNS_ABS}/${runId}`;
+  const now = Date.now();
+  const files: Array<[string, string]> = [
+    [
+      `${dir}/run.json`,
+      JSON.stringify({ runId, name, status: "done", dir, startedAt: now - 120_000, endedAt: now - 60_000, findings: 1, sessionId }),
+    ],
+    [`${dir}/result.md`, resultMd],
+  ];
+  const payload = files.map(([p, c]) => [p, Buffer.from(c, "utf8").toString("base64")]);
+  sbsRunNode(
+    `const fs=require("fs"),p=require("path");` +
+      `for(const [f,b64] of ${JSON.stringify(payload)}){` +
+      `fs.mkdirSync(p.dirname(f),{recursive:true});fs.writeFileSync(f,Buffer.from(b64,"base64"));}`,
+  );
+  return sessionId;
+}
+
+function cleanupRuns(): void {
+  sbsRunNode(
+    `const fs=require("fs"),p=require("path");const r=${JSON.stringify(SBS_RUNS_ABS)};` +
+      `if(fs.existsSync(r)){for(const f of fs.readdirSync(r)){` +
+      `if(f.includes(${JSON.stringify(SBS_RUN_TAG)}))fs.rmSync(p.join(r,f),{recursive:true,force:true});}}`,
+  );
+}
+
+async function deleteDefinitions(request: APIRequestContext): Promise<void> {
+  for (const name of [...SBS_NAMES, SBS_LONG]) {
+    await request
+      .delete(`/api/plugins/automation?scope=folder&cwd=${encodeURIComponent(FIXTURE_GIT)}&name=${name}`)
+      .catch(() => undefined);
+  }
+}
+
+async function createDefinitions(request: APIRequestContext): Promise<void> {
+  for (const name of [...SBS_NAMES, SBS_LONG]) {
+    const res = await request.post("/api/plugins/automation/create", {
+      data: {
+        scope: "folder",
+        cwd: FIXTURE_GIT,
+        name,
+        config: {
+          on: { kind: "schedule", cron: SBS_CRON },
+          action: { kind: "core.skill", payload: { skill: "$noop-a" } },
+          model: "@fast",
+          mode: "local",
+          sandbox: "workspace-write",
+          concurrency: "skip",
+          visibility: "shown",
+        },
+      },
+    });
+    expect(res.ok(), `create ${name} failed: ${res.status()} ${await res.text()}`).toBe(true);
+  }
+}
+
+interface ScrollProbe {
+  overflowY: string;
+  clientHeight: number;
+  scrollHeight: number;
+  scrollWidth: number;
+  clientWidth: number;
+  atEnd: boolean;
+}
+
+/** Drive a scroller to its end and report its box. */
+async function scrollToEnd(scroller: Locator): Promise<ScrollProbe> {
+  return scroller.evaluate(async (el) => {
+    el.scrollTop = el.scrollHeight;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+    return {
+      overflowY: getComputedStyle(el).overflowY,
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      atEnd: el.scrollTop + el.clientHeight >= el.scrollHeight - EPS,
+    };
+  });
+}
+
+type Box = { top: number; bottom: number; left: number; right: number };
+async function boxOf(l: Locator): Promise<Box> {
+  return l.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  });
+}
+function expectInside(inner: Box, outer: Box, label: string): void {
+  const msg = `${label}: inner ${JSON.stringify(inner)} outer ${JSON.stringify(outer)}`;
+  expect(inner.top, msg).toBeGreaterThanOrEqual(outer.top - EPS);
+  expect(inner.bottom, msg).toBeLessThanOrEqual(outer.bottom + EPS);
+}
+const VIEWPORT_BOX = (page: Page): Box => {
+  const v = page.viewportSize()!;
+  return { top: 0, left: 0, bottom: v.height, right: v.width };
+};
+
+/** Back is on screen and is the hit-test target at its own centre (not occluded). */
+async function expectBackHittable(back: Locator, outer: Box, label: string): Promise<void> {
+  expectInside(await boxOf(back), outer, label);
+  const hit = await back.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!at && (at === el || el.contains(at));
+  });
+  expect(hit, `${label}: Back is occluded at its centre`).toBe(true);
+}
+
+async function openBoard(page: Page): Promise<Locator> {
+  await page.goto(BOARD_URL);
+  const board = page.getByTestId("automation-board");
+  await expect(board).toBeVisible({ timeout: 25_000 });
+  return board;
+}
+
+test.describe("automation overlay scroll", () => {
+  test.describe.configure({ mode: "serial" });
+  test.setTimeout(120_000);
+
+  let tallSid = "";
+  let wideSid = "";
+
+  test.beforeAll(async ({ browser }) => {
+    const page = await browser.newPage();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await ensureGitSession(page);
+    await deleteDefinitions(page.request);
+    cleanupRuns();
+    await page.close();
+  });
+
+  test.afterAll(async ({ browser }) => {
+    const page = await browser.newPage();
+    try {
+      await deleteDefinitions(page.request);
+      cleanupRuns();
+    } finally {
+      await page.close();
+    }
+  });
+
+  // E3 — runs BEFORE seeding: short content shows no scrollbar and no clipping.
+  test("E3: a short board does not scroll and is not clipped", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const board = await openBoard(page);
+    await expect(board.getByTestId("automation-list")).toBeVisible();
+    const probe = await scrollToEnd(board);
+    expect(probe.scrollHeight, "short board overflows").toBeLessThanOrEqual(probe.clientHeight + EPS);
+    expectReachable(await measure(page.getByTestId("plugin-overlay")), "short board");
+  });
+
+  test("seed sbs definitions and runs", async ({ page }) => {
+    await createDefinitions(page.request);
+    tallSid = seedRun(
+      "tall",
+      `${Array.from({ length: 200 }, (_, i) => `- sbs finding ${i + 1}`).join("\n")}\n`,
+    );
+    const cols = Array.from({ length: 30 }, (_, i) => `col${i + 1}`);
+    wideSid = seedRun(
+      "wide",
+      [
+        `| ${cols.join(" | ")} |`,
+        `| ${cols.map(() => "---").join(" | ")} |`,
+        `| ${cols.map((c) => `${c}-value-wide`).join(" | ")} |`,
+        "",
+        "```",
+        "y".repeat(400),
+        "```",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  // E1 + E4 + F1 — desktop: the board is the ONLY scroller, its end is reachable,
+  // and Back stays on screen and clickable once scrolled.
+  test("E1/E4/F1: desktop board scrolls its own overflow; Back stays reachable", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const board = await openBoard(page);
+    const panel = page.getByTestId("plugin-overlay");
+    const cards = board.locator('li[data-testid^="automation-def-"]');
+    await expect(board.getByTestId(`automation-def-${SBS_NAMES[11]}`)).toBeVisible({ timeout: 25_000 });
+
+    const probe = await scrollToEnd(board);
+    const panelBox = await boxOf(panel);
+    expect(probe.overflowY).toBe("auto");
+    expect(probe.clientHeight).toBeLessThanOrEqual(panelBox.bottom - panelBox.top + EPS);
+    expect(probe.atEnd, "board did not reach its end").toBe(true);
+    expectInside(await boxOf(cards.last()), panelBox, "last card");
+    expectReachable(await measure(panel), "tall board");
+
+    // E4 — exactly one overflowing vertical scroller, and it is the board.
+    const scrollers = await panel.evaluate((el) =>
+      Array.from(el.querySelectorAll<HTMLElement>("*"))
+        .filter((n) => {
+          const o = getComputedStyle(n).overflowY;
+          return (o === "auto" || o === "scroll") && n.scrollHeight > n.clientHeight + 4;
+        })
+        .map((n) => n.getAttribute("data-testid") ?? n.tagName),
+    );
+    expect(scrollers).toEqual(["automation-board"]);
+
+    // F1 — Back is on screen, not occluded, and leaves the board.
+    const back = board.getByTestId("automation-board-back");
+    await expectBackHittable(back, panelBox, "board Back (scrolled)");
+    await back.click();
+    await expect(page).not.toHaveURL(/\/automations$/);
+  });
+
+  // E2 — mobile: the board is a bounded scroller and its end lands in the viewport.
+  test("E2: mobile board scrolls its own overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const board = await openBoard(page);
+    await expect(board.getByTestId(`automation-def-${SBS_NAMES[11]}`)).toBeAttached({ timeout: 25_000 });
+    const probe = await scrollToEnd(board);
+    expect(probe.overflowY).toBe("auto");
+    expect(probe.clientHeight).toBeLessThanOrEqual(667);
+    expect(probe.atEnd, "board did not reach its end").toBe(true);
+    expectInside(
+      await boxOf(board.locator('li[data-testid^="automation-def-"]').last()),
+      VIEWPORT_BOX(page),
+      "last card (mobile)",
+    );
+  });
+
+  // E5 — a 114-char unbroken name never forces a horizontal scroll.
+  test("E5: a long definition name does not scroll the board horizontally", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const board = await openBoard(page);
+    const card = board.getByTestId(`automation-def-${SBS_LONG}`);
+    await expect(card).toBeAttached({ timeout: 25_000 });
+    const probe = await scrollToEnd(board);
+    expect(probe.scrollWidth, "board scrolls horizontally").toBeLessThanOrEqual(probe.clientWidth + 1);
+    const name = await boxOf(board.getByTestId(`automation-name-${SBS_LONG}`));
+    const cardBox = await boxOf(card);
+    expect(name.right, "long name escapes its card").toBeLessThanOrEqual(cardBox.right + 1);
+  });
+
+  // E6 + F2 — tall findings: the monitor scrolls to the last line, Back stays on screen.
+  test("E6/F2: run monitor scrolls tall findings; Back stays reachable", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${BOARD_URL}/run/${tallSid}`);
+    const monitor = page.getByTestId("automation-run-monitor");
+    await expect(monitor.getByText("sbs finding 200", { exact: true })).toBeAttached({ timeout: 25_000 });
+    const panelBox = await boxOf(page.getByTestId("plugin-overlay"));
+    const probe = await scrollToEnd(monitor);
+    expect(probe.overflowY).toBe("auto");
+    expect(probe.clientHeight).toBeLessThanOrEqual(panelBox.bottom - panelBox.top + EPS);
+    expect(probe.atEnd, "monitor did not reach its end").toBe(true);
+    expectInside(await boxOf(monitor.getByText("sbs finding 200", { exact: true })), panelBox, "last finding");
+    await expectBackHittable(monitor.getByTestId("automation-run-monitor-back"), panelBox, "monitor Back (scrolled)");
+  });
+
+  // E7 — wide markdown scrolls inside the findings wrapper, never on the root.
+  test("E7: wide findings scroll horizontally inside their wrapper only", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${BOARD_URL}/run/${wideSid}`);
+    const monitor = page.getByTestId("automation-run-monitor");
+    const wrapper = monitor.getByTestId("run-result-findings");
+    await expect(wrapper.getByText("col30", { exact: true })).toBeAttached({ timeout: 25_000 });
+    const root = await scrollToEnd(monitor);
+    expect(root.scrollWidth, "run monitor root scrolls horizontally").toBeLessThanOrEqual(root.clientWidth + 1);
+    const wide = await wrapper.evaluate(async (el) => {
+      const overflowing = el.scrollWidth > el.clientWidth;
+      el.scrollLeft = el.scrollWidth;
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      return overflowing;
+    });
+    expect(wide, "findings wrapper does not overflow horizontally").toBe(true);
+    const cell = await monitor.getByText("col30", { exact: true }).evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right };
+    });
+    const wrapBox = await boxOf(wrapper);
+    expect(cell.right, "last header cell unreachable").toBeLessThanOrEqual(wrapBox.right + 1);
+    expect(cell.left).toBeGreaterThanOrEqual(wrapBox.left - 1);
+  });
+
+  // F3 — the Create Automation dialog's Save stays reachable at both sizes.
+  for (const size of [
+    { width: 375, height: 667 },
+    { width: 1440, height: 900 },
+  ]) {
+    test(`F3: create dialog Save is reachable at ${size.width}×${size.height}`, async ({ page }) => {
+      await page.setViewportSize(size);
+      const board = await openBoard(page);
+      await board.getByTestId("automation-create-btn").click();
+      const dialog = page.getByTestId("create-automation-dialog");
+      await expect(dialog).toBeVisible();
+      await dialog.getByTestId("create-advanced-toggle").click();
+      await expect(dialog.getByTestId("create-advanced")).toBeVisible();
+      await dialog.evaluate(async (el) => {
+        const panel = Array.from(el.querySelectorAll<HTMLElement>("*")).find((n) => {
+          const o = getComputedStyle(n).overflowY;
+          return o === "auto" || o === "scroll";
+        });
+        if (panel) panel.scrollTop = panel.scrollHeight;
+        await new Promise((r) => requestAnimationFrame(() => r(null)));
+      });
+      expectInside(await boxOf(dialog.getByTestId("create-submit")), VIEWPORT_BOX(page), `Save @${size.width}`);
+      const hit = await dialog.getByTestId("create-submit").evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !!at && (at === el || el.contains(at));
+      });
+      expect(hit, `Save @${size.width} is occluded`).toBe(true);
+    });
+  }
 });

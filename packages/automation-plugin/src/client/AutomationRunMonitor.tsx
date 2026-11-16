@@ -110,54 +110,58 @@ export function AutomationRunMonitor({
   }, [resident, ended, run?.runId, session?.cwd]);
 
   return (
-    <div data-testid="automation-run-monitor" className="flex flex-col gap-3 p-3 text-sm">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">
+    <div data-testid="automation-run-monitor" className="flex flex-col flex-1 min-h-0 overflow-y-auto text-sm">
+      <div className="sticky top-0 z-10 shrink-0 px-3 py-2 border-b border-[var(--border-primary)] bg-[var(--bg-primary)] flex items-center justify-between gap-2">
+        <h2 className="min-w-0 truncate text-base font-semibold">
           {t("automationRun", undefined, "Automation run")}{run?.name ? `: ${run.name}` : ""}
         </h2>
         {onBack && (
-          <button type="button" onClick={onBack} className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+          <button type="button" data-testid="automation-run-monitor-back" onClick={onBack} className="shrink-0 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
             {t("back", undefined, "← Back")}
           </button>
         )}
       </div>
 
-      <div className="text-xs text-[var(--text-secondary)]">
-        <span data-testid="run-status">
-          {statusLabel(t, stored, lookupMissed, ended)}
-        </span>
-        {run?.runId && <span className="ml-2 font-mono">{run.runId}</span>}
+      <div className="flex flex-col gap-3 p-3">
+        <div className="text-xs text-[var(--text-secondary)]">
+          <span data-testid="run-status">
+            {statusLabel(t, stored, lookupMissed, ended)}
+          </span>
+          {run?.runId && <span className="ml-2 font-mono break-all">{run.runId}</span>}
+        </div>
+
+        {archivedSid && (
+          <a
+            // client-sinks: allow — same-origin /session/ route, id URI-encoded
+            href={`/session/${encodeURIComponent(archivedSid)}?archived=1`}
+            data-testid="run-archived-transcript"
+            className="text-xs text-[var(--accent-primary)] hover:underline"
+          >
+            {t("openArchivedTranscript", undefined, "Open archived transcript")}
+          </a>
+        )}
+
+        {session && !ended && (
+          <p className="text-xs text-[var(--text-muted)]" data-testid="run-live-hint">
+            {t("runLiveHint", undefined, "This run is live — its tool calls and messages stream in the standard chat view for this session.")}
+          </p>
+        )}
+
+        {ended && (
+          <section data-testid="run-result">
+            <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">{t("findings", undefined, "Findings")}</h3>
+            {result && result.trim().length > 0 ? (
+              <div className="min-w-0 overflow-x-auto" data-testid="run-result-findings">
+                <MarkdownContent content={result} />
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--text-muted)]" data-testid="run-result-empty">
+                {t("noFindings", undefined, "No findings (auto-archived).")}
+              </p>
+            )}
+          </section>
+        )}
       </div>
-
-      {archivedSid && (
-        <a
-          // client-sinks: allow — same-origin /session/ route, id URI-encoded
-          href={`/session/${encodeURIComponent(archivedSid)}?archived=1`}
-          data-testid="run-archived-transcript"
-          className="text-xs text-[var(--accent-primary)] hover:underline"
-        >
-          {t("openArchivedTranscript", undefined, "Open archived transcript")}
-        </a>
-      )}
-
-      {session && !ended && (
-        <p className="text-xs text-[var(--text-muted)]" data-testid="run-live-hint">
-          {t("runLiveHint", undefined, "This run is live — its tool calls and messages stream in the standard chat view for this session.")}
-        </p>
-      )}
-
-      {ended && (
-        <section data-testid="run-result">
-          <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">{t("findings", undefined, "Findings")}</h3>
-          {result && result.trim().length > 0 ? (
-            <MarkdownContent content={result} />
-          ) : (
-            <p className="text-xs text-[var(--text-muted)]" data-testid="run-result-empty">
-              {t("noFindings", undefined, "No findings (auto-archived).")}
-            </p>
-          )}
-        </section>
-      )}
     </div>
   );
 }
