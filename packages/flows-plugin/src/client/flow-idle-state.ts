@@ -97,15 +97,15 @@ function toStartedStep(raw: unknown, index: number): StartedStep {
     case "code":
       return { id, stepType: type, blockedBy: blockedByOf(r), onError: onErrorOf(r) };
     case "code-decision":
-      return { id, stepType: type, blockedBy: blockedByOf(r), branches: branchesOf(r) };
+      return { id, stepType: type, blockedBy: blockedByOf(r), branches: branchesOf(r), onError: onErrorOf(r) };
     case "fork":
       requireField(r, "question", where);
       requireField(r, "options", where);
-      return { id, stepType: type, agent: r.agent ? String(r.agent) : undefined, blockedBy: [], branches: branchesOf(r) };
+      return { id, stepType: type, agent: r.agent ? String(r.agent) : undefined, blockedBy: [], branches: branchesOf(r), onError: onErrorOf(r) };
     case "agent-decision": {
       const agent = requireField(r, "agent", where);
       requireField(r, "task", where);
-      return { id, stepType: type, agent, blockedBy: [], branches: branchesOf(r) };
+      return { id, stepType: type, agent, blockedBy: [], branches: branchesOf(r), onError: onErrorOf(r) };
     }
     default:
       throw new Error(`flow.yaml: unknown step type "${type}" for step "${id}"`);
