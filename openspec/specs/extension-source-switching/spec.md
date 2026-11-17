@@ -57,7 +57,7 @@ During every switch, the tool SHALL repair each project `packages` object entry 
 
 ### Requirement: The repair SHALL leave everything else unchanged
 
-The tool SHALL write back unchanged every project entry it does not repair, every key of a repaired entry other than `extensions`, and every top-level key other than `packages`.
+The tool SHALL write back unchanged every project entry it neither repairs nor deletes, every key of a repaired entry other than the empty `extensions`, `skills`, `prompts` or `themes` arrays the repair deletes (and `extensions`, from which the switched package's paths are removed), and every top-level key other than `packages`.
 
 #### Scenario: Delta, other-package and non-empty entries are untouched
 - **WHEN** project settings hold an `autoload: false` entry with `extensions: []`, a `{ "source": "npm:other-pkg", "extensions": [] }` entry, a bare-string entry, a `{ "source": ".." }` entry with no filter keys, and a repo-root entry whose `extensions` holds only another package's path
