@@ -190,7 +190,13 @@ describe("deriveFlowEdges", () => {
     const live = deriveFlowEdges(base()).map((e) => `${key(e)}:${e.kind}:${e.label ?? ""}`).sort();
     const staticEdges = deriveFlowEdges(base()).map((e) => `${key(e)}:${e.kind}:${e.label ?? ""}`).sort();
     expect(live).toEqual(staticEdges);
-    expect(live).toContain("b->c:route:on_error");
+    expect(live).toEqual([
+      "a->fork:sequential:",
+      "b->c:route:on_error",
+      "b->c:sequential:",
+      "fork->b:branch:p",
+      "fork->c:branch:q",
+    ]);
   });
 });
 
@@ -270,10 +276,7 @@ describe("deriveFlowEdges — engine fall-through", () => {
       { id: "u", blockedBy: [] },
       { id: "z", type: "code", blockedBy: [] },
     ] as FlowEdgeStep[];
-    let edges: FlowEdge[] = [];
-    expect(() => {
-      edges = pairs(steps);
-    }).not.toThrow();
+    const edges = pairs(steps); // must not throw
     for (const [f, t] of [["s", "r"], ["s", "u"], ["r", "z"], ["u", "z"]]) {
       expect(hasKind(edges, f, t, "implicit")).toBe(true);
     }
@@ -336,14 +339,11 @@ describe("deriveFlowEdges — engine fall-through", () => {
   });
 
   it("X1: dangling branch / blockedBy refs are skipped, fall-through kept", () => {
-    let edges: FlowEdge[] = [];
-    expect(() => {
-      edges = pairs([
-        { id: "a", type: "code-decision", blockedBy: [], branches: { x: "ghost" } },
-        { id: "b", type: "code", blockedBy: ["ghost"] },
-        { id: "c", type: "code", blockedBy: [] },
-      ]);
-    }).not.toThrow();
+    const edges = pairs([ // must not throw
+      { id: "a", type: "code-decision", blockedBy: [], branches: { x: "ghost" } },
+      { id: "b", type: "code", blockedBy: ["ghost"] },
+      { id: "c", type: "code", blockedBy: [] },
+    ]);
     expect(edges.some((e) => e.from === "ghost" || e.to === "ghost")).toBe(false);
     expect(hasKind(edges, "b", "c", "implicit")).toBe(true);
   });
