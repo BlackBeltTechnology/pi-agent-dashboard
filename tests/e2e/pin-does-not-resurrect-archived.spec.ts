@@ -27,6 +27,8 @@ import { DASHBOARD_PORT } from "./lifecycle.js";
 
 const CWD = "/root/proj-x";
 const HOUR = 60 * 60 * 1000;
+/** Header field every seeded transcript carries (cleanup selector). */
+const MARKER = "e2ePinNoResurrect";
 /** pi's on-disk encoding of a cwd into a sessions subdirectory name. */
 const SESSIONS_REL = `.pi/agent/sessions/--${CWD.replace(/^\//, "").replace(/\//g, "-")}--`;
 
@@ -44,7 +46,7 @@ function seedSession(archived: boolean | null, endedAt: number): string {
   const id = crypto.randomUUID();
   const startedAt = endedAt - HOUR;
   const stamp = new Date(startedAt).toISOString().replace(/[:.]/g, "-");
-  const header = { type: "session", id, cwd: CWD, timestamp: new Date(startedAt).toISOString() };
+  const header = { type: "session", id, cwd: CWD, timestamp: new Date(startedAt).toISOString(), [MARKER]: true };
   const meta: Record<string, unknown> = { cwd: CWD, status: "ended", name: `e2e-pinres-${id.slice(0, 8)}`, startedAt, endedAt };
   if (archived) Object.assign(meta, { archived: true, archivedAt: endedAt });
   runNode(
@@ -59,9 +61,22 @@ function seedSession(archived: boolean | null, endedAt: number): string {
   return id;
 }
 
+/**
+ * Delete only this spec's seeds: every `.jsonl` whose header carries MARKER,
+ * plus its sidecar. Marker-based (not a tracked list) so a crashed run heals
+ * on the next entry, and other history in the folder is never touched.
+ */
 function cleanup(): void {
   runNode(
-    `require("fs").rmSync(require("path").join(process.env.HOME,${JSON.stringify(SESSIONS_REL)}),{recursive:true,force:true});`,
+    `const fs=require("fs"),p=require("path");` +
+      `const d=p.join(process.env.HOME,${JSON.stringify(SESSIONS_REL)});` +
+      `if(!fs.existsSync(d))process.exit(0);` +
+      `for(const f of fs.readdirSync(d)){` +
+      `if(!f.endsWith(".jsonl"))continue;` +
+      `try{const h=JSON.parse(fs.readFileSync(p.join(d,f),"utf8").split("\\n")[0]);` +
+      `if(h[${JSON.stringify(MARKER)}]!==true)continue;` +
+      `const base=f.slice(0,-".jsonl".length);` +
+      `for(const ext of [".jsonl",".meta.json"]){try{fs.unlinkSync(p.join(d,base+ext))}catch{}}}catch{}}`,
   );
 }
 
