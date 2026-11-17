@@ -1,3 +1,3 @@
 # switch-extension-source/scripts/switch-source.ts — index
 
-Toggle script. Commands: status \| local <pkg> [--overlay] \| npm <pkg>. <pkg> = monorepo dir or npm name. Purges all other representations, backs up `*.bak-switch-*`, validates JSON. Skips dashboard-managed bridge plugins.
+Toggle script. Commands: status \| local <pkg> \| npm <pkg>. <pkg> = monorepo dir or npm name. Exports `purge`, `detect`, `cmdSwitch(mode, ident, overlay?, paths?)`, `PkgInfo`; CLI runs only when executed directly. Purges all other representations (string + `{source}` global entries); prunes project entries left with empty `extensions/skills/prompts/themes` (touched or repo-root, non-delta); deletes empty `packages`. Removed overlay flag exits 1 before any I/O. Never creates the project file; rewrites it only when changed. Backs up `*.bak-switch-*`, validates JSON. Skips dashboard-managed bridge plugins. See change: fix-switch-source-empty-overlay.

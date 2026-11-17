@@ -3265,6 +3265,29 @@ Fix (change: harden-worktree-spawn):
 
 Manual recovery if auto-install fails: `cd <worktree>; npm ci`.
 
+See also: [Every session in one repo hits REGISTER_TIMEOUT](#every-session-in-one-repo-hits-register_timeout).
+
+## Every session in one repo hits REGISTER_TIMEOUT
+
+Symptom: every session spawned in one repo fails `REGISTER_TIMEOUT`. Logged to `~/.pi/dashboard/sessions/spawn-failures.log`. Other repos fine.
+
+Cause: empty `extensions` filter on project `packages[]` entry in `<repo>/.pi/settings.json`. Example: `{"source": "..", "extensions": []}`.
+- pi resolves project packages before global. Keeps first entry per extension file path.
+- Empty array = disable all extensions of that package.
+- Root `package.json` `pi.extensions` = `packages/extension/src/bridge.ts`. Same file as global `<repo>/packages/extension` entry.
+- Global (enabled) copy ignored. Bridge never loads. No `register_session`.
+
+Historical source: `switch-extension-source` skill's removed overlay mode left this residue.
+
+Check: `node scripts/check-pi-settings-paths.mjs` (also runs in CI). Flags empty `extensions`/`skills`/`prompts`/`themes` array on non-`autoload:false` entry.
+
+Fix:
+- Remove empty key or whole entry from `.pi/settings.json`.
+- Or `npx tsx .pi/skills/switch-extension-source/scripts/switch-source.ts npm <pkg>` (or `local <pkg>`). Prunes such entries.
+- Respawn session.
+
+See also: [Why does +Worktree dialog appear to do nothing for sibling worktrees of pi-agent-dashboard?](#why-does-worktree-dialog-appear-to-do-nothing-for-sibling-worktrees-of-pi-agent-dashboard).
+
 ## How do I declare an OpenSpec change dependency?
 
 Three ways. Same result: blockers feed execution order and ship-it.
