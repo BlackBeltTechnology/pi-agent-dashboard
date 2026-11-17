@@ -15,12 +15,18 @@
  */
 
 import type { ReattachPlacement } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { createPendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
+import { createMetaPersistence } from "../persistence/meta-persistence.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { applyReattachPolicy } from "../session/reattach-placement.js";
+import { createSessionArchive } from "../session/session-archive.js";
 import { createSessionOrderManager } from "../session/session-order-manager.js";
 
 // In-memory PreferencesStore mock matching the slice of the interface
@@ -113,6 +119,113 @@ function endedToAlive(
   const next = sessionOrderManager.getOrder(cwd) ?? [];
   return { type: "sessions_reordered", cwd, sessionIds: next };
 }
+
+/**
+ * Mirrors `server.ts` onChange's transition dispatch: the `wasEnded` check
+ * plus the alive→ended / ended→alive branches. Returns `"ended"` when the
+ * alive→ended branch fired, else the ended→alive broadcast (or null).
+ * See change: fix-discovery-resurrects-archived (design D4).
+ */
+function onChangeTransition(
+  sessionId: string,
+  cwd: string,
+  status: string,
+  ctx: { priorStatus?: string } | undefined,
+  endedSessionIds: Set<string>,
+  pendingResumeIntents: ReturnType<typeof createPendingResumeIntentRegistry>,
+  sessionOrderManager: ReturnType<typeof createSessionOrderManager>,
+): BroadcastEvent | "ended" | null {
+  const wasEnded = endedSessionIds.has(sessionId) || ctx?.priorStatus === "ended";
+  const isEnded = status === "ended";
+  if (isEnded && !wasEnded) {
+    endedSessionIds.add(sessionId);
+    return "ended";
+  }
+  if (!isEnded && wasEnded) {
+    return endedToAlive(sessionId, cwd, endedSessionIds, pendingResumeIntents, sessionOrderManager);
+  }
+  return null;
+}
+
+describe("ended→alive for a session restored after the endedSessionIds snapshot (D4)", () => {
+  const cwd = "/project";
+  let pendingResumeIntents: ReturnType<typeof createPendingResumeIntentRegistry>;
+  let sessionOrderManager: ReturnType<typeof createSessionOrderManager>;
+
+  beforeEach(() => {
+    pendingResumeIntents = createPendingResumeIntentRegistry();
+    sessionOrderManager = createSessionOrderManager(makePrefs());
+  });
+
+  /** Snapshot at boot (empty), then a late `restore()` of an ended id. */
+  function rig(id: string) {
+    const sm = createMemorySessionManager();
+    const endedSessionIds = new Set(sm.listAll().filter((s) => s.status === "ended").map((s) => s.id));
+    sm.restore({ id, cwd, source: "tui", status: "ended", startedAt: 1000, endedAt: 2000 } as never);
+    const ctxs: Array<{ priorStatus?: string } | undefined> = [];
+    sm.onChange = (_id, ctx) => { ctxs.push(ctx); };
+    const transition = (status: string) =>
+      onChangeTransition(id, cwd, status, ctxs.at(-1), endedSessionIds, pendingResumeIntents, sessionOrderManager);
+    return { sm, endedSessionIds, transition };
+  }
+
+  it("F1: seeded ended session with a 'front' intent moves to front", () => {
+    sessionOrderManager.reorder(cwd, ["A", "B", "s1"]);
+    const { sm, transition } = rig("s1");
+    pendingResumeIntents.record("s1", "front");
+
+    sm.register({ id: "s1", cwd, source: "tui" });
+    const result = transition("idle");
+
+    expect(result).toEqual({ type: "sessions_reordered", cwd, sessionIds: ["s1", "A", "B"] });
+    expect(pendingResumeIntents.consume("s1")).toBeNull();
+  });
+
+  it("F2: null-intent reattach of a seeded session does not reorder; a later end re-fires", () => {
+    sessionOrderManager.reorder(cwd, ["A", "s2", "B"]);
+    const { sm, endedSessionIds, transition } = rig("s2");
+
+    sm.register({ id: "s2", cwd, source: "tui" });
+    expect(transition("idle")).toBeNull();
+    expect(sessionOrderManager.getOrder(cwd)).toEqual(["A", "s2", "B"]);
+
+    sm.unregister("s2");
+    expect(transition("ended")).toBe("ended");
+    expect(endedSessionIds.has("s2")).toBe(true);
+  });
+
+  it("F3: an unarchived session resumed with 'front' moves to front", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "order-unarchive-"));
+    try {
+      const file = path.join(tmp, "2026-01-01T00-00-00-000Z_u1.jsonl");
+      fs.writeFileSync(file, `${JSON.stringify({ type: "session", id: "u1", cwd })}\n`);
+      writeSessionMeta(file, { cwd, status: "ended", startedAt: 1000, endedAt: 2000 });
+      const sm = createMemorySessionManager();
+      const endedSessionIds = new Set<string>();
+      const archive = createSessionArchive({
+        sessionManager: sm,
+        metaPersistence: createMetaPersistence(),
+        getPinnedDirs: () => [],
+      });
+      sm.restore({
+        id: "u1", cwd, source: "tui", status: "ended", startedAt: 1000, endedAt: 2000, sessionFile: file,
+      } as never);
+      expect(archive.archiveSession("u1", "manual").ok).toBe(true);
+      expect(archive.unarchiveSession("u1").ok).toBe(true);
+      sessionOrderManager.reorder(cwd, ["A", "u1"]);
+      pendingResumeIntents.record("u1", "front");
+      const ctxs: Array<{ priorStatus?: string } | undefined> = [];
+      sm.onChange = (_id, ctx) => { ctxs.push(ctx); };
+
+      sm.register({ id: "u1", cwd, source: "tui" });
+      const result = onChangeTransition("u1", cwd, "idle", ctxs.at(-1), endedSessionIds, pendingResumeIntents, sessionOrderManager);
+
+      expect(result).toEqual({ type: "sessions_reordered", cwd, sessionIds: ["u1", "A"] });
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("ended\u2192alive sessionOrder gate", () => {
   let endedSessionIds: Set<string>;

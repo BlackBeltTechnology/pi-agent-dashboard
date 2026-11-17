@@ -40,3 +40,10 @@ The result is a dock that shows false state and gives the user no way to correct
 - Tests: plugin client unit tests, gateway unit tests, `tests/e2e/background-subagents.spec.ts` / `subagent-queue-stop.spec.ts`. The e2e harness pin moves to the producer release that carries the two channels.
 - `packages/client/src/lib/replay/replay-persist.ts`: never caches a deferred, projected end frame.
 - Dependency: producer `@blackbelt-technology/pi-dashboard-subagents` next minor (sibling change `emit-subagent-stop-verdicts-and-registry` in that repo). The dashboard ships first and stays compatible with 0.7.0.
+
+## Discipline Skills
+
+- `review-code` — non-trivial gateway + plugin change; review before commit.
+- `performance-optimization` — the gateway shed/defer path runs under socket backpressure (`MAX_WS_BUFFER`); the deferred copy must stay size-bounded.
+- `observability-instrumentation` — new `deferredSubagentFrames` health counter.
+- No `security-hardening` or `doubt-driven-review`-for-irreversible-step trigger: no auth/untrusted-input surface, no migration.

@@ -144,3 +144,5 @@ Plugin context `readFileGuarded: guardedReadFile` (from `lib/dashboard-state-gua
 `createPreferencesStore(…, { hasAnthropicCredential })` wires the one-time compat-switch seed from `auth/provider-auth-storage.ts`. See change: seed-claude-compat-on-upgrade.
 
 - surface-network-denial-on-health: builds `readNetworkVerdict` (1 s TTL memo over `admissionList` → `evaluateNetworkPass`, refused iff `passed===null`) for `registerSystemRoutes`; `DashboardServer.inject` (tests only) exposes `fastify.inject`. See change: surface-network-denial-on-health.
+
+- fix-discovery-resurrects-archived: onChange resume check `wasEnded = endedSessionIds.has(id) || ctx?.priorStatus === "ended"` — an ended record `restore()`d after the boot snapshot still gets Resume placement. See change: fix-discovery-resurrects-archived.

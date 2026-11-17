@@ -1040,7 +1040,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // (heartbeat tail, click-induced state sync, late bridge events) do
     // NOT re-fire it.
     // See changes: pin-and-search-sessions, simplify-session-card-ordering.
-    const wasEnded = endedSessionIds.has(sessionId);
+    // `priorStatus === "ended"` covers an ended record `restore()`d after the
+    // boot snapshot (on-demand discovery seed, unarchive, late boot seed),
+    // which the set never saw. See change: fix-discovery-resurrects-archived.
+    const wasEnded = endedSessionIds.has(sessionId) || ctx?.priorStatus === "ended";
     const isEnded = session.status === "ended";
     if (isEnded && !wasEnded) {
       // Just transitioned alive→ended. The id STAYS in the order map
@@ -1142,9 +1145,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     }
   };
-  // Track which session ids we've seen as ended at least once, so the
-  // onChange hook can detect actual alive→ended transitions vs. mere
-  // re-emits of the ended state.
+  // Ids seen as ended: the boot snapshot plus every alive→ended `onChange`,
+  // so the hook can tell a real alive→ended transition from a re-emit of the
+  // ended state. Ended records `restore()`d after this snapshot are NOT in
+  // it; their ended→alive register is detected via `ctx.priorStatus`.
+  // See change: fix-discovery-resurrects-archived.
   const endedSessionIds = new Set<string>(
     sessionManager.listAll().filter((s) => s.status === "ended").map((s) => s.id),
   );
