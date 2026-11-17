@@ -40,3 +40,9 @@ The result is a dock that shows false state and gives the user no way to correct
 - Tests: plugin client unit tests, gateway unit tests, `tests/e2e/background-subagents.spec.ts` / `subagent-queue-stop.spec.ts`. The e2e harness pin moves to the producer release that carries the two channels.
 - `packages/client/src/lib/replay/replay-persist.ts`: never caches a deferred, projected end frame.
 - Dependency: producer `@blackbelt-technology/pi-dashboard-subagents` next minor (sibling change `emit-subagent-stop-verdicts-and-registry` in that repo). The dashboard ships first and stays compatible with 0.7.0.
+
+## Discipline Skills
+
+- `systematic-debugging`: the ghost rows are a multi-cause bug (shed end frame, unanswered stop, no reconcile); each cause needs evidence before its fix.
+- `performance-optimization`: the gateway's shed branch now defers a bounded copy of subagent frames on a saturated socket — a large-data path under `MAX_WS_BUFFER`.
+- `observability-instrumentation`: the new `deferredSubagentFrames` health counter and the stop-verdict / registry-snapshot frames make "why is this row still running" answerable.

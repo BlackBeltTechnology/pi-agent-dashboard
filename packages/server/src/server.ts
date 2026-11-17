@@ -10,6 +10,7 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { computeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
 import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
+import { createPiDefaultRemirror, setActivePiDefaultRemirror } from "./pi-default-remirror.js";
 import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createPluginSessionManager, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
@@ -1771,6 +1772,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // cwd-policy as the spawn funnel composes it, so the team plugin can refuse a
   // start whose skill set the policy would narrow. See change: add-team-skill-access (D7).
   pluginServiceRegistry.set("host.resolveCwdPolicy", (cwd: string) => cwdPolicyRegistry.resolve(cwd));
+  // `@role` default model: re-mirror into pi when its resolution moves (roles
+  // watcher calls this), and expose the ref for the Roles "used by" list.
+  // See change: default-model-follows-role (D4, D5).
+  const piDefaultRemirror = createPiDefaultRemirror({ readDashboardConfig: loadConfig });
+  piDefaultRemirror.seed();
+  setActivePiDefaultRemirror(piDefaultRemirror);
+  pluginServiceRegistry.set("host.remirrorPiDefaults", () => piDefaultRemirror.remirror());
+  pluginServiceRegistry.set("host.defaultModelRef", () => piDefaultRemirror.defaultModelRef());
   // Operator-visible (global + global-package) skills for the team plugin's
   // admin skill picker. Never project-local. See change: add-team-skill-access (D11).
   pluginServiceRegistry.set("host.listOperatorSkills", async () =>

@@ -10,7 +10,7 @@
  * See change: redesign-directory-home-split (design D5).
  */
 import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
-import { type RoleConfig, resolveModelRef, THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
+import { type RoleConfig, resolveDefaultModel, resolveModelRef, THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 
 export interface SpawnChoice {
   model?: string;
@@ -167,10 +167,35 @@ export function resolveSpawnChoice(input: SpawnChoiceInput, ctx: ResolveSpawnCho
   }
 
   if (choice.thinking && !choice.model && ctx.defaultModel) {
-    const fallback = validateSpawnChoice({ model: ctx.defaultModel, thinkingLevel: choice.thinking });
-    if (fallback.model) choice.model = fallback.model;
+    const paired = pairDefaultModel(ctx.defaultModel, choice.thinking, ctx);
+    if (paired) choice.model = paired;
   }
   return { choice, warnings };
+}
+
+/**
+ * The model a thinking-only choice pairs with: the Settings default, resolved
+ * when it is an `@role` ref (the explicit level still wins). An unresolved role
+ * default → `undefined` (spawn without `--model`), one log line, NO warning —
+ * the request itself carried no model. See change: default-model-follows-role (D6).
+ */
+export function pairDefaultModel(defaultModel: string, thinking: string, ctx: ResolveSpawnChoiceContext = {}): string | undefined {
+  let model = defaultModel;
+  if (defaultModel.trim().startsWith("@")) {
+    let roles: Pick<RoleConfig, "roles">;
+    try {
+      roles = (ctx.readRoles ?? readRoleConfigFromDisk)();
+    } catch {
+      roles = { roles: {} };
+    }
+    const r = resolveDefaultModel(defaultModel.trim(), roles);
+    if (r.kind !== "role") {
+      console.log(`[dashboard] default model ${defaultModel} unresolved; spawning without --model`);
+      return undefined;
+    }
+    model = `${r.provider}/${r.id}`;
+  }
+  return validateSpawnChoice({ model, thinkingLevel: thinking }).model;
 }
 
 function resolveRoleChoice(

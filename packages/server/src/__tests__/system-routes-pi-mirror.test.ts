@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -136,5 +137,38 @@ describe("PUT /api/config → pi default mirror", () => {
     expect(b.statusCode).toBe(200);
     const persisted = loadConfig().defaultModel;
     expect(piJson().defaultModel).toBe(persisted.split("/").slice(1).join("/"));
+  });
+  // ── role-ref default (See change: default-model-follows-role) ──
+  const seedRoles = (roles: Record<string, string>) => {
+    const dir = join(homedir(), ".pi", "agent");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "providers.json"), JSON.stringify({ roles }));
+  };
+
+  it("E12 @role mirrors its resolved model and level, other keys unchanged", async () => {
+    seedPi({ defaultProvider: "x", defaultModel: "y", keep: 1 });
+    seedRoles({ planning: "anthropic/claude-sonnet-5-5:high" });
+    const res = await save({ defaultModel: "@planning", defaultThinkingLevel: "" });
+    expect(res.json().piMirror).toEqual({ ok: true });
+    expect(piJson()).toEqual({ keep: 1, defaultProvider: "anthropic", defaultModel: "claude-sonnet-5-5", defaultThinkingLevel: "high" });
+  });
+
+  it("E13 unresolved @role → skipped unresolved-role, pi byte-identical", async () => {
+    seedPi({ defaultProvider: "x", defaultModel: "y" });
+    seedRoles({ planning: "anthropic/claude-sonnet-5-5:high" });
+    const before = readFileSync(piFile(), "utf-8");
+    const res = await save({ defaultModel: "@validate" });
+    expect(res.json().piMirror).toEqual({ ok: true, skipped: "unresolved-role" });
+    expect(readFileSync(piFile(), "utf-8")).toBe(before);
+  });
+
+  it("E14 level-only saves on a persisted @role derive both keys (explicit > role level)", async () => {
+    seedPi({});
+    seedRoles({ planning: "anthropic/claude-sonnet-5-5:high" });
+    await save({ defaultModel: "@planning", defaultThinkingLevel: "" });
+    await save({ defaultThinkingLevel: "low" });
+    expect(piJson()).toMatchObject({ defaultProvider: "anthropic", defaultModel: "claude-sonnet-5-5", defaultThinkingLevel: "low" });
+    await save({ defaultThinkingLevel: "" });
+    expect(piJson().defaultThinkingLevel).toBe("high");
   });
 });

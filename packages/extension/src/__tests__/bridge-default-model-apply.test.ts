@@ -325,3 +325,114 @@ describe("bridge default-model apply at session_start", () => {
     });
   });
 });
+
+// ── Role-ref default (See change: default-model-follows-role) ──────────────
+// Exercises the REAL extracted `applyDefaultModel` (default-model-apply.ts).
+describe("applyDefaultModel — @role default (E2–E6, X1)", async () => {
+  const { applyDefaultModel } = await import("../default-model-apply.js");
+  const { readRoleConfigFromDisk } = await import("@blackbelt-technology/pi-dashboard-shared/role-config-disk.js");
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  function setup(opts: {
+    defaultModel: string;
+    defaultThinkingLevel?: string;
+    roles: Record<string, string>;
+    known?: string[];
+  }) {
+    const state = { roles: opts.roles, known: new Set(opts.known ?? []) };
+    const setModel = vi.fn(async (_m: unknown) => {});
+    const setThinkingLevel = vi.fn();
+    const log = vi.fn();
+    const deps = {
+      loadConfig: () => ({ defaultModel: opts.defaultModel, defaultThinkingLevel: opts.defaultThinkingLevel ?? "" }),
+      readRoles: () => ({ roles: state.roles }),
+      registry: { find: (p: string, id: string) => (state.known.has(`${p}/${id}`) ? { provider: p, id } : undefined) },
+      setModel,
+      setThinkingLevel,
+      log,
+    };
+    return { state, deps, setModel, setThinkingLevel, log };
+  }
+
+  it("E2 resolves @planning and calls setModel once with the role's model", async () => {
+    const t = setup({ defaultModel: "@planning", roles: { planning: "anthropic/claude-sonnet-5-5" }, known: ["anthropic/claude-sonnet-5-5"] });
+    expect(applyDefaultModel(t.deps)).toBeNull();
+    expect(t.setModel).toHaveBeenCalledTimes(1);
+    expect(t.setModel).toHaveBeenCalledWith({ provider: "anthropic", id: "claude-sonnet-5-5" });
+  });
+
+  it.each([
+    ["@planning", "low", { planning: "anthropic/m:high" }, "low"],
+    ["@planning", "", { planning: "anthropic/m:high" }, "high"],
+    ["@planning:medium", "", { planning: "anthropic/m:high" }, "medium"],
+    ["@coding", "", { coding: "anthropic/m" }, undefined],
+    ["anthropic/m", "", {}, undefined],
+  ])("E3 %s + level %j → setThinkingLevel %s", async (defaultModel, level, roles, expected) => {
+    const t = setup({ defaultModel, defaultThinkingLevel: level, roles, known: ["anthropic/m"] });
+    applyDefaultModel(t.deps);
+    await flush();
+    expect(t.setModel).toHaveBeenCalledTimes(1);
+    if (expected) expect(t.setThinkingLevel).toHaveBeenCalledWith(expected);
+    else expect(t.setThinkingLevel).not.toHaveBeenCalled();
+  });
+
+  it("E4 re-resolves on every call (no cache): a preset swap moves the next apply", () => {
+    const t = setup({
+      defaultModel: "@planning",
+      roles: { planning: "anthropic/claude-sonnet-5-5" },
+      known: ["anthropic/claude-sonnet-5-5", "proxy/cc/claude-sonnet-5-5"],
+    });
+    applyDefaultModel(t.deps);
+    t.state.roles = { planning: "proxy/cc/claude-sonnet-5-5" };
+    applyDefaultModel(t.deps);
+    expect(t.setModel.mock.calls.map((c) => c[0])).toEqual([
+      { provider: "anthropic", id: "claude-sonnet-5-5" },
+      { provider: "proxy", id: "cc/claude-sonnet-5-5" },
+    ]);
+  });
+
+  it.each(["@validate", "@coding"])("E5 %s unresolved → null, no setModel, one log line", (ref) => {
+    const t = setup({ defaultModel: ref, roles: { coding: "claude-haiku-5-5" }, known: ["claude-haiku-5-5"] });
+    expect(applyDefaultModel(t.deps)).toBeNull(); // null ⇒ pendingDefaultModel stays null
+    expect(t.setModel).not.toHaveBeenCalled();
+    expect(t.log).toHaveBeenCalledTimes(1);
+    expect(t.log.mock.calls[0][0]).toContain(ref);
+  });
+
+  it("E6 late custom provider: pending, then the retry applies (re-resolving first)", () => {
+    const t = setup({ defaultModel: "@planning", roles: { planning: "local/ocg/longcat-2.5-preview-free" } });
+    expect(applyDefaultModel(t.deps)).toBe("@planning");
+    expect(t.setModel).not.toHaveBeenCalled();
+    t.state.known.add("local/ocg/longcat-2.5-preview-free");
+    expect(applyDefaultModel(t.deps)).toBeNull();
+    expect(t.setModel).toHaveBeenLastCalledWith({ provider: "local", id: "ocg/longcat-2.5-preview-free" });
+
+    const u = setup({ defaultModel: "@planning", roles: { planning: "local/ocg/longcat-2.5-preview-free" } });
+    expect(applyDefaultModel(u.deps)).toBe("@planning");
+    u.state.roles = { planning: "proxy/cc/claude-sonnet-5-5" };
+    u.state.known.add("proxy/cc/claude-sonnet-5-5");
+    expect(applyDefaultModel(u.deps)).toBeNull();
+    expect(u.setModel).toHaveBeenCalledWith({ provider: "proxy", id: "cc/claude-sonnet-5-5" });
+  });
+
+  it.each([["invalid JSON", "{ not json"], ["unreadable (directory)", null]])(
+    "X1 providers.json %s → no throw, no setModel, one log line naming @planning",
+    (_label, content) => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), "dm-x1-"));
+      const file = path.join(home, ".pi", "agent", "providers.json");
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      if (content === null) fs.mkdirSync(file);
+      else fs.writeFileSync(file, content);
+      const t = setup({ defaultModel: "@planning", roles: {}, known: ["anthropic/claude-sonnet-5-5"] });
+      const deps = { ...t.deps, readRoles: () => readRoleConfigFromDisk(home) };
+      expect(() => applyDefaultModel(deps)).not.toThrow();
+      expect(t.setModel).not.toHaveBeenCalled();
+      expect(t.log).toHaveBeenCalledTimes(1);
+      expect(t.log.mock.calls[0][0]).toContain("@planning");
+    },
+  );
+});

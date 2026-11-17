@@ -7,7 +7,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Fastify from "fastify";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPendingAttachRegistry } from "../pending/pending-attach-registry.js";
 import { createPendingInitialPromptRegistry } from "../pending/pending-initial-prompt-registry.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
@@ -122,5 +122,35 @@ describe("POST /api/session/spawn choice", () => {
     expect(res.statusCode).toBe(500);
     expect(prompts.size("/p")).toBe(1);
     expect(prompts.consume("/p")).toBe("A");
+  });
+  // See change: default-model-follows-role (test-plan #E7, #E9).
+  describe("thinking-only choice + Settings @role default", () => {
+    const setDefault = (defaultModel: string) => {
+      const dir = join(process.env.HOME as string, ".pi", "dashboard");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "config.json"), JSON.stringify({ defaultModel }));
+    };
+    afterEach(() => setDefault(""));
+
+    it("E7: pairs with the RESOLVED role model, explicit level wins", async () => {
+      writeRoles({ planning: "anthropic/claude-sonnet-5-5:high" });
+      setDefault("@planning");
+      const { post } = build();
+      const res = await post({ cwd: "/p", thinkingLevel: "low" });
+      expect(res.statusCode).toBe(200);
+      expect(spawn.mock.calls[0][1]).toMatchObject({ model: "anthropic/claude-sonnet-5-5", thinking: "low" });
+    });
+
+    it("E9: unresolved role default → 200, no --model, --thinking low", async () => {
+      vi.spyOn(console, "log").mockImplementation(() => undefined);
+      writeRoles({ planning: "anthropic/claude-sonnet-5-5" });
+      setDefault("@validate");
+      const { post } = build();
+      const res = await post({ cwd: "/p", thinkingLevel: "low" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().success).toBe(true);
+      expect(spawn.mock.calls[0][1]).not.toHaveProperty("model");
+      expect(spawn.mock.calls[0][1]).toMatchObject({ thinking: "low" });
+    });
   });
 });

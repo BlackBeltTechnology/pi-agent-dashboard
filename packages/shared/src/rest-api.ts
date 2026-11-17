@@ -211,13 +211,19 @@ export interface PiSettingsConflict {
   raw: string;
 }
 
+/** Why a mirror skipped the model key. */
+export type PiMirrorSkip = "no-provider-separator" | "unresolved-role";
+
 /** Result of mirroring the dashboard default model / thinking level into pi. */
 export interface PiMirrorResult {
   ok: boolean;
   /** `ok:false` reason. */
   error?: "parse" | "busy" | "io";
-  /** The dashboard model id has no `provider/` prefix, so nothing was mirrored. */
-  skipped?: "no-provider-separator";
+  /**
+   * Nothing was mirrored for the model: no `provider/` prefix, or an `@role`
+   * default that does not resolve (See change: default-model-follows-role).
+   */
+  skipped?: PiMirrorSkip;
 }
 
 /** POST /api/pi-settings/sync-defaults success body. */

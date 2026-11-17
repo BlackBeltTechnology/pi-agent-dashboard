@@ -3661,4 +3661,11 @@ export const huCatalog: Record<string, string> = {
   "pairedDevices.noLongerAvailable": "Már nem érhető el",
   "pairedDevices.lostOrStolen": "Csak akkor vonja vissza a visszavonást, ha tévedésből vonta vissza. Ha az eszköz elveszett vagy ellopták, hagyja visszavonva: a visszavonás visszavonása újra működővé teszi a mentett hozzáférését.",
   "pairedDevices.revokedUnreadable": "A visszavont eszközök listája nem olvasható — a visszavont eszközök korán törlődhetnek",
+  "settings.defaultModelRoleTag": "szerepkör",
+  "settings.defaultModelFollows": "Követi:",
+  "settings.defaultModelInPreset": "a következő előbeállításban:",
+  "settings.defaultModelFollowsTail": "Előbeállítás váltásakor a következő új munkamenet modellje is változik.",
+  "settings.defaultModelDanglingInPreset": "nincs modellje ebben az előbeállításban:",
+  "settings.defaultModelDanglingLive": "nincs modell hozzárendelve.",
+  "settings.defaultModelDanglingTail": "Amíg nincs hozzárendelve, az új munkamenetek a pi saját alapértelmezett modelljét használják.",
 };
