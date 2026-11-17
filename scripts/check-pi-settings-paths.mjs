@@ -19,6 +19,14 @@
  * `source` also legally carries non-path specifiers (`npm:`, `git:`, `https://`,
  * `ssh://`); those are never filesystem paths and are left alone.
  *
+ * Second rule (fix-switch-source-empty-overlay): no non-delta `packages[]` object
+ * entry may carry an EMPTY `extensions`/`skills`/`prompts`/`themes` array. pi
+ * treats `[]` as "disable every resource of this type" and keeps the first entry
+ * per file path with project packages first, so an empty filter on the repo-root
+ * entry shadows the global bridge (`packages/extension/src/bridge.ts`) → every
+ * session in the repo hits REGISTER_TIMEOUT. `autoload: false` deltas are exempt
+ * (`[]` there is a no-op); a deliberate committed disable must use that form.
+ *
  * Emits structured findings; exits 1 when any violation exists.
  * Run: node scripts/check-pi-settings-paths.mjs
  *
@@ -47,14 +55,15 @@ function isMachineSpecific(source) {
 
 /**
  * Findings for one settings file's raw JSON text.
- * Returns `[{ file, source, reason }]`; empty when clean.
+ * Returns `[{ file, source, reason, kind: "absolute" | "parse" }]`; empty when clean.
+ * Owns the single parse-error finding for a file.
  */
 export function absoluteSourceViolations(file, raw) {
   let parsed;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    return [{ file, source: null, reason: `could not parse JSON: ${err.message}` }];
+    return [{ file, source: null, reason: `could not parse JSON: ${err.message}`, kind: "parse" }];
   }
 
   const packages = Array.isArray(parsed?.packages) ? parsed.packages : [];
@@ -65,24 +74,58 @@ export function absoluteSourceViolations(file, raw) {
     const source = typeof entry === "string" ? entry : entry?.source;
     if (typeof source !== "string") continue;
     if (isMachineSpecific(source)) {
-      violations.push({ file, source, reason: "machine-specific absolute path" });
+      violations.push({ file, source, reason: "machine-specific absolute path", kind: "absolute" });
     }
   }
 
   return violations;
 }
 
-function main() {
-  const violations = [];
+const RESOURCE_KEYS = ["extensions", "skills", "prompts", "themes"];
 
-  for (const rel of CHECKED_FILES) {
-    let raw;
-    try {
-      raw = readFileSync(resolve(REPO_ROOT, rel), "utf-8");
-    } catch {
-      continue; // not every checkout has every settings file
+/**
+ * Empty resource filters on non-delta object entries, for one file's raw JSON.
+ * Returns `[{ file, source, key, reason, kind: "empty-filter" }]`; `[]` on a parse
+ * failure (`absoluteSourceViolations` reports that once).
+ */
+export function emptyFilterViolations(file, raw) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const packages = Array.isArray(parsed?.packages) ? parsed.packages : [];
+  const violations = [];
+  for (const entry of packages) {
+    if (typeof entry !== "object" || entry === null || entry.autoload === false) continue;
+    for (const key of RESOURCE_KEYS) {
+      if (Array.isArray(entry[key]) && entry[key].length === 0) {
+        const source = typeof entry.source === "string" ? entry.source : null;
+        violations.push({ file, source, key, reason: `empty "${key}" filter`, kind: "empty-filter" });
+      }
     }
-    violations.push(...absoluteSourceViolations(rel, raw));
+  }
+  return violations;
+}
+
+function readCheckedFiles() {
+  const inputs = [];
+  for (const rel of CHECKED_FILES) {
+    try {
+      inputs.push({ file: rel, raw: readFileSync(resolve(REPO_ROOT, rel), "utf-8") });
+    } catch {
+      // not every checkout has every settings file
+    }
+  }
+  return inputs;
+}
+
+/** Runs both rules over `inputs` (`[{ file, raw }]`, default: the committed files). Returns the exit code. */
+export function main(inputs = readCheckedFiles()) {
+  const violations = [];
+  for (const { file, raw } of inputs) {
+    violations.push(...absoluteSourceViolations(file, raw), ...emptyFilterViolations(file, raw));
   }
 
   if (violations.length === 0) {
@@ -92,13 +135,16 @@ function main() {
 
   for (const v of violations) {
     const what = v.source ? `${v.source} — ${v.reason}` : v.reason;
-    console.error(`error: ${v.file}: ${what}`);
+    const hint = v.kind === "empty-filter" ? " (remove the empty key or the entry; it disables same-path resources)" : "";
+    console.error(`error: ${v.file}: ${what}${hint}`);
   }
-  console.error(`\nUse a path relative to the settings file instead:\n  ${CORRECTION}`);
-  console.error(
-    "\nNote: `pi install <path>` and `pi config` write the ABSOLUTE form. After running either,\n" +
-      "re-check this file before committing.",
-  );
+  if (violations.some((v) => v.kind === "absolute")) {
+    console.error(`\nUse a path relative to the settings file instead:\n  ${CORRECTION}`);
+    console.error(
+      "\nNote: `pi install <path>` and `pi config` write the ABSOLUTE form. After running either,\n" +
+        "re-check this file before committing.",
+    );
+  }
   return 1;
 }
 
