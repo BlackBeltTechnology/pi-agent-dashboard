@@ -167,18 +167,28 @@ test.describe("skill atlas", () => {
     await gotoDashboard(page);
     await page.goto("/atlas");
     await page.getByRole("tab", { name: "Cards" }).click();
-    await page.evaluate(() => performance.mark("atlas-graph-start"));
+    // P2 (add-skill-atlas-forest-aura): measure start → the view's own "rendered" mark, which it emits
+    // after the first VISIBLE paint (svg un-hidden once pre-settled and fitted).
+    await page.evaluate(() => {
+      const w = window as unknown as { __atlasVisibleAtMark?: string };
+      new PerformanceObserver((list) => {
+        if (list.getEntriesByName("atlas-graph-rendered").length) {
+          const svg = document.querySelector('[data-testid="skill-atlas-graph"] svg');
+          w.__atlasVisibleAtMark = svg ? getComputedStyle(svg).visibility : "missing";
+        }
+      }).observe({ type: "mark" });
+      performance.mark("atlas-graph-start");
+    });
     await page.getByRole("tab", { name: "Graph" }).click();
-    await expect(page.getByTestId("skill-atlas-node-p4-skill-000")).toBeAttached({ timeout: 10_000 });
-    const ms = await page.evaluate(
-      () =>
-        new Promise<number>((resolve) =>
-          requestAnimationFrame(() => {
-            const start = performance.getEntriesByName("atlas-graph-start")[0];
-            resolve(performance.now() - start.startTime);
-          }),
-        ),
-    );
+    await page.waitForFunction(() => (window as unknown as { __atlasVisibleAtMark?: string }).__atlasVisibleAtMark !== undefined, undefined, {
+      timeout: 10_000,
+    });
+    const { ms, visibility } = await page.evaluate(() => {
+      const m = performance.measure("atlas-graph-p4", "atlas-graph-start", "atlas-graph-rendered");
+      return { ms: m.duration, visibility: (window as unknown as { __atlasVisibleAtMark?: string }).__atlasVisibleAtMark };
+    });
+    expect(visibility).toBe("visible");
+    expect(ms).toBeGreaterThan(0);
     expect(ms).toBeLessThan(500);
   });
 
