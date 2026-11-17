@@ -16,6 +16,12 @@ import {
   type DiscoveredModelRecord,
   mapAdvertisedModels,
 } from "@blackbelt-technology/pi-dashboard-shared/provider-model-metadata.js";
+import {
+  defaultLookupAll,
+  effectivePort,
+  type LookupAll,
+  resolveAndVet,
+} from "../push/push-transports/webhook-url.js";
 
 // Resolved per call (not at module load) so a changed HOME is honoured.
 const configPath = (): string => join(homedir(), ".pi", "agent", "providers.json");
@@ -56,6 +62,12 @@ interface StoredProviderEntry {
 
 // -- Pure: build per-API-type probe request --------------------------------
 
+/** Drop `?query` / `#fragment` so an endpoint suffix stays part of the pathname. */
+function stripQueryAndFragment(url: string): string {
+  const cut = url.search(/[?#]/);
+  return cut === -1 ? url : url.slice(0, cut);
+}
+
 function stripTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
@@ -65,7 +77,7 @@ export function buildProbeRequest(input: {
   apiKey: string;
   api: ProbeApi;
 }): ProbeRequest {
-  const base = stripTrailingSlash(input.baseUrl);
+  const base = stripTrailingSlash(stripQueryAndFragment(input.baseUrl));
   switch (input.api) {
     case "openai-completions":
     case "openai-responses":
@@ -97,6 +109,104 @@ export function buildProbeRequest(input: {
   }
 }
 
+// -- Base URL validation, normalisation and egress vet ----------------------
+
+export type BaseUrlCheck = { ok: true; url: URL } | { ok: false; error: string };
+
+/** A probe Base URL must be an absolute http(s) URL. Refused without a request otherwise. */
+export function validateProbeBaseUrl(baseUrl: string): BaseUrlCheck {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return { ok: false, error: "Base URL is not a valid URL" };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { ok: false, error: "Base URL must use http or https" };
+  }
+  return { ok: true, url };
+}
+
+/**
+ * Comparison form of a Base URL: lower-case scheme/host, default port elided,
+ * exactly ONE trailing `/` stripped, query/fragment dropped. Userinfo and a
+ * trailing-dot host are KEPT so they compare unequal. `null` when the value is
+ * not an absolute URL.
+ */
+export function normalizeBaseUrl(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const userinfo = url.username || url.password
+    ? `${url.username}${url.password ? `:${url.password}` : ""}@`
+    : "";
+  const path = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
+  return `${url.protocol}//${userinfo}${url.host}${path}`;
+}
+
+let selfPortGetter: () => readonly number[] | number | null = () => null;
+let lookupAllImpl: LookupAll = defaultLookupAll;
+
+/** Register the dashboard's own listen port (called once by `server.ts`). Unset → own-port rule skipped. */
+export function setProbeSelfPort(getter: () => readonly number[] | number | null): void {
+  selfPortGetter = getter;
+}
+
+/** Test seam: replace the DNS lookup the egress vet uses. `null` restores the default. */
+export function setProbeLookupAll(impl: LookupAll | null): void {
+  lookupAllImpl = impl ?? defaultLookupAll;
+}
+
+type ProbeVet = { ok: true } | { ok: false; error: string };
+
+/**
+ * Egress vet for a probe target: refuse a host that resolves to a link-local /
+ * cloud-metadata address, or to the dashboard's own port on a local address.
+ * The lookup is raced against `signal` (the probe's 8 s abort), so a stalled
+ * resolver ends as `{ok:false,error}` instead of hanging. One `warn` per
+ * refusal (host only — never the key, path or query).
+ * See change: close-local-listener-and-egress-gaps (design D7).
+ */
+export async function vetProbeTarget(baseUrl: string, signal?: AbortSignal): Promise<ProbeVet> {
+  const checked = validateProbeBaseUrl(baseUrl);
+  if (!checked.ok) return checked;
+  const { url } = checked;
+  let onAbort: (() => void) | undefined;
+  const stalled = new Promise<never>((_, reject) => {
+    if (signal?.aborted) return reject(new Error("aborted"));
+    onAbort = () => reject(new Error("aborted"));
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  stalled.catch(() => {}); // the race below observes it; never leave it unhandled
+  try {
+    const vet = await Promise.race([
+      resolveAndVet(url.hostname, effectivePort(url), ownPortFor(effectivePort(url)), lookupAllImpl, "provider"),
+      stalled,
+    ]);
+    if (!vet.ok) {
+      console.warn(`[provider-probe] refused provider target host=${url.hostname}: ${vet.error}`);
+      return { ok: false, error: vet.error };
+    }
+    return { ok: true };
+  } catch {
+    console.warn(`[provider-probe] provider host lookup timed out host=${url.hostname}`);
+    return { ok: false, error: "provider host lookup timed out" };
+  } finally {
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+/** The dashboard's own listener port (HTTP or TLS) that `port` hits, else `null` — `resolveAndVet` refuses it. */
+function ownPortFor(port: number): number | null {
+  const own = selfPortGetter();
+  if (own === null) return null;
+  const ports = typeof own === "number" ? [own] : own;
+  return ports.includes(port) ? port : null;
+}
+
 // -- Pure: resolve an apiKey value (literal / $ENV / *** REDACTED) --------
 
 export type ProvidersReader = () => Record<string, StoredProviderEntry>;
@@ -116,12 +226,25 @@ export type ResolveResult =
   | { ok: true; key: string }
   | { ok: false; error: string };
 
+export const CHANGED_BASE_URL_ERROR = "Re-enter the API key to test a changed Base URL";
+export const ENV_KEY_BINDING_ERROR = "Environment-variable keys can only be tested with the Base URL saved with them";
+
+/**
+ * `requestBaseUrl` is passed ONLY by the Test route (the caller there is
+ * untrusted-ish): it binds a `***` / `$NAME` secret to the saved provider's
+ * Base URL. Saved-provider probes and discovery pass none, so their key
+ * resolution is unchanged. See change: close-local-listener-and-egress-gaps (D7).
+ */
 export function resolveProbeApiKey(args: {
   apiKey: string;
   name?: string;
   readProviders: ProvidersReader;
+  requestBaseUrl?: string;
 }): ResolveResult {
   let raw = args.apiKey;
+  const requestNorm = args.requestBaseUrl === undefined ? undefined : normalizeBaseUrl(args.requestBaseUrl);
+  const sameUrl = (saved: string | undefined): boolean =>
+    requestNorm != null && saved != null && normalizeBaseUrl(saved) === requestNorm;
 
   if (!raw) {
     return { ok: false, error: "apiKey is required" };
@@ -137,10 +260,20 @@ export function resolveProbeApiKey(args: {
     if (!entry) {
       return { ok: false, error: `No saved API key for provider "${args.name}"` };
     }
+    if (args.requestBaseUrl !== undefined && !sameUrl(entry.baseUrl)) {
+      return { ok: false, error: CHANGED_BASE_URL_ERROR };
+    }
     raw = entry.apiKey;
     if (!raw) {
       return { ok: false, error: `Stored API key for "${args.name}" is empty` };
     }
+  }
+
+  // A request-supplied `$NAME` resolves only for a saved provider holding that
+  // exact reference at the same Base URL (a `***` lookup was bound above).
+  if (args.requestBaseUrl !== undefined && args.apiKey !== REDACTED && raw.startsWith("$")) {
+    const bound = Object.values(args.readProviders()).some((p) => p.apiKey === raw && sameUrl(p.baseUrl));
+    if (!bound) return { ok: false, error: ENV_KEY_BINDING_ERROR };
   }
 
   // $ENV_VAR indirection
@@ -248,6 +381,8 @@ async function fetchProviderModelBody(input: ProbeInput): Promise<unknown | null
   // a provider that stalls the response BODY (not just the headers) is still
   // aborted rather than hanging until the socket dies.
   try {
+    // Vet BEFORE any request (shares the abort budget); a refused target yields no models.
+    if (!(await vetProbeTarget(input.baseUrl, controller.signal)).ok) return null;
     // redirect: "error" — the credential header must never follow a redirect to another origin.
     // See change: triage-codeql-alert-debt (design D3 #19).
     const response = await fetch(req.url, { method: "GET", headers: req.headers, signal: controller.signal, redirect: "error" });
@@ -299,20 +434,26 @@ export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  // `finally` clears the timer so the 8 s budget stays armed through the response BODY:
+  // a provider that sends headers and then stalls is aborted, not hung (test-plan X32).
   try {
+    // Vet BEFORE any request; the lookup shares the 8 s abort budget.
+    const vet = await vetProbeTarget(input.baseUrl, controller.signal);
+    if (!vet.ok) return { ok: false, error: vet.error };
     const response = await fetch(req.url, {
       method: "GET",
       headers: req.headers,
       signal: controller.signal,
       redirect: "error", // never forward the credential to a redirect target (D3 #19)
     });
-    clearTimeout(timer);
 
     if (!response.ok) {
       let bodyText = "";
       try {
         bodyText = await response.text();
-      } catch {
+      } catch (err) {
+        // A budget abort mid-body is a stall, not an unreadable body: no status.
+        if (controller.signal.aborted) throw err;
         bodyText = "";
       }
       const excerpt = redactErrorText(
@@ -325,7 +466,8 @@ export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
     let body: any = null;
     try {
       body = await response.json();
-    } catch {
+    } catch (err) {
+      if (controller.signal.aborted) throw err;
       body = null;
     }
     const ids = extractModelIds(body);
@@ -336,11 +478,12 @@ export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
       sample: ids.slice(0, SAMPLE_LIMIT),
     };
   } catch (err: any) {
-    clearTimeout(timer);
     // undici reports a refused redirect as `TypeError: fetch failed` with the reason in `cause`.
     const message = /redirect/i.test(String(err?.cause?.message ?? ""))
       ? "Provider answered with a redirect; probes do not follow redirects. Use the final URL as the base URL."
       : (err?.message ?? String(err));
     return { ok: false, error: redactErrorText(message, input.apiKey) };
+  } finally {
+    clearTimeout(timer);
   }
 }

@@ -40,6 +40,17 @@ describe("ProviderHealthPill register matrix (moved from LlmProviderCard.health)
     expect(errorLine()).toBeNull();
   });
 
+  it.each([
+    [3, "Connected · 3 models"],
+    [0, "Connected"],
+    [undefined, "Connected"],
+  ])("modelCount %s renders %j with the success tone (F4)", (modelCount, label) => {
+    const { pill } = renderPillFromHealth({ ok: true, ...(modelCount === undefined ? {} : { modelCount }), testedAt: 1 });
+    expect(pill.getAttribute("data-state")).toBe("ok");
+    expect(pill.textContent?.trim()).toBe(label);
+    expect(pill.querySelector("[data-tone]")?.getAttribute("data-tone")).toBe("success");
+  });
+
   it("connected register with zero models: 'Connected' without a count", () => {
     const { pill } = renderPillFromHealth({ ok: true, modelCount: 0, testedAt: 1 });
     expect(pill.getAttribute("data-state")).toBe("ok");
@@ -142,5 +153,17 @@ describe("derivePillView precedence (the derivation the row and pane feed)", () 
 
   it("the testing register outranks everything while the probe is in flight", () => {
     expect(derivePillView({ testing: true, live: { ok: true, modelCount: 1 } })).toEqual({ kind: "testing" });
+  });
+});
+
+describe("derivePillView — NET-04 refusals (no status) render Unreachable with the error verbatim", () => {
+  it.each([
+    "Re-enter the API key to test a changed Base URL",
+    "provider target is a link-local or metadata address",
+    "provider target is this dashboard",
+  ])("%s", async (error) => {
+    render(<ProviderHealthPill view={derivePillView({ live: { ok: false, error } })} />);
+    expect(screen.getByTestId("health-pill").getAttribute("data-state")).toBe("unreachable");
+    expect(await copiedPayload()).toContain(error);
   });
 });

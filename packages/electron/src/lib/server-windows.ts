@@ -48,6 +48,7 @@ import {
   startPairing,
 } from "./pairing-client.js";
 import { type CodePairingSession, startCodePairing } from "./pairing-code-client.js";
+import { isPermissionAllowed } from "./permissions.js";
 import {
   buildCandidates,
   type Candidate,
@@ -132,11 +133,9 @@ export function classifyExchange(status: number | null, body: unknown): Exchange
   return "transport";
 }
 
-const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set(["clipboard-sanitized-write", "notifications", "fullscreen"]);
-
 /** Server windows may write the clipboard, show notifications and go fullscreen — nothing else. */
 export function isServerWindowPermissionAllowed(permission: string): boolean {
-  return ALLOWED_PERMISSIONS.has(permission);
+  return isPermissionAllowed(permission);
 }
 
 /** `‹label› — ‹page title›`, both sanitised; `suffix` replaces the page title ("not reachable"). */

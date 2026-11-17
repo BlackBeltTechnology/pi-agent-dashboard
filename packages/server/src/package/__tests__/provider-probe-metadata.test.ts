@@ -10,12 +10,31 @@
  *
  * See change: fix-custom-provider-model-metadata (test-plan E1/E2/E3/E4/E5/E6/E7/E9/E11, X1/X3).
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { listProviderModelIds, listProviderModels, type ProbeApi, probeProvider } from "../provider-probe.js";
+import os from "node:os";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { discoverProviderModels } from "../../model-proxy/custom-provider-discovery.js";
+import { isBlockedAddress, type LookupAll } from "../../push/push-transports/webhook-url.js";
+import {
+  listProviderModelIds,
+  listProviderModels,
+  type ProbeApi,
+  probeProvider,
+  setProbeLookupAll,
+  setProbeSelfPort,
+} from "../provider-probe.js";
 
 const originalFetch = globalThis.fetch;
+const PUBLIC_ADDR = [{ address: "93.184.216.34", family: 4 as const }];
+// Fixture hosts do not resolve; give the egress vet a public answer by default.
+beforeEach(() => {
+  setProbeLookupAll(async () => PUBLIC_ADDR);
+  setProbeSelfPort(() => null);
+});
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  setProbeLookupAll(null);
+  setProbeSelfPort(() => null);
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -309,5 +328,215 @@ describe("discoverProviderModels — degradation at the discovery layer", () => 
       reasoning: true,
       metadataSource: "endpoint",
     });
+  });
+});
+
+// -- NET-04: provider egress vet (test-plan E101, E104-E109, E114, E139, X30, X33) --
+// See change: close-local-listener-and-egress-gaps (design D7).
+
+const METADATA_ERR = "provider target is a link-local or metadata address";
+const SELF_ERR = "provider target is this dashboard";
+
+describe("provider egress vet", () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    fetchSpy = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "m1" }] }), { status: 200 }));
+    globalThis.fetch = fetchSpy as any;
+  });
+  const probe = (baseUrl: string) => probeProvider({ baseUrl, apiKey: "sk-lit", api: "openai-completions" });
+
+  it("refuses the metadata address set with no request (E101)", async () => {
+    setProbeLookupAll(async (h) =>
+      h === "metadata.google.internal" ? [{ address: "169.254.169.254", family: 4 }] : PUBLIC_ADDR,
+    );
+    for (const url of [
+      "http://169.254.170.2/",
+      "http://[fd00:ec2::254]/",
+      "http://[::ffff:169.254.169.254]/",
+      "http://[fe80::1]/",
+      "http://metadata.google.internal/",
+    ]) {
+      const r = await probe(url);
+      expect(r, url).toEqual({ ok: false, error: METADATA_ERR });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("IPv4 link-local boundaries (E104)", async () => {
+    for (const host of ["169.254.0.0", "169.254.169.254", "169.254.255.255"]) {
+      expect(await probe(`http://${host}/`), host).toEqual({ ok: false, error: METADATA_ERR });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    for (const host of ["169.253.255.255", "169.255.0.0"]) {
+      expect((await probe(`http://${host}/`)).ok, host).toBe(true);
+    }
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("IPv6 link-local boundaries (E105)", async () => {
+    for (const host of ["[fe80::1]", "[febf:ffff::1]", "[fd00:ec2::254]"]) {
+      expect(await probe(`http://${host}/`), host).toEqual({ ok: false, error: METADATA_ERR });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    for (const host of ["[fec0::1]", "[fe7f::1]"]) {
+      expect((await probe(`http://${host}/`)).ok, host).toBe(true);
+    }
+  });
+
+  it("refuses obfuscated spellings of the metadata IP (E106)", async () => {
+    for (const url of [
+      "http://2852039166/",
+      "http://0xa9fea9fe/",
+      "http://0251.0376.0251.0376/",
+      "http://169.254.169.254./",
+      "http://[::ffff:169.254.169.254]/",
+      "http://[::ffff:a9fe:a9fe]/",
+    ]) {
+      expect(await probe(url), url).toEqual({ ok: false, error: METADATA_ERR });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("DNS outcomes: any blocked address refuses; lookup failure has no status (E107)", async () => {
+    const answers: Record<string, ReturnType<LookupAll> | (() => never)> = {
+      "a.test": Promise.resolve([{ address: "169.254.169.254", family: 4 }]),
+      "b.test": Promise.resolve([
+        { address: "93.184.216.34", family: 4 },
+        { address: "169.254.169.254", family: 4 },
+      ]),
+      "c.test": Promise.resolve(PUBLIC_ADDR),
+      "d.test": Promise.resolve([]),
+    };
+    setProbeLookupAll(async (h) => {
+      if (h === "e.test") throw new Error("ENOTFOUND");
+      return answers[h] as any;
+    });
+    expect(await probe("http://a.test/")).toEqual({ ok: false, error: METADATA_ERR });
+    expect(await probe("http://b.test/")).toEqual({ ok: false, error: METADATA_ERR });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect((await probe("http://c.test/")).ok).toBe(true);
+    for (const h of ["d.test", "e.test"]) {
+      const r = await probe(`http://${h}/`);
+      expect(r.ok).toBe(false);
+      expect("status" in r).toBe(false);
+    }
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("own-port forms are refused (E108)", async () => {
+    const P = 18123;
+    setProbeSelfPort(() => P);
+    setProbeLookupAll(async (h) => (h === "localhost" ? [{ address: "127.0.0.1", family: 4 }] : PUBLIC_ADDR));
+    const lan = Object.values(os.networkInterfaces())
+      .flat()
+      .find((i) => i && i.family === "IPv4" && !i.internal)?.address;
+    const forms = [
+      `http://127.0.0.1:${P}`,
+      `http://localhost:${P}`,
+      `http://[::1]:${P}`,
+      `http://0.0.0.0:${P}`,
+      `http://127.0.0.2:${P}`,
+      `http://[::ffff:127.0.0.1]:${P}`,
+      ...(lan ? [`http://${lan}:${P}`] : []),
+    ];
+    for (const url of forms) expect(await probe(url), url).toEqual({ ok: false, error: SELF_ERR });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("every dashboard listener port is refused (HTTP and TLS)", async () => {
+    setProbeSelfPort(() => [18123, 18443]);
+    setProbeLookupAll(async () => [{ address: "127.0.0.1", family: 4 }]);
+    for (const url of ["http://127.0.0.1:18123", "https://127.0.0.1:18443"]) {
+      expect(await probe(url), url).toEqual({ ok: false, error: SELF_ERR });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("own-port boundaries: neighbours, public host, elided ports, unset getter (E109)", async () => {
+    setProbeLookupAll(async (h) => (h === "localhost" ? [{ address: "127.0.0.1", family: 4 }] : PUBLIC_ADDR));
+    setProbeSelfPort(() => 18123);
+    for (const url of ["http://127.0.0.1:18122", "http://127.0.0.1:18124", "http://public.test:18123"]) {
+      expect((await probe(url)).ok, url).toBe(true);
+    }
+    setProbeSelfPort(() => 80);
+    expect(await probe("http://localhost")).toEqual({ ok: false, error: SELF_ERR });
+    setProbeSelfPort(() => 443);
+    expect(await probe("https://localhost")).toEqual({ ok: false, error: SELF_ERR });
+    setProbeSelfPort(() => null);
+    expect((await probe("http://127.0.0.1:18123")).ok).toBe(true);
+    // metadata rule stays on with no self-port getter
+    expect(await probe("http://169.254.169.254/")).toEqual({ ok: false, error: METADATA_ERR });
+  });
+
+  it("allows loopback-by-name and LAN targets (E110)", async () => {
+    for (const url of ["http://localhost:11434/v1", "http://192.168.1.10:8080", "http://10.0.0.5", "http://172.16.0.9"]) {
+      expect((await probe(url)).ok, url).toBe(true);
+    }
+  });
+
+  it("discovery returns no models and sends no request for a refused provider (E114)", async () => {
+    const input = { baseUrl: "http://169.254.169.254/", apiKey: "k", api: "openai-completions" as const };
+    expect(await listProviderModels(input)).toEqual([]);
+    expect(await listProviderModelIds(input)).toEqual([]);
+    expect(await discoverProviderModels("p", { baseUrl: "http://169.254.169.254/", apiKey: "k", api: "openai-completions" })).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("partial refusal: vetted providers still discover, the refused one is [] (X33)", async () => {
+    const entry = (baseUrl: string) => ({ baseUrl, apiKey: "k", api: "openai-completions" });
+    const [a, bad, c] = await Promise.all([
+      discoverProviderModels("a", entry("https://a.example/v1")),
+      discoverProviderModels("bad", entry("http://169.254.169.254/v1")),
+      discoverProviderModels("c", entry("https://c.example/v1")),
+    ]);
+    expect(a.map((m) => m.id)).toEqual(["m1"]);
+    expect(bad).toEqual([]);
+    expect(c.map((m) => m.id)).toEqual(["m1"]);
+    const hosts = fetchSpy.mock.calls.map((c) => new URL(String(c[0])).hostname);
+    expect(hosts).not.toContain("169.254.169.254");
+  });
+
+  it("logs one host-only warn per refusal, never key / path / query (E139)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await probeProvider({ baseUrl: "http://169.254.169.254/x?key=SECRET", apiKey: "SECRET2", api: "openai-completions" });
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = warn.mock.calls.flat().join(" ");
+    expect(line).toContain("169.254.169.254");
+    for (const bad of ["SECRET", "SECRET2", "/x", "key="]) expect(line).not.toContain(bad);
+  });
+
+  it("a stalled DNS lookup ends at the shared 8 s budget with no request (X30)", async () => {
+    vi.useFakeTimers();
+    setProbeLookupAll(() => new Promise(() => {}));
+    const input = { baseUrl: "https://stalled.example/v1", apiKey: "k", api: "openai-completions" as const };
+    const probed = probeProvider(input);
+    const listed = listProviderModels(input);
+    await vi.advanceTimersByTimeAsync(8000);
+    const r = await probed;
+    expect(r.ok).toBe(false);
+    expect("status" in r).toBe(false);
+    expect(await listed).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("provider egress vet parity with the webhook blocklist (E101)", () => {
+  it("refuses exactly the targets the webhook isBlockedAddress refuses; named residuals are not asserted", async () => {
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    globalThis.fetch = fetchSpy as any;
+    const refuse = ["169.254.170.2", "fd00:ec2::254", "::ffff:169.254.169.254", "fe80::1"];
+    for (const ip of refuse) {
+      expect(isBlockedAddress(ip), ip).toBe(true);
+      const host = ip.includes(":") ? `[${ip}]` : ip;
+      const r = await probeProvider({ baseUrl: `http://${host}/`, apiKey: "k", api: "openai-completions" });
+      expect(r, ip).toEqual({ ok: false, error: "provider target is a link-local or metadata address" });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // metadata.google.internal resolves (stub) to the blocked address
+    setProbeLookupAll(async () => [{ address: "169.254.169.254", family: 4 }]);
+    expect(isBlockedAddress("169.254.169.254")).toBe(true);
+    expect((await probeProvider({ baseUrl: "http://metadata.google.internal/", apiKey: "k", api: "openai-completions" })).ok).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

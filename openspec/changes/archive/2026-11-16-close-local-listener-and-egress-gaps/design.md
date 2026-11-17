@@ -371,3 +371,20 @@ Alternatives: (B) `***` only; (C) egress block only; (D) block private ranges (b
   403 + the existing remedy body for newly refused symlinks.
 - Ship order: after `close-security-map-high-findings` (blocking); independent of changes A, B, D
   except the `harden-http-auth-boundaries` ordering note in `dependencies.yaml`.
+
+
+## Audit verdicts — lexical serving checks (task 1.9)
+
+Grep: `rg -n "path\.relative|startsWith\(.*cwd|within\(" packages/server/src --glob '!**/__tests__/**'`.
+
+| Hit | Verdict |
+|---|---|
+| `lib/path-containment.ts` `isAllowedReal` layer ① | fixed here (real path of request AND anchor) |
+| `routes/session-routes.ts` `/api/session-file` lexical `rel` shortcut | fixed here (removed; always `evaluateContainment`) |
+| `lib/artifact-roots.ts:75`, `lib/writable-md-target.ts:111`, `embed-lifecycle/cwd-allowlist.ts:49`, `lib/writable-handler-target.ts:61-63`, `lib/browse-roots.ts:88-115`, `routes/file-write-binary-routes.ts:237` | already real-path'd; not a content-serving lexical site |
+| `routes/file-routes.ts` md-read (`resolveScopedMdPath` + `isWritableMdTarget`) | real-path authorized by `isWritableMdTarget`; open stays on the resolved path (no containment decision with `real` in scope); named residual |
+| `routes/openspec-routes.ts:1144` `/api/pi-resource-file` | prefix allowlist + `dashboardStateRefuses`; recorded earlier residual, out of scope |
+| `live-server/live-static.ts` `locateFile`/`openRegular` | already realpath-rooted; no containment decision in scope; not edited |
+| `lib/eml.ts:101` unprefetched read | no longer reached from the file routes (both EML routes hand `prefetched`); not edited |
+| `pairing/browser-gateway.ts:1551`, `browser-handlers/session-meta-handler.ts:447` | cwd-ownership matching, not file serving |
+| `file-watch-manager.ts:33`, `routes/live-server-routes.ts:110`, `lib/md-candidates.ts:99`, `spawn-process/cwd-policy.ts:359`, `tls/cert-files.ts`, `pi/*`, `openspec/*`, `package/*`, `runtime-overlay/*`, `git-worktree/*` | not a content-serving containment site |

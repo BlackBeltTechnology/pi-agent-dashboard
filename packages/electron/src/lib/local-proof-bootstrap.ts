@@ -150,7 +150,7 @@ export interface NavigateResult {
 
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
-function originOf(url: string): string | null {
+export function originOf(url: string): string | null {
   try {
     return new URL(url).origin;
   } catch {
@@ -159,7 +159,7 @@ function originOf(url: string): string | null {
 }
 
 /** Origins a renderer may ask the main window to navigate to. */
-function allowedOrigins(deps: NavigateToServerDeps): Set<string> {
+export function allowedOrigins(deps: NavigateToServerDeps): Set<string> {
   const out = new Set<string>();
   for (const h of LOOPBACK_HOSTS) {
     const o = originOf(`http://${h}:${deps.config.port}`);
@@ -176,6 +176,22 @@ function allowedOrigins(deps: NavigateToServerDeps): Set<string> {
     if (o) out.add(o);
   }
   return out;
+}
+
+/**
+ * Origin of the main window's current page, only when `allowedOrigins` trusts it; `undefined` otherwise
+ * (no window, destroyed window → `getURL` throws, empty URL, `file://`, unlisted origin). Feeds the
+ * default-session permission policy. See change: close-local-listener-and-egress-gaps (D3).
+ */
+export function mainWindowAllowedOrigin(getURL: (() => string) | undefined, deps: NavigateToServerDeps): string | undefined {
+  if (!getURL) return undefined;
+  let origin: string | null;
+  try {
+    origin = originOf(getURL());
+  } catch {
+    return undefined;
+  }
+  return origin && allowedOrigins(deps).has(origin) ? origin : undefined;
 }
 
 /** `scheme:` that is not `http(s)` and not a `host:port` shorthand (`localhost:8000`). */

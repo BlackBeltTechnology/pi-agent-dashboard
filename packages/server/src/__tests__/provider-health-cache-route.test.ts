@@ -27,8 +27,11 @@ beforeEach(() => {
   try { backup = readFileSync(PROVIDERS_PATH, "utf-8"); } catch { backup = null; }
   originalFetch = globalThis.fetch;
   clearProviderHealth();
+  // Fixture hosts do not resolve; give the provider egress vet a public answer.
+  probeModule.setProbeLookupAll(async () => [{ address: "93.184.216.34", family: 4 }]);
 });
 afterEach(() => {
+  probeModule.setProbeLookupAll(null);
   try {
     if (backup !== null) writeFileSync(PROVIDERS_PATH, backup);
     else rmSync(PROVIDERS_PATH, { force: true });
@@ -185,7 +188,12 @@ describe("provider health cache", () => {
       url: "/api/providers",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        providers: { acme: { baseUrl: "https://api.example.com/v1", apiKey: "sk-abc", api: "openai-completions" } },
+        providers: {
+          acme: { baseUrl: "https://api.example.com/v1", apiKey: "sk-abc", api: "openai-completions" },
+          // The `$ENV` ref must be SAVED at this Base URL for the Test route to look it up
+          // (secret binding). See change: close-local-listener-and-egress-gaps.
+          envref: { baseUrl: "https://api.example.com/v1", apiKey: "$PROBE_HEALTH_MISSING", api: "openai-completions" },
+        },
       }),
     });
     expect((await getHealth(app)).acme.ok).toBe(true);

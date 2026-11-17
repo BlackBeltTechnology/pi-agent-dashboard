@@ -15,7 +15,7 @@
  */
 
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import { isTrustedSenderUrl, type SenderEventLike, trustedHandler, trustedListener } from "./lib/ipc-trust.js";
 import { decideWillNavigate, openExternalIfAllowed } from "./lib/link-handling.js";
 import { resolveCdpActivation } from "./lib/resolve-cdp-activation.js";
@@ -78,7 +78,8 @@ log(`execPath=${process.execPath}`);
 import { getFirstRunMarkerPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 // Disable GPU acceleration in VMs (prevents white screen on VMware/VirtualBox).
 import { isVirtualMachine } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
-import { loadWithLocalProof, navigateToServer } from "./lib/local-proof-bootstrap.js";
+import { loadWithLocalProof, mainWindowAllowedOrigin, navigateToServer } from "./lib/local-proof-bootstrap.js";
+import { installDefaultSessionPermissions } from "./lib/permissions.js";
 
 const isVM = isVirtualMachine();
 const disableGpu = process.env.ELECTRON_DISABLE_GPU || isVM;
@@ -760,6 +761,16 @@ async function main(): Promise<void> {
   });
 
   await app.whenReady();
+
+  // Default-session permission policy (camera/mic/geolocation/openExternal… denied; only clipboard-write,
+  // notifications, fullscreen for the main frame at the main window's trusted origin). Before any window.
+  // See change: close-local-listener-and-egress-gaps (D3).
+  const mainOrigin = () =>
+    mainWindowAllowedOrigin(mainWindow && !mainWindow.isDestroyed() ? () => mainWindow!.webContents.getURL() : undefined, {
+      config: loadMinimalConfig(),
+      windowServerUrl: mainWindowServerUrl,
+    });
+  installDefaultSessionPermissions(session.defaultSession, mainOrigin, (msg) => log(msg));
 
   showSplash();
 
