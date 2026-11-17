@@ -115,13 +115,15 @@ export function purge(global: any, project: any, p: PkgInfo, projectPath: string
   const repo = repoOf(projectPath);
   const isOverlayPath = overlayPathOf(p);
   project.packages = project.packages.filter((ov: unknown) => {
-    if (!isObj(ov) || ov.autoload === false) return true;
+    if (!isObj(ov)) return true;
     let touched = false;
     if (Array.isArray(ov.extensions)) {
       const kept = ov.extensions.filter((e: unknown) => !isOverlayPath(e));
       touched = kept.length !== ov.extensions.length;
       ov.extensions = kept;
     }
+    // Deltas lose the package's paths too, but are never repaired: `[]` in a delta is a no-op.
+    if (ov.autoload === false) return true;
     const isRoot = typeof ov.source === "string" && resolve(dirname(projectPath), ov.source) === repo;
     if (!touched && !isRoot) return true;
     const hadKeys = RESOURCE_KEYS.some((k) => k in ov);

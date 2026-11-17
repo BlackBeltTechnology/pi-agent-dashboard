@@ -8,7 +8,7 @@ Defines how the developer source-switching tool moves a monorepo pi package betw
 
 ### Requirement: A switch SHALL leave exactly one source per package
 
-Before adding the target form, a switch SHALL remove the package's `npm:<npmName>` entry and working-tree entries (its directory or any path under it) from the global `packages` list, matching both string entries and object entries by their `source`. It SHALL remove the package's `+packages/<dir>/…` paths from the `extensions` array of project object entries. `npm` then adds `npm:<npmName>`; `local` adds the package's absolute working-tree directory.
+Before adding the target form, a switch SHALL remove the package's `npm:<npmName>` entry and working-tree entries (its directory or any path under it) from the global `packages` list, matching both string entries and object entries by their `source`. It SHALL remove the package's `+packages/<dir>/…` paths from the `extensions` array of every project object entry, including `autoload: false` delta entries (which are never repaired; an empty array in a delta is a no-op). `npm` then adds `npm:<npmName>`; `local` adds the package's absolute working-tree directory.
 
 #### Scenario: Object and malformed entries do not break a switch
 - **WHEN** the global list holds an object entry `{ "source": "npm:other-pkg", "skills": ["-x"] }`, and the project list holds `null` and an object without a string `source`
@@ -58,7 +58,7 @@ During every switch, the tool SHALL repair each project `packages` object entry 
 
 ### Requirement: The repair SHALL leave everything else unchanged
 
-The tool SHALL write back unchanged every project entry it neither repairs nor deletes, every key of a repaired entry other than the empty `extensions`, `skills`, `prompts` or `themes` arrays the repair deletes (and `extensions`, from which the switched package's paths are removed), and every top-level key other than `packages`.
+Apart from removing the switched package's own paths, the tool SHALL write back unchanged every project entry it neither repairs nor deletes, every key of a repaired entry other than the empty `extensions`, `skills`, `prompts` or `themes` arrays the repair deletes (and `extensions`, from which the switched package's paths are removed), and every top-level key other than `packages`.
 
 #### Scenario: Delta, other-package and non-empty entries are untouched
 - **WHEN** project settings hold an `autoload: false` entry with `extensions: []`, a `{ "source": "npm:other-pkg", "extensions": [] }` entry, a bare-string entry, a `{ "source": ".." }` entry with no filter keys, and a repo-root entry whose `extensions` holds only another package's path

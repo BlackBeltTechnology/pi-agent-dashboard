@@ -101,6 +101,13 @@ describe("purge — prune emptied project entries", () => {
     expect(project.packages).toEqual(input);
   });
 
+  it("delta entries lose the package's paths but are never repaired", () => {
+    const project = purgeProject({
+      packages: [{ source: "..", autoload: false, extensions: [KB_PATH], skills: [] }],
+    });
+    expect(project.packages).toEqual([{ source: "..", autoload: false, extensions: [], skills: [] }]);
+  });
+
   it("E7: an empty packages list is removed", () => {
     const project = purgeProject({ packages: [] });
     expect(project).not.toHaveProperty("packages");
