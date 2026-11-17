@@ -180,6 +180,44 @@ describe("click vs drag (#E10 #F7)", () => {
   });
 });
 
+describe("drag release edge cases (CodeRabbit #1169)", () => {
+  it("pointer-up before the queued frame still applies the final position", () => {
+    const g = setup();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 7);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    const n = simNode(g.sim(), "a3") as NonNullable<ReturnType<typeof simNode>>;
+    const [k, x, y] = (cam() as string).split(",").map(Number);
+    press(nodeEl("a3"), 40, 0, "none");
+    fireEvent.pointerUp(svg(), { clientX: 140, clientY: 100, pointerId: 1 });
+    expect(n.fx).toBe(null);
+    expect(n.x as number).toBeCloseTo((140 - x) / k);
+    expect(n.y as number).toBeCloseTo((100 - y) / k);
+  });
+
+  it("a second pointer does not hijack an active drag", () => {
+    const g = setup();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 7);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    press(nodeEl("a3"), 10, 0, "none");
+    fireEvent.pointerDown(nodeEl("b1"), { clientX: 300, clientY: 300, button: 0, pointerId: 2 });
+    fireEvent.pointerMove(svg(), { clientX: 330, clientY: 300, pointerId: 2 });
+    fireEvent.pointerUp(svg(), { clientX: 330, clientY: 300, pointerId: 2 });
+    expect(simNode(g.sim(), "b1")?.fx ?? null).toBe(null);
+    expect(simNode(g.sim(), "a3")?.fx).not.toBe(null);
+    fireEvent.pointerUp(svg(), { clientX: 110, clientY: 100, pointerId: 1 });
+    expect(simNode(g.sim(), "a3")?.fx).toBe(null);
+  });
+
+  it("unmount cancels the pending rendered-mark frame", () => {
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 99);
+    const caf = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    setup();
+    expect(raf).toHaveBeenCalled();
+    cleanup();
+    expect(caf).toHaveBeenCalledWith(99);
+  });
+});
+
 describe("forest zoom (#E11 #E12 #F1–#F4)", () => {
   it("outline click (3 px) zooms; 30 px pans and does not zoom (#E11)", () => {
     setup();

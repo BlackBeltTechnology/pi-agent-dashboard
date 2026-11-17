@@ -88,6 +88,8 @@ function Dot({ origin, r, hitArea = true }: { origin: SkillOrigin; r: number; hi
 }
 
 interface Press {
+  /** Pointer that owns this press; other pointers are ignored until it ends. */
+  pointerId: number;
   x: number;
   y: number;
   cam: View;
@@ -280,12 +282,19 @@ export function SkillGraphView(props: SkillGraphViewProps): React.ReactElement {
     const m = pending.current;
     if (n && m) dragMove(n, toModel(m.x, m.y));
   };
-  /** Release an active drag: cancel the pending frame, unpin, cool down. */
-  const releaseDrag = () => {
+  /** Release an active drag: cancel the pending frame, unpin, cool down. A successful release first applies the last pointer position. */
+  const releaseDrag = (commit: boolean) => {
+    const n = dragged.current;
+    const m = pending.current;
+    if (commit && n && m) {
+      const q = toModel(m.x, m.y);
+      n.x = q.x;
+      n.y = q.y;
+    }
     pending.current = null;
     if (raf.current) cancelAnimationFrame(raf.current);
     raf.current = 0;
-    if (dragged.current) dragEnd(sim, dragged.current);
+    if (n) dragEnd(sim, n);
     dragged.current = null;
   };
   /** A press that stayed under the click threshold: select, zoom to forest, or leave zoom. */
@@ -297,10 +306,11 @@ export function SkillGraphView(props: SkillGraphViewProps): React.ReactElement {
     } else if (active !== null) zoomTo(null);
   };
   /** End the press (up / cancel / lost capture); only a pointer-up click acts. */
-  const endPress = (click: boolean) => {
+  const endPress = (click: boolean, pointerId?: number) => {
     const p = press.current;
+    if (p && pointerId !== undefined && pointerId !== p.pointerId) return;
     press.current = null;
-    releaseDrag();
+    releaseDrag(click);
     if (p && !p.moved && click) clickAt(p);
   };
   /** First move past the click threshold: a node press becomes a drag. */
@@ -329,16 +339,24 @@ export function SkillGraphView(props: SkillGraphViewProps): React.ReactElement {
     () => () => {
       if (raf.current) cancelAnimationFrame(raf.current);
       if (tween.current) cancelAnimationFrame(tween.current);
+      if (markRaf.current) cancelAnimationFrame(markRaf.current);
     },
     [],
   );
 
   // ---- first visible paint mark (per mount) ----
+  // Two frames: the first runs before the visible graph paints, the second after it.
   const marked = useRef(false);
+  const markRaf = useRef(0);
   useEffect(() => {
     if (!cam || marked.current || typeof performance === "undefined") return;
     marked.current = true;
-    requestAnimationFrame(() => performance.mark?.("atlas-graph-rendered"));
+    markRaf.current = requestAnimationFrame(() => {
+      markRaf.current = requestAnimationFrame(() => {
+        markRaf.current = 0;
+        performance.mark?.("atlas-graph-rendered");
+      });
+    });
   }, [cam]);
 
   // ---- derived render data ----
@@ -436,11 +454,12 @@ export function SkillGraphView(props: SkillGraphViewProps): React.ReactElement {
           userCam({ k, x: ox - (ox - v.x) * g, y: oy - (oy - v.y) * g });
         }}
         onPointerDown={(e) => {
-          if (e.button > 0) return;
+          if (e.button > 0 || press.current) return;
           const el = e.target as Element;
           const nodeEl = el.closest?.("[data-node]");
           const forestEl = nodeEl ? null : el.closest?.("[data-forest]");
           press.current = {
+            pointerId: e.pointerId,
             x: e.clientX,
             y: e.clientY,
             cam: v,
@@ -452,7 +471,7 @@ export function SkillGraphView(props: SkillGraphViewProps): React.ReactElement {
         }}
         onPointerMove={(e) => {
           const p = press.current;
-          if (!p) return;
+          if (!p || e.pointerId !== p.pointerId) return;
           if (!p.moved) {
             if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < CLICK_PX) return;
             beginMove(p);
@@ -462,9 +481,9 @@ export function SkillGraphView(props: SkillGraphViewProps): React.ReactElement {
             if (!raf.current) raf.current = requestAnimationFrame(flush);
           } else userCam({ ...p.cam, x: p.cam.x + e.clientX - p.x, y: p.cam.y + e.clientY - p.y });
         }}
-        onPointerUp={() => endPress(true)}
-        onPointerCancel={() => endPress(false)}
-        onLostPointerCapture={() => endPress(false)}
+        onPointerUp={(e) => endPress(true, e.pointerId)}
+        onPointerCancel={(e) => endPress(false, e.pointerId)}
+        onLostPointerCapture={(e) => endPress(false, e.pointerId)}
       >
         <defs>
           <marker id="atlas-arrow" viewBox="0 0 10 10" refX="16" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
