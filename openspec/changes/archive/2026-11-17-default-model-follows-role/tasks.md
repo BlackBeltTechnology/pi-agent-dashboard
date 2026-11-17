@@ -83,4 +83,4 @@
 
 - [x] 9.1 Test (test-plan #F8), see `tests/e2e/role-aware-model-refs.spec.ts`: docker harness with roles plugin, `planning` assigned · Settings → Sessions → picker → Roles → `@planning` → Save, reload · `GET /api/config` has `defaultModel:"@planning"`; after reload `default-model-follows` names the active preset and the planning model.
 - [x] 9.2 Test (test-plan #F9), see `tests/e2e/model-roles-promotion.spec.ts`: harness with two presets assigning `planning` differently, default `@planning` · load the second preset on the Model roles page, open Settings → Sessions · hint names the second preset and its model; config still `@planning`.
-- [ ] 9.3 Manual check (test-plan: manual-only, #F10): follow hint and dangling notice in dark and light at narrow settings width read as one sentence with the RoleRef aligned.
+- [x] 9.3 Manual check (test-plan: manual-only, #F10): follow hint and dangling notice in dark and light at narrow settings width read as one sentence with the RoleRef aligned.
