@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveFlowEdges, type FlowEdgeStep } from "../client/flow-edges.js";
+import { deriveFlowEdges, type FlowEdge, type FlowEdgeStep } from "../client/flow-edges.js";
+import { CC10, IN_SEGMENT_ON_ERROR, NTI, SD4, UPD } from "./engine-order-fixtures.js";
 
 const key = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
 
@@ -179,17 +180,176 @@ describe("deriveFlowEdges", () => {
     expect(edges.some((e) => e.kind === "route")).toBe(false);
   });
 
-  it("live (branches only) and static (branches + routes) agree on shared classes", () => {
-    const base: FlowEdgeStep[] = [
+  it("live and static step lists with identical data produce the same edges, routes included", () => {
+    const base = (): FlowEdgeStep[] => [
       { id: "a", type: "agent", blockedBy: [] },
       { id: "fork", type: "fork", blockedBy: ["a"], branches: { p: "b", q: "c" } },
-      { id: "b", type: "agent", blockedBy: [] },
+      { id: "b", type: "agent", blockedBy: [], onError: "c" },
       { id: "c", type: "agent", blockedBy: [] },
     ];
-    const live = deriveFlowEdges(base);
-    const staticEdges = deriveFlowEdges(base.map((s) => ({ ...s, onError: s.id === "b" ? "c" : undefined })));
-    const sharedLive = live.filter((e) => e.kind !== "route").map(key).sort();
-    const sharedStatic = staticEdges.filter((e) => e.kind !== "route").map(key).sort();
-    expect(sharedLive).toEqual(sharedStatic);
+    const live = deriveFlowEdges(base()).map((e) => `${key(e)}:${e.kind}:${e.label ?? ""}`).sort();
+    const staticEdges = deriveFlowEdges(base()).map((e) => `${key(e)}:${e.kind}:${e.label ?? ""}`).sort();
+    expect(live).toEqual(staticEdges);
+    expect(live).toContain("b->c:route:on_error");
+  });
+});
+
+// Engine fall-through semantics. See change: fix-flow-graph-engine-order.
+describe("deriveFlowEdges — engine fall-through", () => {
+  const pairs = (steps: FlowEdgeStep[]) => deriveFlowEdges(steps);
+  const find = (edges: FlowEdge[], from: string, to: string) => edges.filter((e) => e.from === from && e.to === to);
+  const hasKind = (edges: FlowEdge[], from: string, to: string, kind: string) =>
+    find(edges, from, to).some((e) => e.kind === kind);
+
+  it("E1: consecutive code steps chain in declared order (CC10)", () => {
+    const edges = pairs(CC10);
+    expect(hasKind(edges, "worktree", "init", "implicit")).toBe(true);
+    expect(hasKind(edges, "init", "spawn", "implicit")).toBe(true);
+    expect(hasKind(edges, "spawn", "record", "implicit")).toBe(true);
+    for (const to of ["init", "spawn", "record"]) expect(find(edges, "pick", to)).toHaveLength(0);
+  });
+
+  it("E2: DAG sinks fall through to the next separator (NTI)", () => {
+    const edges = pairs(NTI);
+    expect(hasKind(edges, "triage", "cleanup", "implicit")).toBe(true);
+    expect(hasKind(edges, "cleanup", "report", "implicit")).toBe(true);
+    expect(find(edges, "read", "cleanup")).toHaveLength(0);
+  });
+
+  it("E3: fall-through into a step that already has incoming edges (SD4)", () => {
+    const edges = pairs(SD4);
+    expect(find(edges, "start", "report")).toEqual([expect.objectContaining({ kind: "branch", label: "busy" })]);
+    expect(hasKind(edges, "dispatch", "retire", "implicit")).toBe(true);
+    expect(hasKind(edges, "retire", "report", "implicit")).toBe(true);
+  });
+
+  it("E4: fall-through coexists with an on_error route on the same pair (UPD)", () => {
+    const lr = find(pairs(UPD), "launch", "report");
+    expect(lr).toHaveLength(2);
+    expect(lr.filter((e) => e.kind === "implicit")).toHaveLength(1);
+    expect(lr.filter((e) => e.kind === "route" && e.label === "on_error")).toHaveLength(1);
+  });
+
+  it("E5: a decision with forward branches only never falls through (SD4)", () => {
+    expect(pairs(SD4).some((e) => e.from === "start" && e.kind === "implicit")).toBe(false);
+  });
+
+  it.each(["code-decision", "agent-decision"])("E6: loop-capped %s falls through", (type) => {
+    const edges = pairs([
+      { id: "a", type: "agent", blockedBy: [] },
+      { id: "d", type, blockedBy: [], branches: { retry: "a" } },
+      { id: "x", type: "code", blockedBy: [] },
+    ]);
+    const dx = find(edges, "d", "x");
+    expect(dx).toEqual([expect.objectContaining({ kind: "implicit", backward: false })]);
+  });
+
+  it("E7: a fork loop never falls through", () => {
+    const edges = pairs([
+      { id: "a", type: "agent", blockedBy: [] },
+      { id: "f", type: "fork", blockedBy: [], branches: { again: "a" } },
+      { id: "x", type: "code", blockedBy: [] },
+    ]);
+    expect(find(edges, "f", "x")).toHaveLength(0);
+  });
+
+  it("E8: an in-segment on_error target is not a root", () => {
+    const edges = pairs(IN_SEGMENT_ON_ERROR);
+    expect(hasKind(edges, "s", "a", "implicit")).toBe(true);
+    expect(hasKind(edges, "a", "b", "sequential")).toBe(true);
+    expect(find(edges, "a", "b").some((e) => e.kind === "route" && e.label === "on_error")).toBe(true);
+    expect(hasKind(edges, "b", "z", "implicit")).toBe(true);
+    expect(find(edges, "s", "b")).toHaveLength(0);
+    expect(find(edges, "a", "z")).toHaveLength(0);
+  });
+
+  it("E9: unknown or absent step types join the DAG segment", () => {
+    const steps = [
+      { id: "s", type: "code", blockedBy: [] },
+      { id: "r", type: "flow-ref", blockedBy: [] },
+      { id: "u", blockedBy: [] },
+      { id: "z", type: "code", blockedBy: [] },
+    ] as FlowEdgeStep[];
+    let edges: FlowEdge[] = [];
+    expect(() => {
+      edges = pairs(steps);
+    }).not.toThrow();
+    for (const [f, t] of [["s", "r"], ["s", "u"], ["r", "z"], ["u", "z"]]) {
+      expect(hasKind(edges, f, t, "implicit")).toBe(true);
+    }
+    expect(find(edges, "r", "u")).toHaveLength(0);
+    expect(find(edges, "u", "r")).toHaveLength(0);
+  });
+
+  it("E10: agent siblings stay parallel", () => {
+    const edges = pairs([
+      { id: "s", type: "code", blockedBy: [] },
+      { id: "a", type: "agent", blockedBy: [] },
+      { id: "b", type: "agent", blockedBy: [] },
+      { id: "z", type: "code", blockedBy: [] },
+    ]);
+    for (const [f, t] of [["s", "a"], ["s", "b"], ["a", "z"], ["b", "z"]]) {
+      expect(hasKind(edges, f, t, "implicit")).toBe(true);
+    }
+    expect(find(edges, "a", "b")).toHaveLength(0);
+    expect(find(edges, "b", "a")).toHaveLength(0);
+  });
+
+  it("E11: legacy on_complete never removes the fall-through", () => {
+    const elsewhere = pairs([
+      { id: "a", type: "code", blockedBy: [], onComplete: "c" },
+      { id: "b", type: "code", blockedBy: [] },
+      { id: "c", type: "code", blockedBy: [] },
+    ]);
+    expect(find(elsewhere, "a", "c")).toEqual([expect.objectContaining({ kind: "route", label: "on_complete" })]);
+    expect(hasKind(elsewhere, "a", "b", "implicit")).toBe(true);
+
+    const same = pairs([
+      { id: "a", type: "code", blockedBy: [], onComplete: "b" },
+      { id: "b", type: "code", blockedBy: [] },
+    ]);
+    expect(find(same, "a", "b")).toHaveLength(1);
+  });
+
+  it("E12: a forward-only decision before a routing target emits no implicit edge", () => {
+    const edges = pairs([
+      { id: "a", type: "code", blockedBy: [], onError: "h" },
+      { id: "d", type: "code-decision", blockedBy: [], branches: { go: "z" } },
+      { id: "h", type: "code", blockedBy: [] },
+      { id: "z", type: "code", blockedBy: [] },
+    ]);
+    expect(find(edges, "a", "h").some((e) => e.kind === "route" && e.label === "on_error")).toBe(true);
+    expect(edges.some((e) => e.from === "d" && e.kind === "implicit")).toBe(false);
+  });
+
+  it("E13: a branch and an on_error route on one pair merge into the branch (UPD)", () => {
+    expect(find(pairs(UPD), "rebase", "resolve")).toEqual([
+      expect.objectContaining({ kind: "branch", label: "conflict" }),
+    ]);
+  });
+
+  it("E14: the last segment has no successor and non-error pairs never duplicate (NTI)", () => {
+    const edges = pairs(NTI);
+    expect(edges.some((e) => e.from === "report")).toBe(false);
+    const nonError = edges.filter((e) => !(e.kind === "route" && e.label === "on_error")).map(key);
+    expect(new Set(nonError).size).toBe(nonError.length);
+  });
+
+  it("X1: dangling branch / blockedBy refs are skipped, fall-through kept", () => {
+    let edges: FlowEdge[] = [];
+    expect(() => {
+      edges = pairs([
+        { id: "a", type: "code-decision", blockedBy: [], branches: { x: "ghost" } },
+        { id: "b", type: "code", blockedBy: ["ghost"] },
+        { id: "c", type: "code", blockedBy: [] },
+      ]);
+    }).not.toThrow();
+    expect(edges.some((e) => e.from === "ghost" || e.to === "ghost")).toBe(false);
+    expect(hasKind(edges, "b", "c", "implicit")).toBe(true);
+  });
+
+  it("X2: empty input yields no edges; a single step yields none", () => {
+    expect(pairs([])).toEqual([]);
+    expect(pairs([{ id: "a", type: "code", blockedBy: [] }])).toEqual([]);
   });
 });

@@ -84,7 +84,9 @@ steps:
 
 // What pi-flows 0.5.0 onFlowStarted would emit for KINDS_YAML (flow-tui.ts):
 // `blockedBy: step.blockedBy || []`, `branches: step.branches`, `onError: step.on_error`
-// over the per-kind parsed step.
+// over the per-kind parsed step. pi-flows 0.10.0 parses `on_error` for EVERY
+// kind (flow-parser-yaml.ts), so decisions/forks carry it too.
+// See change: fix-flow-graph-engine-order (D4).
 const KINDS_STARTED_PAYLOAD = {
   flowName: "test:kinds",
   task: "",
@@ -92,10 +94,10 @@ const KINDS_STARTED_PAYLOAD = {
   autonomousMode: true,
   steps: [
     { id: "a", stepType: "agent", agent: "alpha", blockedBy: [], onError: "fix" },
-    { id: "fk", stepType: "fork", blockedBy: [], branches: { one: "c", two: "cd" } },
+    { id: "fk", stepType: "fork", blockedBy: [], branches: { one: "c", two: "cd" }, onError: "fix" },
     { id: "c", stepType: "code", blockedBy: ["fk"], onError: "fix" },
-    { id: "cd", stepType: "code-decision", blockedBy: ["c"], branches: { again: "a", done: "ad" } },
-    { id: "ad", stepType: "agent-decision", agent: "judge", blockedBy: [], branches: { ok: "fix" } },
+    { id: "cd", stepType: "code-decision", blockedBy: ["c"], branches: { again: "a", done: "ad" }, onError: "fix" },
+    { id: "ad", stepType: "agent-decision", agent: "judge", blockedBy: [], branches: { ok: "fix" }, onError: "fix" },
     { id: "fix", stepType: "agent", agent: "fixer", blockedBy: [] },
   ],
 };
@@ -115,10 +117,14 @@ describe("buildIdleFlowState — topology matches a real 0.5.0 start (E1)", () =
     expect(d.get("a")?.branches).toBeUndefined();
     expect(d.get("c")?.branches).toBeUndefined();
     expect(d.get("fk")?.blockedBy).toEqual([]);
-    expect(d.get("fk")?.onError).toBeUndefined();
     expect(d.get("ad")?.blockedBy).toEqual([]);
-    expect(d.get("ad")?.onError).toBeUndefined();
-    expect(d.get("cd")?.onError).toBeUndefined();
+  });
+
+  it("E24: carries on_error for code-decision, fork and agent-decision", () => {
+    const d = new Map(ready(KINDS_YAML).dagSteps!.map((s) => [s.id, s]));
+    expect(d.get("cd")?.onError).toBe("fix");
+    expect(d.get("fk")?.onError).toBe("fix");
+    expect(d.get("ad")?.onError).toBe("fix");
   });
 });
 

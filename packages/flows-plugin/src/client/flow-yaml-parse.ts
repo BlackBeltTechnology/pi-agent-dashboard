@@ -104,8 +104,10 @@ function nodeShape(type: string, id: string, label: string): string {
 
 /** Build a `graph LR` Mermaid string from a parsed flow. Edges come from the
  *  shared `deriveFlowEdges` (blockedBy + branches + on_complete/on_error +
- *  implicit-segment), so the snapshot matches the live FlowGraph. Backward
- *  edges (loops) render dashed. See change: improve-flow-ui. */
+ *  engine fall-through), so the snapshot draws the live FlowGraph's edge set
+ *  (no error toggle, no sink). A fall-through and an on_error route on the same
+ *  pair emit two edges. Backward edges (loops) render dashed.
+ *  See change: improve-flow-ui, fix-flow-graph-engine-order. */
 export function flowToMermaid(flow: ParsedFlow): string {
   const lines: string[] = ["graph LR"];
   for (const s of flow.steps) {
