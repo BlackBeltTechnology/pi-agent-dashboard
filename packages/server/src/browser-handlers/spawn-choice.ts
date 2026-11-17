@@ -190,7 +190,7 @@ export function pairDefaultModel(defaultModel: string, thinking: string, ctx: Re
     }
     const r = resolveDefaultModel(defaultModel.trim(), roles);
     if (r.kind !== "role") {
-      console.log(`[dashboard] default model ${defaultModel} unresolved; spawning without --model`);
+      console.log(`[dashboard] default model ${defaultModel} unresolved; starting without --model`);
       return undefined;
     }
     model = `${r.provider}/${r.id}`;
