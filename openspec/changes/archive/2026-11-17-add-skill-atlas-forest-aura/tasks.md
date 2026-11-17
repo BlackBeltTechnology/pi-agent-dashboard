@@ -66,7 +66,7 @@ Reference prototype (feel only): `mockups/2026-11-16-skill-atlas-forest-aura/For
 ## 6. Integration
 
 - [x] 6.1 Run `npm test` piped to `/tmp/pi-test.log` and verify no skill-atlas failures and that `node scripts/theme-token-guard.mjs` reports no new violation
-- [ ] 6.2 Manual (test-plan: manual-only): in an isolated dashboard build (not :8000), base dark + light, judge that motion feels slow and calm, outlines read as groups, and origin marks are distinguishable at default zoom (test-plan #F14)
+- [x] 6.2 Manual (test-plan: manual-only): in an isolated dashboard build (not :8000), base dark + light, judge that motion feels slow and calm, outlines read as groups, and origin marks are distinguishable at default zoom (test-plan #F14)
 
 ## Workflow follow-up
 
