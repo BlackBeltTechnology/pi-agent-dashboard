@@ -96,9 +96,11 @@
     "@blackbelt-technology/pi-dashboard-shared": "^0.11.0",
     "@fastify/rate-limit": "^11.2.0",
     "@mdi/js": "^7.4.47",
-    "@mdi/react": "^1.6.1"
+    "@mdi/react": "^1.6.1",
+    "d3-force": "^3.0.0"
   },
   "devDependencies": {
+    "@types/d3-force": "^3.0.10",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "fastify": "^5.0.0",

@@ -1762,7 +1762,13 @@ importers:
       '@mdi/react':
         specifier: ^1.6.1
         version: 1.6.1
+      d3-force:
+        specifier: ^3.0.0
+        version: 3.0.0
     devDependencies:
+      '@types/d3-force':
+        specifier: ^3.0.10
+        version: 3.0.10
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.18

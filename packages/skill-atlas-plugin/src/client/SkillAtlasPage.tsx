@@ -62,6 +62,7 @@ export default function SkillAtlasPage({ scope, cwd, onBack }: SkillAtlasPagePro
     () => (graph?.links ?? []).filter((l) => rel[l.type] && visibleIds.has(l.source) && visibleIds.has(l.target)),
     [graph, rel, visibleIds],
   );
+  const visibleRelations = useMemo(() => RELATION_TYPES.filter((k) => rel[k]), [rel]);
   const q = query.trim().toLowerCase();
   const matches = (s: SkillNode) => !q || s.id.toLowerCase().includes(q) || s.description.toLowerCase().includes(q);
   const focus = selected && hops ? hopSet(visibleLinks, selected, hops) : null;
@@ -253,6 +254,7 @@ export default function SkillAtlasPage({ scope, cwd, onBack }: SkillAtlasPagePro
               allLinks={graph.links}
               skills={visibleSkills}
               links={visibleLinks}
+              relations={visibleRelations}
               selected={selected}
               hops={hops}
               matches={matches}
