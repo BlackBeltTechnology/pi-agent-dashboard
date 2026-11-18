@@ -14,14 +14,27 @@ import { YoloController } from "../yolo-session.js";
 let tmp: string;
 let home: string;
 const MIN = 60_000;
+/** Home and the Windows profile roots are redirected into `tmp`, so no test writes into a real home. */
+const REDIRECTED = ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"] as const;
+const saved: Partial<Record<(typeof REDIRECTED)[number], string | undefined>> = {};
 
 beforeEach(() => {
   tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "yolo-cred-")));
-  home = os.homedir();
+  for (const k of REDIRECTED) saved[k] = process.env[k];
+  home = path.join(tmp, "home");
+  fs.mkdirSync(home, { recursive: true });
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  process.env.APPDATA = path.join(home, "AppData", "Roaming");
+  process.env.LOCALAPPDATA = path.join(home, "AppData", "Local");
   process.env.PI_ACCESS_REFUSALS_STORE = path.join(tmp, "refusals.json");
   __resetRefusalLedger();
 });
 afterEach(() => {
+  for (const k of REDIRECTED) {
+    if (saved[k] === undefined) delete process.env[k];
+    else process.env[k] = saved[k];
+  }
   delete process.env.PI_ACCESS_REFUSALS_STORE;
   __resetRefusalLedger();
   fs.rmSync(tmp, { recursive: true, force: true });

@@ -4,6 +4,7 @@
  * `Always allow`, T.28 headless, T.115 resolver failure, T.116 prompt timeout / throw,
  * plus the RootsProvider carve-out set (T.18 union, T.2.3 own session dir).
  */
+import os from "node:os";
 import nodePath from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createPathGateHandler, type GatePrompter, type PathGateDeps } from "../handler.js";
@@ -169,7 +170,7 @@ describe("RootsProvider carve-out set", () => {
     try {
       const r = await mk({ sessionDir: "/h/.pi/agent/sessions/own" }).roots([], false, "/w/repo");
       const dirs = r.askRead?.agentDirs ?? [];
-      expect(dirs).toEqual(expect.arrayContaining([nodePath.join(process.env.HOME ?? "", ".pi", "agent"), "/srv/pi-agent", "/opt/third"]));
+      expect(dirs).toEqual(expect.arrayContaining([nodePath.join(os.homedir(), ".pi", "agent"), "/srv/pi-agent", "/opt/third"]));
       expect(r.askRead?.ownSessionDir).toBe("/h/.pi/agent/sessions/own");
     } finally {
       if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;

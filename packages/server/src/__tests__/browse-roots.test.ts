@@ -12,7 +12,7 @@ import { type BrowseRootSources, isWithinBrowseRoots, resolveBrowseRoots } from 
 let tmp: string;
 let home: string;
 let outside: string;
-let env: { homedir: string };
+let env: { homedir: string; env: NodeJS.ProcessEnv };
 
 const none = (): readonly string[] => [];
 const src = (over: Partial<BrowseRootSources> = {}): BrowseRootSources => ({
@@ -30,7 +30,11 @@ beforeEach(async () => {
   tmp = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "browse-roots-")));
   home = await mk("home");
   outside = await mk("outside");
-  env = { homedir: home };
+  env = {
+    homedir: home,
+    // Windows profile roots follow LOCALAPPDATA / APPDATA: keep them inside the temp home.
+    env: { ...process.env, LOCALAPPDATA: path.join(home, "AppData", "Local"), APPDATA: path.join(home, "AppData", "Roaming") },
+  };
 });
 afterEach(() => fsp.rm(tmp, { recursive: true, force: true }));
 
@@ -151,7 +155,7 @@ describe("credential directories and browser profiles (T.78)", () => {
     await mk("home", ".aws", "cache");
     await mk("home", ".config", "gh");
     const app = await mk("home", ".config", "app");
-    const chrome = browserProfileRoots(process.platform, home, process.env)[0];
+    const chrome = browserProfileRoots(process.platform, home, env.env)[0];
     await fsp.mkdir(path.join(chrome, "Default"), { recursive: true });
     const s = src({
       pinned: () => [work, path.join(aws, "cache"), path.join(home, ".config")],

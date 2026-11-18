@@ -50,7 +50,7 @@ const cfg = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
-function setup(over: { config?: Record<string, unknown>; seam?: FakeSeam; store?: ReturnType<typeof memoryStore>; ms?: number } = {}) {
+function setup(over: { config?: Record<string, unknown>; seam?: FakeSeam; store?: ReturnType<typeof memoryStore>; ms?: number; team?: unknown } = {}) {
   const seam = over.seam ?? createFakeSeam();
   const adapter = new RecordingAdapter();
   const store = over.store ?? memoryStore();
@@ -63,6 +63,7 @@ function setup(over: { config?: Record<string, unknown>; seam?: FakeSeam; store?
       store,
       correlator: createSpawnCorrelator(),
       now: () => 1_000,
+      ...(over.team ? { team: over.team as never } : {}),
       ...(over.ms ? { guardReadyTimeoutMs: over.ms } : {}),
     });
   const gateway = mk();
@@ -473,4 +474,67 @@ describe("T.97 soak: ready spawns leave no timers or entries", () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(h.gateway.status().pendingSpawns).toBe(0);
   }, 60_000);
+});
+
+describe("review: release re-authorizes, and a stopped gateway releases nothing", () => {
+  it("a `!disarm` while the spawn waits: the held message is not delivered, the session ends, the user is told", async () => {
+    let disarmed = false;
+    const team = {
+      authorizeRequest: () => (disarmed ? { kind: "refusal", reason: "disarmed" } : { kind: "grant" }),
+      isDisarmed: () => disarmed,
+      bindingFor: () => undefined,
+      boundChannelIds: () => [],
+      mirrorLevel: () => "off",
+      noteMirror: () => {},
+      attempts: () => [],
+    };
+    const h = setup({ team });
+    await h.gateway.start();
+    await h.say("hello");
+    const { token } = h.lastSpawn();
+    h.resolve("S");
+    disarmed = true; // the operator disarms inside the readiness window
+    h.seam.emitGuardReady("S", token);
+    await h.settle();
+    expect(h.prompts()).toEqual([]);
+    expect(h.seam.shutdowns).toEqual(["S"]);
+    expect(h.said()).toContain("Refused: disarmed.");
+    expect(h.store.get("discord:c1:-")).toBeUndefined();
+  });
+
+  it("still armed at release: delivers once (the re-check is a no-op)", async () => {
+    const team = {
+      authorizeRequest: () => ({ kind: "grant" }),
+      isDisarmed: () => false,
+      bindingFor: () => undefined,
+      boundChannelIds: () => [],
+      mirrorLevel: () => "off",
+      noteMirror: () => {},
+      attempts: () => [],
+    };
+    const h = setup({ team });
+    await h.gateway.start();
+    await h.say("hello");
+    h.resolve("S");
+    h.seam.emitGuardReady("S", h.lastSpawn().token);
+    await h.settle();
+    expect(h.prompts()).toEqual(["hello"]);
+  });
+
+  it("stop() while the spawn call is pending: no timer is armed and nothing is delivered afterwards", async () => {
+    const h = setup();
+    await h.gateway.start();
+    let finish: (v: { success: true }) => void = () => {};
+    h.seam.spawn = (() => new Promise((r) => (finish = r as never))) as never;
+    const saying = h.say("hello");
+    await h.settle();
+    await h.gateway.stop();
+    finish({ success: true });
+    await saying;
+    await h.settle();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(T * 2);
+    expect(h.seam.shutdowns).toEqual([]);
+    expect(h.said()).not.toContain(REFUSED);
+  });
 });

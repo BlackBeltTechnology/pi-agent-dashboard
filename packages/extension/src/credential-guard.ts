@@ -130,6 +130,14 @@ export function createCredentialGuard(deps: CredentialGuardDeps) {
   const canonicalize = deps.canonicalize ?? canonicalizeTarget;
   const resolveEnv = (): ResolveEnv => deps.resolveEnv ?? { ...defaultResolveEnv(), homeDir: deps.homedir };
 
+  /** `PI_CODING_AGENT_DIR` as pi reads it: trimmed, a leading `~` expanded against the injected home. */
+  const configuredAgentDir = (): string | undefined => {
+    const raw = deps.env.PI_CODING_AGENT_DIR?.trim();
+    if (!raw) return undefined;
+    if (raw === "~") return deps.homedir;
+    return raw.startsWith("~/") || raw.startsWith("~\\") ? nodePath.join(deps.homedir, raw.slice(2)) : raw;
+  };
+
   /** The files protected under an agent dir: plugin credentials + the provider secrets. */
   const agentDirNames = (): string[] => [CREDENTIAL_FILE_BASENAMES["plugin-credentials"], ...PI_AGENT_SECRET_FILES];
 
@@ -146,7 +154,7 @@ export function createCredentialGuard(deps: CredentialGuardDeps) {
    */
   const envProtected = (): string[] => {
     const out: string[] = [];
-    const agentDir = deps.env.PI_CODING_AGENT_DIR;
+    const agentDir = configuredAgentDir();
     if (agentDir) for (const n of agentDirNames()) out.push(nodePath.resolve(agentDir, ...n.split("/")));
     const keyFile = deps.env[DATA_KEY_FILE_ENV];
     if (keyFile) out.push(nodePath.resolve(keyFile));
@@ -185,8 +193,10 @@ export function createCredentialGuard(deps: CredentialGuardDeps) {
    */
   const configuredLexical = (): string[] => {
     const out: string[] = [];
-    const agentDir = deps.env.PI_CODING_AGENT_DIR;
-    if (agentDir) for (const n of agentDirNames()) out.push(`${agentDir.replace(/[\\/]+$/, "")}/${n}`);
+    // Both spellings: a text mention may carry the literal `~/…` form or the expanded one.
+    for (const agentDir of new Set([deps.env.PI_CODING_AGENT_DIR?.trim(), configuredAgentDir()])) {
+      if (agentDir) for (const n of agentDirNames()) out.push(`${agentDir.replace(/[\\/]+$/, "")}/${n}`);
+    }
     const keyFile = deps.env[DATA_KEY_FILE_ENV];
     if (keyFile) out.push(keyFile);
     return out;

@@ -45,12 +45,15 @@ test.describe("project_trust headless spawn: no auto-trust, no stall (L3)", () =
     // The project extension must NOT have loaded (no auto-trust). Only checkable with a marker seam.
     const marker = process.env.PI_TRUST_SEED_MARKER;
     if (marker) {
-      const { execSync } = await import("node:child_process");
+      const { execFileSync } = await import("node:child_process");
       const { DASHBOARD_PORT } = await import("./lifecycle.js");
-      const name = execSync(`docker ps --filter publish=${DASHBOARD_PORT} --format '{{.Names}}'`, { encoding: "utf8" })
+      const name = execFileSync("docker", ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"], { encoding: "utf8" })
         .trim()
         .split("\n")[0];
-      const present = execSync(`docker exec ${name} sh -c 'test -e "$0" && echo yes || echo no' ${marker}`, { encoding: "utf8" }).trim();
+      // The marker is one argv entry: a path with spaces must not be split by a shell.
+      const present = execFileSync("docker", ["exec", name, "sh", "-c", 'test -e "$0" && echo yes || echo no', marker], {
+        encoding: "utf8",
+      }).trim();
       expect(present, "project extension marker must be absent: the folder was not auto-trusted").toBe("no");
     }
   });

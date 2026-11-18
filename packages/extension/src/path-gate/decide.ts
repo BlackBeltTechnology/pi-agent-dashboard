@@ -116,7 +116,9 @@ export function decidePathAccess(input: DecideInput): Decision {
   const abs = input.access === "read" ? resolveReadTarget(lexical, env) : lexical;
   const canonical = canonicalizeTarget(abs, env);
   const r = input.roots;
-  const carved = input.access === "read" && isAskOnRead(canonical, input, env);
+  // The carve-out also matches the LEXICAL path: a symlink-managed `~/.pi/agent/models.json` (dotfiles
+  // manager) resolves to a file elsewhere, possibly inside a workspace root, and must still ask.
+  const carved = input.access === "read" && (isAskOnRead(canonical, input, env) || isAskOnRead(abs, input, env));
   const rooted: readonly string[][] = [
     [...r.workspace],
     [...r.readWrite],

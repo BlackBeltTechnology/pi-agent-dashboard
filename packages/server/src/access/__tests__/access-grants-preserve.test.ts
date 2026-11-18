@@ -142,6 +142,19 @@ describe("T.81 store ceiling and the cap over admitted rows", () => {
     expect(fs.readFileSync(storePath).equals(before)).toBe(true);
   });
 
+  it("a compact store under the ceiling whose PRETTY-PRINTED form would exceed it: the write is refused, the file and cache stay as they were", () => {
+    // 120 000 `null` rows: ~0.6 MB compact, ~1.3 MB once serialised with indentation.
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(storePath, JSON.stringify({ version: 1, grants: Array.from({ length: 120_000 }, () => null) }));
+    const before = fs.readFileSync(storePath);
+    expect(before.length).toBeLessThan(GRANT_STORE_MAX_BYTES);
+    const result = recordGrant({ subject: mkdir("big") });
+    expect(result).toMatchObject({ ok: false, error: "store too large" });
+    expect(fs.readFileSync(storePath).equals(before)).toBe(true);
+    expect(grantedSubjects()).toEqual([]);
+    expect(logs(/would exceed/).length).toBeGreaterThanOrEqual(1);
+  });
+
   it("GRANT_CAP admitted + 50 rejected: all 250 rows survive a write; rejected rows cause no eviction", () => {
     const admitted = Array.from({ length: GRANT_CAP_PER_SCOPE }, (_, i) => row(`/seed/s${i}`, i + 1));
     const rejected = Array.from({ length: 50 }, (_, i) => row(path.join(home(), ".aws", `r${i}`), 1000 + i));

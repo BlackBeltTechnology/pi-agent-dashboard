@@ -375,10 +375,16 @@ describe("T.10: non-secret files are not blocked by the credential guard", () =>
   });
 });
 
-describe("T.11: residual pin — literal `~` override and a third agent dir", () => {
-  it("does not block them (recorded residual)", () => {
+describe("T.11: PI_CODING_AGENT_DIR spelled with a leading `~`; a third agent dir stays a residual", () => {
+  it("expands `~` like pi does, so the real auth.json is blocked (file and text rules)", () => {
     const { call } = make({ PI_CODING_AGENT_DIR: "~/alt-agent" });
-    expect(call("read", { path: nodePath.join(home, "alt-agent", "auth.json") })).toBeUndefined();
+    expect(blocked(call("read", { path: nodePath.join(home, "alt-agent", "auth.json") }))?.block).toBe(true);
+    expect(blocked(call("bash", { command: `cat ${nodePath.join(home, "alt-agent", "auth.json")}` }))?.block).toBe(true);
+    expect(blocked(call("bash", { command: "cat ~/alt-agent/auth.json" }))?.block).toBe(true);
+    expect(call("read", { path: nodePath.join(home, "alt-agent", "settings.json") })).toBeUndefined();
+  });
+  it("still does not block a third agent dir reported only by pi (recorded residual)", () => {
+    const { call } = make({});
     expect(call("read", { path: "/opt/third/auth.json" })).toBeUndefined();
   });
 });

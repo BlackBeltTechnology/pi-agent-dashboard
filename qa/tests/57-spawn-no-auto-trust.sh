@@ -43,7 +43,12 @@ export default function () { fs.writeFileSync("$MARKER", "loaded"); }
 EXT
 (cd "$CLONE" && git init -q . 2>/dev/null || true)
 
+PINNED=0 # set once pin_directory was sent: cleanup must unpin even when a check fails midway
 cleanup() {
+  if [ "$PINNED" -eq 1 ]; then
+    ws_send "{\"type\":\"unpin_directory\",\"path\":\"$CLONE\"}" \
+      || echo "WARN: could not unpin $CLONE - remove the pin by hand (persistent pin + mirror coverage left behind)" >&2
+  fi
   rm -rf "$CLONE" "$MARKER"
 }
 trap cleanup EXIT
@@ -55,7 +60,7 @@ ws_send() {
   PORT="$PORT" MSG="$1" node -e '
 const WebSocket = require("ws");
 const { execFileSync } = require("node:child_process");
-const t = JSON.parse(execFileSync("pi-dashboard", ["api", "POST", "/api/ws-ticket", "--data", JSON.stringify({ scope: "browser" })], { encoding: "utf8" })).data.ticket;
+const t = JSON.parse(execFileSync("pi-dashboard", ["api", "POST", "/api/ws-ticket", "--port", process.env.PORT, "--data", JSON.stringify({ scope: "browser" })], { encoding: "utf8" })).data.ticket;
 const ws = new WebSocket("ws://localhost:" + process.env.PORT + "/ws?ticket=" + encodeURIComponent(t));
 ws.on("open", () => { ws.send(process.env.MSG); setTimeout(() => { ws.close(); process.exit(0); }, 1500); });
 ws.on("error", (e) => { console.error("ws error: " + e.message); process.exit(1); });
@@ -84,11 +89,13 @@ spawn_and_check() { # $1 = expected: present|absent ; $2 = label
 
 spawn_and_check absent "unpinned clone"
 
+PINNED=1
 ws_send "{\"type\":\"pin_directory\",\"path\":\"$CLONE\"}"
 sleep 3 # the server writes the trust snapshot on pin
 spawn_and_check present "clone after pin"
 
 ws_send "{\"type\":\"unpin_directory\",\"path\":\"$CLONE\"}"
+PINNED=0
 sleep 3
 spawn_and_check absent "clone after unpin (no stale trust)"
 

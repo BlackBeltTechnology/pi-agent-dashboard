@@ -49,8 +49,8 @@ const readOutside = (g: ReturnType<typeof gate>, p: string, tool = "read") =>
 describe("T.86 gate disables and re-enables live; config writes stay sensitive", () => {
   it("toggles on a config-file signature change with no pinning", async () => {
     const g = gate();
-    // Outside every root: a real directory in the source tree (the test HOME and tmpdir are rooted).
-    const outside = nodePath.join(fs.realpathSync(nodePath.resolve(__dirname, "../../../..")), "src", "bridge.ts");
+    // A read carve-out asks even under a covering root (so this holds wherever the checkout lives).
+    const outside = nodePath.join(os.homedir(), ".pi", "agent", "models.json");
     expect(await readOutside(g, outside)).toMatchObject({ block: true }); // enabled: out-of-root, no UI → blocked
 
     enabled = false;

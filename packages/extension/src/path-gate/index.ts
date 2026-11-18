@@ -17,10 +17,10 @@ import { forbiddenGrantSubjects, isUngrantableSubject } from "@blackbelt-technol
 import type { PromptBus } from "../prompt-bus.js";
 import { GrantCache } from "./grant-cache.js";
 import { createGrantLink } from "./grant-link.js";
-import { createYoloLink } from "./yolo-link.js";
 import { createPathGateHandler, type GatePrompter } from "./handler.js";
-import { Suppression } from "./suppression.js";
 import { type PiResources, RootsProvider } from "./roots.js";
+import { Suppression } from "./suppression.js";
+import { createYoloLink } from "./yolo-link.js";
 
 export interface PathGateOptions {
   getSessionId: () => string;

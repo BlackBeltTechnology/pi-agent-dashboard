@@ -997,7 +997,7 @@ Why still ignored:
 - Folder moved, re-created, or synced from another machine → identity (`dev`, `ino`, `birthtimeMs`) mismatch → fails closed. Re-trust the folder.
 - `pi --no-extensions` → bridge never decides. `pi mcp list` reads only `trust.json`, so dashboard-trusted servers show `not-checked-by-pi`.
 - Activation-cwd auto-trust removed. A dashboard spawn in a folder dashboard trust does not cover → `not-covered`, pi decides (`trust.json`, then `defaultProjectTrust`; RPC has no prompt, `ask` = untrusted). Road-independent: UI, MCP `spawn_session`, REST, WS, automation, goal, `/new`, worktree. Remedy: pin folder / add to workspace / `/trust` in terminal pi.
-- Forbidden/temporary folders (`/private/tmp`, `~/Downloads`, `~/.cache`, `$HOME`, system dirs) never trusted. Bridge logs `forbidden-folder`.
+- Forbidden/temporary folders (`/private/tmp`, `~/Downloads`, `~/.cache`, `$HOME`, system dirs) never trusted by the dashboard mirror. Bridge logs `forbidden-folder`, returns `undecided` unless pi recorded an entry there. pi decides — `defaultProjectTrust: "always"` still applies.
 - `piTrustMirror.enabled: false` also disables the activation path.
 
 Config `~/.pi/dashboard/config.json`:

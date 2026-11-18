@@ -153,6 +153,21 @@ describe("T.20: path forms", () => {
   });
 });
 
+describe("T.20b: a symlink-managed agent file still asks (dotfiles manager)", () => {
+  it("~/.pi/agent/models.json → /w/repo/dot/models.json, and a symlinked sessions dir, ask under a covering workspace", () => {
+    const real = (p: string): string => {
+      if (p === `${AGENT}/models.json`) return "/w/repo/dot/models.json";
+      if (p === `${AGENT}/sessions/--w-other--`) return "/w/repo/dot/sessions-other";
+      return posixEnv().realpathSync(p);
+    };
+    const env = posixEnv({ realpathSync: real, exists: () => true });
+    expect(asks(run(`${AGENT}/models.json`, { env }))).toBe(true);
+    expect(asks(run(`${AGENT}/sessions/--w-other--`, { env }))).toBe(true);
+    // The real location alone (not reached through the agent dir) is an ordinary in-root read.
+    expect(run("/w/repo/dot/models.json", { env }).verdict).toBe("in-root");
+  });
+});
+
 describe("T.21: access mode × roots", () => {
   it("read asks under both root configs; write/edit unchanged (residual under a spanning root)", () => {
     const span = roots({ workspace: ["/h"] });

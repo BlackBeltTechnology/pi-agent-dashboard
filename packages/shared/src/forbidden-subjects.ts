@@ -240,7 +240,8 @@ function subsumes(candidate: string, other: string, ops: ReturnType<typeof pathO
   // costly relative() is skipped for the (many) unrelated pairs of the ~30-entry sensitive list.
   if (!ops.windows && !other.startsWith(candidate)) return false;
   const rel = ops.p.relative(candidate, other);
-  return rel !== "" && !rel.startsWith("..") && !ops.p.isAbsolute(rel);
+  // `..x` is a child NAME; only `..` or `..<sep>…` leaves the candidate.
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${ops.p.sep}`) && !ops.p.isAbsolute(rel);
 }
 
 /**

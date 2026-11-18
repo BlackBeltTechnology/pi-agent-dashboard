@@ -33,6 +33,7 @@ test.describe("untrusted-content guard posture (L3)", () => {
     await expect(card).toContainText("pi-untrusted-content-guard");
     await expect(card).toContainText("Suggested");
     await expect(card).not.toContainText("Optional");
-    await expect(card).not.toContainText("Active");
+    // The status pill only: the package description itself contains the words "Active on install".
+    await expect(card.getByText("Active", { exact: true })).toHaveCount(0);
   });
 });

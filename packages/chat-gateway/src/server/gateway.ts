@@ -90,6 +90,12 @@ interface GuardedSpawn {
   /** Sessions that announced readiness with this spawn's token. */
   ready: Set<string>;
   timer?: ReturnType<typeof setTimeout>;
+  /**
+   * Team layer only: re-runs the spawn authorization at release time. The window between the
+   * authorization and the delivery is up to the readiness timeout, so a `!disarm` (or any other
+   * policy change) inside it must still stop the held message.
+   */
+  recheck?: () => { kind: string; reason?: string };
 }
 
 
@@ -679,7 +685,26 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     pendingSpawns.set(channelKey, token);
     pendingSpawnAt.set(channelKey, now());
     const guarded: GuardedSpawn | undefined = guardRef
-      ? { token, channelKey, channelId: msg.channelId, prompt: initialPrompt, state: "waiting", ready: new Set() }
+      ? {
+          token,
+          channelKey,
+          channelId: msg.channelId,
+          prompt: initialPrompt,
+          state: "waiting",
+          ready: new Set(),
+          ...(team
+            ? {
+                recheck: () =>
+                  team.authorizeRequest({
+                    author: authorOf(msg),
+                    channelId: msg.channelId,
+                    ...(msg.parentChannelId ? { parentChannelId: msg.parentChannelId } : {}),
+                    ...(msg.threadId ? { threadId: msg.threadId } : {}),
+                    verb: "spawn_session",
+                  }),
+              }
+            : {}),
+        }
       : undefined;
     if (guarded) guardedSpawns.set(token, guarded);
     const res = await seam.spawn({
@@ -771,6 +796,11 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   /** Release: ready AND resolved AND the two agree. Persist the binding only now, then deliver. */
   function tryRelease(g: GuardedSpawn): void {
     if (g.state !== "waiting" || !g.sessionId || !g.meta || !g.ready.has(g.sessionId)) return;
+    const recheck = g.recheck?.();
+    if (recheck?.kind === "refusal") {
+      void refuseHeld(g, recheck.reason ?? "refused");
+      return;
+    }
     g.state = "delivering";
     if (g.timer) clearTimeout(g.timer);
     g.timer = undefined;
@@ -801,6 +831,27 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       }
       guardedSpawns.delete(g.token);
     }
+  }
+
+  /** Re-authorization at release failed (e.g. disarmed meanwhile): end the session, send nothing, say why. */
+  async function refuseHeld(g: GuardedSpawn, reason: string): Promise<void> {
+    g.state = "refused";
+    if (g.timer) clearTimeout(g.timer);
+    g.timer = undefined;
+    correlator.reject(g.token);
+    guardedSpawns.delete(g.token);
+    if (pendingSpawns.get(g.channelKey) === g.token) {
+      pendingSpawns.delete(g.channelKey);
+      pendingSpawnAt.delete(g.channelKey);
+    }
+    if (g.sessionId) {
+      try {
+        await seam.shutdownSession(g.sessionId);
+      } catch (err) {
+        seam.log("error", `chat-gateway: could not shut down session ${g.sessionId}: ${String(err)}`);
+      }
+    }
+    await reply(g.channelId, `Refused: ${reason}.`);
   }
 
   /** Timeout: the guard never announced. End the session (if it resolved), tell the user, send nothing. */
@@ -1481,6 +1532,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       // no chat message); no cleanup, documented residual. Timers must not outlive the gateway.
       for (const g of guardedSpawns.values()) {
         if (g.timer) clearTimeout(g.timer);
+        g.state = "refused"; // a seam.spawn still pending must not arm a timer or release after the stop
       }
       guardedSpawns.clear();
       refusedTokens.clear();

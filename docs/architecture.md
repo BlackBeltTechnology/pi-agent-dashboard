@@ -3841,7 +3841,8 @@ flowchart TD
 - **Activation cwd: no unconditional `yes`** (change: harden-agent-tool-guards D3). Activation cwd decided like any other cwd: recorded pi entry → snapshot mirror → live query. Auto-trusted only when dashboard trust covers it (pinned folder, workspace folder, covered grant, YOLO root via live query).
 - Nothing covers the activation cwd → `withheld("not-covered")`; pi decides (`trust.json`, then `defaultProjectTrust`; RPC has no prompt, `ask` = untrusted).
 - Road-independent: UI, MCP `spawn_session`, REST, WS, automation, goal, `/new`, worktree. No spawner cooperation, no flag, no state.
-- Forbidden/temporary activation folder (`/private/tmp`, `~/Downloads`, `~/.cache`, `$HOME`) → logs `forbidden-folder`, never trusted.
+- Forbidden/temporary activation folder (`/private/tmp`, `~/Downloads`, `~/.cache`, `$HOME`) → logs `forbidden-folder`. Never trusted **by the dashboard mirror**: no dashboard source covers a forbidden folder, bridge never returns `yes`.
+- pi still decides there: `piStoreBlocks` returns `recorded-entry` for a recorded pi entry; with none, bridge returns `undecided` → pi applies `trust.json`, then `defaultProjectTrust` (incl. `always`).
 - `piTrustMirror.enabled:false` also disables it (bridge returns undecided, pi decides).
 - Remedy for lost project `.pi/` resources: pin the folder, add it to a workspace, or `/trust` in a terminal pi.
 - Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`, `not-covered`, `identity-weak` + 7 `live-*` (see Live trust query).
@@ -3873,7 +3874,7 @@ flowchart TD
 **Breaking bridge behaviour.** NOT reverted by `enabled:false`.
 - (a) Recorded pi entry beats dashboard trust.
 - (b) No unconditional activation-cwd `yes` (harden-agent-tool-guards D3): a dashboard spawn in a folder dashboard trust does not cover gets `undecided` (`not-covered`) and pi decides.
-- (c) Activation-cwd auto-trust no longer applies in forbidden/temporary folders (logged `forbidden-folder`).
+- (c) Bridge `yes` withheld in forbidden/temporary folders (logged `forbidden-folder`): dashboard trust never covers them, pi decides.
 - (d) Spawn token removed from env at activation (see Bridge).
 
 **Rollback.** `piTrustMirror.enabled: false`. Bridge reads config live. Works with server down. Does not revert (a)-(d).

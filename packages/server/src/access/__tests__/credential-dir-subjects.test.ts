@@ -155,6 +155,17 @@ describe("T.76 segment boundary: look-alikes are not credential dirs", () => {
   });
 });
 
+describe("T.76b a child literally named `..x` is a child, not parent traversal", () => {
+  const env = posix("", "linux");
+  it("~/.aws/..backup is forbidden like any other child; ~/.aws's real parent is ungrantable; a sibling is not", () => {
+    expect(isForbiddenGrantSubject("/h/.aws/..backup", env)).toBe(true);
+    expect(isForbiddenGrantSubject("/h/.aws/..backup/x", env)).toBe(true);
+    expect(isUngrantableSubject("/h/.aws/..backup", env)).toBe(true);
+    expect(isUngrantableSubject("/h/.config", env)).toBe(true); // ancestor of ~/.config/gh
+    expect(isUngrantableSubject("/h/..aws-sibling", env)).toBe(false);
+  });
+});
+
 describe("T.83 parity oracle: a new subject behaves like ~/.ssh in the shared predicates", () => {
   it("forbidden / ungrantable verdicts equal ~/.ssh's", () => {
     const env = posix("", "linux");

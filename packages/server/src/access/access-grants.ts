@@ -588,8 +588,14 @@ function recordProjectGrant(
 
   const prepared = prepareStoreWrite();
   if (!prepared.ok) return { ok: false, error: prepared.error };
+  const text = serializeStore(grants);
+  if (Buffer.byteLength(text) > GRANT_STORE_MAX_BYTES) {
+    // The reader refuses a store over the ceiling: committing this would make every grant vanish on the next start.
+    console.warn(`[access-grants] store would exceed ${GRANT_STORE_MAX_BYTES} bytes — write refused`);
+    return { ok: false, error: "store too large" };
+  }
   try {
-    writeAtomic(accessGrantsStorePath(), serializeStore(grants));
+    writeAtomic(accessGrantsStorePath(), text);
   } catch (err) {
     // Not recorded. Cache untouched, so the admitted set cannot widen (D11).
     console.warn(`[access-grants] failed to persist grant for ${subject}: ${(err as Error)?.message}`);
