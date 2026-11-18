@@ -29,7 +29,13 @@ const GRACE_WAIT_MS = 8_000; // > RECOVERY_REATTACH_GRACE_MS (7 s)
 
 function writeConfig(mode: "ask" | "auto" | "off"): void {
   mkdirSync(DASH_DIR, { recursive: true });
-  writeFileSync(path.join(DASH_DIR, "config.json"), JSON.stringify({ reopenSessionsAfterShutdown: mode }));
+  // `archiveAfterDays: 0`: the fixed field-replay timestamps (T = 2026-10-09)
+  // are older than the 30-day default, so the boot scan would age-archive the
+  // seeded sessions before recovery classifies them (time bomb since 2026-11-08).
+  writeFileSync(path.join(DASH_DIR, "config.json"), JSON.stringify({
+    reopenSessionsAfterShutdown: mode,
+    sessionList: { archiveAfterDays: 0 },
+  }));
 }
 
 type Rec = { bootId: number; exitIntent: string | null; at: number };

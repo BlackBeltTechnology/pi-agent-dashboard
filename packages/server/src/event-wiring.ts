@@ -49,6 +49,7 @@ import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, reconcileAgentLiveness } from "./session/event-status-extraction.js";
 import { createInFlightToolCalls, type InFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
+import { seedDiscoveredHistory } from "./session/seed-discovered-history.js";
 import { applyPluginRef } from "./session/plugin-refs.js";
 import {
   findOpenSubagents,
@@ -2052,25 +2053,10 @@ export function wireEvents(deps: EventWiringDeps): void {
       );
       if (isNewCwd) {
         directoryService.onDirectoryAdded(msg.cwd).then(({ sessions, openspecData }) => {
-          for (const hist of sessions) {
-            if (!sessionManager.get(hist.id)) {
-              sessionManager.register({
-                id: hist.id,
-                cwd: hist.cwd,
-                name: hist.name,
-                source: "tui",
-                sessionFile: hist.sessionFile,
-                sessionDir: hist.sessionDir,
-                firstMessage: hist.firstMessage,
-                startedAt: hist.startedAt,
-              });
-              // Not a witnessed ending — these are history records seeded into
-              // the map. See change: fix-ended-session-missing-endedat.
-              sessionManager.unregister(hist.id, { witnessed: false });
-              sessionManager.update(hist.id, { hidden: true });
-              const s = sessionManager.get(hist.id);
-              if (s) browserGateway.broadcastSessionAdded(s);
-            }
+          // Shared guard + `restore()` seed: never resurrects an archived id,
+          // never writes a sidecar. See change: fix-discovery-resurrects-archived.
+          for (const s of seedDiscoveredHistory(sessions, { sessionManager, sessionArchive })) {
+            browserGateway.broadcastSessionAdded(s);
           }
           browserGateway.broadcastToAll({
             type: "openspec_update",

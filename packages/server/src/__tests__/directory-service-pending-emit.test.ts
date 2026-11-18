@@ -325,4 +325,47 @@ describe("discoverAndBroadcastSessions — archived ids stay non-resident (E13)"
     expect(added).toEqual(["disc-resident"]);
     expect(sessionManager.get("disc-resident")).toBeDefined();
   });
+
+  // test-plan #E5: boot discovery runs through `seedDiscoveredHistory`, so it
+  // also skips a sidecar-backed id and fails closed without an archive index.
+  // See change: fix-discovery-resurrects-archived.
+  it("skips a sidecar-backed id and seeds nothing without an archive index (E5)", async () => {
+    const sidecarFile = jsonl("disc-sidecar");
+    fs.writeFileSync(sidecarFile.replace(/\.jsonl$/, ".meta.json"), JSON.stringify({ archived: true }));
+    const plainFile = jsonl("disc-plain");
+    const discovered = (id: string, sessionFile: string) => ({
+      id, cwd: tmpCwd, startedAt: 1000, modifiedAt: 2000, sessionFile, sessionDir: tmpCwd,
+    });
+    const { discoverSessionsForCwd } = await import("../session/session-discovery.js");
+    vi.mocked(discoverSessionsForCwd).mockReturnValue([
+      discovered("disc-sidecar", sidecarFile),
+      discovered("disc-plain", plainFile),
+    ]);
+    service = createDirectoryService(createMockPrefs([tmpCwd]), createMockSessions(), undefined, {
+      changeWatcher: createStubWatcher() as any,
+    });
+    const run = async (sessionArchive: unknown) => {
+      const sessionManager = createMemorySessionManager();
+      const added: string[] = [];
+      await discoverAndBroadcastSessions({
+        sessionManager,
+        browserGateway: {
+          broadcastSessionAdded: (s: { id: string }) => added.push(s.id),
+          broadcastToAll: () => {},
+          broadcastOpenSpecUpdate: () => {},
+        } as never,
+        directoryService: service,
+        sessionArchive: sessionArchive as never,
+      });
+      return { sessionManager, added };
+    };
+
+    const withIndex = await run({ has: () => false });
+    expect(withIndex.sessionManager.get("disc-sidecar")).toBeUndefined();
+    expect(withIndex.added).toEqual(["disc-plain"]);
+
+    const noIndex = await run(undefined);
+    expect(noIndex.added).toEqual([]);
+    expect(noIndex.sessionManager.get("disc-plain")).toBeUndefined();
+  });
 });
