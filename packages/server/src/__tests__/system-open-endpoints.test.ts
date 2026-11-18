@@ -10,6 +10,7 @@
  *     element (no shell).
  */
 
+import fsSync from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -65,7 +66,8 @@ describe("POST /api/open-in-system + /api/reveal-in-file-manager (D10)", () => {
     const [cmd, args] = run.mock.calls[0];
     expect(cmd).toBe("open");
     expect(Array.isArray(args)).toBe(true);
-    expect(args).toEqual([path.join(tmp, "doc.txt")]);
+    // The opener gets the decided REAL path (macOS /var → /private/var). See change: close-local-listener-and-egress-gaps.
+    expect(args).toEqual([path.join(fsSync.realpathSync(tmp), "doc.txt")]);
   });
 
   it("X9 path escaping cwd → 403, no spawn", async () => {
@@ -127,7 +129,7 @@ describe("POST /api/open-in-system + /api/reveal-in-file-manager (D10)", () => {
     expect(cmd).toBe("open");
     // macOS reveal: ["-R", "<abs path with comma>"] — the path is ONE element.
     expect(args[0]).toBe("-R");
-    expect(args[1]).toBe(path.join(tmp, "a,b.txt"));
+    expect(args[1]).toBe(path.join(fsSync.realpathSync(tmp), "a,b.txt"));
     expect(args).toHaveLength(2);
   });
 });

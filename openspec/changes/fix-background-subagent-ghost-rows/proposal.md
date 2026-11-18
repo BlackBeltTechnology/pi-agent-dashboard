@@ -43,6 +43,7 @@ The result is a dock that shows false state and gives the user no way to correct
 
 ## Discipline Skills
 
-- `systematic-debugging`: the ghost rows are a multi-cause bug (shed end frame, unanswered stop, no reconcile); each cause needs evidence before its fix.
-- `performance-optimization`: the gateway's shed branch now defers a bounded copy of subagent frames on a saturated socket — a large-data path under `MAX_WS_BUFFER`.
-- `observability-instrumentation`: the new `deferredSubagentFrames` health counter and the stop-verdict / registry-snapshot frames make "why is this row still running" answerable.
+- `review-code` — non-trivial gateway + plugin change; review before commit.
+- `performance-optimization` — the gateway shed/defer path runs under socket backpressure (`MAX_WS_BUFFER`); the deferred copy must stay size-bounded.
+- `observability-instrumentation` — new `deferredSubagentFrames` health counter.
+- No `security-hardening` or `doubt-driven-review`-for-irreversible-step trigger: no auth/untrusted-input surface, no migration.

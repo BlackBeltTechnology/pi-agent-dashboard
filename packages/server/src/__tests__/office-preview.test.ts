@@ -3,12 +3,18 @@
  * See change: render-office-previews.
  */
 
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import Fastify, { type FastifyInstance } from "fastify";
 import iconv from "iconv-lite";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
+import { ContainmentBindingRefused } from "../lib/dashboard-state-guard.js";
 import {
   applyImageCap,
+  type DocxPdfEngine,
   hyperlinkGuard,
   OFFICE_CAPS,
   parseSheet,
@@ -16,6 +22,7 @@ import {
   pickCsvEncoding,
   resolveRowLimit,
 } from "../lib/office-preview.js";
+import { registerFileRoutes } from "../routes/file-routes.js";
 
 describe("hyperlinkGuard (design D2)", () => {
   it("sets href='' on a hyperlink with null href AND null anchor", () => {
@@ -211,5 +218,229 @@ describe("untrusted-content-ingestion: spreadsheet parser + caps (change: harden
     expect(OFFICE_CAPS.docxSizeCap).toBe(OFFICE_SIZE_CAPS.docx);
     expect(OFFICE_CAPS.pptxSizeCap).toBe(OFFICE_SIZE_CAPS.pptx);
     expect(OFFICE_CAPS.sheetSizeCap).toBe(OFFICE_SIZE_CAPS.sheet);
+  });
+});
+
+// ── decided-real binding at the route (change: close-local-listener-and-egress-gaps, D2) ──────────
+
+describe("office routes bind the converter + fallback read to the decided real path", () => {
+  const MARKER = "OUTSIDE-SECRET-MARKER-77c1";
+  const q = encodeURIComponent;
+  let app: FastifyInstance;
+  let base: string;
+  let cwd: string;
+  let outside: string;
+  let converted: { real: string; out: string }[];
+  let behaviour: (real: string, out: string, call: number) => Promise<void>;
+  let availableImpl: () => Promise<boolean>;
+
+  const engine: DocxPdfEngine = {
+    available: () => availableImpl(),
+    async toPdf(real, out) {
+      converted.push({ real, out });
+      await behaviour(real, out, converted.length);
+    },
+  };
+  const okPdf = async (_real: string, out: string) => {
+    await fsp.writeFile(out, "%PDF-1.4 clean");
+  };
+  /** Replace `target` with a different inode (new file first, then rename over: the old inode is still live). */
+  const swapInode = async (target: string, content = "swapped-in-different-file") => {
+    const next = `${target}.next`;
+    await fsp.writeFile(next, content);
+    await fsp.rename(next, target);
+  };
+  const render = (p: string) => app.inject({ method: "GET", url: `/api/file/render?cwd=${q(cwd)}&path=${q(p)}` });
+  const pdf = (p: string) => app.inject({ method: "GET", url: `/api/file/rendered-pdf?cwd=${q(cwd)}&path=${q(p)}` });
+  const exists = (p: string) =>
+    fsp.access(p).then(
+      () => true,
+      () => false,
+    );
+  const cachePathOf = async (rel: string) => {
+    const real = await fsp.realpath(path.join(cwd, rel));
+    const st = await fsp.stat(real);
+    return pdfCachePath(real, st.mtimeMs, st.size);
+  };
+
+  beforeEach(async () => {
+    base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "office-bind-")));
+    cwd = path.join(base, "cwd");
+    outside = path.join(base, "outside");
+    await fsp.mkdir(cwd);
+    await fsp.mkdir(outside);
+    await fsp.writeFile(path.join(outside, "secret.docx"), MARKER);
+    await fsp.writeFile(path.join(cwd, "a.docx"), "docx-a");
+    await fsp.writeFile(path.join(cwd, "real.docx"), "docx-real");
+    await fsp.symlink(path.join(cwd, "real.docx"), path.join(cwd, "l.docx"));
+    await fsp.writeFile(path.join(cwd, "deck.pptx"), "pptx-deck");
+    converted = [];
+    behaviour = okPdf;
+    availableImpl = async () => true;
+    app = Fastify({ logger: false });
+    registerFileRoutes(app, {
+      sessionManager: { listAll: () => [{ cwd }] } as never,
+      preferencesStore: { getPinnedDirectories: () => [] } as never,
+      networkGuard: async () => undefined,
+      docxPdfEngine: engine,
+    } as never);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await app.close();
+    await fsp.rm(base, { recursive: true, force: true });
+  });
+
+  it("T.40 toPdf receives the decided real path; two links to one file share one cache entry and one conversion", async () => {
+    const real = path.join(cwd, "real.docx");
+    expect((await pdf("a.docx")).statusCode).toBe(200);
+    expect(converted[0].real).toBe(path.join(cwd, "a.docx"));
+    expect((await pdf("l.docx")).statusCode).toBe(200);
+    expect(converted).toHaveLength(2);
+    expect(converted[1].real).toBe(real); // the link's decided real, never the link path
+    // `real.docx` itself: same decided real as `l.docx` → cache hit, no third conversion
+    const direct = await pdf("real.docx");
+    expect(direct.statusCode).toBe(200);
+    expect(converted).toHaveLength(2);
+    expect(direct.rawPayload.toString()).toContain("%PDF");
+    const st = await fsp.stat(real);
+    const key = pdfCachePath(real, st.mtimeMs, st.size);
+    expect(converted[1].out.startsWith(key.replace(/\.pdf$/, ""))).toBe(true); // keyed on the decided real
+    expect(await exists(key)).toBe(true);
+  });
+
+  it("T.153 inode swapped during conversion: output deleted, no cache entry, 403, no PDF byte streamed", async () => {
+    const key = await cachePathOf("a.docx");
+    behaviour = async (real, out) => {
+      await fsp.writeFile(out, "%PDF-POISON");
+      await swapInode(real);
+    };
+    const res = await pdf("a.docx");
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ success: false, error: "path outside working directory" });
+    expect(res.rawPayload.toString()).not.toContain("%PDF");
+    expect(await exists(converted[0].out)).toBe(false);
+    expect(await exists(key)).toBe(false);
+  });
+
+  it("T.154 a different dev (same ino) after conversion discards like an inode swap", async () => {
+    const key = await cachePathOf("a.docx");
+    behaviour = async (real, out) => {
+      await fsp.writeFile(out, "%PDF-POISON");
+      const realLstat = fsp.lstat.bind(fsp);
+      vi.spyOn(fsp, "lstat").mockImplementation((async (p: Parameters<typeof fsp.lstat>[0], ...rest: unknown[]) => {
+        const st = await (realLstat as (...a: unknown[]) => Promise<import("node:fs").Stats>)(p, ...rest);
+        if (p === real) st.dev += 1;
+        return st;
+      }) as typeof fsp.lstat);
+    };
+    const res = await pdf("a.docx");
+    vi.restoreAllMocks();
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ success: false, error: "path outside working directory" });
+    expect(res.rawPayload.toString()).not.toContain("%PDF");
+    expect(await exists(converted[0].out)).toBe(false);
+    expect(await exists(key)).toBe(false);
+  });
+
+  it("T.155 converter unavailable, a.docx replaced by a link to an outside file before the fallback read: 403, nothing rendered", async () => {
+    availableImpl = async () => {
+      const link = path.join(cwd, "a.docx.lnk");
+      await fsp.symlink(path.join(outside, "secret.docx"), link);
+      await fsp.rename(link, path.join(cwd, "a.docx"));
+      return false;
+    };
+    const res = await render("a.docx");
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ success: false, error: "path outside working directory" });
+    expect(res.body).not.toContain(MARKER);
+    expect(res.body).not.toContain("html");
+  });
+
+  it.each([
+    ["a.docx", "docx"],
+    ["deck.pptx", "pptx"],
+  ])("T.156 render of an admitted %s whose (dev,ino) changes in conversion: 403, no cache entry, later rendered-pdf never streams poison", async (rel) => {
+    const key = await cachePathOf(rel);
+    let first = true;
+    behaviour = async (real, out) => {
+      if (first) {
+        first = false;
+        await fsp.writeFile(out, "%PDF-POISON");
+        await swapInode(real);
+      } else {
+        await okPdf(real, out);
+      }
+    };
+    const res = await render(rel);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ success: false, error: "path outside working directory" });
+    expect(await exists(converted[0].out)).toBe(false);
+    expect(await exists(key)).toBe(false);
+    const later = await pdf(rel);
+    expect(later.rawPayload.toString()).not.toContain("POISON");
+    expect([200, 403]).toContain(later.statusCode);
+    if (later.statusCode === 200) expect(converted).toHaveLength(2); // re-converted, not served from a cache
+  });
+
+  describe("T.157 ContainmentBindingRefused thrown from inside the renderers maps to 403", () => {
+    const cases: [string, string, () => void][] = [
+      ["render docx, toPdf throws", "/api/file/render?path=a.docx", () => {
+        behaviour = async () => {
+          throw new ContainmentBindingRefused();
+        };
+      }],
+      ["render docx, available() throws", "/api/file/render?path=a.docx", () => {
+        availableImpl = async () => {
+          throw new ContainmentBindingRefused();
+        };
+      }],
+      ["render pptx, toPdf throws", "/api/file/render?path=deck.pptx", () => {
+        behaviour = async () => {
+          throw new ContainmentBindingRefused();
+        };
+      }],
+      ["render pptx, available() throws", "/api/file/render?path=deck.pptx", () => {
+        availableImpl = async () => {
+          throw new ContainmentBindingRefused();
+        };
+      }],
+      ["rendered-pdf, toPdf throws", "/api/file/rendered-pdf?path=a.docx", () => {
+        behaviour = async () => {
+          throw new ContainmentBindingRefused();
+        };
+      }],
+    ];
+    it.each(cases)("%s", async (_name, route, arrange) => {
+      arrange();
+      const [url, qs] = route.split("?");
+      const res = await app.inject({ method: "GET", url: `${url}?cwd=${q(cwd)}&${qs}` });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ success: false, error: "path outside working directory" });
+      expect(res.body).not.toContain('"mode"');
+    });
+  });
+
+  it("T.158 the discard of the swapped output fails (EPERM): still 403, not streamed, no cache entry", async () => {
+    const key = await cachePathOf("a.docx");
+    behaviour = async (real, out) => {
+      await fsp.writeFile(out, "%PDF-POISON");
+      await swapInode(real);
+      const eperm = () => Promise.reject(Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" }));
+      vi.spyOn(fsp, "rm").mockImplementation(eperm);
+      vi.spyOn(fsp, "unlink").mockImplementation(eperm);
+    };
+    const res = await pdf("a.docx");
+    vi.restoreAllMocks();
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ success: false, error: "path outside working directory" });
+    expect(res.rawPayload.toString()).not.toContain("%PDF");
+    expect(await exists(key)).toBe(false); // nothing ever published at the cache path
+    // …and the leftover cannot be served by a later request for the same (swapped) file
+    behaviour = okPdf;
+    const again = await pdf("a.docx");
+    expect(again.rawPayload.toString()).not.toContain("POISON");
   });
 });

@@ -28,7 +28,7 @@ This registers:
 - **Tools** the agent can call:
   | Tool | Purpose |
   |------|---------|
-  | `serve_mockup` | Serve a mockup dir over HTTP on `0.0.0.0`; returns clickable **local + LAN** URLs (LAN works on a phone). Zero deps. |
+  | `serve_mockup` | Serve a mockup dir (inside the session cwd) over HTTP, **loopback-only by default**; pass `lan:true` to also listen on the LAN (phone check). Returns token URLs (`http://localhost:<port>/<token>/`). Zero deps. **Breaking:** root-relative links like `/style.css` no longer resolve under the token prefix — use relative links (`style.css`). |
   | `score_mockup` | Capture full-page screenshots at mobile/tablet/desktop widths via Playwright; returns paths + a scoring rubric. With `system`, uses that preset's boolean rubric. |
   | `init_ui_contract` | Scaffold a token-referencing `ui-contract.md` consistency control plane. With `system`, write that preset's DTCG token contract. |
   | `list_design_systems` | Enumerate the selectable design-system presets. |

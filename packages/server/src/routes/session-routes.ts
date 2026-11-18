@@ -1,7 +1,7 @@
 /**
  * Session-related REST API routes.
  */
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { containmentAllows } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
 import type { SessionListItem } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { sessionUiPath } from "@blackbelt-technology/pi-dashboard-shared/session-ui-path.js";
@@ -536,7 +536,6 @@ export function registerSessionRoutes(
       }
       // Resolve and ensure path is within cwd
       const absPath = isAbsolute(filePath) ? filePath : resolve(session.cwd, filePath);
-      const rel = relative(session.cwd, absPath);
       // Dashboard-state + pi-agent credential refusal (real path, both tiers) BEFORE the in-cwd shortcut:
       // a session cwd of `$HOME` contains `.pi/agent/auth.json` and `.pi/dashboard/local/token`.
       // See change: close-security-map-high-findings (D1, F1).
@@ -544,30 +543,27 @@ export function registerSessionRoutes(
         reply.code(403);
         return { success: false, error: "path outside session directory" } satisfies ApiResponse;
       }
-      let viaGrant = false;
-      if (rel.startsWith("..") || isAbsolute(rel)) {
-        // The tenth containment site (design D19). A path grant admits here
-        // exactly as it does at the file-routes sites; the refusal string is
-        // unchanged when no grant covers it.
-        const sessionDecision = await evaluateContainment(absPath, [session.cwd], {
-          site: "session-routes:session-file",
-          hold: { request, reply },
-          disclosure: canDiscloseAccessPosture(request),
-          session: sessionId,
-        });
-        if (!containmentAllows(sessionDecision, absPath)) {
-          reply.code(403);
-          return { success: false, error: "path outside session directory", ...sessionDecision.remedy } as ApiResponse;
-        }
-        viaGrant = sessionDecision.viaGrant;
+      // Always decided by the gate (no lexical in-cwd shortcut: an in-cwd link to an outside file must not
+      // be served). A path grant admits here exactly as at the file-routes sites; the refusal string is
+      // unchanged when no grant covers it. See change: close-local-listener-and-egress-gaps (D1).
+      const sessionDecision = await evaluateContainment(absPath, [session.cwd], {
+        site: "session-routes:session-file",
+        hold: { request, reply },
+        disclosure: canDiscloseAccessPosture(request),
+        session: sessionId,
+      });
+      if (!containmentAllows(sessionDecision, absPath)) {
+        reply.code(403);
+        return { success: false, error: "path outside session directory", ...sessionDecision.remedy } as ApiResponse;
       }
+      const viaGrant = sessionDecision.viaGrant;
       try {
         // A grant-admitted read is verified against the open handle (design D14,
         // task 2.8): without it a granted FIFO would block this read, and a path
         // swapped after the containment check would be served.
         const content = viaGrant
-          ? await readFileVerifiedUtf8(absPath)
-          : await readFileStateChecked(absPath, "utf-8");
+          ? await readFileVerifiedUtf8(sessionDecision.real, { decidedReal: sessionDecision.real })
+          : await readFileStateChecked(sessionDecision.real, "utf-8", { decidedReal: sessionDecision.real });
         return { success: true, data: { content } } satisfies ApiResponse;
       } catch (err) {
         if (err instanceof VerifiedReadRefused || err instanceof DashboardStateRefused) {

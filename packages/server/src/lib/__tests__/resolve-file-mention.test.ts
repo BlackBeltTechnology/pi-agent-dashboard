@@ -131,4 +131,24 @@ describe("resolveFileMention", () => {
       kind: "tilde",
     });
   });
+
+  // T.8 (close-local-listener-and-egress-gaps): the mention site decides on REAL paths, passively.
+  it("T.8 a mention through an escaping link is null, through an in-anchor link resolves; no denial recorded", async () => {
+    const outside = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "rfm-esc-")));
+    try {
+      await fsp.writeFile(path.join(outside, "secret.txt"), "SECRET");
+      await fsp.symlink(path.join(outside, "secret.txt"), path.join(cwd, "esc"));
+      await fsp.writeFile(path.join(cwd, "real.txt"), "ok");
+      await fsp.symlink(path.join(cwd, "real.txt"), path.join(cwd, "inl"));
+
+      expect(await resolveFileMention("esc", { cwd })).toBeNull();
+      expect(await resolveFileMention(path.join(cwd, "esc"), { cwd })).toBeNull();
+      expect(await resolveFileMention("inl", { cwd })).toEqual({ resolved: path.join(cwd, "inl"), kind: "relative" });
+
+      const { listPathDenials } = await import("../../access/access-denials.js");
+      expect(listPathDenials()).toEqual([]);
+    } finally {
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
+  });
 });

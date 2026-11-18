@@ -73,6 +73,21 @@ describe("GET /api/file/tree", () => {
     expect(byName["src-link"]).toBe(true);
   });
 
+  it("T.17 a link to an outside directory is refused with 403 and names no entries (close-local-listener-and-egress-gaps)", async () => {
+    const outside = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "ft-outside-")));
+    try {
+      await fsp.writeFile(path.join(outside, "SECRET-ENTRY-NAME.txt"), "x");
+      await fsp.symlink(outside, path.join(cwd, "d"));
+      const res = await tree(app, cwd, "d");
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ success: false, error: "path outside working directory" });
+      expect(res.body).not.toContain("SECRET-ENTRY-NAME");
+      expect(res.json().data).toBeUndefined();
+    } finally {
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it("rejects path traversal with 403", async () => {
     const res = await tree(app, cwd, "../..");
     expect(res.statusCode).toBe(403);
