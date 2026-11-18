@@ -17,7 +17,12 @@
 # Needs a repo checkout with deps installed (the shipped package excludes tests).
 # Exit 77 = precondition not met (no checkout / no tsx) - loud SKIP, not FAIL.
 #
-# See change: encrypt-credentials-at-rest (test-plan E64).
+# harden-agent-tool-guards (T.130, test-plan #X22): also probes the pi provider secrets
+# (`~\.pi\agent\auth.json`): normal and mixed-case spellings MUST be blocked; the 8.3 short
+# name and the `::$DATA` stream are DOCUMENTED RESIDUALS - their current outcome is printed
+# ("residual: ..."), never asserted as protected.
+#
+# See change: encrypt-credentials-at-rest (test-plan E64); harden-agent-tool-guards.
 $ErrorActionPreference = "Stop"
 
 Write-Host "=== Test: credential guard on win32 paths ==="
@@ -56,11 +61,27 @@ for (const [name, tool, input] of [
   const r = run(tool, input);
   if (!r?.block || !/credential_guard/.test(r.reason ?? "")) failures.push(`${name}: not blocked (${JSON.stringify(r)})`);
 }
+const auth = path.join(home, ".pi", "agent", "auth.json");
+for (const [name, p] of [
+  ["auth.json", auth],
+  ["auth.json mixed case", auth.replace(/auth\.json$/, "AuTh.JSoN").replace(/\.pi/, ".PI")],
+] as const) {
+  const r = run("read", { path: p });
+  if (!r?.block || !/credential_guard/.test(r.reason ?? "")) failures.push(`${name}: not blocked (${JSON.stringify(r)})`);
+}
+// Documented residuals (X22): record, do not claim.
+for (const [name, p] of [
+  ["8.3 short name", path.join(home, ".pi", "agent", "AUTH~1.JSON")],
+  ["::$DATA stream", `${auth}::$DATA`],
+] as const) {
+  const r = run("read", { path: p });
+  console.log(`residual: ${name} -> ${r?.block ? "blocked" : "not blocked"}`);
+}
 const ok = run("read", { path: path.join(home, ".pi", "agent", "settings.json") });
 if (ok?.block) failures.push("settings.json was blocked (false positive)");
 if (logs.some((l) => l.includes(vault))) failures.push("a log line carries the path");
 if (failures.length > 0) { console.error(failures.join("\n")); process.exit(1); }
-console.log("guard blocked 4/4 vault forms and passed settings.json");
+console.log("guard blocked 4/4 vault forms + 2 auth.json forms and passed settings.json");
 '@ | Set-Content -Path $probe -Encoding utf8
 
 $failed = $false

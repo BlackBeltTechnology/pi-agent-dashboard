@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { nearestRecordedEntry } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-snapshot.js";
 import { describe, expect, it } from "vitest";
 import { createHostProjectTrust, type DefaultProjectTrust, loadHostProjectTrust } from "../pi/host-project-trust.js";
 import { getPiCore } from "../pi/pi-resource-activation.js";
@@ -260,4 +261,32 @@ describe("pi 1.5 order against the real installed pi (#X2 #P2)", () => {
     expect(svc.projectTrustSource(proj)).toBeUndefined();
     expect(max).toBeLessThanOrEqual(250);
   }, 20_000);
+});
+
+describe("harden-agent-tool-guards: server-side consumer follows the same resolution (T.66, T.67)", () => {
+  const mirrorEntry = (cwd: string) => ({ kind: "dashboard" as const, sourceKind: "pinned" as const, entry: cwd });
+
+  it("T.66 mirror disabled: a pinned folder with nothing recorded decides as pi does (default ask → untrusted); no store write", () => {
+    const writes: string[] = [];
+    const host = createHostProjectTrustService({
+      hasTrustRequiringResources: () => true,
+      recordedEntry: () => null,
+      defaultProjectTrust: () => "ask",
+      mirror: { enabled: () => false, covering: (cwd: string) => (writes.push(cwd), mirrorEntry(cwd)) as never },
+    });
+    for (let i = 0; i < 50; i++) expect(host.isProjectTrusted("/r")).toBe(false);
+    expect(writes).toEqual([]); // mirror never consulted while disabled
+  });
+
+  it("T.67 a nearer recorded `true` beats a farther `false`; any recorded entry stops the mirror", () => {
+    const data = { "/a": false, "/a/b": true };
+    const host = createHostProjectTrustService({
+      hasTrustRequiringResources: () => true,
+      recordedEntry: (cwd: string) => nearestRecordedEntry(data, cwd) as never,
+      defaultProjectTrust: () => "ask",
+      mirror: { enabled: () => true, covering: (cwd: string) => mirrorEntry(cwd) as never },
+    });
+    expect(host.isProjectTrusted("/a/b/c")).toBe(true);
+    expect(host.isProjectTrusted("/a/x")).toBe(false); // recorded false at /a wins over a pin
+  });
 });

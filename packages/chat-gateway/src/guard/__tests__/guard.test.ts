@@ -103,3 +103,69 @@ describe("createToolCallGuard", () => {
     expect(result?.block).toBe(true);
   });
 });
+
+// ── harden-agent-tool-guards D6: readiness announcement (T.88) ───────────────────────────────
+import chatGatewayGuard, { tokenFromEnv } from "../index.js";
+
+describe("T.88 readiness announcement at session_start", () => {
+  function fakePi() {
+    const handlers: Record<string, Array<(...a: unknown[]) => unknown>> = {};
+    const order: string[] = [];
+    const emitted: Array<{ name: string; payload: unknown }> = [];
+    const pi = {
+      on: (event: string, h: (...a: unknown[]) => unknown) => {
+        (handlers[event] ??= []).push(h);
+        order.push(`on:${event}`);
+      },
+      events: { emit: (name: string, payload: unknown) => (emitted.push({ name, payload }), order.push(`emit:${name}`)) },
+    };
+    return { pi, handlers, order, emitted };
+  }
+  const withEnv = (env: Record<string, string | undefined>, fn: () => void) => {
+    const prev = { t: process.env.PI_EXT_CHAT_GATEWAY_GUARD_TOKEN, p: process.env.PI_EXT_CHAT_GATEWAY_GUARD_POLICY };
+    for (const [k, v] of Object.entries(env)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+    try {
+      fn();
+    } finally {
+      for (const [k, v] of [["PI_EXT_CHAT_GATEWAY_GUARD_TOKEN", prev.t], ["PI_EXT_CHAT_GATEWAY_GUARD_POLICY", prev.p]] as const) {
+        v === undefined ? delete process.env[k] : (process.env[k] = v);
+      }
+    }
+  };
+
+  it("token set: exactly one dashboard:plugin-message with the token, emitted at session_start after the tool_call handler is registered", () => {
+    withEnv({ PI_EXT_CHAT_GATEWAY_GUARD_TOKEN: "t1" }, () => {
+      const { pi, handlers, order, emitted } = fakePi();
+      chatGatewayGuard(pi as never);
+      expect(emitted).toEqual([]); // nothing at factory time
+      expect(order[0]).toBe("on:tool_call");
+      handlers.session_start[0]();
+      expect(emitted).toEqual([
+        { name: "dashboard:plugin-message", payload: { pluginId: "chat-gateway", messageType: "chat_gateway_guard_ready", payload: { token: "t1" } } },
+      ]);
+    });
+  });
+
+  it("unset or empty token: no session_start handler, nothing announced", () => {
+    for (const token of [undefined, ""]) {
+      withEnv({ PI_EXT_CHAT_GATEWAY_GUARD_TOKEN: token }, () => {
+        const { pi, handlers, emitted } = fakePi();
+        chatGatewayGuard(pi as never);
+        expect(handlers.session_start).toBeUndefined();
+        expect(emitted).toEqual([]);
+        expect(tokenFromEnv()).toBeUndefined();
+      });
+    }
+  });
+
+  it("an unparseable policy still announces and denies every tool", async () => {
+    const { pi, handlers, emitted } = fakePi();
+    withEnv({ PI_EXT_CHAT_GATEWAY_GUARD_TOKEN: "t2", PI_EXT_CHAT_GATEWAY_GUARD_POLICY: "{not json" }, () => {
+      chatGatewayGuard(pi as never);
+      handlers.session_start[0]();
+    });
+    expect(emitted).toHaveLength(1);
+    const result = await handlers.tool_call[0]({ toolName: "read" }, { ui: { confirm: async () => true } });
+    expect(result).toMatchObject({ block: true });
+  });
+});

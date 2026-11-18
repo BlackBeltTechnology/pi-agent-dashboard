@@ -71,6 +71,7 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - `guardExtension`: package subpath or absolute path; required for loading.
 - Decision engine: `allow` > `approval` > `defaultAction` (`"deny"` default or `"approve"`).
 - Fail-closed: returns `{ block: true }` on pi `tool_call` event. Requires extension `priority <= 100`.
+- Guard contract (readiness handshake, change: harden-agent-tool-guards D6): guard emits `chat_gateway_guard_ready` + token over `dashboard:plugin-message` at `session_start` (token env `PI_EXT_CHAT_GATEWAY_GUARD_TOKEN` = `extensionConfig["chat-gateway-guard"].token`). Gateway holds the triggering message (no `initialPrompt`), delivers via `send_prompt` only on own token AND sender == resolved session, persists the binding only on release. 30 000 ms window → `shutdownSession` + "session refused: its tool guard did not start". No `registerPiHandler` → guarded spawn refused. Custom guard MUST announce (BREAKING). No `toolPolicy` = full tool set by design.
 
 ## Inspection Endpoint
 - `GET /api/chat-gateway/bindings`: active when configured and running (404 otherwise).

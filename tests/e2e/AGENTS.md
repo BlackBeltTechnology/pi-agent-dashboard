@@ -12,6 +12,7 @@ One row per file.
 | `acp-spawn-picker.spec.ts` | → `acp-spawn-picker.spec.ts.AGENTS.md` |
 | `agent-credential-refusal.spec.ts` | → `agent-credential-refusal.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → `agent-path-gate.spec.ts.AGENTS.md` |
+| `agent-secret-guards.spec.ts` | → `agent-secret-guards.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → `archived-attachment.spec.ts.AGENTS.md` |
@@ -67,6 +68,7 @@ One row per file.
 | `provider-models-refresh.spec.ts` | → `provider-models-refresh.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | → `push-webhook-settings.spec.ts.AGENTS.md` |
 | `README.md` | → `README.md.AGENTS.md` |
+| `access-credential-dirs.spec.ts` | → `access-credential-dirs.spec.ts.AGENTS.md` |
 | `fixtures/severity-baseline.json` | → `fixtures/severity-baseline.json.AGENTS.md` |
 | `fixtures/trusted-types-budget.json` | → `fixtures/trusted-types-budget.json.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | → `access-grants-revoke.spec.ts.AGENTS.md` |
@@ -313,3 +315,5 @@ One row per file.
 | `card-visual-effects.spec.ts` | → `card-visual-effects.spec.ts.AGENTS.md` |
 | `focus-mode.spec.ts` | → `focus-mode.spec.ts.AGENTS.md` |
 | `folder-accordion.spec.ts` | → `folder-accordion.spec.ts.AGENTS.md` |
+| `untrusted-content-guard-posture.spec.ts` | → `untrusted-content-guard-posture.spec.ts.AGENTS.md` |
+| `untrusted-content-guard-project-layer.spec.ts` | → `untrusted-content-guard-project-layer.spec.ts.AGENTS.md` |

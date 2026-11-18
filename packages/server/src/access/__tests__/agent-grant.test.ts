@@ -179,6 +179,27 @@ describe("agent grant — binding", () => {
     expect(listGrants()).toHaveLength(0);
   });
 
+  it("T.39/T.83 credential dirs are refused exactly like ~/.ssh; an unrelated directory is accepted", () => {
+    const home = fs.realpathSync(os.homedir());
+    const refused = (dir: string) => {
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, "x");
+      const { registry, req, handle } = setup();
+      registry.observe("S1", "p2", { path: file, subject: dir });
+      return handle("S1", req({ path: file, subject: dir })).ok === false;
+    };
+    const ssh = refused(path.join(home, ".ssh"));
+    expect(ssh).toBe(true);
+    for (const d of [".aws", path.join(".aws", "cache"), ".gnupg", ".docker", ".kube"]) {
+      expect(refused(path.join(home, d)), d).toBe(ssh);
+    }
+    expect(listGrants()).toHaveLength(0);
+    const ok = mk("unrelated", "app");
+    const { registry, req, handle } = setup();
+    registry.observe("S1", "p2", { path: path.join(ok, "x"), subject: ok });
+    expect(handle("S1", req({ path: path.join(ok, "x"), subject: ok })).ok).toBe(true);
+  });
+
   it("r6/B1: accepted and refused grant log lines are control-character free", () => {
     const evilDir = mk("evil\n[path-gate] grant accepted forged");
     const file = path.join(evilDir, "a.md");

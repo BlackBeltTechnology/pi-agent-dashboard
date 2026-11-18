@@ -36,6 +36,30 @@ The folder decision SHALL be: a cwd with no trust-requiring project resources is
 - **WHEN** nothing is recorded for `/r`, `/r` has `.pi/mcp.json`, and `/r` is trusted "until dashboard restarts" only
 - **THEN** the server-side folder decision for `/r` SHALL be trusted with source "worktree-init (until dashboard restarts)"
 
+#### Scenario: Recorded refusal applies to a folder without project resources
+- **WHEN** `trust.json` records `/r: false` and `/r` has no trust-requiring project resources
+- **THEN** `/r` SHALL be untrusted with source `/r`
+- **AND** a dashboard trust entry covering `/r` SHALL NOT change that
+
+#### Scenario: Windows recorded refusal saved with different casing still wins
+- **WHEN** on Windows `trust.json` records `C:\Work\Repo: false`, the folder has `.pi/settings.json` and is pinned, and the bridge's key for the session cwd is `c:\work\repo`
+- **THEN** the folder decision SHALL be untrusted with source `C:\Work\Repo`
+- **AND** the bridge SHALL return undecided at `project_trust` and log the reason code `recorded-entry`
+
+#### Scenario: Non-normalised recorded refusal still wins
+- **WHEN** `trust.json` records `/r/: false` (a trailing separator), `/r` has `.pi/settings.json`, and `/r` is pinned
+- **THEN** `/r` SHALL be untrusted with source `/r/`
+- **AND** the bridge SHALL return undecided at `project_trust` and log the reason code `recorded-entry`
+
+#### Scenario: Nothing recorded and no project resources is implicit
+- **WHEN** `trust.json` records nothing for `/r` or any ancestor, `/r` has no trust-requiring project resources, and `defaultProjectTrust` is `never`
+- **THEN** `/r` SHALL be trusted with source "implicit"
+
+#### Scenario: Held trust lock fails closed within a bound
+- **WHEN** pi's trust lock file is held for the whole call and the server decides `/r`, which has no trust-requiring project resources
+- **THEN** `/r` SHALL be untrusted with no source
+- **AND** each server-side decision SHALL return within 250 ms
+
 ### Requirement: The bridge decides at project_trust from the snapshot
 
 At pi's `project_trust` event the bridge SHALL read `piTrustMirror` from the dashboard config file, pi's trust store file without taking pi's lock, with pi's own reading rules (a leading byte-order mark stripped, `null` values treated as absent; any other read, parse or shape-validation failure yields undecided; an absent file means nothing recorded), and the server-written snapshot, without caching any of them across events, and SHALL return trusted for this run only (never remembered) when the folder decision yields dashboard trust, else undecided. It SHALL contact the server only through the live trust query and only under that query's conditions; when the snapshot covers the cwd it SHALL NOT contact the server. Only dashboard-spawned headless sessions SHALL consult dashboard trust unconditionally; every other session (interactive, or headless not spawned by the dashboard) SHALL consult it only when `piTrustMirror.coverInteractive` is true. Whether a session is dashboard-spawned SHALL be captured once at bridge activation from the single-use spawn token, which the bridge SHALL remove from its process environment at activation, so a pi process started later by the agent never qualifies. Every error SHALL yield undecided. An undecided outcome that withholds trust a dashboard-spawned session would otherwise have had SHALL be logged with one reason code from: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `identity-weak`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered`, `not-covered-session`, `live-timeout`, `live-unreachable`, `live-refused`, `live-unsupported`, `live-rate-limited`, `live-not-covered`, `live-error`. With a snapshot of 1,000 entries and a cwd 20 levels deep, the snapshot part of the handler's decision SHALL complete with p95 below 20 ms. A bridge undecided only avoids a wrong yes: when pi's store is unreadable, pi's own startup may still fail on it.

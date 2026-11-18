@@ -38,12 +38,25 @@
  * each other's grants. The dashboard is one server per machine and the override
  * exists for tests, so no lock is taken; see design.md D-format-1.
  *
- * See change: add-access-grants-and-review.
+ * **Rows this build does not admit are preserved** (harden-agent-tool-guards D7). A persisted row
+ * that is now forbidden (a credential dir, or a directory containing one), unrecognised or of
+ * another scope is kept as a raw side list and written back verbatim after the admitted grants by
+ * BOTH writers (`recordGrant`, `revokeGrant`), so reverting the build restores it. The cap counts
+ * admitted grants only. Whole-file states: invalid JSON / no `grants` / `version !== 1` is moved aside
+ * to `<file>.corrupt-<UTC ts>` by `recordGrant` before a fresh store is written (`revokeGrant` writes
+ * nothing); a file over `GRANT_STORE_MAX_BYTES` is neither loaded nor rewritten.
+ *
+ * See change: add-access-grants-and-review; harden-agent-tool-guards.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
-import { isUngrantableSubject } from "./forbidden-subjects.js";
+import {
+  forbiddenGrantSubjects,
+  isForbiddenGrantSubject,
+  isUngrantableSubject,
+  subsumesForbiddenGrantSubject,
+} from "./forbidden-subjects.js";
 
 /**
  * Notified after a PERSISTED grant is written or revoked. Feeds the pi-trust
@@ -131,6 +144,12 @@ export interface AccessGrant {
 /** D10: fixed cap, per scope. */
 export const GRANT_CAP_PER_SCOPE = 200;
 
+/**
+ * Ceiling on the store file (1 MiB). Bounds the raw rows kept for write-back: a larger file is
+ * neither loaded nor rewritten (the write fails, the file stays untouched, one log line).
+ */
+export const GRANT_STORE_MAX_BYTES = 1_048_576;
+
 interface StoreFile {
   version: 1;
   grants: AccessGrant[];
@@ -153,12 +172,24 @@ export function accessGrantsStorePath(): string {
  */
 let cache: AccessGrant[] | null = null;
 const sessionGrants: AccessGrant[] = [];
+/**
+ * Rows of the loaded file this build does NOT admit (now-forbidden, unrecognised, wrong scope),
+ * as parsed. Written back verbatim after the admitted grants. Empty unless `storeState` is "ok".
+ */
+let rawRejected: unknown[] = [];
+/** "invalid" = bad JSON / no `grants` / `version !== 1`; "oversize" = over `GRANT_STORE_MAX_BYTES`. */
+let storeState: "ok" | "invalid" | "oversize" = "ok";
+/** Now-forbidden subjects already logged in this process (one line per subject). */
+const loggedForbidden = new Set<string>();
 
 /** Test seam: drop the cache and the in-memory session grants (simulates restart). */
 export function __resetAccessGrants(): void {
   cache = null;
   sessionGrants.length = 0;
   loadCount = 0;
+  rawRejected = [];
+  storeState = "ok";
+  loggedForbidden.clear();
 }
 
 /** Test seam: how many times the store file has been read in this process. */
@@ -171,13 +202,20 @@ function emptyStore(): AccessGrant[] {
   return [];
 }
 
-/** Absent, unreadable or malformed → empty (never throws). */
-function loadFromDisk(): AccessGrant[] {
-  loadCount += 1;
-
-  let raw: string;
+/**
+ * The store file's text, or `null` when there is none to parse (missing, unreadable, oversize). Oversize
+ * sets `storeState`: such a file is not loaded (zero raw rows retained) and never rewritten.
+ */
+function readStoreText(file: string): string | null {
+  // A failing stat (missing / unreadable file) is left to the read below to report.
   try {
-    raw = fs.readFileSync(accessGrantsStorePath(), "utf8");
+    if (fs.statSync(file).size > GRANT_STORE_MAX_BYTES) return markOversizeText();
+  } catch {
+    /* reported by the read */
+  }
+  try {
+    const raw = fs.readFileSync(file, "utf8");
+    return Buffer.byteLength(raw, "utf8") > GRANT_STORE_MAX_BYTES ? markOversizeText() : raw;
   } catch (err) {
     // A MISSING store is the ordinary first-run case and stays quiet. Any other
     // read failure is reported: an unreadable store empties the granted set, and
@@ -185,69 +223,145 @@ function loadFromDisk(): AccessGrant[] {
     if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
       console.warn(`[access-grants] store unreadable: ${(err as Error)?.message}`);
     }
-    return emptyStore();
+    return null;
   }
+}
 
+/** Parse the store file; `null` marks it invalid (bad JSON, no `grants`, or a version this build refuses). */
+function parseStore(raw: string): StoreFile | null {
   let parsed: StoreFile;
   try {
     parsed = JSON.parse(raw) as StoreFile;
   } catch {
     console.warn("[access-grants] store is not valid JSON — treating as empty");
-    return emptyStore();
+    return null;
   }
-
-  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.grants)) return emptyStore();
-
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.grants)) return null;
   // Refuse an unknown version outright. Reading a future file as if it were v1
   // would misinterpret it silently; refusing empties the granted set, which
   // fails CLOSED (narrower, never wider) and is logged.
   if (parsed.version !== 1) {
     console.warn(`[access-grants] unknown store version ${String(parsed.version)} — refusing to read`);
-    return emptyStore();
+    return null;
   }
+  return parsed;
+}
 
-  const valid = parsed.grants
-    .filter(
-      (g): g is AccessGrant =>
-        !!g &&
-        typeof g === "object" &&
-        typeof g.subject === "string" &&
-        g.subject.length > 0 &&
-        // Only `project` scope is persisted. Accepting a `session` entry here
-        // would resurrect it across restarts (contradicting "session = until
-        // server restart") and leave it unrevocable through the scoped API,
-        // which only touches the in-memory list.
-        g.scope === "project" &&
-        // `NaN`/`Infinity` pass a bare `typeof` check and would poison the
-        // eviction sort, so require a finite number.
-        typeof g.grantedAt === "number" &&
-        Number.isFinite(g.grantedAt),
-    )
-    .map((g) => {
-      const { mode: _mode, ...rest } = g;
+/**
+ * Split the file's rows into admitted grants and `rawRejected`. The forbidden filter must hold for values
+ * ALREADY ON DISK, not only for ones arriving through `recordGrant`. The forbidden list grew, so a store
+ * legitimately written by an older build can contain a subject this build must refuse; a store copied
+ * between machines can too (a different `$HOME` yields a different `sensitive` set). Without this, a single
+ * on-disk `"/"` admits every path on the machine. The sets are built once per load, not once per row.
+ */
+function admitRows(rows: unknown[]): AccessGrant[] {
+  const sets = forbiddenGrantSubjects();
+  const valid: AccessGrant[] = [];
+  for (const g of rows) {
+    if (!isGrantShaped(g)) {
+      rawRejected.push(g);
+    } else if (isForbiddenGrantSubject(g.subject, undefined, sets) || subsumesForbiddenGrantSubject(g.subject, undefined, sets)) {
+      rawRejected.push(g);
+      logNowForbidden(g.subject);
+    } else {
+      const { mode: rawMode, ...rest } = g;
       // Normalise `mode` fail-closed: only the exact string "write" survives (a hostile or
       // hand-edited value of any other shape is a read grant). No rewrite happens on load.
-      return {
+      valid.push({
         ...rest,
         origin: typeof g.origin === "string" ? g.origin : "unknown",
-        ...(_mode === "write" ? { mode: "write" as const } : {}),
-      };
-    })
-    // The forbidden filter must hold for values ALREADY ON DISK, not only for
-    // ones arriving through `recordGrant`. The forbidden list grew during
-    // planning, so a store legitimately written by an older build can contain a
-    // subject this build must refuse; a store copied between machines can too
-    // (a different `$HOME` yields a different `sensitive` set). Without this, a
-    // single on-disk `"/"` admits every path on the machine.
-    .filter((g) => !isUngrantableSubject(g.subject));
+        ...(rawMode === "write" ? { mode: "write" as const } : {}),
+      });
+    }
+  }
+  return valid;
+}
 
+/** Absent, unreadable or malformed → empty (never throws). Sets `rawRejected` / `storeState`. */
+function loadFromDisk(): AccessGrant[] {
+  loadCount += 1;
+  rawRejected = [];
+  storeState = "ok";
+  const raw = readStoreText(accessGrantsStorePath());
+  if (raw === null) return emptyStore();
+  const parsed = parseStore(raw);
+  if (!parsed) return markInvalid();
+  const valid = admitRows(parsed.grants as unknown[]);
   // The cap is a property of the STORE, not of the write path: a hand-edited or
   // hostile file with 100k grants would otherwise be admitted in full, growing
-  // the hot path's Set per request and memory without bound.
+  // the hot path's Set per request and memory without bound. It counts ADMITTED
+  // grants only (preserved rows do not cause eviction).
   // Load does not spare provisioned grants: the bound wins, so a hostile file
   // full of `via: "provision"` entries still cannot grow the Set.
   enforceCap(valid, "project");
   return valid;
+}
+
+function markOversizeText(): null {
+  storeState = "oversize";
+  console.warn(`[access-grants] store exceeds ${GRANT_STORE_MAX_BYTES} bytes — not loaded, not rewritten`);
+  return null;
+}
+
+function markInvalid(): AccessGrant[] {
+  storeState = "invalid";
+  return emptyStore();
+}
+
+/** One log line per now-forbidden subject per process; the subject path only. */
+function logNowForbidden(subject: string): void {
+  if (loggedForbidden.has(subject)) return;
+  loggedForbidden.add(subject);
+  console.warn(`[access-grants] grant subject=${JSON.stringify(subject)} is forbidden by this build: not admitted, kept in the store`);
+}
+
+/**
+ * A row this build can admit structurally. Only `project` scope is persisted: accepting a `session`
+ * entry would resurrect it across restarts (contradicting "session = until server restart") and
+ * leave it unrevocable through the scoped API. `NaN`/`Infinity` pass a bare `typeof` check and
+ * would poison the eviction sort, so `grantedAt` must be finite.
+ */
+function isGrantShaped(g: unknown): g is AccessGrant {
+  if (!g || typeof g !== "object") return false;
+  const r = g as Record<string, unknown>;
+  return (
+    typeof r.subject === "string" &&
+    r.subject.length > 0 &&
+    r.scope === "project" &&
+    typeof r.grantedAt === "number" &&
+    Number.isFinite(r.grantedAt)
+  );
+}
+
+/** Serialise the store: admitted grants, then every preserved raw row, unchanged. */
+function serializeStore(admitted: AccessGrant[]): string {
+  return JSON.stringify({ version: 1, grants: [...admitted, ...rawRejected] }, null, 2);
+}
+
+/**
+ * Whole-file states before a WRITE. `oversize` → refuse (file untouched). `invalid` → move the old
+ * file aside to `<file>.corrupt-<UTC ts>` (never overwrite it); a failed move refuses the write.
+ */
+function prepareStoreWrite(): { ok: true } | { ok: false; error: string } {
+  const file = accessGrantsStorePath();
+  if (storeState === "oversize") {
+    console.warn(`[access-grants] store exceeds ${GRANT_STORE_MAX_BYTES} bytes — write refused`);
+    return { ok: false, error: "store too large" };
+  }
+  if (storeState === "invalid") {
+    const ts = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+    const aside = `${file}.corrupt-${ts}`;
+    try {
+      fs.renameSync(file, aside);
+    } catch (err) {
+      console.warn(`[access-grants] could not move the unusable store aside: ${(err as Error)?.message}`);
+      return { ok: false, error: "store unusable" };
+    }
+    console.warn(`[access-grants] unusable store moved aside to ${aside}`);
+    storeState = "ok";
+    rawRejected = [];
+  }
+  return { ok: true };
 }
 
 /** Cached persisted grants. Never reads on a warm cache — this is the containment path. */
@@ -456,23 +570,31 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
     return { ok: true, grant };
   }
 
+  return recordProjectGrant(subject, mode, buildGrant({ subject, scope, grantedAt, origin }, widen, input.via, mode), input.evict);
+}
+
+/** The persisted (`project`) scope of `recordGrant`: cap, whole-file state, atomic write-back with the preserved rows. */
+function recordProjectGrant(
+  subject: string,
+  mode: GrantMode,
+  grant: AccessGrant,
+  evict: boolean | undefined,
+): RecordGrantResult {
   const grants = [...persisted()];
   const existing = grants.find((g) => g.subject === subject && modeOf(g) === mode);
   if (existing) return { ok: true, grant: existing };
-  const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via, mode);
   grants.push(grant);
-  if (!enforceCap(grants, "project", { protect: grant, evict: input.evict, spareProvisioned: true })) {
+  if (!enforceCap(grants, "project", { protect: grant, evict, spareProvisioned: true })) {
     return { ok: false, error: "capacity" };
   }
 
-  const file: StoreFile = { version: 1, grants };
+  const prepared = prepareStoreWrite();
+  if (!prepared.ok) return { ok: false, error: prepared.error };
   try {
-    writeAtomic(accessGrantsStorePath(), JSON.stringify(file, null, 2));
+    writeAtomic(accessGrantsStorePath(), serializeStore(grants));
   } catch (err) {
     // Not recorded. Cache untouched, so the admitted set cannot widen (D11).
-    console.warn(
-      `[access-grants] failed to persist grant for ${subject}: ${(err as Error)?.message}`,
-    );
+    console.warn(`[access-grants] failed to persist grant for ${subject}: ${(err as Error)?.message}`);
     return { ok: false, error: (err as Error)?.message ?? "write failed" };
   }
   cache = grants;
@@ -511,8 +633,11 @@ export function revokeGrant(subject: string, scope?: GrantScope, mode?: unknown)
   const grants = persisted();
   const kept = grants.filter((g) => !matches(g));
   if (kept.length === grants.length) return removed;
+  // Nothing was admitted from an unusable / oversize file, so there is nothing to revoke (and
+  // `kept` can only differ from `grants` for a usable store): a revoke never writes such a file.
+  if (storeState !== "ok") return removed;
   try {
-    writeAtomic(accessGrantsStorePath(), JSON.stringify({ version: 1, grants: kept } satisfies StoreFile, null, 2));
+    writeAtomic(accessGrantsStorePath(), serializeStore(kept));
   } catch (err) {
     console.warn(
       `[access-grants] failed to persist revoke for ${target}: ${(err as Error)?.message}`,

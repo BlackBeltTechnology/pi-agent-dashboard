@@ -175,6 +175,7 @@ describe("getRecommendedByStatus", () => {
 				"pi-web-access",
 				"context-mode",
 				"@blackbelt-technology/pi-dashboard-kb-extension",
+				"@blackbelt-technology/pi-untrusted-content-guard", // harden-agent-tool-guards D5
 			].sort(),
 		);
 	});
@@ -208,7 +209,6 @@ describe("getRecommendedByStatus", () => {
 				"@blackbelt-technology/pi-dashboard-nano-banana",
 				"@blackbelt-technology/pi-dashboard-craft-apps",
 				"@blackbelt-technology/pi-dashboard-blender",
-				"@blackbelt-technology/pi-untrusted-content-guard",
 				"@blackbelt-technology/pi-dashboard-deck3d",
 				"@blackbelt-technology/pi-dashboard-music-production",
 			].sort(),
@@ -242,10 +242,23 @@ describe("blender entry", () => {
 	});
 });
 
-describe("first-party additions (guard, deck3d, music-production)", () => {
+describe("untrusted-content guard posture (harden-agent-tool-guards D5, T.85)", () => {
+	it("is strongly-suggested, not bundled / default-installed, and says it is not installed by default; others unchanged", () => {
+		const id = "@blackbelt-technology/pi-untrusted-content-guard";
+		const entry = getRecommendedExtension(id);
+		expect(entry?.status).toBe("strongly-suggested");
+		expect(entry?.source).toBe(`npm:${id}`);
+		expect(entry?.fallbackDescription).toMatch(/not installed by default/i);
+		expect(BUNDLED_EXTENSION_IDS.includes(id)).toBe(false);
+		// every other entry keeps the status it had (deck3d / music-production stay optional)
+		expect(getRecommendedExtension("@blackbelt-technology/pi-dashboard-deck3d")?.status).toBe("optional");
+		expect(getRecommendedExtension("@blackbelt-technology/pi-dashboard-music-production")?.status).toBe("optional");
+	});
+});
+
+describe("first-party additions (deck3d, music-production)", () => {
 	it("are optional, npm-sourced from their own package name, and say what they unlock", () => {
 		for (const id of [
-			"@blackbelt-technology/pi-untrusted-content-guard",
 			"@blackbelt-technology/pi-dashboard-deck3d",
 			"@blackbelt-technology/pi-dashboard-music-production",
 		]) {

@@ -10,6 +10,12 @@
  * PromptBus → the gateway → a Discord yes/no. An unanswered approval FAILS
  * CLOSED (C3): the tool is blocked, never auto-allowed.
  *
+ * Readiness (harden-agent-tool-guards D6): at `session_start` the guard announces
+ * `chat_gateway_guard_ready` with the spawn's token over `dashboard:plugin-message`, so the
+ * gateway can hold the triggering message back until the guard is proven loaded (pi treats an
+ * unresolvable `-e <ref>` as non-fatal, so a typo'd `guardExtension` would otherwise run ungated).
+ * A custom `guardExtension` MUST do the same or its spawns are refused.
+ *
  * Trust asymmetry (by design): attached sessions (owner's own open session) are
  * never handed this extension, so they stay ungated. This module is loaded ONLY
  * on the spawn path.
@@ -17,6 +23,7 @@
  * See change: add-chat-gateway.
  */
 
+import { CHAT_GATEWAY_PLUGIN_ID, GUARD_READY_MESSAGE, GUARD_TOKEN_ENV } from "../shared/guard-ready.js";
 import { decideToolCall, type ToolPolicy } from "./policy.js";
 
 /** Minimal slice of the pi extension API this guard needs. */
@@ -25,6 +32,9 @@ export interface GuardPi {
     event: "tool_call",
     handler: (event: { toolName: string; toolCallId?: string; input?: unknown }, ctx: GuardCtx) => unknown,
   ): void;
+  on(event: "session_start", handler: () => unknown): void;
+  /** Bridge channel: `dashboard:plugin-message` is forwarded to the plugin server with the sender's session id. */
+  events?: { emit: (name: string, payload: unknown) => void };
 }
 
 /** Minimal slice of pi's extension context this guard needs. */
@@ -137,7 +147,23 @@ export function policyFromEnv(
   return { defaultAction: "deny" };
 }
 
+/** The spawn's readiness token (same env projection as the policy); absent/empty → no announcement. */
+export function tokenFromEnv(env: Record<string, string | undefined> = process.env): string | undefined {
+  const raw = env[GUARD_TOKEN_ENV];
+  return typeof raw === "string" && raw !== "" ? raw : undefined;
+}
+
 export default function chatGatewayGuard(pi: GuardPi, options?: Partial<GuardOptions>): void {
   const policy: ToolPolicy = options?.policy ?? policyFromEnv();
+  // The enforcement point is registered BEFORE readiness can be announced.
   pi.on("tool_call", createToolCallGuard({ ...options, policy }));
+  const token = tokenFromEnv();
+  if (!token) return; // no token (older gateway / manual load): nothing to prove readiness to
+  pi.on("session_start", () => {
+    pi.events?.emit("dashboard:plugin-message", {
+      pluginId: CHAT_GATEWAY_PLUGIN_ID,
+      messageType: GUARD_READY_MESSAGE,
+      payload: { token },
+    });
+  });
 }

@@ -144,7 +144,9 @@ describe("2.9 / #E3 classification decision table", () => {
       ]),
     );
     expect(classes(v)).toEqual([
-      "invalid", "invalid", "invalid", "missing", "missing", "forbidden", "sensitive", "sensitive", "in-root", "covered", "grantable",
+      // harden-agent-tool-guards D7: `~/.aws` and (darwin) `~/Library` are now in the shared sensitive
+      // list, so they classify exactly like `~/.ssh` (`forbidden`, parity oracle T.83).
+      "invalid", "invalid", "invalid", "missing", "missing", "forbidden", "forbidden", "forbidden", "in-root", "covered", "grantable",
     ]);
   });
 
@@ -186,15 +188,17 @@ describe("2.12 / #E6 credential folders and their ancestors", () => {
         { path: "~/.docker" }, { path: "~/Library/Keychains" }, { path: "~/Library" },
       ]),
     );
+    // The shared list (D7) classifies the CLI credential dirs and the `~/Library` ancestor of the
+    // macOS browser roots `forbidden` like `~/.ssh`; `Library/Keychains` stays the local `sensitive` rule.
     expect(classes(v)).toEqual([
-      "forbidden", "forbidden", "sensitive", "sensitive", "sensitive", "sensitive", "sensitive", "sensitive",
+      "forbidden", "forbidden", "forbidden", "forbidden", "forbidden", "forbidden", "sensitive", "forbidden",
     ]);
     expect(classes(v)).not.toContain("grantable");
   });
 
   it("a symlink into a credential folder is sensitive, and collapses onto the real folder", () => {
     const v = ok(create(mk(), [{ path: path.join(w, "creds") }]));
-    expect(v.lines).toMatchObject([{ path: path.join(home, ".gnupg"), classification: "sensitive" }]);
+    expect(v.lines).toMatchObject([{ path: path.join(home, ".gnupg"), classification: "forbidden" }]);
     expect(ok(create(mk(), [{ path: path.join(w, "creds") }, { path: "~/.gnupg" }])).lines).toHaveLength(1);
   });
 

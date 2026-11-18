@@ -237,3 +237,209 @@ describe("X16: guard log hygiene", () => {
     for (const forbidden of ["base64", "cat", "vault.json"]) expect(logs[0]).not.toContain(forbidden);
   });
 });
+
+// ── harden-agent-tool-guards D1: provider secrets (T.1–T.11) ──────────────────
+describe("T.1: provider secrets × tool × dir", () => {
+  const FILES = ["auth.json", "mcp-auth.json", "providers.json", "system-one/auth.json"];
+  const TOOLS = ["read", "edit", "write", "ls", "find", "grep"];
+  it("blocks all 48 combinations with a path-free log line", () => {
+    for (const dir of [nodePath.join(home, ".pi", "agent"), "/srv/pi-agent"]) {
+      const env = dir === "/srv/pi-agent" ? { PI_CODING_AGENT_DIR: dir } : {};
+      for (const f of FILES) for (const tool of TOOLS) {
+        logs.length = 0;
+        const { call } = make(env);
+        const r = blocked(call(tool, { path: nodePath.join(dir, f), pattern: "x" }));
+        expect(r, `${tool} ${dir}/${f}`).toMatchObject({ block: true });
+        expect(r?.reason.startsWith("credential_guard")).toBe(true);
+        expect(logs).toHaveLength(1);
+        expect(logs[0]).toMatch(/^\[credential-guard\] blocked tool=[a-z]+ match=[a-z-]+$/);
+        expect(logs[0]).not.toContain(f);
+      }
+    }
+  });
+});
+
+describe("T.2: sibling rule <name>.*", () => {
+  it("blocks dotted siblings, not look-alikes or `..` escapes", () => {
+    const { call } = make();
+    const a = nodePath.join(home, ".pi", "agent");
+    for (const t of ["auth.json.bak", "providers.json.corrupt-20260101T000000Z", "system-one/auth.json.lock", "mcp-auth.json."]) {
+      expect(blocked(call("read", { path: nodePath.join(a, t) })), t).toMatchObject({ block: true });
+    }
+    for (const t of ["xauth.json", "system-one/author.json", "auth.json/../settings.json"]) {
+      expect(call("read", { path: nodePath.join(a, t) }), t).toBeUndefined();
+    }
+  });
+});
+
+describe("T.3: path forms", () => {
+  it("blocks cwd-relative, dot-dot, trailing-slash override and symlinked forms", () => {
+    const a = nodePath.join(home, ".pi", "agent");
+    const { call } = make();
+    expect(blocked(call("read", { path: "auth.json" }, a))?.block).toBe(true);
+    expect(blocked(call("read", { path: "./system-one/auth.json" }, a))?.block).toBe(true);
+    expect(blocked(call("edit", { path: nodePath.join(a, "x", "..", "auth.json") }))?.block).toBe(true);
+    const o = make({ PI_CODING_AGENT_DIR: "/srv/pi-agent/" });
+    expect(blocked(o.call("read", { path: "/srv/pi-agent/providers.json" }))?.block).toBe(true);
+    if (process.platform !== "win32") {
+      fs.mkdirSync(a, { recursive: true });
+      fs.writeFileSync(nodePath.join(a, "auth.json"), "x");
+      const w = nodePath.join(home, "w");
+      fs.mkdirSync(w);
+      fs.symlinkSync(nodePath.join(a, "auth.json"), nodePath.join(w, "l"));
+      expect(blocked(call("read", { path: nodePath.join(w, "l") }))?.block).toBe(true);
+    }
+  });
+});
+
+describe("T.4: text rule for provider secrets", () => {
+  it("blocks full-path references, never bare names", () => {
+    const { call } = make();
+    for (const command of [
+      "cat ~/.pi/agent/auth.json | head",
+      "CAT ~/.PI/AGENT/AUTH.JSON",
+      "type %USERPROFILE%\\.pi\\agent\\providers.json",
+      "cat ~/.pi/agent/system-one/auth.json.bak",
+    ]) expect(blocked(call("bash", { command }))?.block, command).toBe(true);
+    for (const command of ["rg auth.json packages/", "rg providers.json docs/", "ls ~/.pi/agent", "cat auth.json"]) {
+      expect(call("bash", { command }), command).toBeUndefined();
+    }
+  });
+});
+
+describe("T.5: PI_CODING_AGENT_DIR needles", () => {
+  it("matches the override full path only when the env is set", () => {
+    for (const dir of ["/srv/pi-agent", "/srv/pi-agent/"]) {
+      const { call } = make({ PI_CODING_AGENT_DIR: dir });
+      expect(blocked(call("bash", { command: "cat /srv/pi-agent/auth.json" }))?.block, dir).toBe(true);
+      expect(blocked(call("bash", { command: "cat /srv/pi-agent/system-one/auth.json" }))?.block, dir).toBe(true);
+      expect(call("bash", { command: "cat /srv/pi-agent/settings.json" }), dir).toBeUndefined();
+    }
+    const unset = make({});
+    expect(unset.call("bash", { command: "cat /srv/pi-agent/auth.json" })).toBeUndefined();
+  });
+});
+
+describe("T.6: needle list has no index coupling", () => {
+  it("keeps plugin-credentials and vault blocked in every env state; `ls /tmp` stays allowed", () => {
+    const states: NodeJS.ProcessEnv[] = [
+      {},
+      { PI_CODING_AGENT_DIR: "/srv/pi-agent" },
+      { PI_DASHBOARD_DATA_KEY_FILE: "/k/data-key" },
+      { PI_CODING_AGENT_DIR: "/srv/pi-agent", PI_DASHBOARD_DATA_KEY_FILE: "/k/data-key" },
+    ];
+    for (const env of states) {
+      const { call } = make(env);
+      expect(blocked(call("bash", { command: "cat ~/.pi/agent/plugin-credentials.json" }))?.block, JSON.stringify(env)).toBe(true);
+      expect(blocked(call("bash", { command: "cat ~/.pi/dashboard/vault.json" }))?.block, JSON.stringify(env)).toBe(true);
+      expect(call("bash", { command: "ls /tmp" }), JSON.stringify(env)).toBeUndefined();
+    }
+  });
+});
+
+describe("T.7: write/edit content is exempt for provider secrets", () => {
+  it("allows quoting in content, blocks the path", () => {
+    const { call } = make();
+    expect(call("write", { path: "/w/notes.md", content: "see ~/.pi/agent/auth.json" })).toBeUndefined();
+    expect(call("edit", { path: "/w/notes.md", oldText: "a", newText: "see .pi/agent/providers.json" })).toBeUndefined();
+    expect(blocked(call("write", { path: "~/.pi/agent/auth.json", content: "x" }))?.block).toBe(true);
+  });
+});
+
+describe("T.8: extension tools", () => {
+  it("blocks MCP/extension tool inputs naming a secret (text-path)", () => {
+    const { call } = make();
+    expect(blocked(call("ctx_execute_file", { path: "/home/u/.pi/agent/system-one/auth.json" }))?.block).toBe(true);
+    expect(blocked(call("grep", { path: "/w/repo", pattern: "x", glob: "/home/u/.pi/agent/mcp-auth.json" }))?.block).toBe(true);
+  });
+});
+
+describe("T.9: grep directory rule", () => {
+  it("is grep-only and covers the nested dir", () => {
+    const a = nodePath.join(home, ".pi", "agent");
+    const { call } = make();
+    expect(blocked(call("grep", { pattern: "k", path: nodePath.join(a, "system-one") }))?.block).toBe(true);
+    expect(blocked(call("grep", { pattern: "k", path: a }))?.block).toBe(true);
+    expect(call("grep", { pattern: "k", path: nodePath.join(a, "skills") })).toBeUndefined();
+    expect(call("ls", { path: nodePath.join(a, "system-one") })).toBeUndefined();
+    expect(call("find", { pattern: "*", path: nodePath.join(a, "system-one") })).toBeUndefined();
+  });
+});
+
+describe("T.10: non-secret files are not blocked by the credential guard", () => {
+  it("settings.json, trust.json, models.json, mcp.json pass", () => {
+    const { call } = make();
+    for (const f of ["settings.json", "trust.json", "models.json", "mcp.json"]) {
+      expect(call("read", { path: nodePath.join(home, ".pi", "agent", f) }), f).toBeUndefined();
+    }
+  });
+});
+
+describe("T.11: residual pin — literal `~` override and a third agent dir", () => {
+  it("does not block them (recorded residual)", () => {
+    const { call } = make({ PI_CODING_AGENT_DIR: "~/alt-agent" });
+    expect(call("read", { path: nodePath.join(home, "alt-agent", "auth.json") })).toBeUndefined();
+    expect(call("read", { path: "/opt/third/auth.json" })).toBeUndefined();
+  });
+});
+
+describe("T.113: fault injection — canonicalize throws / over-deep input", () => {
+  it("blocks only the faulty call, then recovers; the log carries no path", () => {
+    let boom = true;
+    const { call } = make({}, {
+      canonicalize: (p: string) => {
+        if (boom) throw new Error("boom /secret/path");
+        return p;
+      },
+    });
+    expect(blocked(call("read", { path: "/w/a.txt" }))?.reason).toContain("could not be checked");
+    boom = false;
+    expect(call("read", { path: "/w/ordinary.txt" })).toBeUndefined();
+    expect(logs.join("\n")).not.toContain("/secret/path");
+
+    let deep: Record<string, unknown> = { command: "ls" };
+    for (let i = 0; i < 40; i++) deep = { opts: deep };
+    const r = blocked(call("mcp_tool", deep));
+    expect(r?.block).toBe(true);
+    expect(logs.some((l) => l.includes("match=depth"))).toBe(true);
+    expect(call("read", { path: "/w/next.txt" })).toBeUndefined();
+  });
+});
+
+describe("T.114: fault injection — odd PI_CODING_AGENT_DIR", () => {
+  it("missing dir is canonicalised lexically and blocked", () => {
+    const { call } = make({ PI_CODING_AGENT_DIR: nodePath.join(home, "nope", "agent") });
+    expect(blocked(call("read", { path: nodePath.join(home, "nope", "agent", "auth.json") }))?.block).toBe(true);
+  });
+  it.skipIf(process.platform === "win32")("dangling symlink and symlink loop never allow", () => {
+    const dangling = nodePath.join(home, "dangling");
+    fs.symlinkSync(nodePath.join(home, "gone"), dangling);
+    const a = make({ PI_CODING_AGENT_DIR: dangling });
+    expect(blocked(a.call("read", { path: nodePath.join(dangling, "auth.json") }))?.block).toBe(true);
+    const l1 = nodePath.join(home, "l1");
+    const l2 = nodePath.join(home, "l2");
+    fs.symlinkSync(l2, l1);
+    fs.symlinkSync(l1, l2);
+    const b = make({ PI_CODING_AGENT_DIR: l1 });
+    expect(blocked(b.call("read", { path: nodePath.join(l1, "auth.json") }))?.block).toBe(true);
+  });
+});
+
+describe("T.95 per-call cost with both agent dirs set", () => {
+  it("1000 read calls: p95 < 1 ms (best of 3 batches, so a loaded CI host does not flake a real budget)", () => {
+    const { call } = make({ PI_CODING_AGENT_DIR: "/srv/pi-agent" });
+    const target = nodePath.join(home, "work", "a.ts");
+    for (let i = 0; i < 100; i++) call("read", { path: target }); // warm-up (JIT, fs caches)
+    const batch = (): number => {
+      const t: number[] = [];
+      for (let i = 0; i < 1000; i++) {
+        const s = performance.now();
+        call("read", { path: target });
+        t.push(performance.now() - s);
+      }
+      t.sort((a, b) => a - b);
+      return t[Math.floor(t.length * 0.95)];
+    };
+    expect(Math.min(batch(), batch(), batch())).toBeLessThan(1);
+  });
+});

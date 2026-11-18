@@ -13,22 +13,53 @@
  * and to every rung of an offered-ancestor ladder (task 7b.2), so a ladder can
  * never walk up into a forbidden directory.
  *
- * See change: add-access-grants-and-review.
+ * The `sensitive` list also holds the CLI credential directories (`~/.aws`, `~/.config/gh`,
+ * `~/.gnupg`, `~/.kube`, `~/.docker`), the exact file `~/.netrc` and the browser user-data
+ * roots of the running platform (`browserProfileRoots`). Because every consumer funnels through
+ * this module (agent gate flag, grant backstop, ladder, planes, YOLO roots + auto-allow,
+ * provisioning, cwd verdicts, allow-once admission, agent grant acceptance, trust-mirror deny,
+ * browse roots), one edit here makes them sensitive everywhere. Residual drift: the local lists in
+ * `server/src/access/provisioning.ts` and `shared/src/pi-trust-mirror.ts` are left alone (supersets
+ * are verified); a fourth list is NOT added.
+ *
+ * See change: add-access-grants-and-review; harden-agent-tool-guards (D7).
  */
 import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { samePath } from "./platform/paths.js";
 
-/** Resolve symlinks in the nearest existing ancestor, re-appending the tail. */
-export function realpathNearestAncestor(p: string): string {
+/**
+ * Resolve symlinks in the nearest existing ancestor, re-appending the tail.
+ *
+ * Most listed subjects do not exist on a given host, so the existence probe is a non-throwing
+ * `lstat` (`throwIfNoEntry:false`): a thrown ENOENT per missing entry made the extended
+ * sensitive list (harden-agent-tool-guards D7, ~30 entries) a measurable cost on the denial
+ * path. A path that exists (including a dangling symlink) still goes through `realpathSync`.
+ */
+export function realpathNearestAncestor(p: string, cache?: Map<string, string>): string {
+  const hit = cache?.get(p);
+  if (hit !== undefined) return hit;
+  let exists = false;
   try {
-    return fs.realpathSync(p);
+    exists = fs.lstatSync(p, { throwIfNoEntry: false }) !== undefined;
   } catch {
-    const parent = path.dirname(p);
-    if (parent === p) return p;
-    return path.join(realpathNearestAncestor(parent), path.basename(p));
+    exists = false; // ENOTDIR / EACCES: not resolvable here, walk up
   }
+  let result: string | undefined;
+  if (exists) {
+    try {
+      result = fs.realpathSync(p);
+    } catch {
+      /* dangling or unreadable link: walk up like a missing path */
+    }
+  }
+  if (result === undefined) {
+    const parent = path.dirname(p);
+    result = parent === p ? p : path.join(realpathNearestAncestor(parent, cache), path.basename(p));
+  }
+  cache?.set(p, result);
+  return result;
 }
 
 /** Inputs to the forbidden list. Every field defaults to the running process. */
@@ -85,24 +116,71 @@ const WINDOWS_SYSTEM_DIRS: ReadonlyArray<readonly [string, string]> = [
  * and its equality. Shared by the list and every predicate, so a simulated
  * `win32` is Windows end to end (design D8).
  */
-function pathOps(env?: ForbiddenSubjectsEnv) {
+function pathOps(env?: ForbiddenSubjectsEnv, cache?: Map<string, string>) {
   const platform = env?.platform ?? process.platform;
   const windows = platform === "win32";
   const p = windows ? path.win32 : path.posix;
   const hostIsWindows = process.platform === "win32"; // platform-branch-ok: same path family as the host? (not host behaviour)
   const canonical = (x: string): string => {
     const resolved = p.resolve(x);
-    return windows === hostIsWindows ? realpathNearestAncestor(resolved) : resolved;
+    return windows === hostIsWindows ? realpathNearestAncestor(resolved, cache) : resolved;
   };
   const same = (a: string, b: string): boolean => samePath(a, b, platform);
   return { platform, windows, p, canonical, same };
 }
 
+/**
+ * Browser user-data roots per platform (design D7, NORMATIVE; one test row per browser and platform
+ * asserts this table by equality). Chrome equals `chromeUserDataDir` (`chrome-profiles.ts`).
+ * Brave is the VENDOR root (`BraveSoftware`, which contains `Brave-Browser/User Data`).
+ * Snap / flatpak locations (`~/snap/firefox`, `~/.var/app/*`) are a recorded residual.
+ *
+ * To add a browser: add its root to the matching platform branch below, add a row to
+ * `forbidden-subjects.test.ts` (and the design D7 table), nothing else - every consumer follows.
+ */
+export function browserProfileRoots(
+  platform: NodeJS.Platform,
+  home: string,
+  vars: NodeJS.ProcessEnv,
+): string[] {
+  if (platform === "win32") {
+    const local = vars.LOCALAPPDATA || path.win32.join(home, "AppData", "Local");
+    const roaming = vars.APPDATA || path.win32.join(home, "AppData", "Roaming");
+    return [
+      path.win32.join(local, "Google", "Chrome", "User Data"),
+      path.win32.join(local, "Microsoft", "Edge", "User Data"),
+      path.win32.join(local, "BraveSoftware"),
+      path.win32.join(roaming, "Mozilla"),
+    ];
+  }
+  if (platform === "darwin") {
+    const support = path.posix.join(home, "Library", "Application Support");
+    return ["Google/Chrome", "Chromium", "Microsoft Edge", "BraveSoftware", "Firefox"].map((d) => path.posix.join(support, d));
+  }
+  const config = path.posix.join(home, ".config");
+  return [
+    ...["google-chrome", "chromium", "microsoft-edge", "BraveSoftware"].map((d) => path.posix.join(config, d)),
+    path.posix.join(home, ".mozilla"),
+  ];
+}
+
+/** CLI credential directories and files under `$HOME` (same on every platform). */
+const HOME_CREDENTIAL_SUBPATHS: ReadonlyArray<readonly string[]> = [
+  [".aws"],
+  [".config", "gh"],
+  [".gnupg"],
+  [".kube"],
+  [".docker"],
+  // exact file only: `~/.netrc.*` siblings and Windows `_netrc` are a recorded residual
+  [".netrc"],
+];
+
 export function forbiddenGrantSubjects(env?: ForbiddenSubjectsEnv): {
   whole: string[];
   sensitive: string[];
 } {
-  const { windows, p, canonical } = pathOps(env);
+  // One resolution cache per call: the ~30 listed paths share parents (`~/.config/*`, `~/Library/...`).
+  const { platform, windows, p, canonical } = pathOps(env, new Map());
   const vars = env?.env ?? process.env;
   const home = env?.homedir ?? os.homedir();
   const system = windows
@@ -110,7 +188,12 @@ export function forbiddenGrantSubjects(env?: ForbiddenSubjectsEnv): {
     : POSIX_SYSTEM_DIRS;
   const root = windows ? p.parse(p.resolve(vars.SystemRoot || "C:\\")).root : "/";
   const whole = [root, home, ...system];
-  const sensitive = [p.join(home, ".ssh"), p.join(home, ".pi")];
+  const sensitive = [
+    p.join(home, ".ssh"),
+    p.join(home, ".pi"),
+    ...HOME_CREDENTIAL_SUBPATHS.map((sub) => p.join(home, ...sub)),
+    ...browserProfileRoots(platform, home, vars),
+  ];
   return { whole: whole.map(canonical), sensitive: sensitive.map(canonical) };
 }
 
@@ -140,6 +223,9 @@ export function isForbiddenGrantSubject(
 /** True when `candidate` equals, or is an ancestor of, `other` (selected platform's semantics). */
 function subsumes(candidate: string, other: string, ops: ReturnType<typeof pathOps>): boolean {
   if (ops.same(candidate, other)) return true;
+  // POSIX `relative` is a case-sensitive resolve + split: a descendant must be a string-prefix match, so the
+  // costly relative() is skipped for the (many) unrelated pairs of the ~30-entry sensitive list.
+  if (!ops.windows && !other.startsWith(candidate)) return false;
   const rel = ops.p.relative(candidate, other);
   return rel !== "" && !rel.startsWith("..") && !ops.p.isAbsolute(rel);
 }

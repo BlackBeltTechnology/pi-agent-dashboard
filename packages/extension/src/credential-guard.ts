@@ -1,6 +1,9 @@
 /**
  * Agent credential guard: blocks pi tool calls that read, write or list the
- * dashboard credential files, or that invoke the data key / decrypt. Always on,
+ * dashboard credential files and pi's provider secrets, or that invoke the data key /
+ * decrypt. Protected set: `plugin-credentials.json`, `vault.json`, the data-key file and
+ * `PI_AGENT_SECRET_FILES` (`auth.json`, `mcp-auth.json`, `providers.json`,
+ * `system-one/auth.json`) of `~/.pi/agent` and `PI_CODING_AGENT_DIR`. Always on,
  * no configuration, no switch (a switch is the first thing an injected prompt
  * would ask for). Best-effort protection against ACCIDENTAL disclosure, not a
  * sandbox: relative names from a nearby cwd, variable / string indirection,
@@ -19,9 +22,10 @@
  *
  * Fail closed: an internal error blocks only the call being evaluated. Log lines
  * name the tool and the rule id, never the command text or file content.
- * See change: encrypt-credentials-at-rest (D12).
+ * See change: encrypt-credentials-at-rest (D12); harden-agent-tool-guards (D1).
  */
 import nodePath from "node:path";
+import { PI_AGENT_SECRET_FILES } from "@blackbelt-technology/pi-dashboard-shared/agent-credential-files.js";
 import {
   CREDENTIAL_FILE_BASENAMES,
   CREDENTIAL_KEYCHAIN_SERVICE,
@@ -126,17 +130,52 @@ export function createCredentialGuard(deps: CredentialGuardDeps) {
   const canonicalize = deps.canonicalize ?? canonicalizeTarget;
   const resolveEnv = (): ResolveEnv => deps.resolveEnv ?? { ...defaultResolveEnv(), homeDir: deps.homedir };
 
-  /** Protected files, lexical (env read per call: cheap, and always current). */
-  const protectedLexical = (): string[] => {
-    const out = [
-      nodePath.join(deps.homedir, ".pi", "agent", CREDENTIAL_FILE_BASENAMES["plugin-credentials"]),
-      nodePath.join(deps.homedir, ".pi", "dashboard", CREDENTIAL_FILE_BASENAMES.vault),
-    ];
+  /** The files protected under an agent dir: plugin credentials + the provider secrets. */
+  const agentDirNames = (): string[] => [CREDENTIAL_FILE_BASENAMES["plugin-credentials"], ...PI_AGENT_SECRET_FILES];
+
+  /** Protected files under `~/.pi/agent` and `~/.pi/dashboard` (home-relative, always on). */
+  const homeProtected = (): string[] => [
+    ...agentDirNames().map((n) => nodePath.join(deps.homedir, ".pi", "agent", ...n.split("/"))),
+    nodePath.join(deps.homedir, ".pi", "dashboard", CREDENTIAL_FILE_BASENAMES.vault),
+  ];
+
+  /**
+   * Protected files named by the environment: `PI_CODING_AGENT_DIR` copies and the data-key
+   * file. Built from `deps.env` only, never from the path gate's `res.agentDir` (the guard
+   * has no access to it).
+   */
+  const envProtected = (): string[] => {
+    const out: string[] = [];
     const agentDir = deps.env.PI_CODING_AGENT_DIR;
-    if (agentDir) out.push(nodePath.resolve(agentDir, CREDENTIAL_FILE_BASENAMES["plugin-credentials"]));
+    if (agentDir) for (const n of agentDirNames()) out.push(nodePath.resolve(agentDir, ...n.split("/")));
     const keyFile = deps.env[DATA_KEY_FILE_ENV];
     if (keyFile) out.push(nodePath.resolve(keyFile));
     return out;
+  };
+
+  /** Protected files, lexical (env read per call: cheap, and always current). */
+  const protectedLexical = (): string[] => [...homeProtected(), ...envProtected()];
+
+  /**
+   * Canonical forms of the protected files. Each distinct directory is canonicalised once; a file
+   * that is not itself a symlink is `canonical(dir)/<name>` (identical to canonicalising the file:
+   * a missing or regular file adds nothing to its parent's real path), and a symlinked file takes the
+   * full `canonicalize` (it follows the link). Keeps the per-call cost flat as the protected set grows.
+   */
+  const canonicalProtected = (env: ResolveEnv): string[] => {
+    const dirs = new Map<string, string>();
+    return protectedLexical().map((file) => {
+      // `lexists` (non-throwing) first: most protected files do not exist, and a thrown ENOENT per file is the cost.
+      const isLink = env.isSymlink ? (env.lexists ? env.lexists(file) && env.isSymlink(file) : env.isSymlink(file)) : true;
+      if (isLink) return canonicalize(file, env);
+      const dir = env.path.dirname(file);
+      let real = dirs.get(dir);
+      if (real === undefined) {
+        real = canonicalize(dir, env);
+        dirs.set(dir, real);
+      }
+      return env.path.join(real, env.path.basename(file));
+    });
   };
 
   /**
@@ -147,7 +186,7 @@ export function createCredentialGuard(deps: CredentialGuardDeps) {
   const configuredLexical = (): string[] => {
     const out: string[] = [];
     const agentDir = deps.env.PI_CODING_AGENT_DIR;
-    if (agentDir) out.push(`${agentDir.replace(/[\\/]+$/, "")}/${CREDENTIAL_FILE_BASENAMES["plugin-credentials"]}`);
+    if (agentDir) for (const n of agentDirNames()) out.push(`${agentDir.replace(/[\\/]+$/, "")}/${n}`);
     const keyFile = deps.env[DATA_KEY_FILE_ENV];
     if (keyFile) out.push(keyFile);
     return out;
@@ -179,7 +218,7 @@ export function createCredentialGuard(deps: CredentialGuardDeps) {
     const raw = targetPathOf(tool, input, cwd);
     if (raw === undefined) return undefined;
     const env = resolveEnv();
-    const protectedCanon = protectedLexical().map((p) => canonicalize(p, env));
+    const protectedCanon = canonicalProtected(env);
     const resolved = resolveToolPath(raw, cwd, env);
     const targets = [canonicalize(resolved, env)];
     if (tool === "read") targets.push(canonicalize(resolveReadTarget(resolved, env), env));
@@ -203,10 +242,12 @@ export function createCredentialGuard(deps: CredentialGuardDeps) {
     const strings: string[] = [];
     if (!collectScanned(input, false, CONTENT_TOOLS.has(tool), 0, strings)) return "depth";
     if (strings.length === 0) return undefined;
+    // Explicit list (no index coupling to `protectedLexical()`): the literal `.pi/agent/<name>`
+    // and `.pi/dashboard/vault.json` references, the env-named paths, and the env paths as written.
     const needles = [
-      `.pi/agent/${CREDENTIAL_FILE_BASENAMES["plugin-credentials"]}`,
+      ...agentDirNames().map((n) => `.pi/agent/${n}`),
       `.pi/dashboard/${CREDENTIAL_FILE_BASENAMES.vault}`,
-      ...protectedLexical().slice(2).map(norm),
+      ...envProtected().map(norm),
       ...configuredLexical().map(norm),
     ];
     for (const s of strings) {

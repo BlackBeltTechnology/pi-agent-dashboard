@@ -1,5 +1,5 @@
 /**
- * `project_trust` bridge decision: activation rule + snapshot mirror rule.
+ * `project_trust` bridge decision: snapshot mirror rule + live rule (no activation-cwd yes, harden-agent-tool-guards D3).
  *
  * Covers test-plan #E5 #E10 #E11 #E12 #E13 #E14 #E15 #E16 #E27 #P1 and #X1–#X4 #X11, and the
  * live-query step: #E8 #E9 #E10(handler) #E14 #E25 #P2 #P4 and #X1–#X3 #X6 of
@@ -21,7 +21,7 @@ import {
   trustResourceManifest,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-resource-digest.js";
 import { hookDefHash } from "@blackbelt-technology/pi-dashboard-shared/worktree-init-hook.js";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { registerProjectTrust } from "../bridge-handlers/lifecycle.js";
 import { decideBridgeProjectTrust, type ProjectTrustDecisionInput, type ProjectTrustDeps, readEventCwd } from "../project-trust.js";
 import { createHttpLiveQuery, isRemoteBridge, type LiveQueryFn, type LiveQueryResult } from "../project-trust-live.js";
@@ -97,43 +97,174 @@ describe("readEventCwd", () => {
   });
 });
 
-describe("activation rule (#E12 #E13 #E14)", () => {
-  it("#E12 canonical compare: symlinked activation cwd equals the real event cwd", async () => {
-    const repo = mkdir("repo");
-    const link = path.join(root, "link");
-    fs.symlinkSync(repo, link);
-    expect((await decide({ eventCwd: repo, activationCwd: link })).trusted).toBe("yes");
+type T62Cell = {
+  session: readonly [string, boolean, boolean];
+  coverInteractive: boolean;
+  sameCwd: boolean;
+  cover: "pinned" | "folderWorkspaces" | "live" | "none";
+  store: "none" | "false" | "true" | "unreadable";
+};
+
+/** One cell of the T.62 table: trust (`mirror`/`live`) only for an allowed session class × covered × no recorded entry. */
+async function expectT62Cell(c: T62Cell): Promise<void> {
+  const [name, dashboardSpawned, isHeadless] = c.session;
+  const repo = mkdir("t62", `${name.replace(/\W/g, "")}${c.coverInteractive}${c.sameCwd}${c.cover}${c.store}`);
+  const trustFile = path.join(agentDir, "trust.json");
+  if (c.store === "none") fs.rmSync(trustFile, { force: true });
+  else fs.writeFileSync(trustFile, c.store === "unreadable" ? '{"x":tr' : JSON.stringify({ [repo]: c.store === "true" }));
+  const entries = c.cover === "pinned" || c.cover === "folderWorkspaces" ? [{ ...entryFor(repo), sourceKind: c.cover }] : [];
+  const out = await decideLive(
+    { eventCwd: repo, activationCwd: c.sameCwd ? repo : "/elsewhere", dashboardSpawned, isHeadless },
+    {
+      liveQuery: async () =>
+        c.cover === "live" ? covered(repo, { sourceKind: "yolo" }) : { kind: "response", status: 200, body: { covered: false } },
+    },
+    { cfg: { coverInteractive: c.coverInteractive }, snapshot: liveSnap(c.cover === "live" ? 1 : 0, ...entries) },
+  );
+  const expectYes = ((dashboardSpawned && isHeadless) || c.coverInteractive) && c.cover !== "none" && c.store === "none";
+  const label = `${name} ci=${c.coverInteractive} same=${c.sameCwd} ${c.cover} ${c.store}`;
+  expect(out.trusted, label).toBe(expectYes ? "yes" : "undecided");
+  if (expectYes) expect(out.via, label).toBe(c.cover === "live" ? "live" : "mirror");
+}
+
+// harden-agent-tool-guards D3: there is NO activation-cwd yes. A dashboard spawn is trusted only
+// where dashboard trust (snapshot or live) covers the folder; otherwise pi decides.
+describe("activation cwd: decided by dashboard trust only (T.60–T.68, T.134)", () => {
+  it("T.60/T.134 uncovered activation cwd → undecided, one `not-covered` log, no live query without live entries", async () => {
+    const repo = mkdir("clone");
+    const liveQuery = vi.fn(async () => ({ kind: "unreachable" as const }));
+    const r = await decide({ eventCwd: repo, activationCwd: repo }, { readSnapshot: () => snap(), liveQuery });
+    expect(r).toMatchObject({ trusted: "undecided", reason: "not-covered" });
+    expect(r.via).toBeUndefined();
+    expect(logs.filter((l) => l.includes("withheld"))).toEqual([`project_trust withheld for ${repo}: not-covered`]);
+    expect(logs.join("\n")).not.toContain("live-not-covered");
+    expect(liveQuery).not.toHaveBeenCalled();
   });
 
-  it("only the activation cwd, only dashboard-spawned headless (matrix)", async () => {
-    const repo = mkdir("repo2");
-    const rows: Array<[boolean, boolean, string, "yes" | "undecided"]> = [
-      [true, true, repo, "yes"],
-      [true, true, path.join(root, "other"), "undecided"],
-      [true, false, repo, "undecided"],
-      [false, true, repo, "undecided"],
-      [false, false, repo, "undecided"],
-    ];
-    for (const [dashboardSpawned, isHeadless, eventCwd, expected] of rows) {
-      expect((await decide({ dashboardSpawned, isHeadless, eventCwd, activationCwd: repo })).trusted).toBe(expected);
+  it("T.61 live entries exist but the live query says not covered → live-not-covered", async () => {
+    const repo = mkdir("clone-live");
+    const r = await decideLive(
+      { eventCwd: repo, activationCwd: repo },
+      { liveQuery: async () => ({ kind: "response", status: 200, body: { covered: false } }) },
+      { liveCount: 1 },
+    );
+    expect(r).toMatchObject({ trusted: "undecided", reason: "live-not-covered" });
+    expect(logs.join("\n")).toContain(`project_trust withheld for ${repo}: live-not-covered`);
+  });
+
+  it("T.62 decision table: session class × coverInteractive × cwd × cover × trust.json", async () => {
+    const cases = combinations({
+      session: [["dashboard headless", true, true], ["dashboard interactive", true, false], ["non-dashboard", false, false]] as const,
+      coverInteractive: [false, true],
+      sameCwd: [true, false],
+      cover: ["pinned", "folderWorkspaces", "live", "none"],
+      store: ["none", "false", "true", "unreadable"],
+    } as const);
+    for (const c of cases) await expectT62Cell(c);
+  });
+
+  it("T.63 forbidden/temporary activation cwd: undecided with forbidden-folder, even when pinned", async () => {
+    for (const dir of ["/private/tmp/clone", path.join(root, "Downloads", "x"), path.join(root, ".cache", "x")]) {
+      logs.length = 0;
+      const r = await decideBridgeProjectTrust(
+        { dashboardSpawned: true, isHeadless: true, eventCwd: dir, activationCwd: dir },
+        {
+          home: root,
+          agentDir,
+          readConfig: () => cfg(),
+          readSnapshot: () => snap({ key: dir, sourceKind: "pinned", dev: "1", ino: "1" }),
+          log: (l) => logs.push(l),
+        },
+      );
+      expect(r, dir).toMatchObject({ trusted: "undecided", reason: "forbidden-folder" });
+      expect(logs.join("\n"), dir).toContain("forbidden-folder");
     }
   });
 
-  it("#E13 forbidden/temporary activation cwd is not auto-trusted and is logged", async () => {
-    const r = (await decideBridgeProjectTrust(
-      { dashboardSpawned: true, isHeadless: true, eventCwd: "/private/tmp/clone", activationCwd: "/private/tmp/clone" },
-      { home: root, agentDir, readConfig: () => cfg(), readSnapshot: () => null, log: (l) => logs.push(l) },
-    ));
-    expect(r).toMatchObject({ trusted: "undecided", reason: "forbidden-folder" });
-    expect(logs.join("\n")).toContain("forbidden-folder");
+  it("T.64 path identity: a symlinked activation cwd decides as the real path; a different covered cwd trusts, uncovered does not", async () => {
+    const repo = mkdir("real");
+    const link = path.join(root, "link");
+    fs.symlinkSync(repo, link);
+    expect((await decide({ eventCwd: repo, activationCwd: link }, { readSnapshot: () => snap(entryFor(repo)) })).trusted).toBe("yes");
+    expect((await decide({ eventCwd: repo, activationCwd: link }, { readSnapshot: () => snap() })).trusted).toBe("undecided");
+    const other = mkdir("other-covered");
+    expect((await decide({ eventCwd: other, activationCwd: repo }, { readSnapshot: () => snap(entryFor(other)) })).trusted).toBe("yes");
+    expect((await decide({ eventCwd: other, activationCwd: repo }, { readSnapshot: () => snap() })).trusted).toBe("undecided");
   });
 
-  it("#E14 a recorded refusal stops the activation rule and is logged", async () => {
-    const repo = mkdir("rec");
-    fs.writeFileSync(path.join(agentDir, "trust.json"), JSON.stringify({ [repo]: false }));
-    const r = (await decide({ eventCwd: repo, activationCwd: repo }));
-    expect(r).toMatchObject({ trusted: "undecided", reason: "recorded-entry" });
-    expect(logs.join("\n")).toContain("recorded-entry");
+  it("T.65 residual pin: pin trust is subtree-wide (clone inside a pinned folder is trusted via mirror)", async () => {
+    const pinned = mkdir("pinned");
+    const clone = mkdir("pinned", "clone");
+    expect(await decide({ eventCwd: clone, activationCwd: clone }, { readSnapshot: () => snap(entryFor(pinned)) })).toMatchObject({
+      trusted: "yes",
+      via: "mirror",
+    });
+  });
+
+  it("T.66 piTrustMirror.enabled:false → undecided even when pinned; trust.json is never written", async () => {
+    const r = mkdir("t66");
+    const trustFile = path.join(agentDir, "trust.json");
+    const before = fs.existsSync(trustFile) ? fs.readFileSync(trustFile) : null;
+    for (let i = 0; i < 50; i++) {
+      const out = await decide({ eventCwd: r, activationCwd: r }, { readConfig: () => cfg({ enabled: false }), readSnapshot: () => snap(entryFor(r)) });
+      expect(out.trusted).toBe("undecided");
+    }
+    expect(fs.existsSync(trustFile) ? fs.readFileSync(trustFile) : null).toEqual(before);
+  });
+
+  it("T.67 store states: every recorded/unreadable/malformed state is undecided, pinned or not", async () => {
+    const r = mkdir("t67");
+    const parent = path.dirname(r);
+    const states: Array<[string, string, string]> = [
+      ["false for cwd", JSON.stringify({ [r]: false }), "recorded-entry"],
+      ["true for cwd", JSON.stringify({ [r]: true }), "recorded-entry"],
+      ["false ancestor + true nearer", JSON.stringify({ [parent]: false, [r]: true }), "recorded-entry"],
+      ["malformed", "{\"x\":tr", "store-unreadable"],
+    ];
+    for (const [name, body, reason] of states) {
+      fs.writeFileSync(path.join(agentDir, "trust.json"), body);
+      const out = await decide({ eventCwd: r, activationCwd: r }, { readSnapshot: () => snap(entryFor(r)) });
+      expect(out, name).toMatchObject({ trusted: "undecided", reason });
+    }
+  });
+
+  it("T.68 the result type has no `via:\"activation\"`", () => {
+    expectTypeOf<NonNullable<Awaited<ReturnType<typeof decideBridgeProjectTrust>>["via"]>>().toEqualTypeOf<"mirror" | "live">();
+  });
+
+  it("T.92 live query budget: undecided within T + 100 ms (live-timeout); an answer at T-10 ms trusts", async () => {
+    const repo = mkdir("t92");
+    const T = 150;
+    const stall: LiveQueryFn = () => new Promise(() => {});
+    const t0 = Date.now();
+    const slow = await decideLive({ eventCwd: repo, activationCwd: repo }, { liveQuery: stall }, { cfg: { liveQueryTimeoutMs: T }, liveCount: 1 });
+    expect(Date.now() - t0).toBeLessThan(T + 100);
+    expect(slow).toMatchObject({ trusted: "undecided", reason: "live-timeout" });
+    expect(logs.join("\n")).toContain("live-timeout");
+    const fast: LiveQueryFn = () => new Promise((res) => setTimeout(() => res(covered(repo)), T - 10 - 120 > 0 ? T - 10 - 120 : 5));
+    expect(await decideLive({ eventCwd: repo, activationCwd: repo }, { liveQuery: fast }, { cfg: { liveQueryTimeoutMs: T }, liveCount: 1 })).toMatchObject({ trusted: "yes" });
+  });
+
+  it("T.117 fault injection: snapshot/trust.json/liveQuery failures are undecided, never a throw", async () => {
+    const r = mkdir("t117");
+    const base = { eventCwd: r, activationCwd: r };
+    expect((await decide(base, { readSnapshot: () => { throw new Error("torn"); } })).trusted).toBe("undecided");
+    expect((await decide(base, { readSnapshot: () => null })).trusted).toBe("undecided");
+    for (const lq of [
+      async () => { throw new Error("x"); },
+      async () => ({ kind: "unreachable" as const }),
+      async () => ({ kind: "response" as const, status: 401, body: undefined }),
+      async () => ({ kind: "response" as const, status: 429, body: undefined }),
+      async () => ({ kind: "error" as const }),
+    ]) {
+      expect((await decideLive(base, { liveQuery: lq as LiveQueryFn }, { liveCount: 1 })).trusted).toBe("undecided");
+    }
+  });
+
+  it("T.118 no event cwd / throwing ctx.cwd → undecided, no crash", async () => {
+    expect((await decideBridgeProjectTrust({ dashboardSpawned: true, isHeadless: true, eventCwd: undefined, activationCwd: root })).trusted).toBe("undecided");
+    const ctx = { get cwd(): string { throw new Error("replaced"); } };
+    expect(readEventCwd({}, ctx)).toBeUndefined();
   });
 });
 
