@@ -53,9 +53,7 @@ import * as path from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
   forbiddenGrantSubjects,
-  isForbiddenGrantSubject,
   isUngrantableSubject,
-  subsumesForbiddenGrantSubject,
 } from "./forbidden-subjects.js";
 
 /**
@@ -260,7 +258,7 @@ function admitRows(rows: unknown[]): AccessGrant[] {
   for (const g of rows) {
     if (!isGrantShaped(g)) {
       rawRejected.push(g);
-    } else if (isForbiddenGrantSubject(g.subject, undefined, sets) || subsumesForbiddenGrantSubject(g.subject, undefined, sets)) {
+    } else if (isUngrantableSubject(g.subject, undefined, sets)) {
       rawRejected.push(g);
       logNowForbidden(g.subject);
     } else {

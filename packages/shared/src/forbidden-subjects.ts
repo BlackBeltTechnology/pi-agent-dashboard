@@ -29,16 +29,27 @@ import os from "node:os";
 import path from "node:path";
 import { samePath } from "./platform/paths.js";
 
+/** Resolve symlinks in the nearest existing ancestor, re-appending the tail. Used for a caller-supplied subject. */
+export function realpathNearestAncestor(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    const parent = path.dirname(p);
+    return parent === p ? p : path.join(realpathNearestAncestor(parent), path.basename(p));
+  }
+}
+
 /**
- * Resolve symlinks in the nearest existing ancestor, re-appending the tail.
+ * Same resolution for the LISTED credential locations (home-derived constants, never request input).
  *
- * Most listed subjects do not exist on a given host, so the existence probe is a non-throwing
- * `lstat` (`throwIfNoEntry:false`): a thrown ENOENT per missing entry made the extended
- * sensitive list (harden-agent-tool-guards D7, ~30 entries) a measurable cost on the denial
- * path. A path that exists (including a dangling symlink) still goes through `realpathSync`.
+ * Most listed entries do not exist on a given host, and a thrown ENOENT per missing entry made the
+ * extended sensitive list (harden-agent-tool-guards D7, ~30 entries) a measurable cost on the denial
+ * path: a non-throwing `lstat` probe plus a per-call `cache` (shared parents) keeps it near the
+ * pre-expansion level. Kept a SEPARATE function so the probe is never reachable from a caller-supplied
+ * path (a `lstat` on one was a CodeQL js/path-injection sink).
  */
-export function realpathNearestAncestor(p: string, cache?: Map<string, string>): string {
-  const hit = cache?.get(p);
+function realpathListedAncestor(p: string, cache: Map<string, string>): string {
+  const hit = cache.get(p);
   if (hit !== undefined) return hit;
   let exists = false;
   try {
@@ -56,9 +67,9 @@ export function realpathNearestAncestor(p: string, cache?: Map<string, string>):
   }
   if (result === undefined) {
     const parent = path.dirname(p);
-    result = parent === p ? p : path.join(realpathNearestAncestor(parent, cache), path.basename(p));
+    result = parent === p ? p : path.join(realpathListedAncestor(parent, cache), path.basename(p));
   }
-  cache?.set(p, result);
+  cache.set(p, result);
   return result;
 }
 
@@ -123,7 +134,8 @@ function pathOps(env?: ForbiddenSubjectsEnv, cache?: Map<string, string>) {
   const hostIsWindows = process.platform === "win32"; // platform-branch-ok: same path family as the host? (not host behaviour)
   const canonical = (x: string): string => {
     const resolved = p.resolve(x);
-    return windows === hostIsWindows ? realpathNearestAncestor(resolved, cache) : resolved;
+    if (windows !== hostIsWindows) return resolved;
+    return cache ? realpathListedAncestor(resolved, cache) : realpathNearestAncestor(resolved);
   };
   const same = (a: string, b: string): boolean => samePath(a, b, platform);
   return { platform, windows, p, canonical, same };
@@ -265,8 +277,20 @@ export function subsumesForbiddenGrantSubject(
  * dropped without any test noticing. Callers must pass the subject that will be
  * PERSISTED, not a pre-normalization input (design D15).
  */
-export function isUngrantableSubject(subject: string, env?: ForbiddenSubjectsEnv): boolean {
-  // Built once per call and shared by both halves (design D7): ~18 realpaths, not ~35.
-  const sets = forbiddenGrantSubjects(env);
-  return isForbiddenGrantSubject(subject, env, sets) || subsumesForbiddenGrantSubject(subject, env, sets);
+export function isUngrantableSubject(
+  subject: string,
+  env?: ForbiddenSubjectsEnv,
+  /** Precomputed `forbiddenGrantSubjects(env)`, for a caller testing many subjects (e.g. a stored list). */
+  sets?: ReturnType<typeof forbiddenGrantSubjects>,
+): boolean {
+  // Built once per call (or by the caller) and shared by both halves (design D7); the subject is
+  // canonicalised once, not once per half.
+  const ops = pathOps(env);
+  const real = ops.canonical(subject);
+  const { whole, sensitive } = sets ?? forbiddenGrantSubjects(env);
+  return (
+    whole.some((f) => ops.same(real, f)) ||
+    sensitive.some((f) => subsumes(f, real, ops)) ||
+    [...whole, ...sensitive].some((f) => subsumes(real, f, ops))
+  );
 }
