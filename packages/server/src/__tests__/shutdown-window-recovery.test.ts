@@ -23,8 +23,10 @@ vi.mock("../spawn-process/process-manager.js", async (importOriginal) => {
 const DASH_DIR = path.join(os.homedir(), ".pi", "dashboard");
 const BOOT_STATE_PATH = path.join(DASH_DIR, "boot-state.json");
 
-const B = 1_791_450_739_978; // the boot that went down with the host
-const T = 1_791_528_209_000; // when pi unregistered
+// Anchored to now: fixed epochs aged past the session archive cutoff
+// (`archiveAfterDays`) and turned every recovery scenario into a no-op.
+const T = Date.now() - 86_400_000; // when pi unregistered
+const B = T - 77_469_022; // the boot that went down with the host
 const GRACE_WAIT_MS = 8_000; // > RECOVERY_REATTACH_GRACE_MS (7 s)
 
 function writeConfig(mode: "ask" | "auto" | "off"): void {

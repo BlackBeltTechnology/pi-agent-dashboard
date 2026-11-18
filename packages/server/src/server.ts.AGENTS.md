@@ -146,3 +146,5 @@ Plugin context `readFileGuarded: guardedReadFile` (from `lib/dashboard-state-gua
 - surface-network-denial-on-health: builds `readNetworkVerdict` (1 s TTL memo over `admissionList` → `evaluateNetworkPass`, refused iff `passed===null`) for `registerSystemRoutes`; `DashboardServer.inject` (tests only) exposes `fastify.inject`. See change: surface-network-denial-on-health.
 
 - fix-discovery-resurrects-archived: onChange resume check `wasEnded = endedSessionIds.has(id) || ctx?.priorStatus === "ended"` — an ended record `restore()`d after the boot snapshot still gets Resume placement. See change: fix-discovery-resurrects-archived.
+
+Registers `host.remirrorPiDefaults` + `host.defaultModelRef` from `createPiDefaultRemirror({readDashboardConfig: loadConfig})` (seeded at start, no write; `setActivePiDefaultRemirror`). See change: default-model-follows-role.

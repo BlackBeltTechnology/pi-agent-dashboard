@@ -3,7 +3,7 @@ import { gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * L3 — role-aware model refs (change: add-role-aware-model-refs).
- * Covers test-plan rows F1–F4 and X14.
+ * Covers test-plan rows F1–F4 and X14; F8 of change default-model-follows-role.
  *
  * Harness glue copied from `model-roles-promotion.spec.ts` (custom role editing
  * needs a live session: the roles list + model catalogue reach the browser
@@ -159,5 +159,41 @@ test.describe("role-aware model refs (L3)", () => {
     await expect(page.getByRole("tablist")).toHaveCount(0);
     await expect(page.getByTestId("model-tab-role")).toHaveCount(0);
     await expect(page.getByTestId("model-row").first()).toBeVisible();
+  });
+  // change: default-model-follows-role (test-plan #F8). Settings default model
+  // persists the role ref; the follow hint names the active preset + model.
+  test("F8: Settings default model picks a role, persists @role, hint names preset + model", async ({ page }) => {
+    test.setTimeout(240_000);
+    page.on("dialog", (d) => d.accept());
+    await spawnFreshGitSession(page);
+    const original = ((await (await page.request.get("/api/config")).json()) as { data?: { defaultModel?: string; defaultThinkingLevel?: string } }).data;
+    try {
+      const model = modelIdOf(await assignRole(page, "first"));
+      await page.goto("/settings/sessions");
+      const picker = page.getByTestId("model-selector-button").first();
+      await expect(picker).toBeVisible({ timeout: 20_000 });
+      await picker.click();
+      await page.getByTestId("model-tab-role").click();
+      await page.locator(`[data-testid='role-row'][data-role='${ROLE}']`).click();
+      await page.getByTestId("save-btn").first().click();
+      await expect(page.getByTestId("settings-save-bar")).toBeHidden({ timeout: 20_000 });
+
+      const cfg = (await (await page.request.get("/api/config")).json()) as { data?: { defaultModel?: string } };
+      expect(cfg.data?.defaultModel).toBe(`@${ROLE}`);
+
+      await page.reload();
+      const hint = page.getByTestId("default-model-follows");
+      await expect(hint).toBeVisible({ timeout: 20_000 });
+      await expect(hint).toContainText(`@${ROLE}`);
+      await expect(hint).toContainText(model.slice(model.indexOf("/") + 1));
+      const roles = (await (await page.request.get("/api/roles")).json()) as { data?: Array<{ preset: string | null; active?: boolean }> };
+      const active = roles.data?.find((g) => g.preset !== null && g.active)?.preset;
+      if (active) await expect(hint).toContainText(active);
+    } finally {
+      await page.request.put("/api/config", {
+        data: { defaultModel: original?.defaultModel ?? "", defaultThinkingLevel: original?.defaultThinkingLevel ?? "" },
+      });
+      await cleanup(page);
+    }
   });
 });

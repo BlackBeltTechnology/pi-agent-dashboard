@@ -3663,4 +3663,11 @@ export const zhCNCatalog: Record<string, string> = {
   "pairedDevices.noLongerAvailable": "已不可用",
   "pairedDevices.lostOrStolen": "仅在误撤销时才撤销吊销。如果设备丢失或被盗，请保持撤销状态：撤销吊销会让它已保存的访问权限重新生效。",
   "pairedDevices.revokedUnreadable": "已撤销设备列表无法读取 — 已撤销的设备可能被提前清除",
+  "settings.defaultModelRoleTag": "角色",
+  "settings.defaultModelFollows": "跟随",
+  "settings.defaultModelInPreset": "，当前预设",
+  "settings.defaultModelFollowsTail": "切换预设会改变下一个新会话的模型。",
+  "settings.defaultModelDanglingInPreset": "在以下预设中没有模型：",
+  "settings.defaultModelDanglingLive": "未分配模型。",
+  "settings.defaultModelDanglingTail": "分配之前，新会话使用 pi 自身的默认模型。",
 };

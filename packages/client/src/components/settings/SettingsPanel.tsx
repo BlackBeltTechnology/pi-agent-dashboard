@@ -2,6 +2,7 @@ import {
   FieldShell,
   NumberField,
   SelectField,
+  RoleRef,
   SettingsNotice,
   TextField,
   ToggleField,
@@ -68,6 +69,7 @@ import {
 } from "../../lib/gateway/gateway-config-ops.js";
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
+import { resolvedMirrorDefaults, roleDefaultView, useRolesSnapshot } from "../../lib/roles/useRolesSnapshot.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
 import { displayTrustMode, parseTrustPosture, resolveClientTrustMode, type TrustPosture } from "../../lib/network-trust/trust-posture.js";
 import { logRejection } from "../../lib/report-error.js";
@@ -892,6 +894,13 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   const defaultModelOptions = useMemo(
     () => mergeModelOptions(catalogueModels, availableModels ?? []),
     [catalogueModels, availableModels],
+  );
+  // Live role map + active preset for an `@role` Default model (follow hint,
+  // role-derived level, resolved drift baseline). See change: default-model-follows-role (D3).
+  const rolesSnapshot = useRolesSnapshot();
+  const piDashboardDefaults = useMemo(
+    () => resolvedMirrorDefaults(original ?? undefined, rolesSnapshot.liveRows),
+    [original, rolesSnapshot.liveRows],
   );
   // LIVE gateway endpoint. The Pi Gateway Port field below is the CONFIGURED
   // value, and since the gateway became socket-by-default that number names a
@@ -2086,7 +2095,13 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                         <ModelSelector
                           current={config.defaultModel || undefined}
                           models={defaultModelOptions}
-                          onSelect={(v) => update((c) => { c.defaultModel = v; })}
+                          allowRoles
+                          onSelect={(v) => {
+                            // A role pick adopts the role's level ("" = no explicit override).
+                            // See change: default-model-follows-role (D2).
+                            update((c) => { c.defaultModel = v; if (v.startsWith("@")) c.defaultThinkingLevel = ""; });
+                            rolesSnapshot.refetch();
+                          }}
                         />
                         {(() => {
                           // Thinking-level control paired with the Default Model. Levels
@@ -2095,10 +2110,28 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                           // only `off` renders and selection is a persistence no-op (the
                           // field stays "", never a spurious `off`). See change:
                           // add-default-thinking-level.
-                          const selected = config.defaultModel
-                            ? defaultModelOptions.find((m) => `${m.provider}/${m.id}` === config.defaultModel)
+                          // A role default is never locked: while the field is empty it shows
+                          // the role-derived level tagged `role` (or a `role` placeholder when
+                          // unknown). See change: default-model-follows-role (D3).
+                          const roleView = roleDefaultView(config.defaultModel, rolesSnapshot.liveRows);
+                          const effectiveModel = roleView ? roleView.model : config.defaultModel;
+                          const selected = effectiveModel
+                            ? defaultModelOptions.find((m) => `${m.provider}/${m.id}` === effectiveModel)
                             : undefined;
                           const locked = !config.defaultModel;
+                          if (roleView) {
+                            const roleLabel = i18nT("settings.defaultModelRoleTag", undefined, "role");
+                            const fromRole = !config.defaultThinkingLevel;
+                            return (
+                              <ThinkingLevelSelector
+                                current={config.defaultThinkingLevel || roleView.level}
+                                placeholder={roleLabel}
+                                tag={fromRole && roleView.level ? roleLabel : undefined}
+                                supportedLevels={selected?.supportedThinkingLevels}
+                                onSelect={(v) => update((c) => { c.defaultThinkingLevel = v; })}
+                              />
+                            );
+                          }
                           return (
                             <ThinkingLevelSelector
                               current={config.defaultThinkingLevel || "off"}
@@ -2128,7 +2161,42 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                         {i18nT("settings.piMirrorFailed", { error: piMirror.error ?? "error" }, `Saved, but pi's own default model could not be updated (${piMirror.error ?? "error"}). Use "Apply dashboard default to pi" on Settings → pi → pi settings.`)}
                       </p>
                     )}
-                    {piMirror?.ok && piMirror.skipped && (
+                    {(() => {
+                      // Follow hint / dangling notice for an `@role` default: model from the
+                      // live group, preset name from the active named group. Roles API absent
+                      // → nothing. See change: default-model-follows-role (D3).
+                      const view = rolesSnapshot.liveRows ? roleDefaultView(config.defaultModel, rolesSnapshot.liveRows) : null;
+                      if (!view) return null;
+                      const preset = rolesSnapshot.activePreset;
+                      const presetName = preset ? <span className="font-medium text-[var(--text-primary)]">{preset}</span> : null;
+                      const refLabels = {
+                        noModel: i18nT("common.noModelAssigned", undefined, "No model assigned"),
+                        thinking: i18nT("common.roleRefThinking", undefined, "thinking"),
+                      };
+                      if (view.model) {
+                        return (
+                          <p className="mt-1 text-xs text-[var(--text-secondary)] flex flex-wrap items-center gap-1" data-testid="default-model-follows">
+                            <span>{i18nT("settings.defaultModelFollows", undefined, "Follows")}</span>
+                            <RoleRef role={`@${view.role}`} model={view.model} labels={refLabels} />
+                            {presetName && <span>{i18nT("settings.defaultModelInPreset", undefined, "in preset")} {presetName}.</span>}
+                            <span>{i18nT("settings.defaultModelFollowsTail", undefined, "Switching preset changes the model for the next new session.")}</span>
+                          </p>
+                        );
+                      }
+                      return (
+                        <p className="mt-1 text-xs text-[var(--severity-warning-fg)] flex flex-wrap items-center gap-1" data-testid="default-model-dangling">
+                          <RoleRef role={`@${view.role}`} labels={refLabels} />
+                          <span>
+                            {presetName
+                              ? <>{i18nT("settings.defaultModelDanglingInPreset", undefined, "has no model in preset")} {presetName}.</>
+                              : i18nT("settings.defaultModelDanglingLive", undefined, "has no model assigned.")}
+                          </span>
+                          <span>{i18nT("settings.defaultModelDanglingTail", undefined, "New sessions use pi's own default model until it is assigned.")}</span>
+                        </p>
+                      );
+                    })()}
+                    {/* `unresolved-role` is covered by the dangling notice (one notice per condition). */}
+                    {piMirror?.ok && piMirror.skipped === "no-provider-separator" && (
                       <p className="mt-1 text-xs text-[var(--text-tertiary)]" data-testid="default-model-pi-mirror-skipped">
                         {i18nT("settings.piMirrorSkipped", undefined, "Saved. pi's own default model was not updated because the model id has no provider prefix.")}
                       </p>
@@ -2441,7 +2509,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                 See change: pi-settings-full-coverage (design D8). */}
             {activeTab === "pi-settings" && (
               <PiSettingsPage
-                dashboardDefaults={original ?? undefined}
+                dashboardDefaults={piDashboardDefaults}
                 refreshKey={piSettingsRefreshKey}
                 onNavigate={(page) => requestRailNavigate(`/settings/${page}`)}
               />

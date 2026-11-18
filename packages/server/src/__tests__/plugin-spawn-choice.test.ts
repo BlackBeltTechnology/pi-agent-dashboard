@@ -72,4 +72,21 @@ describe("plugin spawn choice", () => {
     expect(bad.options).not.toHaveProperty("thinking");
     expect(bad.warning).toBeTruthy();
   });
+  // See change: default-model-follows-role (test-plan #E8).
+  it("E8: thinking-only pairs with a RESOLVED role default, no warning", () => {
+    const r = mapPluginSpawnOptions(
+      { cwd: "/p", thinkingLevel: "low" },
+      { defaultModel: "@planning", readRoles: roles({ planning: "anthropic/claude-sonnet-5-5:high" }) },
+    );
+    expect(r.options).toMatchObject({ model: "anthropic/claude-sonnet-5-5", thinking: "low" });
+    expect(r.warning).toBeUndefined();
+  });
+
+  it("E8b: thinking-only with an unresolved role default → no model, no warning", () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const r = mapPluginSpawnOptions({ cwd: "/p", thinkingLevel: "low" }, { defaultModel: "@validate", readRoles: roles({}) });
+    expect(r.options).not.toHaveProperty("model");
+    expect(r.options).toMatchObject({ thinking: "low" });
+    expect(r.warning).toBeUndefined();
+  });
 });
