@@ -20,6 +20,9 @@ test.describe("untrusted-content guard posture (L3)", () => {
     await gotoDashboard(page);
     await page.goto("/settings/add-ons");
     await byTestId(page, "settingsContent").waitFor({ state: "visible", timeout: 15_000 });
+    // Belt-and-suspenders (as recommended-requires.spec.ts): if the route did not activate the tab, click it.
+    const addonsNav = page.getByRole("button", { name: "Add-ons", exact: true });
+    if (await addonsNav.isVisible().catch(() => false)) await addonsNav.click();
     await page.getByTestId("package-browser").waitFor({ state: "visible", timeout: 15_000 });
 
     const install = page.getByTestId(`rec-install-${ID}`);

@@ -34,7 +34,27 @@ function inContainer(script: string): string {
   return execSync(`docker exec -i ${containerName()} node`, { input: script, encoding: "utf8" });
 }
 
+/**
+ * The grant store is cached in memory and read once, so a file seeded behind the server's back is
+ * only seen after a (re)load: restart the dashboard, exactly the upgrade path an older store takes.
+ */
+async function restartDashboard(): Promise<void> {
+  await fetch(`http://localhost:${DASHBOARD_PORT}/api/restart`, { method: "POST" }).catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 2_000));
+  const deadline = Date.now() + 150_000;
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(`http://localhost:${DASHBOARD_PORT}/api/health`)).ok) return;
+    } catch {
+      /* still down */
+    }
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  throw new Error("dashboard did not come back after POST /api/restart");
+}
+
 test.describe("credential directories (L3)", () => {
+  test.describe.configure({ timeout: 240_000 });
   test("#F6 an older-build store with ~/.aws lists only the admitted grant; revoke keeps the ~/.aws row on disk", async ({
     page,
   }) => {
@@ -46,6 +66,7 @@ test.describe("credential directories (L3)", () => {
       fs.writeFileSync(${JSON.stringify(STORE)}, JSON.stringify({ version: 1, grants: [row(${JSON.stringify(AWS)}), row(${JSON.stringify(OTHER)})] }));
     `);
     try {
+      await restartDashboard();
       await gotoDashboard(page);
       await page.goto("/settings/access");
       await expect(page.getByTestId("access-section")).toBeVisible({ timeout: 20_000 });

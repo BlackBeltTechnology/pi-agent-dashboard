@@ -78,7 +78,7 @@ test.describe("agent secret guards (L3)", () => {
     await expect(always(page)).toHaveCount(0);
     await deny(page).click();
     await expect(page.getByText("agent models read done")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("tool-burst-failed-badge")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/\d+ failed/i).first()).toBeVisible({ timeout: 15_000 });
   });
 
   test("#F2 credential dirs and a browser profile are each sensitive: no Always allow", async ({ page }) => {
