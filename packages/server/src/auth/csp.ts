@@ -4,10 +4,12 @@
  * HTML were ever loaded in the dashboard origin it cannot exfiltrate or reframe
  * the app, complementing the sandboxed live-server iframe (D6/D7).
  *
- * Rollout is staged: `report` (default) emits `Content-Security-Policy-Report-
- * Only` so violations are logged without breaking anything; `enforce` emits the
- * real `Content-Security-Policy`; `off` disables it. Set via
- * `PI_DASHBOARD_CSP=report|enforce|off`.
+ * Modes: `enforce` (default) emits the real `Content-Security-Policy`; `report`
+ * (the rollback) emits `Content-Security-Policy-Report-Only` so violations are
+ * logged without blocking; `off` disables it. Set via
+ * `PI_DASHBOARD_CSP=report|enforce|off` (exact, lowercase). Unset / `""` /
+ * unrecognized values enforce; a set, unrecognized value also yields one boot
+ * warning (`cspModeWarning`). See change: enforce-strict-csp-default (D1, D3).
  *
  * The header is applied to the dashboard's OWN responses only. Proxied/embedded
  * prefixes (`/live/*` sandboxed dev servers) are skipped so their own policies
@@ -32,7 +34,7 @@
  * header: `trusted-types`) plus a `Reporting-Endpoints` header. The nonce is minted per HTML response by
  * `cspNonceFor(reply)` (memoized; non-HTML responses carry none). A response proxied to Vite
  * (`markViteProxied`) is a dev response: baseline only (legacy `script-src`), no strict, no nonce, no report
- * destination. Default mode stays `report`. See change: harden-cors-and-csp-reporting (D9, D10).
+ * destination. See change: harden-cors-and-csp-reporting (D9, D10).
  *
  * See change: improve-content-editor (baseline CSP §7).
  */
@@ -82,9 +84,19 @@ export function buildStrictCsp(nonce?: string): string {
   return directives(nonce ? `script-src 'self' 'nonce-${nonce}'` : "script-src 'self'");
 }
 
+/** Exact, case-sensitive parse. Unset / `""` / unrecognized → `enforce` (fails closed). */
 export function resolveCspMode(raw: string | undefined): CspMode {
-  if (raw === "enforce" || raw === "off") return raw;
-  return "report"; // default — safe, non-breaking
+  if (raw === "report" || raw === "off") return raw;
+  return "enforce";
+}
+
+/**
+ * Boot warning for a set, non-empty, unrecognized `PI_DASHBOARD_CSP`, else `undefined`.
+ * Never echoes the raw value (it may carry control characters).
+ */
+export function cspModeWarning(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === "" || raw === "report" || raw === "enforce" || raw === "off") return undefined;
+  return 'Unrecognized PI_DASHBOARD_CSP value; using "enforce". Use one of: off, report, enforce (exact, lowercase).';
 }
 
 const TRUSTED_TYPES_DIRECTIVE = "require-trusted-types-for 'script'";

@@ -7,3 +7,5 @@ WX3: counters (`cspReports` counts, `dropped`, `since`) survive `POST /api/resta
 AE12: config with an OAuth provider and no `auth.secret`; first start mints `^[0-9a-f]{64}$` into `config.json`, second start keeps it byte-identical, `server.log` never contains the value. Unverified locally (VM-only L2). See change: harden-auth-credentials.
 
 #E108: config with a github provider and no allowlist/groupTiers; `server.log` carries exactly one github open-enrolment warning naming `auth.allowedUsers`, `auth.groupTiers`, `Paired devices` and no clientSecret; `GET /auth/start/github` ⇒ 403 with no `Location`; server stays up. See change: close-security-map-high-findings (D3).
+
+#X1/#X3 (CSP): unset `PI_DASHBOARD_CSP` ⇒ one enforcing `Content-Security-Policy` on `/`; `stop` + `start` with `report` ⇒ two `-Report-Only`, no enforcing; `export PI_DASHBOARD_CSP=report; pi-dashboard restart` outcome printed (`PICKS-UP-ENV` / `KEEPS-OLD-ENV` / `NO-RESTART`), not asserted; `REPORT` ⇒ still enforcing + exactly one `Unrecognized PI_DASHBOARD_CSP` line in `server.log`, raw value not echoed. VM-only L2. See change: enforce-strict-csp-default.

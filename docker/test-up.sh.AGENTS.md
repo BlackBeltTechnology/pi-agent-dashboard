@@ -15,3 +15,5 @@ Runtime canary (decouple-plugins-from-core 7.5/8.2/8.3): stages `.pi-test-canary
 - Exports `PI_E2E_BROWSE_CONFINEMENT` (variant boot keeping remote browse confinement on). See change: harden-server-capability-bounds.
 
 Exports `PI_DASHBOARD_TRUSTED_TYPES` (off|report|enforce) to the container like `PI_DASHBOARD_CSP`. See change: harden-client-sinks.
+
+`PI_DASHBOARD_CSP` empty = server default `enforce` (default E2E lane); `report` = report lane. See change: enforce-strict-csp-default.

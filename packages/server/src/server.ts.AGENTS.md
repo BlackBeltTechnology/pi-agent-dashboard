@@ -144,3 +144,5 @@ Plugin context `readFileGuarded: guardedReadFile` (from `lib/dashboard-state-gua
 `createPreferencesStore(…, { hasAnthropicCredential })` wires the one-time compat-switch seed from `auth/provider-auth-storage.ts`. See change: seed-claude-compat-on-upgrade.
 
 - surface-network-denial-on-health: builds `readNetworkVerdict` (1 s TTL memo over `admissionList` → `evaluateNetworkPass`, refused iff `passed===null`) for `registerSystemRoutes`; `DashboardServer.inject` (tests only) exposes `fastify.inject`. See change: surface-network-denial-on-health.
+
+Boot logs `cspModeWarning(process.env.PI_DASHBOARD_CSP)` once as `[csp] …` beside `resolveCspMode` (unset/unrecognized → `enforce`). See change: enforce-strict-csp-default.

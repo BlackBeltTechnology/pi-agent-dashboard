@@ -20,6 +20,7 @@ import net from "node:net";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -197,3 +198,11 @@ if (!hasDocker()) {
   // eslint-disable-next-line no-console
   console.log("[parallelize-test-harness] docker absent — compose-interpolation leg skipped");
 }
+
+// test-plan enforce-strict-csp-default #E8: production compose passes the CSP rollback knob into the container.
+describe("docker/compose.yml CSP passthrough", () => {
+  it("passes PI_DASHBOARD_CSP through as ${PI_DASHBOARD_CSP:-}", () => {
+    const doc = parseYaml(readFileSync(path.join(DOCKER_DIR, "compose.yml"), "utf8"));
+    expect(doc.services["pi-dashboard"].environment.PI_DASHBOARD_CSP).toBe("${PI_DASHBOARD_CSP:-}");
+  });
+});

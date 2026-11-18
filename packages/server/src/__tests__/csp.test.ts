@@ -11,6 +11,7 @@ import {
   buildCsp,
   buildStrictCsp,
   type CspMode,
+  cspModeWarning,
   cspNonceFor,
   markViteProxied,
   registerCsp,
@@ -40,9 +41,12 @@ describe("buildCsp", () => {
 });
 
 describe("resolveCspMode", () => {
-  it("defaults to report-only", () => {
-    expect(resolveCspMode(undefined)).toBe("report");
-    expect(resolveCspMode("garbage")).toBe("report");
+  it("defaults to enforce (unset / unrecognized)", () => {
+    expect(resolveCspMode(undefined)).toBe("enforce");
+    expect(resolveCspMode("garbage")).toBe("enforce");
+  });
+  it("honours exact report (the rollback)", () => {
+    expect(resolveCspMode("report")).toBe("report");
   });
   it("honours enforce / off", () => {
     expect(resolveCspMode("enforce")).toBe("enforce");
@@ -447,19 +451,102 @@ describe("strict CSP emission", () => {
     });
   });
 
+  // #E1: exact, case-sensitive parse; unset / "" / anything unrecognized enforces. Warning only for a set,
+  // non-empty, unrecognized value, and it never echoes the raw value. See change: enforce-strict-csp-default (D1, D3).
   it.each([
-    [undefined, "report"],
-    ["", "report"],
-    ["Enforce", "report"],
-    ["ENFORCE", "report"],
-    [" enforce", "report"],
-    ["1", "report"],
-    ["garbage", "report"],
-    ["report", "report"],
-    ["enforce", "enforce"],
-    ["off", "off"],
-  ] as const)("WE15: PI_DASHBOARD_CSP=%j → %s (default stays report)", (raw, want) => {
+    [undefined, "enforce", false],
+    ["", "enforce", false],
+    ["Enforce", "enforce", true],
+    ["ENFORCE", "enforce", true],
+    [" enforce", "enforce", true],
+    ["1", "enforce", true],
+    ["garbage", "enforce", true],
+    ["REPORT", "enforce", true],
+    ["reprot", "enforce", true],
+    ["report", "report", false],
+    ["enforce", "enforce", false],
+    ["off", "off", false],
+  ] as const)("WE15: PI_DASHBOARD_CSP=%j → %s (warns: %s)", (raw, want, warns) => {
     expect(resolveCspMode(raw)).toBe(want);
+    const w = cspModeWarning(raw);
+    if (!warns) {
+      expect(w).toBeUndefined();
+      return;
+    }
+    expect(w).toEqual(expect.any(String));
+    for (const token of ["PI_DASHBOARD_CSP", "off", "report", "enforce"]) expect(w).toContain(token);
+    expect(w).toMatch(/using "enforce"/);
+    // never the raw value (a value that is also an accepted-value token is checked case-sensitively above)
+    if (!["Enforce", " enforce"].includes(raw!)) expect(w).not.toContain(raw!);
+  });
+
+  // #E2: the default wiring (server.ts resolves CSP + TT exactly like this with both env unset).
+  it("E2: default mode emits one enforcing strict header whose nonce matches the import map, no baseline", async () => {
+    const csp = resolveCspMode(undefined);
+    const tt = resolveTrustedTypesMode({ env: undefined, config: undefined, cspMode: csp }).mode;
+    const app = await build(csp, tt);
+    const res = await get(app);
+    const en = hv(res, EN);
+    const strict = en.filter(isStrict);
+    expect(strict).toHaveLength(1);
+    expect(en.filter(isBaseline)).toHaveLength(0);
+    expect(hv(res, RO).filter(isBaseline)).toHaveLength(0);
+    const scriptSrc = strict[0]!.split("; ").find((d) => d.startsWith("script-src "))!;
+    expect(scriptSrc).toMatch(/^script-src 'self' 'nonce-[^']+'$/);
+    expect(res.body).toContain(`<script type="importmap" nonce="${nonceOf(strict[0]!)}">`);
+    assertTtTopology(hv(res, RO), en, tt);
+    await app.close();
+  });
+
+  // #E3: route-level policies under the default mode.
+  it("E3: default mode leaves mount policies and /live/ alone; /api/health carries strict enforcing without a nonce", async () => {
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "csp-e3-")));
+    try {
+      fs.mkdirSync(path.join(tmp, "dist"), { recursive: true });
+      fs.writeFileSync(path.join(tmp, "dist", "index.html"), "<p>x</p>");
+      const csp = resolveCspMode(undefined);
+      const app = Fastify({ logger: false });
+      registerCsp(app, csp, resolveTrustedTypesMode({ env: undefined, config: undefined, cspMode: csp }).mode);
+      app.get("/live/x/y", async () => "live");
+      app.get("/api/health", async () => ({ ok: true }));
+      mountApp(
+        { fastify: app, pluginId: "wall", packageRoot: tmp, dataDir: path.join(tmp, "data"), logger: { info() {}, warn() {}, error() {} }, registry: new AppMountRegistry() },
+        { dir: path.join(tmp, "dist"), csp: "default-src 'self'" },
+      );
+      await app.ready();
+      const mount = await app.inject("/apps/wall/");
+      expect(mount.headers[EN]).toBe("default-src 'self'");
+      expect([...hv(mount, RO), ...hv(mount, EN)].some(isStrict)).toBe(false);
+      const live = await app.inject("/live/x/y");
+      expect(live.headers[EN]).toBeUndefined();
+      expect(hv(live, RO).filter((v) => isStrict(v) || isBaseline(v))).toHaveLength(0);
+      const health = await app.inject("/api/health");
+      const strict = hv(health, EN).filter(isStrict);
+      expect(strict).toHaveLength(1);
+      expect(strict[0]).not.toContain("nonce-");
+      await app.close();
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // #E4: a Vite-proxied response and a server-owned one in the same app, default mode.
+  it("E4: default mode: Vite-proxied gets the baseline enforcing without destinations; server-owned gets strict", async () => {
+    const csp = resolveCspMode(undefined);
+    const tt = resolveTrustedTypesMode({ env: undefined, config: undefined, cspMode: csp }).mode;
+    const vite = { on: true };
+    const app = await build(csp, tt, vite);
+    const proxied = await get(app);
+    const pen = hv(proxied, EN);
+    expect(pen).toHaveLength(1);
+    expect(isBaseline(pen[0]!)).toBe(true);
+    expect([...pen, ...hv(proxied, RO)].some(isStrict)).toBe(false);
+    for (const v of [...pen, ...hv(proxied, RO)]) expect(v).not.toMatch(/report-uri|report-to|\/__pi\/csp-report\//);
+    vite.on = false;
+    const own = await get(app);
+    expect(hv(own, EN).filter(isStrict)).toHaveLength(1);
+    expect(hv(own, EN).filter(isBaseline)).toHaveLength(0);
+    await app.close();
   });
 
   it("WE16: strict and baseline differ only in script-src and the report tokens", async () => {

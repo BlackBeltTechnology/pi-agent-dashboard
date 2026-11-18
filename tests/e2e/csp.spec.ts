@@ -2,9 +2,10 @@ import { expect, test } from "./fixtures.js";
 import { byTestId, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
-// Baseline CSP (§7). The container runs report-only by default, so the header
-// must be present AND the shell must render with no CSP violations that would
-// break core load (the report-only signal that gates flipping to enforce).
+// Baseline CSP (§7). The container enforces the strict policy by default
+// (`PI_DASHBOARD_CSP=report` = report-only lane), so a header must be present
+// AND the shell must render with no CSP violations that would break core load.
+// See change: enforce-strict-csp-default.
 test.describe("baseline CSP", () => {
   test("emits a CSP header on the dashboard document", async ({ request }) => {
     const res = await request.get(`${BASE_URL}/`);

@@ -63,10 +63,12 @@ code or plugin bundles. This change owns the measured soak and the default flip.
   `enforce` instead of `report` (`resolveCspMode` in
   `packages/server/src/auth/csp.ts`). Parsing stays exact and case-sensitive;
   the server logs one startup warning for a set, non-empty, unrecognized value.
-  Trusted Types mode resolution (`resolveTrustedTypesMode`, same file) is
-  unaffected: unset TT follows `report` unless the CSP mode is `off`, until
-  `enforce-trusted-types-default` changes that. Release notes name the
-  rollback.
+  Trusted Types mode resolution (the shared `resolveTrustedTypesMode`,
+  re-exported from `csp.ts`) is unaffected: as shipped by
+  `enforce-trusted-types-default`, env `PI_DASHBOARD_TRUSTED_TYPES` beats
+  config `security.trustedTypes`; with neither set TT follows `report` unless
+  the CSP mode is `off`, until `flip-trusted-types-default-enforce` changes
+  that. Release notes name the rollback.
 - **Rollback.** Stop the server, then start it with `PI_DASHBOARD_CSP=report`
   in its environment (strict back to report-only). No code revert. `off` also
   works but disables the baseline CSP and, while `PI_DASHBOARD_TRUSTED_TYPES`
@@ -156,11 +158,12 @@ None.
   an explicit `PI_DASHBOARD_CSP=report`, locally and in the new CI job.
 - Docs: release note and CSP mode docs state the new default, the rollback,
   where to set it, and the cross-origin switcher requirement.
-- Coordination: `enforce-trusted-types-default` edits the same files
+- Coordination: `enforce-trusted-types-default` edited the same files
   (`csp.ts`, `csp.test.ts`, CSP E2E specs, `docs/architecture.md`,
-  `docs/faq.md`) and its proposal states this change's TT wording. This change
-  owns updating that cross-reference whichever lands first; the second to land
-  rebases on the first. Both `dependencies.yaml` files list each other under
+  `docs/faq.md`) and landed first (archived 2026-10-30, TT default unchanged);
+  this change rebased on it and states its shipped TT behaviour. Its
+  follow-up `flip-trusted-types-default-enforce` owns this proposal's TT
+  sentence if it flips the TT default. Both `dependencies.yaml` files list each other under
   `related`. `add-android-server-host/design.md` states the old `report`
   default.
 - Depends on `harden-cors-and-csp-reporting` (sink, counter, strict policy,

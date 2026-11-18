@@ -26,8 +26,17 @@ import type { Page } from "@playwright/test";
 import { settingsSection } from "./fixtures/retro-ux/stubs.js";
 import { expect, test } from "./fixtures.js";
 import { operatorHeaders } from "./helpers/bridge-credential.js";
+import { REPORT_LANE_SKIP } from "./helpers/csp-strict.js";
 import { gotoDashboard } from "./helpers/index.js";
 import { BASE_URL, DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
+
+// Report-lane member: every test drives the page to another origin (known-server probes, `proxyToHarness`
+// routes, the peer popup). The browser applies an enforcing `connect-src` before a Playwright route sees the
+// request, so the default (enforcing) boot skips the file. See change: enforce-strict-csp-default (D4).
+test.beforeEach(async ({ request }) => {
+  const csp = (await request.get("/")).headers()["content-security-policy"];
+  test.skip(!!csp, REPORT_LANE_SKIP);
+});
 
 const STALE_HOST = "stale-zz9-unresolvable.local";
 const STALE_PORT = 8000;

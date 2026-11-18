@@ -98,7 +98,7 @@ import {
 } from "./auth/cors-origin.js";
 import { getCredentialCodec, type InitCredentialKeyOptions, initCredentialKey } from "./auth/credential-key.js";
 import { migrateCredentialFiles } from "./auth/credential-migration.js";
-import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
+import { cspModeWarning, cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
 import { registerCspReportSink } from "./auth/csp-report-sink.js";
 import { CspReportStore } from "./auth/csp-report-store.js";
 import { stateCallerFor } from "./auth/dashboard-state-caller.js";
@@ -2379,13 +2379,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: fix-ws-origin-cswsh (D4).
   fastify.addHook("onRequest", createMutationOriginGate(corsOpts));
 
-  // Baseline CSP (defense in depth). Report-only by default (non-breaking);
-  // `PI_DASHBOARD_CSP=enforce` flips to enforcing once report-only is clean.
-  // Skips proxied prefixes (/editor, /live) so their own policies stand.
-  // See change: improve-content-editor (§7).
+  // Baseline CSP (defense in depth). Strict policy enforcing by default;
+  // `PI_DASHBOARD_CSP=report` is the rollback (report-only), `off` disables it.
+  // A set, unrecognized value enforces and warns once here. Skips the proxied
+  // `/live/` prefix so its own policy stands.
+  // See change: improve-content-editor (§7), enforce-strict-csp-default (D1, D3).
   // Trusted Types rides the same hook under its own `PI_DASHBOARD_TRUSTED_TYPES`
   // mode (also stamped into index.html as a meta). See change: harden-client-sinks (D7).
   const cspMode = resolveCspMode(process.env.PI_DASHBOARD_CSP);
+  const cspWarning = cspModeWarning(process.env.PI_DASHBOARD_CSP);
+  if (cspWarning) console.warn(`[csp] ${cspWarning}`);
   // Resolved ONCE (env → config `security.trustedTypes` → default); the same value feeds the headers and the
   // index.html meta. Each bad source warns once here, never per request. See change: enforce-trusted-types-default.
   const ttResolution = resolveTrustedTypesMode({

@@ -189,8 +189,9 @@ services:
       # ${HOST_CWD}/.pi-test-canary stage test-up.sh builds. Unset = trusted under PI_E2E_SEED.
       # See change: decouple-plugins-from-core (tasks 7.5, 8.2).
       PI_E2E_CANARY: "${PI_E2E_CANARY:-}"
-      # CSP mode for the dashboard's own responses: report (default) | enforce | off. Empty = server default
-      # (report-only). `enforce` is the X12 arm. See change: decouple-plugins-from-core (task 8.3).
+      # CSP mode for the dashboard's own responses: enforce (default) | report | off. Empty = server default
+      # (strict policy enforcing); `report` is the report lane. See change: decouple-plugins-from-core (task 8.3),
+      # enforce-strict-csp-default.
       PI_DASHBOARD_CSP: "${PI_DASHBOARD_CSP:-}"
       # Trusted Types mode: off | report | enforce. Empty = follow the baseline CSP
       # (report unless PI_DASHBOARD_CSP=off). See change: harden-client-sinks (D7).

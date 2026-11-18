@@ -10,21 +10,22 @@ import {
   readCspProbe,
   scriptSrcOnly,
 } from "./helpers/csp-strict.js";
-import { byTestId } from "./helpers/index.js";
+import { armFirstLaunchDismiss, byTestId } from "./helpers/index.js";
 import { OperatorSession } from "./helpers/operator-session.js";
 import { CANARY_ID, ensureCanaryState } from "./helpers/runtime-canary.js";
 
 /**
  * L3 — the STRICT policy ENFORCED (change: harden-cors-and-csp-reporting; test-plan #WF2, #WF3, #WF6, #WF7;
- * spec baseline-content-security-policy). Needs a harness booted with `PI_DASHBOARD_CSP=enforce`:
+ * spec baseline-content-security-policy). Runs on the DEFAULT lane: with `PI_DASHBOARD_CSP` unset (the harness
+ * passes it through as `""`) the server enforces the strict policy (change: enforce-strict-csp-default, test-plan #F1):
  *
- *   PI_E2E_SEED=1 PI_DASHBOARD_CSP=enforce docker/test-up.sh -d --build
+ *   PI_E2E_SEED=1 npx playwright test tests/e2e/csp-strict-enforce.spec.ts
  *
- * The default harness is report-only, where nothing is blocked, so every test skips there instead of passing
+ * On the report lane (`PI_DASHBOARD_CSP=report`) nothing is blocked, so every test skips there instead of passing
  * vacuously. Exemplars: tests/e2e/runtime-plugin-csp-enforce.spec.ts, tests/e2e/api-not-found.spec.ts.
  */
 
-const SKIP_MSG = "harness does not enforce the strict policy; boot it with PI_DASHBOARD_CSP=enforce";
+const SKIP_MSG = "harness does not enforce the strict policy; boot it with PI_DASHBOARD_CSP unset or enforce";
 
 /** Skip unless `/` carries an enforcing policy with a script nonce (the strict policy). */
 async function requireEnforcingStrict(request: APIRequestContext): Promise<void> {
@@ -36,15 +37,26 @@ test.describe("strict CSP enforced", () => {
   test("WF2: shell and a runtime claim render under the strict policy; a blob import stays blocked", async ({ page, request }) => {
     await requireEnforcingStrict(request);
     await ensureCanaryState(request, "trusted");
+    await armFirstLaunchDismiss(page);
     await installCspProbe(page);
+    const sockets: string[] = [];
+    page.on("websocket", (ws) => sockets.push(ws.url()));
 
     const res = await page.goto("/");
     expect(res).not.toBeNull();
-    const enforcing = (await cspHeaders(res!)).enforcing.join(" ");
+    const headers = await cspHeaders(res!);
+    const isBaseline = (v: string) => v.includes("'unsafe-inline' 'unsafe-eval'");
+    expect(headers.enforcing.filter((v) => /script-src 'self' 'nonce-[^']+'/.test(v)), "one enforcing strict policy").toHaveLength(1);
+    expect([...headers.enforcing, ...headers.reportOnly].filter(isBaseline), "no baseline policy on the default lane").toEqual([]);
+    const enforcing = headers.enforcing.join(" ");
     const scriptSrc = /script-src([^;]*)/.exec(enforcing)?.[1] ?? "";
     for (const bad of ["'unsafe-inline'", "'unsafe-eval'", "blob:", "data:"]) expect(scriptSrc, `script-src must not carry ${bad}`).not.toContain(bad);
     await expect(byTestId(page, "headerAppBar")).toBeVisible({ timeout: 30_000 });
     expect(await importMapNonceInDom(page), "import map nonce equals the header nonce").toBe(await enforcingNonce(res!));
+    // The app's own WebSocket is same-origin and connects under `connect-src 'self' ws: wss:` (#F1).
+    const origin = new URL(page.url());
+    await expect.poll(() => sockets.some((u) => new URL(u).host === origin.host), { timeout: 30_000, message: "same-origin WebSocket opened" }).toBe(true);
+    expect(await readCspProbe(page), "no violation while the shell renders").toEqual([]);
 
     await page.goto(`/settings/plugins/${CANARY_ID}`);
     await expect(page.getByTestId("canary-settings")).toBeVisible({ timeout: 30_000 });

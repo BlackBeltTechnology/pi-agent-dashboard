@@ -33,8 +33,9 @@ One row per file.
 | `credential-guard-chat.spec.ts` | → `credential-guard-chat.spec.ts.AGENTS.md` |
 | `credential-vault-locked.spec.ts` | → `credential-vault-locked.spec.ts.AGENTS.md` |
 | `csp-report-sink-oauth.spec.ts` | WF5: report sink POST public to armed OAuth gate; GET / unknown label gated. Needs `PI_E2E_OAUTH_NO_BYPASS=1` + narrowed `PI_E2E_TRUSTED_NETWORKS`; skips when gate unarmed. See change: harden-cors-and-csp-reporting. |
-| `csp-strict-enforce.spec.ts` | WF2/WF3/WF6/WF7 under `PI_DASHBOARD_CSP=enforce`: no `unsafe-*`, nonce == import-map nonce, inline-script blocking, SW + deep-link nonce freshness. Skips without an enforcing header. See change: harden-cors-and-csp-reporting. |
-| `csp-strict-report.spec.ts` | WF1/WF4 in default `report` harness: zero strict `script-src*` violations on core + plugin routes; TT/inline-script report delivery. See change: harden-cors-and-csp-reporting. |
+| `csp-cross-origin-refused.spec.ts` | F5: enforcing host refuses cross-origin fetch + image. → see `csp-cross-origin-refused.spec.ts.AGENTS.md` |
+| `csp-strict-enforce.spec.ts` | WF2/WF3/WF6/WF7 strict CSP enforced (default lane). → see `csp-strict-enforce.spec.ts.AGENTS.md` |
+| `csp-strict-report.spec.ts` | WF1/WF4 on the report lane (`PI_DASHBOARD_CSP=report`; see change: enforce-strict-csp-default): zero strict `script-src*` violations on core + plugin routes; TT/inline-script report delivery. See change: harden-cors-and-csp-reporting. |
 | `editor-pane-file-handler.spec.ts` | → `editor-pane-file-handler.spec.ts.AGENTS.md` |
 | `electron-pages-trusted-types.spec.ts` | F6: Electron bundled pages (`file://`, stubbed preload bridges) render hostile data as text under the enforced TT meta CSP, 0 violations; loading page hands off to the loopback server. See change: harden-client-sinks. |
 | `first-run-create-project.spec.ts` | → `first-run-create-project.spec.ts.AGENTS.md` |
@@ -194,7 +195,7 @@ One row per file.
 | `remote-access-wizard.spec.ts` | → `remote-access-wizard.spec.ts.AGENTS.md` |
 | `remote-browse-confinement.spec.ts` | → `remote-browse-confinement.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call |
-| `replay-live-tool-not-orphaned.backfill.spec.ts` | L3 #F15/#F16: tail-only `WINDOW` armed in `beforeAll` (restored exactly in `afterAll`); `faux:subagent-long-stream-hold` Agent start lands in backfill after `POST /api/restart` (#F15) or a reload (#F16); "reload" = FRESH browser context (same-context `page.reload()` resubscribes from IndexedDB cache as unwindowed delta); walks gap via `history-gap-load` click (short transcript never auto-loads); non-vacuity = Agent `tool_execution_start` seen in a `history_backfill_result`; card `agent-activity-row` running, no `agent-elided-note`, converges after `LONG_STREAM_HOLD_TAIL`. See change: fix-backfill-elides-live-tools. |
+| `replay-live-tool-not-orphaned.backfill.spec.ts` | L3 #F15/#F16: tail-only `WINDOW` armed in `beforeAll` (restored exactly in `afterAll`); `faux:subagent-long-st… → see `replay-live-tool-not-orphaned.backfill.spec.ts.AGENTS.md` |
 | `retro-ux-plugin-settings-wave-2.spec.ts` | → `retro-ux-plugin-settings-wave-2.spec.ts.AGENTS.md` |
 | `runtime-extension-reload-convergence.spec.ts` | → `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
 | `runtime-updates-remote-local.spec.ts` | → `runtime-updates-remote-local.spec.ts.AGENTS.md` |

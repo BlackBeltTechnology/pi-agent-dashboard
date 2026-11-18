@@ -4747,17 +4747,27 @@ Follow-up change names. None exist yet. Create via `openspec change new <name>`.
 
 ### CSP enforce + OAuth real-gate E2E lanes
 
-Default harness = `report` mode: nothing blocked. Strict-policy specs skip there. Two opt-in lanes.
+DEFAULT lane ENFORCES the strict CSP. Harness boots with `PI_DASHBOARD_CSP` unset (`docker/test-up.sh` passes `""`) → `enforce`. Enforce specs run there, no env needed. Only the cross-origin topologies need the report lane.
 
-Enforce lane — strict CSP ENFORCED:
+Default lane (enforcing) — CI: 18-shard matrix:
 ```bash
-PI_E2E_SEED=1 PI_DASHBOARD_CSP=enforce docker/test-up.sh -d --build
-PW_E2E_USE_RUNNING=1 npx playwright test csp-strict-enforce
+PI_E2E_SEED=1 PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/escd-default.json npx playwright test tests/e2e/csp-strict-enforce.spec.ts --reporter=blob,json
 ```
-- Spec `tests/e2e/csp-strict-enforce.spec.ts`. Skips on default harness.
+- Members: `tests/e2e/csp-strict-enforce.spec.ts`, `tests/e2e/runtime-plugin-csp-enforce.spec.ts`, `tests/e2e/csp-cross-origin-refused.spec.ts`.
+- `PW_E2E_USE_RUNNING=1` attaches to an already-running harness (`docker/test-up.sh` booted with the same env) instead of managed mode. A bare `npm run test:e2e` after a manual test-up boots a SECOND managed harness.
+
+Report lane (rollback topology) — members skip under an enforcing header:
+```bash
+PI_DASHBOARD_CSP=report PI_E2E_SEED=1 PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/escd-report.json \
+  npx playwright test tests/e2e/csp-strict-report.spec.ts tests/e2e/runtime-plugin-remote-and-paired.spec.ts tests/e2e/known-server-stale-name.spec.ts --reporter=blob,json
+node scripts/e2e-csp-lane-check.mjs /tmp/escd-report.json --require csp-strict-report.spec.ts,runtime-plugin-remote-and-paired.spec.ts,known-server-stale-name.spec.ts
+```
+- Members: `csp-strict-report.spec.ts`, `runtime-plugin-remote-and-paired.spec.ts`, `known-server-stale-name.spec.ts`.
+- Last two skip under an enforcing header, message contains `PI_DASHBOARD_CSP`. Helper `REPORT_LANE_SKIP` in `tests/e2e/helpers/csp-strict.ts`. Why: `connect-src 'self' ws: wss:` refuses their cross-origin calls.
+- `scripts/e2e-csp-lane-check.mjs <report.json> [--allow a,b] [--require x,y]`: exit 1 on 0 tests, missing required spec, `stats.unexpected > 0`, or CSP-reason skip outside allow-list. Plain `--reporter=list` exits 0 on skips → run the check.
+- CI job `e2e-csp-report-lane` in `.github/workflows/ci-e2e-browser.yml` runs it. `e2e-browser` label gate, advisory on PRs.
+- Self-booted variant: `PI_DASHBOARD_CSP=report PI_E2E_SEED=1 docker/test-up.sh -d --build` then `PW_E2E_USE_RUNNING=1 npx playwright test <members>`.
 - `docker/test-up.sh` passes `PI_DASHBOARD_CSP` (+ `PI_DASHBOARD_TRUSTED_TYPES`) to container via `docker/compose.test.yml`.
-- Default-lane sibling: `tests/e2e/csp-strict-report.spec.ts` (dual Report-Only, sink labels).
-- Green enforce lane = exit-gate item of follow-up `enforce-strict-csp-default`.
 
 OAuth real-gate lane — WF5, report sink public to OAuth gate:
 ```bash
@@ -4772,7 +4782,7 @@ PI_E2E_TRUSTED_NETWORKS=203.0.113.0/24 PI_E2E_OAUTH_NO_BYPASS=1 npx playwright t
 - Control request: `GET /api/sessions` (gated). `/api/health` public to OAuth gate, cannot show "gated".
 - Tear down lane harness before normal runs: `docker/test-down.sh`.
 
-See change: harden-cors-and-csp-reporting.
+See change: harden-cors-and-csp-reporting, enforce-strict-csp-default.
 
 ### Bus client denial
 

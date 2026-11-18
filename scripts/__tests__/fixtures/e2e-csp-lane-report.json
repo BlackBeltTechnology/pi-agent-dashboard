@@ -1,0 +1,225 @@
+{
+  "config": {
+    "argv": [
+      "/Users/robson/.nvm/versions/node/v26.7.0/bin/node",
+      "node_modules/.bin/playwright",
+      "test",
+      "-c",
+      "playwright.config.mjs"
+    ],
+    "configFile": "playwright.config.mjs",
+    "rootDir": "/private.",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/private.",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json",
+        {
+          "outputFile": "report.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 8,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "lane-fixture.spec.mjs",
+      "file": "lane-fixture.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "csp-skipped",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "skip",
+                  "description": "needs PI_DASHBOARD_CSP=report (report lane)",
+                  "location": {
+                    "file": "lane-fixture.spec.mjs",
+                    "line": 2,
+                    "column": 34
+                  }
+                }
+              ],
+              "expectedStatus": "skipped",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "skipped",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T08:45:46.529Z",
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "description": "needs PI_DASHBOARD_CSP=report (report lane)",
+                      "location": {
+                        "file": "lane-fixture.spec.mjs",
+                        "line": 2,
+                        "column": 34
+                      }
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "7b2e58f01547ba762fc4-5e4cb17a2d7c7e946424",
+          "file": "lane-fixture.spec.mjs",
+          "line": 2,
+          "column": 1
+        },
+        {
+          "title": "other-skipped",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "skip",
+                  "description": "harness alias missing",
+                  "location": {
+                    "file": "lane-fixture.spec.mjs",
+                    "line": 3,
+                    "column": 36
+                  }
+                }
+              ],
+              "expectedStatus": "skipped",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "skipped",
+                  "duration": 1,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T08:45:46.569Z",
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "description": "harness alias missing",
+                      "location": {
+                        "file": "lane-fixture.spec.mjs",
+                        "line": 3,
+                        "column": 36
+                      }
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "7b2e58f01547ba762fc4-97527a81028dac2ba8b7",
+          "file": "lane-fixture.spec.mjs",
+          "line": 3,
+          "column": 1
+        },
+        {
+          "title": "passes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T08:45:46.585Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7b2e58f01547ba762fc4-b146112efa0628871486",
+          "file": "lane-fixture.spec.mjs",
+          "line": 4,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-16T08:45:46.034Z",
+    "duration": 593.6959999999999,
+    "expected": 1,
+    "skipped": 2,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

@@ -302,6 +302,42 @@ describe("ci-e2e-browser.yml — browser-relay variant leg", () => {
   });
 });
 
+describe("ci-e2e-browser.yml — CSP report lane (test-plan #E7)", () => {
+  // Unset PI_DASHBOARD_CSP enforces (change: enforce-strict-csp-default), so the 18-shard matrix is the enforce
+  // lane and every report-lane member skips there. This leg boots `PI_DASHBOARD_CSP=report` and runs the members
+  // plus csp-strict-report.spec.ts, then fails on any CSP-reason skip or a missing member.
+  const job = jobBlock(yaml, "e2e-csp-report-lane");
+  const MEMBERS = ["csp-strict-report.spec.ts", "runtime-plugin-remote-and-paired.spec.ts", "known-server-stale-name.spec.ts"];
+
+  it("exists", () => {
+    expect(job, "no `e2e-csp-report-lane` job — the report lane would never run in CI").not.toBe("");
+  });
+
+  it("is bounded, label-gated and advisory on the PR path", () => {
+    expect(job).toMatch(/^ {4}timeout-minutes:/m);
+    expect(job).toMatch(/contains\(github\.event\.pull_request\.labels\.\*\.name,\s*'e2e-browser'\)/);
+    expect(job).toMatch(/continue-on-error:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}/);
+  });
+
+  it("boots the report lane with the seed", () => {
+    expect(job).toMatch(/PI_DASHBOARD_CSP:\s*"report"/);
+    expect(job).toMatch(/PI_E2E_SEED:\s*"1"/);
+  });
+
+  it("runs the zero-skip lane check requiring every member", () => {
+    const step = codeLines(job).find((l) => l.includes("scripts/e2e-csp-lane-check.mjs"));
+    expect(step, "no step runs scripts/e2e-csp-lane-check.mjs").toBeDefined();
+    const req = /--require\s+(\S+)/.exec(step!)?.[1]?.split(",") ?? [];
+    expect(req.sort()).toEqual([...MEMBERS].sort());
+    for (const m of MEMBERS) expect(job).toContain(`tests/e2e/${m}`);
+  });
+
+  it("tears the harness down always", () => {
+    expect(job).toMatch(/-\s+name:\s*Tear down harness/);
+    expect(job).toMatch(/docker\/test-down\.sh/);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Variant legs `e2e-team` / `e2e-identity-matrix` (change: add-missing-ci-legs,
 // #861). The pure check below takes the three artifacts as strings so every

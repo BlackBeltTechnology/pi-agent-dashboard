@@ -9121,21 +9121,31 @@ See change: harden-client-sinks.
 
 ## Baseline CSP: strict policy + report sink (S3b)
 
-Two policies, one sink, persisted counter. Default mode stays `report`; nothing breaks by default. Code: `packages/server/src/auth/{csp,csp-report-paths,csp-report-sink,csp-report-store}.ts`.
+Two policies, one sink, persisted counter. Default mode = `enforce` (strict). `report` = rollback. Code: `packages/server/src/auth/{csp,csp-report-paths,csp-report-sink,csp-report-store}.ts`.
 
 ### Modes (`PI_DASHBOARD_CSP`)
 
 | Mode | Headers |
 |---|---|
-| `report` (default) | `baseline` Report-Only → `/__pi/csp-report/baseline` AND `strict` Report-Only → `/__pi/csp-report/strict` |
-| `enforce` (explicit opt-in) | `strict` ENFORCED → `/__pi/csp-report/strict`. `baseline` NOT emitted. |
-| `off` | no baseline or strict header |
-| any, Vite `--dev` (per proxied response) | baseline only (legacy `script-src`), enforcing under `enforce`. No strict header. No report destination. Dev never feeds strict counter. |
+| `enforce` (default) | `strict` ENFORCED → `/__pi/csp-report/strict`. `baseline` NOT emitted. |
+| `report` (rollback) | `baseline` Report-Only → `/__pi/csp-report/baseline` AND `strict` Report-Only → `/__pi/csp-report/strict` |
+| `off` | no baseline or strict header. Also disables Trusted Types while `PI_DASHBOARD_TRUSTED_TYPES` unset. |
+| Vite `--dev` (per proxied response) | baseline policy only (legacy `script-src`, keeps `'unsafe-inline'` / `'unsafe-eval'` / `ws:`). ENFORCING under `enforce` (the default), Report-Only under `report`. No strict header, no report destination. Dev never feeds strict counter. |
 
-- Strict = baseline with `script-src 'self' 'nonce-<n>'`. No `'unsafe-inline'`, no `'unsafe-eval'`. Enforced only under explicit `enforce`.
+- `resolveCspMode(raw)` exact, case-sensitive: `report` → `report`, `off` → `off`, everything else (unset, `""`, `enforce`, `REPORT`, `reprot`, ` enforce`, junk) → `enforce`.
+- Set, non-empty, unrecognized value → one boot warning: `[csp] Unrecognized PI_DASHBOARD_CSP value; using "enforce". Use one of: off, report, enforce (exact, lowercase).` → `~/.pi/dashboard/server.log`. Warning never echoes the raw value.
+- Strict = baseline with `script-src 'self' 'nonce-<n>'`. No `'unsafe-inline'`, no `'unsafe-eval'`. Enforced by DEFAULT (`enforce`); Report-Only under `report`.
+- Typos fail opposite ways. CSP fails CLOSED: mistyped `PI_DASHBOARD_CSP` enforces + 1 warning. Trusted Types fails OPEN: mistyped `PI_DASHBOARD_TRUSTED_TYPES` → `report` + warning.
 - Every emitted policy carries `report-uri /__pi/csp-report/<label>` + `report-to csp-<label>`; `Reporting-Endpoints` header declares them.
 - Route-level per-response policies (`/api/file/raw` sandbox, `ctx.serveApp` mounts, `/live/`) untouched by mode.
-- Release note: explicit `enforce` now enforces the STRICT policy (before: baseline). Existing `enforce` deployments see it.
+- Release note (BREAKING): unset / unrecognized `PI_DASHBOARD_CSP` now enforces the STRICT policy. Before, default = `report` (nothing blocked). `off` / `enforce` deployments unchanged.
+
+### Cross-origin server switching
+
+- Enforcing host refuses in-page switch to another dashboard origin. `connect-src 'self' ws: wss:` + `img-src 'self' data: blob:` block: WS ticket mint `POST /api/ws-ticket`, pairing, token rotation, known-server switch, REST (plugin fetches included), images.
+- Same refusal hits a `VITE_API_URL` build served by a dashboard host.
+- Fix: `PI_DASHBOARD_CSP=report` on the HOST SERVING the switching page. Not on the target.
+- Electron unaffected: opens other server in its own window.
 
 ### Trusted Types interaction
 
@@ -9221,10 +9231,14 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 
 ### Rollout / rollback
 
-- Default `report`. Release adds sink + dual Report-Only. No page breaks.
-- `enforce` = strict, opt-in.
-- Rollback: `PI_DASHBOARD_CSP=report` or `off` + server restart.
-- Follow-up `enforce-strict-csp-default` owns soak + default flip. Exit gate: ≥ 14 d window, zero strict `script-src*` violations, `dropped == 0`, ≥ 1 release shipped, enforce-lane E2E green. Inspect directive / document breakdown before flip.
+- Default `enforce`. Strict policy now blocks. Flip gated on soak evidence: ≥ 14 d window, zero strict `script-src*` violations, `dropped == 0`, ≥ 1 release shipped, enforce-lane E2E green.
+- Rollback = `PI_DASHBOARD_CSP=report`. NOT `off`.
+- Daemon: `stop` + `start`, in the server's environment. `pi-dashboard stop` then `PI_DASHBOARD_CSP=report pi-dashboard start`.
+- Docker: `PI_DASHBOARD_CSP=report` in `docker/.env`, then `docker compose up -d`. `docker/compose.yml` passes `PI_DASHBOARD_CSP: "${PI_DASHBOARD_CSP:-}"`.
+- `restart` with a changed env: UNVERIFIED (`qa/tests/02-server-start.sh` #X1 prints the outcome). Not a documented rollback path.
+- Service and Electron install types: rollback procedure pending verification (task 2.10). Do not invent steps.
+- `off` is not the rollback: `off` also disables Trusted Types while `PI_DASHBOARD_TRUSTED_TYPES` unset. `report` keeps both policies reporting.
+- Verify rollback: `/` carries two `Content-Security-Policy-Report-Only` headers (baseline + strict), no enforcing one.
 - E2E lanes: see `docs/faq.md` § "CSP enforce + OAuth real-gate E2E lanes".
 
-See change: harden-cors-and-csp-reporting (D8, D9, D10).
+See change: harden-cors-and-csp-reporting (D8, D9, D10), enforce-strict-csp-default (D1, D3, D4).

@@ -8,7 +8,9 @@ SOAK=openspec/changes/enforce-strict-csp-default/soak/csp-soak.mjs
 node --test openspec/changes/enforce-strict-csp-default/soak/csp-soak.test.mjs   # helper self-test
 ```
 
-Status: **not started** (no release tag contains `f426a45b5` yet)
+Status: **1.1 done; window not open** (1.2 pending — needs operator canary + reset on an install running `v0.11.0`)
+
+**Gate override (2026-11-16, operator "go on"):** groups 2–5 code was written on this branch BEFORE 1.7. The soak gate still governs: do NOT merge / ship until 1.2–1.7 are recorded here and pass. If the soak finds a blocking violation, its fix lands first and this branch rebases.
 
 ---
 
@@ -20,8 +22,8 @@ git tag --contains f426a45b5
 
 | Field | Value |
 |---|---|
-| Open tag | |
-| Tag date | |
+| Open tag | `v0.11.0` (only tag; `git tag --contains f426a45b5` checked 2026-11-16) |
+| Tag date | 2026-10-26 19:00:29 +0100 |
 
 ## 1.2 Window open (canary, reset)
 

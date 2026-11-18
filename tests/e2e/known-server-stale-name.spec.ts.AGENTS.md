@@ -5,3 +5,5 @@ L3: known server with a dead `.local` name reads "Name not found" (not CORS-bloc
 Also F4/F5 (add-electron-server-windows): with an init-script `piDashboard.openServerWindow` stub the header dropdown asks the app with host+port only, shows inline progress, opens no staging socket and writes no `pi-dashboard-last-server` (toast wording pinned at L1; App toasts are not observable in the harness); without the stub the staging-socket switch still runs. Remote is a Playwright-stubbed health endpoint. See change: add-electron-server-windows.
 
 F10 seeds the twin entry (one identity, two routes) straight into the container's `config.json`: the add API now refuses the server's own address with `409 self_address`. See change: harden-peer-address-identity.
+
+Report-lane member: file-level `beforeEach` skips every test under an enforcing header (`REPORT_LANE_SKIP`, contains `PI_DASHBOARD_CSP`); run with `PI_DASHBOARD_CSP=report`. See change: enforce-strict-csp-default.

@@ -1,15 +1,17 @@
 import { expect, test } from "./fixtures.js";
+import { armFirstLaunchDismiss } from "./helpers/index.js";
 import { CANARY_ID, ensureCanaryState } from "./helpers/runtime-canary.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
  * L3 — runtime plugin loading under the ENFORCING baseline CSP (change: decouple-plugins-from-core; test-plan #X12,
- * spec baseline-content-security-policy). Needs a harness booted with `PI_DASHBOARD_CSP=enforce` (task 8.3):
+ * spec baseline-content-security-policy). Runs on the DEFAULT lane: with `PI_DASHBOARD_CSP` unset the server enforces
+ * (change: enforce-strict-csp-default, test-plan #F2):
  *
- *   PI_E2E_SEED=1 PI_DASHBOARD_CSP=enforce docker/test-up.sh -d --build
+ *   PI_E2E_SEED=1 npx playwright test tests/e2e/runtime-plugin-csp-enforce.spec.ts
  *
- * The default harness is report-only, where a violation is only logged — so the spec skips there instead of passing
- * vacuously. Under enforce: the import map (inline script) and the plugin's `import()` are same-origin `script-src
+ * On the report lane (`PI_DASHBOARD_CSP=report`) a violation is only logged, so the spec skips there instead of
+ * passing vacuously. Under enforce: the import map (inline script) and the plugin's `import()` are same-origin `script-src
  * 'self'` loads and must succeed; a blob: module import must stay blocked (script-src carries no `blob:`/`data:`).
  */
 
@@ -17,8 +19,10 @@ test.describe("runtime plugin client under enforced CSP", () => {
   test("X12: a runtime claim renders and is styled; a blob import is blocked with one violation", async ({ page, request }) => {
     const head = await request.get(`${BASE_URL}/`);
     const enforced = head.headers()["content-security-policy"];
-    test.skip(!enforced, "harness is report-only; boot it with PI_DASHBOARD_CSP=enforce (task 8.3)");
+    test.skip(!enforced, "harness does not enforce CSP; boot it with PI_DASHBOARD_CSP unset or enforce");
     await ensureCanaryState(request, "trusted");
+    // A fresh harness shows the first-launch display modal over the settings route.
+    await armFirstLaunchDismiss(page);
 
     const scriptSrc = /script-src([^;]*)/.exec(enforced ?? "")?.[1] ?? "";
     expect(scriptSrc).not.toContain("blob:");

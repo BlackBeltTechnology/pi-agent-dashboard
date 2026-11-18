@@ -1,6 +1,7 @@
 import type { Browser, BrowserContext, Page, Response } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
 import { pairBrowserBearer, pairDeviceBearer } from "./helpers/bridge-credential.js";
+import { REPORT_LANE_SKIP } from "./helpers/csp-strict.js";
 import { expirePairedDevice } from "./helpers/expire-paired-device.js";
 import { CANARY_ID, ensureCanaryState, runtimeListing } from "./helpers/runtime-canary.js";
 import { BASE_URL, DASHBOARD_PORT } from "./lifecycle.js";
@@ -53,9 +54,9 @@ test.describe("runtime plugin loading — topologies", () => {
 
   test("F14: a client targeting another dashboard loads no runtime plugin code and says why", async ({ browser, request }) => {
     // The remote-server topology needs cross-origin `fetch`; an ENFORCED `connect-src 'self' ws: wss:` refuses it,
-    // so this runs on the report-only boot (the default), not the `PI_DASHBOARD_CSP=enforce` one.
+    // so this runs on the report lane (`PI_DASHBOARD_CSP=report`); the default (enforcing) boot skips it.
     const csp = (await request.get("/")).headers()["content-security-policy"];
-    test.skip(!!csp, "enforced CSP blocks the cross-origin API base this topology needs; run on the report-only harness");
+    test.skip(!!csp, REPORT_LANE_SKIP);
     await ensureCanaryState(request, "trusted");
     expect((await runtimeListing(request)).map((p) => p.id), "the target dashboard admits the canary").toContain(CANARY_ID);
     const context = await browser.newContext({ baseURL: `http://localhost:${DASHBOARD_PORT}` });
@@ -199,7 +200,7 @@ const isRotate = (res: Response) => res.url() === `${API_ORIGIN}${ROTATE}` && re
 test.describe("browser bearer slots — F14 topology", () => {
   test.beforeEach(async ({ request }) => {
     const csp = (await request.get("/")).headers()["content-security-policy"];
-    test.skip(!!csp, "enforced CSP blocks the cross-origin API base this topology needs; run on the report-only harness");
+    test.skip(!!csp, REPORT_LANE_SKIP);
   });
 
   test("AF1: the legacy global bearer is discarded, never sent, and nothing is re-created before a new pairing", async ({ browser }) => {

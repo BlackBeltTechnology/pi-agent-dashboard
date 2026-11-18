@@ -34,10 +34,18 @@ All knobs live in `.env` (copy from `.env.example`). Highlights:
 | `PI_SPAWN_STRATEGY` | `tmux` | Session spawn strategy: `headless` or `tmux` |
 | `TUNNEL_ENABLED` | `1` | `0` passes `--no-tunnel`; set `ZROK_TOKEN` to enroll |
 | `MEM_LIMIT` | `4g` | Container memory ceiling |
+| `PI_DASHBOARD_CSP` | empty (= `enforce`) | Content-Security-Policy mode: `enforce`, `report` (rollback), `off`. Exact lowercase |
 
 API keys are seeded **once**: the first run writes `auth.json` into the
 `pi-state` volume; later runs ignore the env vars (the volume wins). Change
 providers anytime via the dashboard UI.
+
+**CSP rollback.** The strict Content-Security-Policy enforces by default. If it
+blocks something (or this host drives another dashboard through the server
+switcher), set `PI_DASHBOARD_CSP=report` in `.env` and run `docker compose up -d`
+to recreate the container; the policy goes back to report-only. Values are exact
+and lowercase: a mistyped value (`REPORT`, `reprot`) still enforces and logs one
+warning at startup.
 
 **Zrok v2 in the image.** Image ships `zrok v2.0.4` (`zrok2` binary). Tarball extracts `zrok2` with a symlink `zrok → zrok2` for command compatibility. When `ZROK_TOKEN` set, entrypoint enrolls headless (via `zrok2 enable <token> --headless`), avoiding TTY requirement in server context. Config dir `~/.zrok2` persists across restarts via volume.
 

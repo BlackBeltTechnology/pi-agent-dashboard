@@ -20,6 +20,13 @@ import { containerSh } from "./runtime-canary.js";
 export const CSP_REPORT_PREFIX = "/__pi/csp-report/";
 export const TT_DIRECTIVE = "require-trusted-types-for 'script'";
 
+/**
+ * Skip message for report-lane members (cross-origin topologies an enforcing `connect-src` / `img-src` refuses).
+ * Contains `PI_DASHBOARD_CSP`, which `scripts/e2e-csp-lane-check.mjs` keys on. See change: enforce-strict-csp-default (D4).
+ */
+export const REPORT_LANE_SKIP =
+  "enforced CSP blocks the cross-origin requests this topology needs; runs on the report lane (PI_DASHBOARD_CSP=report)";
+
 export interface CspProbeEntry {
   directive: string;
   blocked: string;

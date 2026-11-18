@@ -122,7 +122,7 @@ task shows it picks up the change. Production docker gains
 rollback there is `.env` + `docker compose up -d`, documented in `docker/README.md`.
 
 ### D6: Trusted Types sibling coordination
-- The default-wiring test derives the expected TT header shape by calling the TT resolver exactly as `server.ts` does at the time of implementation (today `resolveTrustedTypesMode(undefined, resolveCspMode(undefined))`; after the sibling, its shared resolver with env and config sources unset) instead of hard-coding `report`, so it holds whichever default the sibling ships.
+- The default-wiring test derives the expected TT header shape by calling the TT resolver exactly as `server.ts` does at the time of implementation (the sibling landed first: `resolveTrustedTypesMode({ env: undefined, config: undefined, cspMode: resolveCspMode(undefined) })`) instead of hard-coding `report`, so it holds whichever default the sibling ships.
 - Code-merge order: the second change to land rebases on the first; `related` keeps them in the same scheduling wave without a blocking edge.
 - The coordination edit in the sibling's proposal is plain prose, never a labelled line naming this change in backticks, so dependency inference does not create a blocking edge.
 - This change owns the cross-reference whichever order they land in: if the sibling is still active, update its proposal's Coordination bullet to state the CSP default is now `enforce`; if it already landed, update this change's TT wording and docs (via DocScribe) to its shipped default. Both `dependencies.yaml` files list each other under `related`.

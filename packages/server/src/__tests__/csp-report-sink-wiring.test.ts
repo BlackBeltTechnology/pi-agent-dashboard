@@ -142,3 +142,50 @@ describe("createServer resolves the Trusted Types mode once (test-plan #E4, #X1)
     expect(ttWarnings()).toHaveLength(0);
   }, 60_000);
 });
+
+describe("createServer warns once on an unrecognized PI_DASHBOARD_CSP (test-plan #E5)", () => {
+  const KEY = "PI_DASHBOARD_CSP";
+  let savedEnv: string | undefined;
+  let warned: string[] = [];
+  let warnSpy: { mockRestore: () => void };
+
+  beforeEach(() => {
+    savedEnv = process.env[KEY];
+    clientDist.dir = fs.mkdtempSync(path.join(os.tmpdir(), "csp-warn-client-"));
+    fs.writeFileSync(path.join(clientDist.dir, "index.html"), "<!doctype html><html><head></head><body>SPA</body></html>");
+    warned = [];
+    warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warned.push(String(args[0]));
+    });
+  });
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env[KEY];
+    else process.env[KEY] = savedEnv;
+    warnSpy.mockRestore();
+    if (clientDist.dir) fs.rmSync(clientDist.dir, { recursive: true, force: true });
+    clientDist.dir = null;
+  });
+
+  const cspWarnings = () => warned.filter((m) => m.includes("PI_DASHBOARD_CSP"));
+
+  it("E5: `reprot` warns exactly once and enforces; `\"\"` does not warn", async () => {
+    process.env[KEY] = "reprot";
+    handle = await createTestServer({ dev: false });
+    const base = `http://127.0.0.1:${handle.httpPort}`;
+    expect(cspWarnings()).toHaveLength(1);
+    for (const w of ["off", "report", "enforce"]) expect(cspWarnings()[0]).toContain(w);
+    expect(cspWarnings()[0]).not.toContain("reprot");
+    for (let i = 0; i < 3; i++) {
+      const res = await proofFetch(`${base}/`);
+      expect(res.headers.get("content-security-policy")).toMatch(/script-src 'self' 'nonce-[^']+';/);
+    }
+    expect(cspWarnings()).toHaveLength(1);
+    await handle.stop();
+    handle = undefined;
+
+    warned = [];
+    process.env[KEY] = "";
+    handle = await createTestServer({ dev: false });
+    expect(cspWarnings()).toHaveLength(0);
+  }, 60_000);
+});

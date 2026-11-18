@@ -848,6 +848,104 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     restore_config
 
     # =========================================================================
+    # CSP default + rollback (test-plan #X1, #X3)
+    # See change: enforce-strict-csp-default (D3, D5).
+    #
+    # Unset PI_DASHBOARD_CSP enforces the strict policy. The rollback is
+    # `stop`, then `start` with PI_DASHBOARD_CSP=report: `/` then carries two
+    # `-Report-Only` headers (baseline + strict) and no enforcing one. Whether
+    # `pi-dashboard restart` picks up a changed env is printed, not asserted
+    # (the outcome feeds the documented rollback). A mistyped value (`REPORT`)
+    # enforces and logs exactly one warning that does not echo the value.
+    # =========================================================================
+    echo "--- Checking CSP default + rollback (X1, X3) ---"
+    wait_health() {
+      local waited=0
+      while [ $waited -lt 20 ]; do
+        curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && return 0
+        sleep 1
+        waited=$((waited + 1))
+      done
+      return 1
+    }
+    # Count of `/` response header lines named exactly $1 (case-insensitive).
+    csp_headers() {
+      curl -s -D - -o /dev/null http://localhost:8000/ 2>/dev/null | tr -d '\r' | grep -ci "^$1:" || true
+    }
+    csp_restart_with() {
+      pi-dashboard stop >/dev/null 2>&1 || true
+      sleep 2
+      : > "$LOG_PATH"
+      if [ -n "$1" ]; then
+        PI_DASHBOARD_CSP="$1" pi-dashboard start >/dev/null 2>&1 &
+      else
+        env -u PI_DASHBOARD_CSP pi-dashboard start >/dev/null 2>&1 &
+      fi
+      wait_health
+    }
+
+    # X1 — default, then rollback via stop + start.
+    if ! csp_restart_with ""; then
+      echo "FAIL (#X1): server did not come up with PI_DASHBOARD_CSP unset"
+      exit 1
+    fi
+    if [ "$(csp_headers content-security-policy)" != "1" ]; then
+      echo "FAIL (#X1): unset PI_DASHBOARD_CSP did not yield one enforcing Content-Security-Policy on /"
+      exit 1
+    fi
+    if ! csp_restart_with report; then
+      echo "FAIL (#X1): server did not come up with PI_DASHBOARD_CSP=report"
+      exit 1
+    fi
+    X1_EN=$(csp_headers content-security-policy)
+    X1_RO=$(csp_headers content-security-policy-report-only)
+    if [ "$X1_EN" != "0" ] || [ "$X1_RO" != "2" ]; then
+      echo "FAIL (#X1): after stop + start with report, / carries $X1_EN enforcing and $X1_RO report-only headers (want 0 and 2)"
+      exit 1
+    fi
+    echo "#X1: stop + start with PI_DASHBOARD_CSP=report yields two Report-Only headers and no enforcing one"
+
+    # X1 (restart outcome, printed) — from a default daemon, export + restart.
+    csp_restart_with "" || true
+    X1_BEFORE_PID=$(curl -fsS http://localhost:8000/api/health 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(String(JSON.parse(s).pid))}catch{}})")
+    export PI_DASHBOARD_CSP=report
+    pi-dashboard restart >/dev/null 2>&1 || true
+    sleep 6
+    wait_health || true
+    unset PI_DASHBOARD_CSP
+    X1_AFTER_PID=$(curl -fsS http://localhost:8000/api/health 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(String(JSON.parse(s).pid))}catch{}})")
+    if [ "$X1_AFTER_PID" = "$X1_BEFORE_PID" ]; then
+      echo "#X1 restart outcome: NO-RESTART (pid $X1_BEFORE_PID unchanged)"
+    elif [ "$(csp_headers content-security-policy)" = "0" ] && [ "$(csp_headers content-security-policy-report-only)" = "2" ]; then
+      echo "#X1 restart outcome: PICKS-UP-ENV (restart with exported report yields report-only)"
+    else
+      echo "#X1 restart outcome: KEEPS-OLD-ENV (restart with exported report still enforces) — document stop + start"
+    fi
+
+    # X3 — a mistyped value enforces and warns exactly once without echoing it.
+    if ! csp_restart_with REPORT; then
+      echo "FAIL (#X3): server did not come up with PI_DASHBOARD_CSP=REPORT"
+      exit 1
+    fi
+    if [ "$(csp_headers content-security-policy)" != "1" ]; then
+      echo "FAIL (#X3): PI_DASHBOARD_CSP=REPORT did not keep the enforcing header on /"
+      exit 1
+    fi
+    X3_WARN=$(grep -F "Unrecognized PI_DASHBOARD_CSP" "$LOG_PATH" || true)
+    X3_LINES=$(printf '%s' "$X3_WARN" | grep -c . || true)
+    if [ "$X3_LINES" != "1" ]; then
+      echo "FAIL (#X3): expected exactly 1 PI_DASHBOARD_CSP warning line in server.log, got $X3_LINES"
+      exit 1
+    fi
+    if printf '%s' "$X3_WARN" | grep -qF "REPORT"; then
+      echo "FAIL (#X3): the warning echoes the raw value"
+      exit 1
+    fi
+    echo "#X3: PI_DASHBOARD_CSP=REPORT enforces; one warning in server.log, raw value not echoed"
+    pi-dashboard stop >/dev/null 2>&1 || true
+    sleep 2
+
+    # =========================================================================
     # Docker packaging: Kroki overlay configuration assertion (test-plan #D1, #D2)
     # =========================================================================
     echo "--- Checking docker compose configurations (D1, D2) ---"

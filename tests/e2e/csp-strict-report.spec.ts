@@ -14,10 +14,14 @@ import {
 import { byTestId } from "./helpers/index.js";
 
 /**
- * L3 — strict CSP in the DEFAULT (`report`) harness (change: harden-cors-and-csp-reporting; test-plan #WF1, #WF4;
- * spec baseline-content-security-policy). The default mode emits the baseline AND the strict policy as two
- * Report-Only headers, each naming its own sink under `/__pi/csp-report/<label>`. Exemplar:
- * tests/e2e/trusted-types-budget.spec.ts.
+ * L3 — strict CSP on the REPORT lane (change: harden-cors-and-csp-reporting; test-plan #WF1, #WF4;
+ * spec baseline-content-security-policy). `PI_DASHBOARD_CSP=report` (the rollback mode; the default is `enforce`
+ * since change: enforce-strict-csp-default, test-plan #F3) emits the baseline AND the strict policy as two
+ * Report-Only headers, each naming its own sink under `/__pi/csp-report/<label>`:
+ *
+ *   PI_DASHBOARD_CSP=report PI_E2E_SEED=1 npx playwright test tests/e2e/csp-strict-report.spec.ts
+ *
+ * Exemplar: tests/e2e/trusted-types-budget.spec.ts.
  */
 
 const CORE_ROUTES = ["/", "/settings/general", "/settings/security", "/settings/access", "/settings/appearance", "/atlas"];
@@ -28,7 +32,7 @@ test.describe("strict CSP, report mode", () => {
 
     test("WF1: strict Report-Only yields zero script-src* violations and no strict report on core routes", async ({ page, request }) => {
       const head = await cspHeaders(await request.get("/"));
-      test.skip(!head.reportOnly.some((v) => v.includes(`${CSP_REPORT_PREFIX}strict`)), "harness does not emit the strict Report-Only policy (PI_DASHBOARD_CSP=enforce/off?)");
+      test.skip(!head.reportOnly.some((v) => v.includes(`${CSP_REPORT_PREFIX}strict`)), "harness does not emit the strict Report-Only policy; boot it with PI_DASHBOARD_CSP=report");
       const routes = [...CORE_ROUTES, ...pluginIds().map((id) => `/settings/plugins/${id}`)];
       test.setTimeout(60_000 + routes.length * 15_000);
 
@@ -56,7 +60,7 @@ test.describe("strict CSP, report mode", () => {
     // Where the TT directive rides decides its label: a TT-only header → `trusted-types`, else the header it is appended to.
     const ttLabel = reportLabelOf(all, TT_DIRECTIVE);
     test.skip(!ttLabel, "no header on /apps/team/ carries the Trusted Types directive with a report destination");
-    test.skip(!doc.reportOnly.some((v) => v.includes(`${CSP_REPORT_PREFIX}strict`)), "harness does not emit the strict Report-Only policy");
+    test.skip(!doc.reportOnly.some((v) => v.includes(`${CSP_REPORT_PREFIX}strict`)), "harness does not emit the strict Report-Only policy; boot it with PI_DASHBOARD_CSP=report");
     if (readCspReports() === undefined) test.skip(true, "health carries no cspReports block (disclosure refused or sink not wired)");
 
     // Chromium may not surface report-uri deliveries to page.on("request"); when it does, every one must be a 204.

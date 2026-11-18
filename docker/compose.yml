@@ -55,6 +55,11 @@ services:
       # First-run pin seeding (path-separator list of absolute dirs). Honored
       # by the server only when no pinned dirs are persisted yet.
       PI_DASHBOARD_PIN_DIRS: "${PI_DASHBOARD_PIN_DIRS:-}"
+      # Content-Security-Policy mode. Empty = default `enforce` (strict policy
+      # enforcing). Rollback: PI_DASHBOARD_CSP=report in .env, then
+      # `docker compose up -d`. Exact lowercase: off | report | enforce.
+      # See change: enforce-strict-csp-default (D5).
+      PI_DASHBOARD_CSP: "${PI_DASHBOARD_CSP:-}"
 
     volumes:
       # pi sessions, auth.json, dashboard config/preferences.
