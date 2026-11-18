@@ -42,30 +42,20 @@ export function realpathNearestAncestor(p: string): string {
 /**
  * Same resolution for the LISTED credential locations (home-derived constants, never request input).
  *
- * Most listed entries do not exist on a given host, and a thrown ENOENT per missing entry made the
- * extended sensitive list (harden-agent-tool-guards D7, ~30 entries) a measurable cost on the denial
- * path: a non-throwing `lstat` probe plus a per-call `cache` (shared parents) keeps it near the
- * pre-expansion level. Kept a SEPARATE function so the probe is never reachable from a caller-supplied
- * path (a `lstat` on one was a CodeQL js/path-injection sink).
+ * Most listed entries do not exist on a given host, and each miss throws ENOENT from `realpathSync`.
+ * With the extended sensitive list (harden-agent-tool-guards D7, ~30 entries) that was a measurable
+ * cost on the denial path, almost all of it capturing a stack trace nobody reads. The caller
+ * (`forbiddenGrantSubjects`) therefore zeroes `Error.stackTraceLimit` around the whole list build, and
+ * `cache` shares the parent resolution across entries. No extra fs probe is added: an `lstat` here was a
+ * CodeQL js/path-injection sink, while `realpathSync` is not.
  */
 function realpathListedAncestor(p: string, cache: Map<string, string>): string {
   const hit = cache.get(p);
   if (hit !== undefined) return hit;
-  let exists = false;
+  let result: string;
   try {
-    exists = fs.lstatSync(p, { throwIfNoEntry: false }) !== undefined;
+    result = fs.realpathSync(p);
   } catch {
-    exists = false; // ENOTDIR / EACCES: not resolvable here, walk up
-  }
-  let result: string | undefined;
-  if (exists) {
-    try {
-      result = fs.realpathSync(p);
-    } catch {
-      /* dangling or unreadable link: walk up like a missing path */
-    }
-  }
-  if (result === undefined) {
     const parent = path.dirname(p);
     result = parent === p ? p : path.join(realpathListedAncestor(parent, cache), path.basename(p));
   }
@@ -206,7 +196,18 @@ export function forbiddenGrantSubjects(env?: ForbiddenSubjectsEnv): {
     ...HOME_CREDENTIAL_SUBPATHS.map((sub) => p.join(home, ...sub)),
     ...browserProfileRoots(platform, home, vars),
   ];
-  return { whole: whole.map(canonical), sensitive: sensitive.map(canonical) };
+  return withoutStackTraces(() => ({ whole: whole.map(canonical), sensitive: sensitive.map(canonical) }));
+}
+
+/** Run `fn` with error stack capture off: a missing path throws ENOENT from `realpathSync`, and the stack is never read. */
+function withoutStackTraces<T>(fn: () => T): T {
+  const limit = Error.stackTraceLimit;
+  Error.stackTraceLimit = 0;
+  try {
+    return fn();
+  } finally {
+    Error.stackTraceLimit = limit;
+  }
 }
 
 /**
@@ -286,7 +287,7 @@ export function isUngrantableSubject(
   // Built once per call (or by the caller) and shared by both halves (design D7); the subject is
   // canonicalised once, not once per half.
   const ops = pathOps(env);
-  const real = ops.canonical(subject);
+  const real = withoutStackTraces(() => ops.canonical(subject));
   const { whole, sensitive } = sets ?? forbiddenGrantSubjects(env);
   return (
     whole.some((f) => ops.same(real, f)) ||
