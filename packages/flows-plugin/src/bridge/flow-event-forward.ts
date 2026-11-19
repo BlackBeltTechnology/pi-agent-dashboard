@@ -25,6 +25,9 @@ const step = (as: string): EventForwardChannelSpec => ({ as, delivery: "stream",
 const run = (as: string): EventForwardChannelSpec => ({ as, delivery: "stream", key: "flowName" });
 const live = (as: string): EventForwardChannelSpec => ({ as, delivery: "live" });
 
+/** Plugin-owned session entry recording one dismissed run (`{ runId }`). */
+export const FLOW_RUN_CLOSE_ENTRY = "flow-run-close";
+
 /** pi-flows bus channel → forwarded dashboard event type + delivery. */
 export const FLOW_RUN_CHANNELS: Readonly<Record<string, EventForwardChannelSpec>> = Object.freeze({
   "flow:agent-started": step("flow_agent_started"),
@@ -45,8 +48,9 @@ export const FLOW_RUN_CHANNELS: Readonly<Record<string, EventForwardChannelSpec>
   "flow:autonomous-mode-changed": live("flow_autonomous_changed"),
 });
 
-/** Persisted pi-flows run records (mirrors the manifest `replayEntryTypes`). */
-export const FLOW_REPLAY_ENTRY_TYPES: readonly string[] = Object.freeze(["flow-event"]);
+/** Persisted flow records (mirrors the manifest `replayEntryTypes`): pi-flows'
+ *  run records plus this plugin's own run dismissals (`flow-run-close`). */
+export const FLOW_REPLAY_ENTRY_TYPES: readonly string[] = Object.freeze(["flow-event", FLOW_RUN_CLOSE_ENTRY]);
 
 export const FLOW_RUN_DECLARATION: EventForwardDeclaration = {
   pluginId: "flows",
@@ -62,7 +66,27 @@ interface PiEvents {
   emit(name: string, data: unknown): unknown;
 }
 
-export function startFlowEventForward(pi: { events?: PiEvents }): void {
+interface PiAppendEntry {
+  appendEntry?: (customType: string, data?: unknown) => void;
+}
+
+/**
+ * Persist a dismissal that names its run as a `flow-run-close` entry, so replay
+ * re-emits `flow_summary_dismissed { runId }` and the dismissed run stays gone.
+ * No runId → nothing persisted (legacy live-only clear-all). Never throws.
+ * See change: persist-flow-run-close (D1).
+ */
+export function persistRunDismissal(pi: PiAppendEntry, data: unknown): void {
+  const runId = (data as { runId?: unknown } | null | undefined)?.runId;
+  if (typeof runId !== "string" || runId === "" || typeof pi.appendEntry !== "function") return;
+  try {
+    pi.appendEntry(FLOW_RUN_CLOSE_ENTRY, { seq: Date.now(), eventType: "flow_summary_dismissed", data: { runId } });
+  } catch {
+    /* best-effort: the live forward still clears the run */
+  }
+}
+
+export function startFlowEventForward(pi: { events?: PiEvents } & PiAppendEntry): void {
   const events = pi.events;
   if (!events || typeof events.emit !== "function" || typeof events.on !== "function") return;
   const declare = () => {
@@ -85,6 +109,11 @@ export function startFlowEventForward(pi: { events?: PiEvents }): void {
       /* best-effort */
     }
   };
+  try {
+    events.on("flow:summary-dismissed", (data) => persistRunDismissal(pi, data));
+  } catch {
+    /* noop */
+  }
   for (const name of COMMANDS_TRIGGERS) {
     try {
       events.on(name, commandsChanged);

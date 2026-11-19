@@ -90,3 +90,21 @@ describe("flow types owned by the flows plugin (E29)", () => {
     expect(ss.slice(0, ss.indexOf("\n}\n"))).not.toMatch(/^\s+flow[A-Z]\w*\??:/m);
   });
 });
+
+/** T5: the run's `runId` rides on FlowState so dismiss can name the run. See change: persist-flow-run-close (D3). */
+describe("flow_started stores runId (T5)", () => {
+  const steps = [{ id: "s1", stepType: "agent", agent: "a", blockedBy: [] }];
+  it("keeps runId from flow_started through later events", () => {
+    const state = fold([
+      ["flow_started", { flowName: "f", task: "t", runId: "r1", steps }],
+      ["flow_agent_started", { agentName: "a", stepId: "s1", runId: "r1" }],
+      ["flow_complete", { flowName: "f", runId: "r1", status: "success" }],
+    ]);
+    expect(state?.runId).toBe("r1");
+  });
+
+  it("leaves runId undefined when absent or not a string", () => {
+    expect(fold([["flow_started", { flowName: "f", task: "t", steps }]])?.runId).toBeUndefined();
+    expect(fold([["flow_started", { flowName: "f", task: "t", runId: 7, steps }]])?.runId).toBeUndefined();
+  });
+});

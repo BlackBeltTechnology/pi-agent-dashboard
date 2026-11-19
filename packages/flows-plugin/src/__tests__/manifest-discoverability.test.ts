@@ -51,6 +51,18 @@ describe("flows-plugin manifest discoverability", () => {
     expect(validated.emits).toContain("flow:set-edit-mode");
   });
 
+  // T8: the manifest and the bridge declaration stay in sync on the persisted
+  // entry types. See change: persist-flow-run-close (D1).
+  it("declares replayEntryTypes flow-event + flow-run-close, mirrored by FLOW_REPLAY_ENTRY_TYPES", async () => {
+    const validated = validateManifest(manifest, pkg.name) as { replayEntryTypes?: string[] };
+    const { FLOW_REPLAY_ENTRY_TYPES } = await import("../bridge/flow-event-forward.js");
+    for (const t of ["flow-event", "flow-run-close"]) {
+      expect(validated.replayEntryTypes).toContain(t);
+      expect(FLOW_REPLAY_ENTRY_TYPES).toContain(t);
+    }
+    expect([...FLOW_REPLAY_ENTRY_TYPES]).toEqual(validated.replayEntryTypes);
+  });
+
   it("declares plugin id `flows`", () => {
     const validated = validateManifest(manifest, pkg.name);
     expect(validated.id).toBe("flows");
