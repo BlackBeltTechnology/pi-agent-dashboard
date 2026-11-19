@@ -134,6 +134,11 @@ export interface SearchOpts {
   fieldWeights?: { headingPath: number; heading: number; body: number };
   rootPriority?: Record<string, number>; // root id → priority (higher = preferred on dedup)
   proximityBoost?: boolean; // Tier A: in-order/proximity aux ranker
+  /** Wall-time budget (ms) for the proximity stage of ONE search, shared by both
+   *  lanes; rows past it score plain BM25. Store-internal guard + test seam, not a
+   *  config option. Default `PROXIMITY_BUDGET_MS`, clamped to [0, 60000].
+   *  See change: bound-kb-proximity-search (design D2). */
+  proximityBudgetMs?: number;
   diversity?: { enabled: boolean; lambda: number }; // Tier A: lexical MMR
   expandParent?: boolean; // Tier B: attach parent section/file context
   expandGraph?: boolean; // Tier B: pull neighbors/backlinks (opt-in)

@@ -10,6 +10,10 @@ import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, Ra
 /** Bump when the frontmatter structural schema/behavior changes so an existing
  *  DB force-reindexes once on open (design D6). */
 export const SCHEMA_VERSION = 3;
+/** Default per-search proximity time budget, ms (design D2 of change
+ *  bound-kb-proximity-search). A backstop: the exact window search (D1) keeps
+ *  measured calls far below it. */
+export const PROXIMITY_BUDGET_MS = 250;
 
 const DDL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
@@ -639,11 +643,27 @@ export class SqliteFtsStore implements KbStore {
     // NOT be: `coverageRerank` fully re-sorts, so its head is not the
     // best-scoring candidate. The min is what makes the position moot.
     const bodies = new Map<string, string>();
+    // Proximity time budget (design D2): one running total for both lanes,
+    // charged only with time spent inside proximityDelta; rows arrive in BM25
+    // order, so once it is spent the remaining rows score plain BM25.
+    const proximityOn = !!opts.proximityBoost && qterms.length >= 2;
+    const proximityBudget = num(opts.proximityBudgetMs, PROXIMITY_BUDGET_MS, 0, 60000);
+    let proximitySpentMs = 0;
+    let proximityExamined = 0;
+    let proximitySkipped = 0;
     const lane = (rows: any[], captureRawBest?: (best: number) => void): KbHit[] => {
       let hits: KbHit[] = rows.map((r) => {
         bodies.set(r.chunkId, r.body);
         let score = r.score;
-        if (opts.proximityBoost) score += proximityDelta(qterms, r.body);
+        if (proximityOn) {
+          proximityExamined++;
+          if (proximitySpentMs >= proximityBudget) proximitySkipped++;
+          else {
+            const t0 = performance.now();
+            score += proximityDelta(qterms, r.body);
+            proximitySpentMs += performance.now() - t0;
+          }
+        }
         return { root: r.root, path: r.path, headingPath: r.headingPath, chunkId: r.chunkId, docType: r.docType, score, snippet: r.snippet, parentChunkId: r.parentChunkId } as KbHit & { parentChunkId: string | null };
       });
 
@@ -723,6 +743,10 @@ export class SqliteFtsStore implements KbStore {
       hits = interleaveLanes(main, reserved, laneShare, limit, wantSourceDedup, leadFirst);
     } else {
       hits = main.slice(0, limit);
+    }
+
+    if (proximitySkipped > 0) {
+      console.warn(`[kb] proximity budget ${proximityBudget}ms exhausted; ${proximitySkipped} of ${proximityExamined} rows scored without proximity`);
     }
 
     // optional cross-encoder rerank (Tier C): no-op without an injected reranker
@@ -1018,28 +1042,58 @@ function interleaveLanes(main: KbHit[], reserved: KbHit[], share: number, limit:
 /** Proximity/in-order boost: reward hits whose query terms appear close and in
  *  query order in the body. Returns a delta to ADD to the bm25 score (negative
  *  = better). bm25 is asc (lower=better), so a good proximity lowers the score. */
-function proximityDelta(queryTerms: string[], body: string): number {
+export function proximityDelta(queryTerms: string[], body: string): number {
   if (queryTerms.length < 2) return 0;
+  const best = minInOrderSpan(queryTerms, body);
+  if (!isFinite(best)) return 0;
+  // window 1..~40 → delta 0..-2 (closer = bigger boost); normalise -0 to +0
+  const d = -Math.max(0, 2 - best / 20);
+  return d === 0 ? 0 : d;
+}
+
+/** Smallest in-order span (last position − first position) of a chain hitting
+ *  every query term in query order; `Infinity` when a term is missing.
+ *  Exported for tests only (not re-exported from the package index). */
+export function minInOrderSpan(queryTerms: string[], body: string): number {
   const tokens = rawTokens(body);
   const pos: Record<string, number[]> = Object.create(null);
   tokens.forEach((t, i) => { (pos[t] ??= []).push(i); });
-  // smallest window containing all query terms in order
+  const lists: number[][] = [];
+  for (const q of queryTerms) {
+    const arr = pos[q];
+    if (!arr) return Infinity;
+    lists.push(arr);
+  }
+  // A non-decreasing chain's span telescopes to p_last − p_first, and for a
+  // fixed first position the earliest admissible successor per term (≥, so a
+  // repeated query term may reuse a position) minimises p_last. Exact and
+  // O(|pos[q0]| · k · log n). See change: bound-kb-proximity-search (design D1).
   let best = Infinity;
-  const qt = queryTerms;
-  const walk = (idx: number, start: number, span: number): void => {
-    if (idx === qt.length) { best = Math.min(best, span); return; }
-    const arr = pos[qt[idx]];
-    if (!arr) return;
-    for (const p of arr) {
-      if (p < start) continue;
-      walk(idx + 1, p, idx === 0 ? 0 : span + (p - start));
-      if (best === 1) return;
+  for (const p0 of lists[0]) {
+    let cur = p0;
+    for (let i = 1; i < lists.length; i++) {
+      const arr = lists[i];
+      const j = lowerBound(arr, cur);
+      if (j === arr.length) return best; // cur only grows with p0: no later start fits
+      cur = arr[j];
+      if (cur - p0 >= best) break;
     }
-  };
-  walk(0, -1, 0);
-  if (!isFinite(best)) return 0;
-  // window 1..~40 → delta 0..-2 (closer = bigger boost)
-  return -Math.max(0, 2 - best / 20);
+    if (cur - p0 < best) best = cur - p0;
+    if (best === 0) break;
+  }
+  return best;
+}
+
+/** First index in ascending `arr` with `arr[i] >= x` (`arr.length` if none). */
+function lowerBound(arr: number[], x: number): number {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (arr[mid] < x) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /** Lexical MMR diversification over an already-ranked list. */
