@@ -19,7 +19,8 @@
  * flow catalog publisher (see `flow-catalog-publisher.ts`; change
  * flows-dock-chip-and-panel-actions), and declares every pi-flows run channel
  * plus the persisted `flow-event` entry type through the generic forward seam
- * (see `flow-event-forward.ts`; change update-flows-plugin).
+ * (see `flow-event-forward.ts`; change update-flows-plugin), and persists each
+ * run dismissal as a `flow-run-close` entry (change persist-flow-run-close).
  *
  * Claude subscription compat for flow agents: pi-flows builds agents with an
  * in-memory loader that never loads the settings packages, so the dashboard

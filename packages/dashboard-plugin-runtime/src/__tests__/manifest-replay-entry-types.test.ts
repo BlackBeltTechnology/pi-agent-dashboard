@@ -18,12 +18,12 @@ function setFor(manifest: unknown, enabled: boolean) {
 }
 
 describe("manifest replayEntryTypes (E9)", () => {
-  it("the real flows manifest declares flow-event", () => {
+  it("the real flows manifest declares flow-event and flow-run-close", () => {
     const pkg = JSON.parse(
       fs.readFileSync(path.resolve(import.meta.dirname, "../../../flows-plugin/package.json"), "utf8"),
     );
     const m = validateManifest(pkg["pi-dashboard-plugin"]);
-    expect(m.replayEntryTypes).toEqual(["flow-event"]);
+    expect(m.replayEntryTypes).toEqual(["flow-event", "flow-run-close"]);
   });
 
   it("an enabled plugin contributes its types to the replay set", () => {

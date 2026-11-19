@@ -41,7 +41,7 @@ describe("offline plugin-entry replay (X7)", () => {
   it("replays the discovered flows manifest's entry type, seq-ordered, with no bridge", async () => {
     const plugins = discoverPlugins(REPO);
     const flows = plugins.find((p) => p.manifest.id === "flows");
-    expect(flows?.manifest.replayEntryTypes).toEqual(["flow-event"]);
+    expect(flows?.manifest.replayEntryTypes).toEqual(["flow-event", "flow-run-close"]);
     setReplayEntryTypesProvider(() =>
       computeReplayEntryTypes(plugins.map((p) => ({ replayEntryTypes: p.manifest.replayEntryTypes, enabled: true }))),
     );

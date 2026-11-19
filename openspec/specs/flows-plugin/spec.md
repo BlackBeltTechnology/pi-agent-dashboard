@@ -330,8 +330,16 @@ The flows plugin server SHALL handle `plugin_action { pluginId: "flows", action 
 - **THEN** it SHALL emit `flow:toggle-autonomous`
 
 #### Scenario: Dismiss summary
-- **WHEN** the server receives `flow.dismiss-summary`
-- **THEN** it SHALL emit `flow:summary-dismissed`
+- **WHEN** the server receives `flow.dismiss-summary` with `payload.runId` a string of 1 to 128 characters
+- **THEN** it SHALL emit `flow:summary-dismissed { runId }`
+
+#### Scenario: REST dismiss forwards runId
+- **WHEN** `POST /api/plugins/flows/control` receives `{ sessionId, action: "flow.dismiss-summary", runId: "r1" }` from an operator
+- **THEN** it SHALL emit `flow:summary-dismissed { runId: "r1" }`
+
+#### Scenario: Dismiss summary without a valid runId
+- **WHEN** the server receives `flow.dismiss-summary` with no `runId`, or a `runId` that is not a string of 1 to 128 characters
+- **THEN** it SHALL emit `flow:summary-dismissed {}`
 
 #### Scenario: Delete emits request and notify
 - **WHEN** the server receives `flow.delete` with a valid `flowName`
@@ -360,9 +368,6 @@ The flows plugin server SHALL handle `plugin_action { pluginId: "flows", action 
 
 #### Scenario: ACP session refused before relay
 - **GIVEN** a session whose driver is `acp`
-- **WHEN** the server receives `flow.abort` for that session
-- **THEN** it SHALL answer `UNSUPPORTED_FOR_ACP`
-- **AND** it SHALL emit no event into that session
 
 ### Requirement: Flows manifest emits lists every relayed event
 The flows plugin manifest `emits` list SHALL name every event the plugin server relays through `ctx.emitEventToSession`: `flow:run`, `flow:set-edit-mode`, `flow:abort`, `flow:architect-abort`, `flow:toggle-autonomous`, `flow:summary-dismissed`, `flow:delete-request` and `flow:notify`, so the loader's emits gate allows each relay.
@@ -499,3 +504,18 @@ While the flows plugin is enabled, its bridge SHALL, before each agent run whose
 #### Scenario: No guideline without the flows plugin
 - **WHEN** the flows plugin is disabled, so its bridge is not registered
 - **THEN** `flow_write` carries only pi-flows' own description and guidelines
+
+### Requirement: Flows bridge persists run dismissals
+The flows plugin bridge SHALL listen to `flow:summary-dismissed` and, when its `runId` is a non-empty string, SHALL call `pi.appendEntry("flow-run-close", { seq, eventType: "flow_summary_dismissed", data: { runId } })`. It SHALL persist nothing when `runId` is absent, and SHALL never throw.
+
+#### Scenario: Dismiss with runId is persisted
+- **WHEN** pi emits `flow:summary-dismissed { runId: "r1" }` in a session with the flows bridge active
+- **THEN** the bridge SHALL append one `flow-run-close` entry whose record is `{ eventType: "flow_summary_dismissed", data: { runId: "r1" } }` with a numeric `seq`
+
+#### Scenario: Dismiss without runId is not persisted
+- **WHEN** pi emits `flow:summary-dismissed {}`
+- **THEN** the bridge SHALL NOT append any entry
+
+#### Scenario: appendEntry failure is swallowed
+- **WHEN** `pi.appendEntry` throws while persisting a dismissal
+- **THEN** the bridge SHALL NOT throw and the live forward SHALL still occur
