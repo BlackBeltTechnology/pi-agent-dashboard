@@ -130,7 +130,7 @@ describe("flows manifest emits + claims (E38)", () => {
     const manifests = loadManifests();
     const flows = manifests.get("flows")!.manifest;
     expect(flows.emits).toEqual(expect.arrayContaining(RELAYED));
-    expect(flows.replayEntryTypes).toEqual(["flow-event"]);
+    expect(flows.replayEntryTypes).toEqual(["flow-event", "flow-run-close"]);
     const registry = createPluginServiceRegistry();
     const deps = {
       manifestEmits: (id: string) => (id === "flows" ? flows.emits ?? [] : undefined),

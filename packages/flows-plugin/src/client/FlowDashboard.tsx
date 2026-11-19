@@ -806,10 +806,20 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
 
   // Flow commands go to the flows plugin server as plugin_action, which relays
   // fixed pi events. See change: update-flows-plugin (D2).
-  const flowControl = (action: "flow.abort" | "flow.toggle-autonomous" | "flow.dismiss-summary") =>
+  const flowControl = (action: "flow.abort" | "flow.toggle-autonomous") =>
     send({ type: "plugin_action", pluginId: "flows", sessionId, action });
+  // Dismiss names the run so the bridge persists it and replay keeps it gone.
+  // See change: persist-flow-run-close (D3, D4).
+  const dismissRun = (runId: string | undefined) =>
+    send({ type: "plugin_action", pluginId: "flows", sessionId, action: "flow.dismiss-summary", ...(runId ? { payload: { runId } } : {}) });
   const detach = () => {
     if (attachment) clearAttachment(sessionId, attachment.id);
+  };
+  // Idle Close also dismisses the finished run the slot would fall back to, so
+  // the slot ends empty and stays empty after replay. (D5)
+  const closeIdle = () => {
+    detach();
+    if (flowState && flowState.status !== "running" && flowState.runId) void dismissRun(flowState.runId);
   };
 
   if (slot.mode === "none") return null;
@@ -843,7 +853,7 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
           isIdle
             ? {
                 onRun: run.open,
-                onClose: detach,
+                onClose: closeIdle,
                 runDisabled: run.pending,
                 rejectionReason: run.rejectionReason,
               }
@@ -851,7 +861,7 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
         }
         onAbort={() => flowControl("flow.abort")}
         onToggleAutonomous={() => flowControl("flow.toggle-autonomous")}
-        onDismiss={() => flowControl("flow.dismiss-summary")}
+        onDismiss={() => dismissRun(shown.runId)}
         onSendPrompt={(text: string, images?: ImageContent[]) =>
           send({ type: "send_prompt", sessionId, text, images })
         }

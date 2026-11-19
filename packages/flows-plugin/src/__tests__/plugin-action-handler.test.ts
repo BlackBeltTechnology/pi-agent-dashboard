@@ -133,6 +133,7 @@ async function controlSetup(opts: { delivered?: boolean } = {}) {
       getSession: (id: string) => sessions[id],
     },
     fastify: f,
+    identity: { hasOperateAuthority: () => true },
     getPluginConfig: () => ({}),
     onEvent: () => () => {},
     onSessionEnded: () => () => {},
@@ -245,5 +246,34 @@ describe("flow-control: relay not delivered (X6)", () => {
   it("registers the POST control route", async () => {
     const t = await controlSetup();
     expect(t.f.post.mock.calls.map((c) => c[0])).toContain("/api/plugins/flows/control");
+  });
+});
+
+// ── Dismiss carries runId (persist-flow-run-close D4; test-plan T6, T6b) ──
+describe("flow.dismiss-summary relays a valid runId (T6)", () => {
+  it.each([
+    [{ runId: "r1" }, { runId: "r1" }],
+    [{ runId: "x".repeat(128) }, { runId: "x".repeat(128) }],
+    [undefined, {}],
+    [{}, {}],
+    [{ runId: "" }, {}],
+    [{ runId: 42 }, {}],
+    [{ runId: "x".repeat(129) }, {}],
+  ] as Array<[Record<string, unknown> | undefined, Record<string, unknown>]>)("payload %j emits %j", async (payload, expected) => {
+    const t = await controlSetup();
+    t.send("s1", "flow.dismiss-summary", payload);
+    expect(t.emits()).toEqual([["flow:summary-dismissed", expected]]);
+  });
+});
+
+describe("REST control route forwards runId (T6b)", () => {
+  it("POST {action: flow.dismiss-summary, runId} emits {runId}", async () => {
+    const t = await controlSetup();
+    const call = t.f.post.mock.calls.find((c) => c[0] === "/api/plugins/flows/control");
+    const handler = call?.[2] as (req: unknown, reply: unknown) => Promise<unknown>;
+    const reply = { code: vi.fn(() => reply), send: vi.fn((x: unknown) => x) };
+    const res = await handler({ body: { sessionId: "s1", action: "flow.dismiss-summary", runId: "r1" } }, reply);
+    expect(res).toEqual({ success: true });
+    expect(t.emits()).toEqual([["flow:summary-dismissed", { runId: "r1" }]]);
   });
 });

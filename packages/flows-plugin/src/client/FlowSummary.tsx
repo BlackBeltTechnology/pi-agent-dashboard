@@ -344,7 +344,13 @@ export function FlowSummaryClaim({ session }: { session: DashboardSession }) {
       session={session}
       sessionId={session.id}
       onDismiss={() =>
-        send({ type: "plugin_action", pluginId: "flows", sessionId: session.id, action: "flow.dismiss-summary" })
+        send({
+          type: "plugin_action",
+          pluginId: "flows",
+          sessionId: session.id,
+          action: "flow.dismiss-summary",
+          ...(flowState.runId ? { payload: { runId: flowState.runId } } : {}),
+        })
       }
       onSendPrompt={(text) =>
         send({ type: "send_prompt", sessionId: session.id, text })

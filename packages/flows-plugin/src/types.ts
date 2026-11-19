@@ -106,6 +106,9 @@ export interface FlowState {
   autonomousMode: boolean;
   /** Path to the flow YAML file (for YAML viewer) */
   flowSource?: string;
+  /** pi-flows run id from `flow_started` (dismiss names the run by it).
+   *  See change: persist-flow-run-close (D3). */
+  runId?: string;
   /** Ordered map — insertion order matches step order from flow config */
   agents: Map<string, FlowAgentState>;
   /** All steps from the flow configuration — used for DAG graph rendering.

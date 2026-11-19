@@ -377,6 +377,9 @@ export function reduceFlowEvent(
         status: "running",
         autonomousMode: (data.autonomousMode as boolean) || false,
         flowSource: (data.source as string) || undefined,
+        // pi-flows stamps runId on every run event; kept so a dismiss can name
+        // the run. See change: persist-flow-run-close (D3).
+        ...(typeof data.runId === "string" && data.runId ? { runId: data.runId } : {}),
         agents,
         dagSteps,
       };

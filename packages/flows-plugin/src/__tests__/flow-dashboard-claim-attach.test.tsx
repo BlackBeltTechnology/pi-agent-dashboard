@@ -511,6 +511,54 @@ describe("detach (F11)", () => {
   });
 });
 
+// ── T10: Close over a finished run dismisses it (persist-flow-run-close D5) ──
+describe("idle Close dismisses the finished run beneath (T10)", () => {
+  const dismissals = (send: ReturnType<typeof vi.fn>) =>
+    send.mock.calls.map(([m]) => m as Record<string, unknown>).filter((m) => m.action === "flow.dismiss-summary");
+
+  it("finished run r1 beneath: attachment cleared and dismiss {runId: r1} sent", async () => {
+    const sid = nextSid();
+    publishSessionEvents(sid, [started("B", 10, { runId: "r1" }), ev("flow_complete", 20, { flowName: "B", runId: "r1", status: "aborted" })]);
+    attach(sid, "A", { baselineStartedAt: 10 });
+    const { send } = renderClaim(sid);
+    await screen.findByTestId("flow-dashboard");
+    fireEvent.click(screen.getByTestId("flow-idle-close"));
+    expect(localStorage.getItem(flowAttachKey(sid))).toBeNull();
+    expect(dismissals(send)).toEqual([
+      { type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.dismiss-summary", payload: { runId: "r1" } },
+    ]);
+  });
+
+  it("nothing beneath: no dismiss sent", async () => {
+    const sid = nextSid();
+    attach(sid, "A");
+    const { send } = renderClaim(sid);
+    await screen.findByTestId("flow-dashboard");
+    fireEvent.click(screen.getByTestId("flow-idle-close"));
+    expect(dismissals(send)).toEqual([]);
+  });
+
+  it("running run: the slot is live, no idle Close is offered, nothing is dismissed", async () => {
+    const sid = nextSid();
+    publishSessionEvents(sid, [started("B", 10, { runId: "r1" })]);
+    attach(sid, "A", { baselineStartedAt: 10 });
+    const { send } = renderClaim(sid);
+    await waitFor(() => expect(root()?.getAttribute("data-flow-mode")).toBe("live"));
+    expect(screen.queryByTestId("flow-idle-close")).toBeNull();
+    expect(dismissals(send)).toEqual([]);
+  });
+
+  it("finished run without runId beneath: no dismiss sent (legacy)", async () => {
+    const sid = nextSid();
+    publishSessionEvents(sid, [started("B", 10), completed("B", 20)]);
+    attach(sid, "A", { baselineStartedAt: 10 });
+    const { send } = renderClaim(sid);
+    await screen.findByTestId("flow-dashboard");
+    fireEvent.click(screen.getByTestId("flow-idle-close"));
+    expect(dismissals(send)).toEqual([]);
+  });
+});
+
 // ── 5.14 F12 reload ────────────────────────────────────────────────
 describe("attachment survives reload (F12)", () => {
   it("pre-seeded storage renders the idle panel", async () => {
