@@ -816,10 +816,11 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
     if (attachment) clearAttachment(sessionId, attachment.id);
   };
   // Idle Close also dismisses the finished run the slot would fall back to, so
-  // the slot ends empty and stays empty after replay. (D5)
+  // the slot ends empty and (with a runId) stays empty after replay; a run
+  // without runId gets the legacy live-only clear-all. (D5)
   const closeIdle = () => {
     detach();
-    if (flowState && flowState.status !== "running" && flowState.runId) void dismissRun(flowState.runId);
+    if (flowState && flowState.status !== "running") void dismissRun(flowState.runId);
   };
 
   if (slot.mode === "none") return null;

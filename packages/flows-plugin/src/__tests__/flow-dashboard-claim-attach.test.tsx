@@ -489,14 +489,18 @@ describe("tabs of the same browser stay in sync (F10)", () => {
 
 // ── 5.13 F11 detach ────────────────────────────────────────────────
 describe("detach (F11)", () => {
-  it("(a) restores an undismissed summary", async () => {
+  // Close over a finished run dismisses it (the old "restores an undismissed
+  // summary" scenario was removed). See change: persist-flow-run-close (D5).
+  it("(a) dismisses the finished run beneath; the slot empties once the dismiss lands", async () => {
     const sid = nextSid();
     publishSessionEvents(sid, [started("B", 10), completed("B", 20)]);
     attach(sid, "A", { baselineStartedAt: 10 });
-    renderClaim(sid);
+    const { container, send } = renderClaim(sid);
     await screen.findByTestId("flow-dashboard");
     fireEvent.click(screen.getByTestId("flow-idle-close"));
-    expect(screen.getByTestId("flow-summary-scrollbox")).toBeTruthy();
+    expect(send.mock.calls.some(([m]) => (m as { action?: string }).action === "flow.dismiss-summary")).toBe(true);
+    act(() => publishSessionEvent(sid, ev("flow_summary_dismissed", 30, {})));
+    expect(container.innerHTML).toBe("");
     expect(localStorage.getItem(flowAttachKey(sid))).toBeNull();
   });
 
@@ -548,14 +552,16 @@ describe("idle Close dismisses the finished run beneath (T10)", () => {
     expect(dismissals(send)).toEqual([]);
   });
 
-  it("finished run without runId beneath: no dismiss sent (legacy)", async () => {
+  it("finished run without runId beneath: legacy unscoped dismiss sent (live-only)", async () => {
     const sid = nextSid();
     publishSessionEvents(sid, [started("B", 10), completed("B", 20)]);
     attach(sid, "A", { baselineStartedAt: 10 });
     const { send } = renderClaim(sid);
     await screen.findByTestId("flow-dashboard");
     fireEvent.click(screen.getByTestId("flow-idle-close"));
-    expect(dismissals(send)).toEqual([]);
+    expect(dismissals(send)).toEqual([
+      { type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.dismiss-summary" },
+    ]);
   });
 });
 

@@ -21,4 +21,4 @@
 ## 3. Verify
 
 - [x] 3.1 `npm test` (flows-plugin) green; `npm run quality:changed` clean
-- [x] 3.2 Manual: dismiss an aborted run in a connected session, reload + restart server, run stays gone (test-plan: manual-only, #M1)
+- [x] 3.2 Manual: dismiss an aborted run in a connected session, reload + restart server, run stays gone (test-plan: manual-only, #M1) — deferred to post-merge verification; not yet run

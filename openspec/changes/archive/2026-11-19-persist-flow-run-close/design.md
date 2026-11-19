@@ -29,7 +29,7 @@ A dismiss **without** `runId` keeps the current clear-all behaviour (legacy, liv
 `flow.dismiss-summary` accepts optional `payload.runId`: string, 1..128 chars; otherwise ignored (emit `{}` — legacy). Emits `flow:summary-dismissed { runId }`. Both entry points share `runFlowControl`: `plugin_action` passes `m.payload` (`packages/flows-plugin/src/server/index.ts:177-181`); the REST route `POST /api/plugins/flows/control` copies only whitelisted body keys (`packages/flows-plugin/src/server/flow-control.ts:192-194`) — add `runId` to that whitelist. Client `flowControl` (`FlowDashboard.tsx:809-810`) and `FlowSummaryClaim` (`FlowSummary.tsx:347`) send no `payload` today; they must.
 
 ### D5 — Close dismisses the run beneath
-In `FlowDashboardClaim`, idle `onClose` = detach + (if the live fallback run exists, is not `running`, and has `runId`) send `flow.dismiss-summary { runId }`. Slot then resolves to `none`.
+In `FlowDashboardClaim`, idle `onClose` = detach + (if the live fallback run exists and is not `running`) send `flow.dismiss-summary` — with `payload.runId` when the run has one (persisted), else unscoped (legacy live-only clear-all; may reappear on replay). Slot then resolves to `none`.
 
 ## Risks / Trade-offs
 
