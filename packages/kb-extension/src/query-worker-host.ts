@@ -115,7 +115,11 @@ export function createQueryWorkerHost(o: QueryWorkerHostOptions = {}): QueryWork
     }
   };
   const drainInProcess = (): void => {
-    for (const r of queue.splice(0)) runInProcess(r);
+    for (const r of queue.splice(0)) {
+      // crashed a worker once: never re-run that input on the session thread
+      if (r.retried) settle(r, { kind: "failed" });
+      else runInProcess(r);
+    }
   };
 
   /** Detach the live worker and terminate it fire-and-forget. Its exit is expected. */

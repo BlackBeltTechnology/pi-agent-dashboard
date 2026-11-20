@@ -53,8 +53,20 @@ try {
     const timed = time(() => store.search(q, opts));
     const plain = store.search(q, { limit: 10, proximityBoost: false });
     const boost = Object.fromEntries(timed.value.map((h) => [h.path, h.score - plain.find((p) => p.chunkId === h.chunkId)!.score]));
-    const lag = await withEventLoopLag(async () => store.search(q, opts));
-    out.search = { ms: timed.ms, paths: timed.value.map((h) => h.path), boost, bigChars: big.length, maxDelayMs: lag.maxDelayMs, elapsedMs: lag.elapsedMs };
+    // The delay monitor only records a block spanned by timer turns on BOTH
+    // sides (measured: without them a 500 ms block reads 0), so yield one turn
+    // before and one after the synchronous search.
+    const turn = () => new Promise<void>((resolve) => setTimeout(resolve, 15));
+    let searchMs = 0;
+    const lag = await withEventLoopLag(async () => {
+      await turn();
+      const t0 = performance.now();
+      const res = store.search(q, opts);
+      searchMs = performance.now() - t0;
+      await turn();
+      return res;
+    });
+    out.search = { ms: timed.ms, paths: timed.value.map((h) => h.path), boost, bigChars: big.length, maxDelayMs: lag.maxDelayMs, elapsedMs: searchMs };
     store.close();
   } else if (mode === "pool") {
     const k = 6;

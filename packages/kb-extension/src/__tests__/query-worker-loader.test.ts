@@ -43,7 +43,7 @@ function runChild(importFlag: string[]): Promise<ChildOut> {
     child.stderr.on("data", (d) => (stderr += d));
     const cap = setTimeout(() => child.kill("SIGKILL"), 30_000);
     child.on("error", reject);
-    child.on("exit", (code) => {
+    child.on("close", (code) => { // after stdio drained, unlike "exit"
       clearTimeout(cap);
       const line = stdout.split("\n").find((l) => l.startsWith("{"));
       resolve({ code, ms: printedAt ? Date.now() - printedAt : Number.POSITIVE_INFINITY, stdout, stderr, out: line ? JSON.parse(line) : undefined });

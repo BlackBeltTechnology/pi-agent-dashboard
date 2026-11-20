@@ -290,6 +290,15 @@ describe("crash / errors / lifecycle", () => {
     expect(warn).toHaveBeenCalledTimes(1);
   }, 15_000);
 
+  it("W14c: a crash-retried request whose replacement worker fails to start fails — never runs in-process", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const shared = new SharedArrayBuffer(8);
+    const h = mk({ startTimeoutMs: 300, workerData: { crash: "first", readyOnAttempt: 1, shared } });
+    const ip = vi.fn(() => "in-process");
+    expect(await h.run({ op: "search" }, { inProcess: ip })).toEqual({ kind: "failed" });
+    expect(ip).not.toHaveBeenCalled();
+  }, 15_000);
+
   it("W15: an op error rejects with the message; no new worker, no crash counted", async () => {
     const h = mk();
     await warm(h);

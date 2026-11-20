@@ -19,7 +19,7 @@ function runChild(mode: "delta" | "search" | "pool"): Promise<any> {
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
     const cap = setTimeout(() => child.kill("SIGKILL"), CAP_MS);
-    child.on("exit", (code, signal) => {
+    child.on("close", (code, signal) => { // after stdio drained, unlike "exit"
       clearTimeout(cap);
       const line = out.split("\n").find((l) => l.startsWith("{"));
       if (signal === "SIGKILL") return reject(new Error(`child killed by the ${CAP_MS} ms cap (proximity search did not finish)`));
