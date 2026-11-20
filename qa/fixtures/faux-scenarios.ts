@@ -1182,7 +1182,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   // Agent secret guards (change: harden-agent-tool-guards, tests/e2e/agent-secret-guards.spec.ts).
   // Each scenario reads fixed `~/` paths (the paths need not exist: guard and gate decide on the
   // path before any read) then a closing text so the script stays finite.
-  "tool-read-agent-models": readsThenText(["~/.pi/agent/models.json"], "agent models read done"),
+  "tool-read-agent-models": readsThenText(["~/.pi/agent/models.json", "~/.pi/agent/models.json"], "agent models read done"),
   "tool-read-agent-auth": readsThenText(["~/.pi/agent/auth.json"], "agent auth read done"),
   "tool-read-credential-dirs": readsThenText(
     ["~/.aws/credentials", "~/.netrc", "~/.config/google-chrome/Default/Cookies"],
