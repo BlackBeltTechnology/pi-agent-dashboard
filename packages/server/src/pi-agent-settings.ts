@@ -45,8 +45,18 @@ import {
   getPiSettingDef,
   PI_SETTINGS_BLOCKS,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-settings-schema.js";
-import type { PiMirrorResult, PiRetryPolicy, PiSettingsPatch } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
+import type {
+  PiMirrorResult,
+  PiMirrorSkip,
+  PiRetryPolicy,
+  PiSettingsPatch,
+} from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
+import {
+  type RoleConfig,
+  resolveDefaultModel,
+  THINKING_LEVELS,
+} from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 
 // Lock primitive lives in pi-dashboard-shared (node-only) so plugin servers
 // reuse pi's lock; re-exported here with unchanged names.
@@ -367,13 +377,49 @@ export interface DashboardDefaults {
   defaultThinkingLevel?: string;
 }
 
-/** pi keys the dashboard defaults derive, plus a `skipped` flag for a separator-less model. */
+/** Reads the live role map. Injectable for tests; default reads providers.json. */
+export type RoleReader = () => Pick<RoleConfig, "roles">;
+
+const isLevel = (v: string): boolean => (THINKING_LEVELS as readonly string[]).includes(v);
+
+/** Concrete resolution of an `@role` default (D2 effective level), or why it has none. */
+export type RoleDefaultResolution =
+  | { provider: string; id: string; level?: string }
+  | { unresolved: string; role: string };
+
+/**
+ * Resolve an `@role` dashboard default to the pi keys it stands for. Level =
+ * non-empty `defaultThinkingLevel` (when canonical) > ref suffix > role level.
+ * `null` when the default is not a role ref. See change: default-model-follows-role.
+ */
+export function resolveRoleDefault(cfg: DashboardDefaults, readRoles: RoleReader): RoleDefaultResolution | null {
+  const raw = (cfg.defaultModel ?? "").trim();
+  if (!raw.startsWith("@")) return null;
+  const r = resolveDefaultModel(raw, readRoles());
+  if (r.kind === "unresolved") return { unresolved: r.reason, role: r.role };
+  if (r.kind !== "role") return null;
+  const explicit = (cfg.defaultThinkingLevel ?? "").trim();
+  const level = explicit ? (isLevel(explicit) ? explicit : undefined) : r.level;
+  return level ? { provider: r.provider, id: r.id, level } : { provider: r.provider, id: r.id };
+}
+
+/** pi keys the dashboard defaults derive, plus a `skipped` flag when the model cannot mirror. */
 function deriveMirrorWanted(
   cfg: DashboardDefaults,
   keys: readonly PiMirrorKey[],
-): { want: Record<string, string>; skipped?: "no-provider-separator" } {
+  readRoles: RoleReader,
+): { want: Record<string, string>; skipped?: PiMirrorSkip } {
   const want: Record<string, string> = {};
-  let skipped: "no-provider-separator" | undefined;
+  // A role-ref default: a save carrying either key derives BOTH (D4).
+  const role = keys.length > 0 ? resolveRoleDefault(cfg, readRoles) : null;
+  if (role) {
+    if ("unresolved" in role) return { want, skipped: "unresolved-role" };
+    want.defaultProvider = role.provider;
+    want.defaultModel = role.id;
+    if (role.level) want.defaultThinkingLevel = role.level;
+    return { want };
+  }
+  let skipped: PiMirrorSkip | undefined;
   const model = keys.includes("defaultModel") ? (cfg.defaultModel ?? "").trim() : "";
   if (model) {
     const slash = model.indexOf("/");
@@ -385,7 +431,7 @@ function deriveMirrorWanted(
     }
   }
   const level = keys.includes("defaultThinkingLevel") ? (cfg.defaultThinkingLevel ?? "").trim() : "";
-  if ((THINKING_LEVELS as readonly string[]).includes(level)) want.defaultThinkingLevel = level;
+  if (isLevel(level)) want.defaultThinkingLevel = level;
   return { want, skipped };
 }
 
@@ -394,16 +440,18 @@ function deriveMirrorWanted(
  * Reads the PERSISTED dashboard config INSIDE the lock (overlapping saves
  * converge on the last value) and writes only keys whose pi value differs.
  * Empty dashboard value → pi untouched; model without `provider/` → skipped;
+ * `@role` default → its resolved model (unresolved → skipped);
  * unparseable pi file → never written from `{}`.
  */
 export async function mirrorDefaultsToPi(
   readDashboardConfig: () => DashboardDefaults,
   keys: readonly PiMirrorKey[],
   deps: FsDeps = {},
+  readRoles: RoleReader = () => readRoleConfigFromDisk(deps.home),
 ): Promise<PiMirrorResult> {
-  const r = await withPiSettingsLock<{ skipped?: "no-provider-separator" }, ParseFail>(
+  const r = await withPiSettingsLock<{ skipped?: PiMirrorSkip }, ParseFail>(
     (state) => {
-      const { want, skipped } = deriveMirrorWanted(readDashboardConfig(), keys);
+      const { want, skipped } = deriveMirrorWanted(readDashboardConfig(), keys, readRoles);
       const changed = Object.entries(want).filter(([k, val]) => state.settings[k] !== val);
       if (changed.length === 0) return { value: { skipped } };
       if (state.parseError) return { fail: { error: "parse", parseError: state.parseError } };

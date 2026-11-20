@@ -66,6 +66,9 @@ export const catalog = {
     zoomIn: "放大",
     zoomOut: "缩小",
     fitGraph: "适应视图",
+    groupChip: "分组：{count} 个技能",
+    showAll: "显示全部",
+    outlineTitle: "{count} 个技能，点击放大",
   },
   hu: {
     title: "Skill-térkép",
@@ -128,5 +131,8 @@ export const catalog = {
     zoomIn: "Nagyítás",
     zoomOut: "Kicsinyítés",
     fitGraph: "Gráf igazítása",
+    groupChip: "Csoport: {count} skill",
+    showAll: "Összes mutatása",
+    outlineTitle: "{count} skill, kattints a nagyításhoz",
   },
 };

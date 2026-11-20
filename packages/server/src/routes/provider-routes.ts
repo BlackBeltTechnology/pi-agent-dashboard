@@ -20,7 +20,15 @@ import { dirname, join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { collectDashboardOrigins, isSelfPointing } from "../model-proxy/recursion-guard.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
-import { type ProbeApi, type ProbeResult, probeProvider, resolveProbeApiKey } from "../package/provider-probe.js";
+import {
+  CHANGED_BASE_URL_ERROR,
+  ENV_KEY_BINDING_ERROR,
+  type ProbeApi,
+  type ProbeResult,
+  probeProvider,
+  resolveProbeApiKey,
+  validateProbeBaseUrl,
+} from "../package/provider-probe.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import { getTunnelUrl } from "../tunnel/tunnel.js";
@@ -592,12 +600,26 @@ export function registerProviderRoutes(fastify: FastifyInstance, deps: { network
         return reply.code(400).send({ ok: false, error: "api type is required" });
       }
 
+      // Refusal order: invalid URL, secret binding (before the env lookup),
+      // env-unset, then the target vet inside probeProvider. A refusal is still
+      // a Test result, so it is cached like a key-resolution failure.
+      // See change: close-local-listener-and-egress-gaps (D7).
+      const urlCheck = validateProbeBaseUrl(baseUrl);
+      if (!urlCheck.ok) {
+        console.warn("[providers] test refused: Base URL is not an http(s) URL");
+        if (name) setProviderHealth(name, { ok: false, error: urlCheck.error, testedAt: Date.now() });
+        return { ok: false, error: urlCheck.error };
+      }
       const resolved = resolveProbeApiKey({
         apiKey,
         name,
         readProviders: readProvidersRaw,
+        requestBaseUrl: baseUrl,
       });
       if (!resolved.ok) {
+        if (resolved.error === CHANGED_BASE_URL_ERROR || resolved.error === ENV_KEY_BINDING_ERROR) {
+          console.warn(`[providers] test refused (secret not bound to saved Base URL) host=${urlCheck.url.hostname}`);
+        }
         // A key-resolution failure is still a Test result: cache it so a prior
         // green pill does not survive a now-failing config. See change:
         // surface-provider-health-in-settings.

@@ -238,7 +238,7 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
 
   if (invalidRoute) {
     return (
-      <div data-testid="automation-board" className="flex flex-col gap-3 p-3 text-sm">
+      <div data-testid="automation-board" className="flex flex-col flex-1 min-h-0 overflow-y-auto gap-3 p-3 text-sm">
         <div className="flex items-center gap-3">
           {onBack && (
             <button type="button" data-testid="automation-board-back" onClick={onBack} className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
@@ -254,17 +254,17 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
   }
 
   return (
-    <div data-testid="automation-board" className="flex flex-col gap-3 p-3 text-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
+    <div data-testid="automation-board" className="flex flex-col flex-1 min-h-0 overflow-y-auto text-sm">
+      <div className="sticky top-0 z-10 shrink-0 px-3 py-2 border-b border-[var(--border-primary)] bg-[var(--bg-primary)] flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-3">
           {onBack && (
             <button type="button" data-testid="automation-board-back" onClick={onBack} className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
               {t("back", undefined, "← Back")}
             </button>
           )}
-          <h2 className="text-base font-semibold">{t("automations", undefined, "Automations")}</h2>
+          <h2 className="truncate text-base font-semibold">{t("automations", undefined, "Automations")}</h2>
           {repoCrumb && (
-            <span className="text-xs text-[var(--text-secondary)]" data-testid="automation-repo-crumb">
+            <span className="min-w-0 truncate text-xs text-[var(--text-secondary)]" data-testid="automation-repo-crumb">
               {repoCrumb}
             </span>
           )}
@@ -280,70 +280,72 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
         </div>
       </div>
 
-      {creating && (
-        <CreateAutomationDialog cwd={cwd} onClose={() => { setCreating(false); restoreOpenerFocus(); }} onCreated={refresh} />
-      )}
-      {editTarget && (
-        <CreateAutomationDialog
-          cwd={cwd}
-          onClose={() => { setEditTarget(null); restoreOpenerFocus(); }}
-          onCreated={refresh}
-          initialName={editTarget.name}
-          initialScope={editTarget.scope}
-          initialConfig={editTarget.config}
-          initialSection={editTarget.section}
-          {...(editTarget.promptBody !== undefined ? { initialPromptBody: editTarget.promptBody } : {})}
-        />
-      )}
-
-      <section data-testid="automation-list">
-        <h3 className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">{t("definitions", undefined, "Definitions")}</h3>
-        {automations.length === 0 ? (
-          loaded && (
-            <div data-testid="automation-empty" className="flex flex-col items-start gap-2 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-4">
-              <p className="text-sm font-semibold text-[var(--text-primary)]">{t("noAutomations", undefined, "No automations in this folder.")}</p>
-              <p className="text-xs text-[var(--text-secondary)]">
-                {t(
-                  "emptyExplainer",
-                  undefined,
-                  "An automation runs a prompt, skill or flow in its own session on a schedule. Each run keeps its result here, one click from its session.",
-                )}
-              </p>
-              <button type="button" data-testid="automation-empty-create" onClick={() => { rememberOpener(); setCreating(true); }} className={cardButtonClass("primary")}>
-                {t("createAutomation", undefined, "+ Create Automation")}
-              </button>
-            </div>
-          )
-        ) : (
-          <ul className="space-y-2">
-            {automations.map((a) => {
-              const key = keyOf(a.scope, a.name);
-              return (
-                <AutomationCard
-                  key={key}
-                  automation={a}
-                  runs={runsByKey.get(key) ?? []}
-                  showArchived={showArchived}
-                  selected={selected === key}
-                  onSelect={() => setSelected(key)}
-                  onRunNow={() => void onRunNow(a)}
-                  onStop={(run) => onStop(a, run)}
-                  onEdit={(section) => void openEditor(a, section)}
-                  onToggle={() => void onToggleEnabled(a)}
-                  onDelete={() => void onDelete(a)}
-                  nav={nav}
-                />
-              );
-            })}
-          </ul>
+      <div className="flex flex-col gap-3 p-3">
+        {creating && (
+          <CreateAutomationDialog cwd={cwd} onClose={() => { setCreating(false); restoreOpenerFocus(); }} onCreated={refresh} />
         )}
-      </section>
+        {editTarget && (
+          <CreateAutomationDialog
+            cwd={cwd}
+            onClose={() => { setEditTarget(null); restoreOpenerFocus(); }}
+            onCreated={refresh}
+            initialName={editTarget.name}
+            initialScope={editTarget.scope}
+            initialConfig={editTarget.config}
+            initialSection={editTarget.section}
+            {...(editTarget.promptBody !== undefined ? { initialPromptBody: editTarget.promptBody } : {})}
+          />
+        )}
 
-      {openResult && (
-        <Dialog open onClose={() => setOpenResult(null)} title={openResult.title} size="lg" testId="run-result-panel">
-          <MarkdownContent content={openResult.text} />
-        </Dialog>
-      )}
+        <section data-testid="automation-list">
+          <h3 className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">{t("definitions", undefined, "Definitions")}</h3>
+          {automations.length === 0 ? (
+            loaded && (
+              <div data-testid="automation-empty" className="flex flex-col items-start gap-2 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-4">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">{t("noAutomations", undefined, "No automations in this folder.")}</p>
+                <p className="text-xs text-[var(--text-secondary)]">
+                  {t(
+                    "emptyExplainer",
+                    undefined,
+                    "An automation runs a prompt, skill or flow in its own session on a schedule. Each run keeps its result here, one click from its session.",
+                  )}
+                </p>
+                <button type="button" data-testid="automation-empty-create" onClick={() => { rememberOpener(); setCreating(true); }} className={cardButtonClass("primary")}>
+                  {t("createAutomation", undefined, "+ Create Automation")}
+                </button>
+              </div>
+            )
+          ) : (
+            <ul className="space-y-2">
+              {automations.map((a) => {
+                const key = keyOf(a.scope, a.name);
+                return (
+                  <AutomationCard
+                    key={key}
+                    automation={a}
+                    runs={runsByKey.get(key) ?? []}
+                    showArchived={showArchived}
+                    selected={selected === key}
+                    onSelect={() => setSelected(key)}
+                    onRunNow={() => void onRunNow(a)}
+                    onStop={(run) => onStop(a, run)}
+                    onEdit={(section) => void openEditor(a, section)}
+                    onToggle={() => void onToggleEnabled(a)}
+                    onDelete={() => void onDelete(a)}
+                    nav={nav}
+                  />
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        {openResult && (
+          <Dialog open onClose={() => setOpenResult(null)} title={openResult.title} size="lg" testId="run-result-panel">
+            <MarkdownContent content={openResult.text} />
+          </Dialog>
+        )}
+      </div>
     </div>
   );
 }
@@ -460,7 +462,7 @@ function AutomationCard({
               e.stopPropagation();
               onEdit("identity");
             }}
-            className={`focus-ring rounded font-mono text-[13px] ${selected ? "font-bold" : "font-semibold"} text-[var(--text-primary)] hover:underline`}
+            className={`focus-ring max-w-full truncate rounded font-mono text-[13px] ${selected ? "font-bold" : "font-semibold"} text-[var(--text-primary)] hover:underline`}
             title={t("editName", { name: a.name }, `Edit ${a.name}`)}
           >
             {a.name}

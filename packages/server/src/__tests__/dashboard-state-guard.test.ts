@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetPathDenials } from "../access/access-denials.js";
+import { __resetPathDenials, listPathDenials } from "../access/access-denials.js";
 import { __resetAccessGrants } from "../access/access-grants.js";
 import { installGrantCoordinator } from "../access/denial-hold.js";
 import { stateCallerFor } from "../auth/dashboard-state-caller.js";
@@ -23,6 +23,7 @@ import { runWithStateCaller } from "../lib/dashboard-state-guard.js";
 import { detectRipgrep, resetRipgrepCache } from "../ripgrep-detection.js";
 import { gateFilePath, registerFileRoutes } from "../routes/file-routes.js";
 import { registerGrepRoutes } from "../routes/grep-routes.js";
+import { registerSessionRoutes } from "../routes/session-routes.js";
 
 const MARKER = "TOKEN-MARKER-9f3a1c77d2";
 const CONFIG_MARKER = "CONFIG-SECRET-MARKER-5b1e";
@@ -263,6 +264,35 @@ describe("X5 — an unproven local caller cannot raise an access prompt", () => 
       await app.close();
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("T.10 — /api/session-file refuses a pi-agent credential before containment (close-local-listener-and-egress-gaps)", () => {
+  it("session cwd = $HOME: `~/.pi/agent/auth.json` is lexically in cwd yet refused with the unchanged string, no remedy, no denial", async () => {
+    const CRED = "AGENT-CREDENTIAL-MARKER-77e1";
+    fs.writeFileSync(path.join(home, ".pi", "agent", "auth.json"), CRED);
+    fs.writeFileSync(path.join(home, "notes.txt"), "plain notes\n");
+    const app = Fastify({ logger: false });
+    const sessionManager = { listAll: () => [{ cwd: home }], get: (id: string) => (id === "s1" ? { id, cwd: home } : undefined) } as never;
+    registerSessionRoutes(app, { sessionManager, eventStore: {} as never, networkGuard: async () => undefined } as never);
+    await app.ready();
+    try {
+      const q = (p: string) => `/api/session-file?sessionId=s1&path=${encodeURIComponent(p)}`;
+      for (const p of [path.join(home, ".pi", "agent", "auth.json"), ".pi/agent/auth.json"]) {
+        const res = await app.inject({ method: "GET", url: q(p), remoteAddress: "127.0.0.1" });
+        expect(res.statusCode, p).toBe(403);
+        // Exactly the pre-containment refusal: no remedy fields (a remedy would mean containment ran).
+        expect(res.json(), p).toEqual({ success: false, error: "path outside session directory" });
+        expect(res.body, p).not.toContain(CRED);
+      }
+      // The refusal happened BEFORE containment: nothing was recorded as a denial.
+      expect(listPathDenials()).toEqual([]);
+      // Control: an ordinary file in the same cwd is still served.
+      const ok = await app.inject({ method: "GET", url: q(path.join(home, "notes.txt")), remoteAddress: "127.0.0.1" });
+      expect(ok.statusCode).toBe(200);
+    } finally {
+      await app.close();
     }
   });
 });

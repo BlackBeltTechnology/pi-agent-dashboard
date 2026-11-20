@@ -15,6 +15,7 @@
     "paths": {
       "@app/*": ["../packages/client/src/*"],
       "@flows/*": ["../packages/flows-plugin/src/*"],
+      "@atlas/*": ["../packages/skill-atlas-plugin/src/*"],
       "mock-site/kit": ["../packages/mockup-loop/site/kit.tsx"],
       "@blackbelt-technology/pi-dashboard-shared": ["../packages/shared/src"],
       "@blackbelt-technology/pi-dashboard-client-utils": ["../packages/client-utils/src"]

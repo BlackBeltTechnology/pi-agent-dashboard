@@ -6,6 +6,7 @@ import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { SteerEntryView } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLanDisconnect, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
@@ -67,6 +68,7 @@ import { Toast, useToast } from "../primitives/Toast.js";
 import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { ChatEnter } from "./ChatEnter.js";
+import { normalizeSteering, PendingSteerCard, PendingSteerClearAll } from "./PendingSteerCard.js";
 import { TrailingEdge } from "./TrailingEdge.js";
 
 // D2/D3b (change: add-lazy-terminal-diff-bootstrap): the inline terminal card is
@@ -134,13 +136,18 @@ interface Props {
   // onDismissError / onRetryAfterError moved to App.tsx → SessionBanner.
   // See change: unify-status-banner-and-terminal-limit-stop.
   /**
-   * Pending steer messages from `Session.pendingQueues.steering`. Rendered
-   * inline at the bottom of the chat list as user-style bubbles with a
-   * "STEERING" header + spinner + ✕ cancel. Once pi drains them on
-   * `turn_end`, the bridge clears the shadow and the chat naturally shows
-   * the real user message via `message_end`. See change: add-followup-edit-and-steer-cancel.
+   * Pending steer messages from `Session.pendingQueues.steering` — steers the
+   * bridge still holds. Rendered inline at the bottom of the chat list as
+   * `PendingSteerCard` bubbles (✕ cancel, image badge, `Clear all` from two
+   * entries). At hand-off the bridge drops the entry and pi renders the real
+   * user message. Legacy string entries render without a cancel control.
+   * See change: add-followup-edit-and-steer-cancel, bridge-owned-cancellable-steer.
    */
-  pendingSteering?: string[];
+  pendingSteering?: readonly (SteerEntryView | string)[];
+  /** Cancel one held steer (`remove_steering_entry`). See change: bridge-owned-cancellable-steer. */
+  onCancelSteer?: (id: string) => void;
+  /** Cancel every held steer (`clear_steering_entries`). */
+  onClearSteers?: () => void;
   /**
    * Selected session's "history loading" flag. When true and the chat is
    * empty, render a loading indicator instead of the "No messages yet"
@@ -199,9 +206,6 @@ interface Props {
   historyStartedAt?: number;
   /** Retry = full re-request (`handleRefreshChat`). */
   onRetryHistory?: () => void;
-  // onCancelSteering / onCancelPending omitted: pi exposes no queue-mutation
-  // API. Steering bubbles render display-only; cancellation requires upstream
-  // pi support (tracked separately). See change: honest-mid-turn-queue-surface.
   /**
    * Send the per-session display-prefs override. Optional — omit when the
    * menu should not render (e.g. archived/dataUnavailable views).
@@ -414,7 +418,7 @@ function hasMermaid(content: string): boolean {
 const SCROLL_THRESHOLD = 50;
 /** Stable empties for the live-arrival inputs (motion off / no steering). See change: add-fluid-chat-motion. */
 const EMPTY_ARRIVAL_ROWS: readonly ArrivalToolRow[] = [];
-const EMPTY_STEERING_TEXTS: readonly string[] = [];
+const EMPTY_STEERING_KEYS: readonly string[] = [];
 
 /**
  * A scroll event whose position is the bottom-pin's own write after a
@@ -476,7 +480,7 @@ export interface ChatViewHandle {
   scrollToTool: (toolCallId: string) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onRetryPendingPrompt, onForkPendingPrompt, onCloseInlineTerminal, pendingSteering, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking, historyPhase, historyStartedAt, onRetryHistory }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onRetryPendingPrompt, onForkPendingPrompt, onCloseInlineTerminal, pendingSteering, onCancelSteer, onClearSteers, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking, historyPhase, historyStartedAt, onRetryHistory }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -2189,13 +2193,17 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         : EMPTY_ARRIVAL_ROWS,
     [effectiveMotion, state.messages],
   );
+  // Held steers, normalised (legacy strings → no id). Keyed by id so two
+  // steers with the same text stay distinct. See change: bridge-owned-cancellable-steer.
+  const pendingSteers = useMemo(() => normalizeSteering(pendingSteering), [pendingSteering]);
+  const pendingSteerKeys = useMemo(() => pendingSteers.map((steer) => steer.key), [pendingSteers]);
   const arrivalInput: ArrivalInput = {
     sessionId,
     toolRows: arrivalToolRows,
     hasPendingPrompt: !!state.pendingPrompt,
     hasTail: !!streamingTailText,
     hasThinking: !!(state.streamingThinking && prefs.reasoning),
-    steering: pendingSteering ?? EMPTY_STEERING_TEXTS,
+    steering: pendingSteerKeys.length > 0 ? pendingSteerKeys : EMPTY_STEERING_KEYS,
     motionActive: effectiveMotion,
     replayAware: replayInFlight !== undefined,
     following: stickToBottomRef.current,
@@ -2641,24 +2649,18 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         </div>
       )}
 
-      {/* Inline-chat steering: pending steer entries render here as user-style
-          bubbles, positioned at the bottom of the chat list. Once pi drains
-          the entry on turn_end, the bridge splices the shadow (drain-by-
-          matcher), the bubble disappears, and the chat shows the prompt as a
-          regular user message via the subsequent `message_end`. Display only
-          — pi exposes no queue-mutation API to extensions. See change:
-          honest-mid-turn-queue-surface. */}
-      {pendingSteering && pendingSteering.length > 0 && pendingSteering.map((steerText, idx) => (
-        <ChatEnter key={`pending-steer-${idx}-${steerText.slice(0, 16)}`} entering={arrival.steering[idx] ?? false} data-testid="pending-steer-card" className="mt-4 mb-4 flex justify-end chat-cv-skip">
-          <div className={`relative bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
-            <div className="flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider text-blue-400/80 font-medium">
-              <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-              {i18nT("session.steering", undefined, "Steering")}
-            </div>
-            <MarkdownContent content={steerText} />
-          </div>
+      {/* Inline-chat steering: steers the bridge still holds render here as
+          user-style bubbles at the bottom of the chat list, cancellable until
+          the bridge hands them to pi (completed turn_end, or the settle
+          drain). At hand-off the bubble disappears and pi renders the real
+          user message. See change: honest-mid-turn-queue-surface,
+          bridge-owned-cancellable-steer. */}
+      {pendingSteers.map((steer, idx) => (
+        <ChatEnter key={`pending-steer-${steer.key}`} entering={arrival.steering[idx] ?? false} data-testid="pending-steer-card" className="mt-4 mb-4 flex justify-end chat-cv-skip">
+          <PendingSteerCard steer={steer} maxWidthClass={bubbleMax} onCancel={onCancelSteer} />
         </ChatEnter>
       ))}
+      {pendingSteers.length >= 2 && onClearSteers && <PendingSteerClearAll onClear={onClearSteers} />}
 
       {/* Grouped multi-ask panel: concurrently-pending free-floating asks
           render here as one cohesive stack, each answering its own requestId.

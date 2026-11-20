@@ -3265,6 +3265,29 @@ Fix (change: harden-worktree-spawn):
 
 Manual recovery if auto-install fails: `cd <worktree>; npm ci`.
 
+See also: [Every session in one repo hits REGISTER_TIMEOUT](#every-session-in-one-repo-hits-register_timeout).
+
+## Every session in one repo hits REGISTER_TIMEOUT
+
+Symptom: every session spawned in one repo fails `REGISTER_TIMEOUT`. Logged to `~/.pi/dashboard/sessions/spawn-failures.log`. Other repos fine.
+
+Cause: empty `extensions` filter on project `packages[]` entry in `<repo>/.pi/settings.json`. Example: `{"source": "..", "extensions": []}`.
+- pi resolves project packages before global. Keeps first entry per extension file path.
+- Empty array = disable all extensions of that package.
+- Root `package.json` `pi.extensions` = `packages/extension/src/bridge.ts`. Same file as global `<repo>/packages/extension` entry.
+- Global (enabled) copy ignored. Bridge never loads. No `register_session`.
+
+Historical source: `switch-extension-source` skill's removed overlay mode left this residue.
+
+Check: `node scripts/check-pi-settings-paths.mjs` (also runs in CI). Flags empty `extensions`/`skills`/`prompts`/`themes` array on non-`autoload:false` entry.
+
+Fix:
+- Remove empty key or whole entry from `.pi/settings.json`.
+- Or `npx tsx .pi/skills/switch-extension-source/scripts/switch-source.ts npm <pkg>` (or `local <pkg>`). Prunes such entries.
+- Respawn session.
+
+See also: [Why does +Worktree dialog appear to do nothing for sibling worktrees of pi-agent-dashboard?](#why-does-worktree-dialog-appear-to-do-nothing-for-sibling-worktrees-of-pi-agent-dashboard).
+
 ## How do I declare an OpenSpec change dependency?
 
 Three ways. Same result: blockers feed execution order and ship-it.
@@ -4058,6 +4081,53 @@ Failure:
 - Rerun indexes once unseeded (`snapshot-error`).
 
 Side effect: main's `dox-staleness.json` copied once when worktree has none (legacy or v2 format).
+
+## kb_search/kb_get freezes, Stop does nothing
+
+Symptom: `kb_search` / `kb_get` hangs, CPU 100% for minutes, Stop/Esc ignored. Issue #1075.
+
+Cause 1 (CPU):
+
+- `proximityDelta()` in `packages/kb/src/sqlite-store.ts` ran exponential DFS over query-term positions.
+- 7+ term query over large single-chunk `AGENTS.md` (330–450 KB) → 100% CPU for minutes.
+
+Cause 2 (blocking):
+
+- `store.search()` / `kb_get` fetch chain ran sync on pi session thread.
+- AbortSignal, bridge heartbeat, dashboard Stop queued behind it.
+
+Fixes:
+
+- Exact greedy window `minInOrderSpan()` (O(|pos[q0]|·k·log n)). Scores bit-identical.
+- Per-search proximity budget `PROXIMITY_BUDGET_MS = 250`. Past budget rows score plain BM25. One log line: `[kb] proximity budget <N>ms exhausted; <skipped> of <total> rows scored without proximity`.
+- Docs retrieval for `kb_search`/`kb_get` runs in worker thread (`packages/kb-extension/src/query-worker-host.ts`).
+- Esc/Stop → `(cancelled — no results retrieved)` at once.
+- Abandoned worker terminated in background. Running native SQLite statement finishes in that thread.
+
+Deadline:
+
+- `KB_QUERY_TIMEOUT_MS` (default `60000`, clamp `1000`–`600000`). Hard per-call deadline. Off-thread path only.
+- Timeout line: `kb: query timed out after <n>s — index may be oversized; try a narrower query`.
+
+Kill switch:
+
+- `KB_QUERY_WORKER=0` → in-process retrieval (old behaviour). Stop cannot interrupt.
+
+Fallback to in-process (warned once per process: `[kb] query worker unavailable (<reason>)…`):
+
+- Node 23.0–23.4 (no `module.registerHooks`).
+- pi with embedded modules (Bun/SEA binary).
+- `KB_QUERY_WORKER=0`.
+- Worker needs `module.registerHooks` + `module.stripTypeScriptTypes` (Node ≥ 22.19 / ≥ 23.5).
+
+Crash:
+
+- Worker crash → `kb: retrieval failed (query worker crashed)`.
+- 3 crashes → in-process fallback.
+
+Interim mitigation on old versions: `ranking.proximityBoost: false` in `.pi/dashboard/knowledge_base.json`.
+
+See change: bound-kb-proximity-search.
 
 ## How do I connect Claude Code / Cursor to the dashboard MCP?
 

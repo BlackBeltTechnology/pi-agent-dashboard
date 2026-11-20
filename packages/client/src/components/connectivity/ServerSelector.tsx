@@ -35,10 +35,13 @@ import type { RemoteAccessTone } from "../../lib/gateway/gateway-connection.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
+import { requestAccessHref } from "../../lib/pairing/request-access-target.js";
 import { logRejection } from "../../lib/report-error.js";
 import { buildServerList, type ElectronServersState, type ListEntry } from "../../lib/server-list-model.js";
 import { createRouteChecker, type RouteCheck, type RouteChecker } from "../../lib/server-route-check.js";
 import { identityPill, type Severity, severityPill } from "./connectivity-ui.js";
+import { pairedStateText } from "./paired-state-text.js";
+import { type DeviceRows, useBrowserDeviceStates } from "./use-device-row-states.js";
 import { RouteChip, type RouteExplain, routeKindLabel, shortFingerprint } from "./server-route-chips.js";
 
 /** Re-export for backward compat — consumers that imported this type */
@@ -350,19 +353,10 @@ function rowState(entry: ListEntry, explain: ReadonlyMap<string, RouteExplain>):
   }
 }
 
-function pairedText(state: ListEntry["pairedState"]): string {
-  switch (state) {
-    case "this-dashboard":
-      return i18nT("connection.paired.thisDashboard", undefined, "This dashboard");
-    case "paired":
-      return i18nT("connection.paired.paired", undefined, "Paired");
-    case "needs-pairing":
-      return i18nT("connection.paired.needsPairing", undefined, "Needs pairing");
-    case "not-paired":
-      return i18nT("connection.paired.notPaired", undefined, "Not paired");
-    case "unknown-in-this-tab":
-      return i18nT("connection.paired.unknownInTab", undefined, "Unknown in this tab");
-  }
+/** The entry with this tab's own device-check answer (browser), over the Electron keyring refinement. */
+function withDeviceRow(entry: ListEntry, rows: DeviceRows): ListEntry {
+  const row = entry.fingerprint ? rows.get(entry.fingerprint) : undefined;
+  return row ? { ...entry, deviceState: row.state, tier: row.tier } : entry;
 }
 
 function pairActionView(action: PairAction): { label: string; icon: string } {
@@ -457,6 +451,8 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
       }),
     [client, knownServers, currentPort, originHostname, servers, electronState, currentHost, pageScheme, probed],
   );
+  /** Browser tab only: the device check of another origin's proven route, when this tab holds a companion key for it. */
+  const deviceRows = useBrowserDeviceStates(model.entries, client === "browser", open);
   const modelRef = useRef(model);
   modelRef.current = model;
   const currentKey = `${currentHost}:${currentPort}`;
@@ -656,8 +652,11 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
       return;
     }
     // Browser: the peer's own request page in a new context — nothing is proven or sent from this page.
+    // With a fingerprint and Ed25519 the link also carries this origin's companion proof (D5).
     if (action.kind === "request-access" && action.url) {
-      openExternalUrl(action.url);
+      void requestAccessHref(action.url, entry.fingerprint, window.location.origin)
+        .then((href) => openExternalUrl(href))
+        .catch(logRejection("ServerSelector.requestAccess"));
       closeToTrigger();
     }
   };
@@ -850,7 +849,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                         : i18nT("connection.identityNotAdvertised", undefined, "identity not advertised")}
                     </span>
                     {" · "}
-                    <span data-testid="paired-state">{pairedText(entry.pairedState)}</span>
+                    <span data-testid="paired-state">{pairedStateText(withDeviceRow(entry, deviceRows))}</span>
                     {entry.best && (
                       <>
                         {" · "}

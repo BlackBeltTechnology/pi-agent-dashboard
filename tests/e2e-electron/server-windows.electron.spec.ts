@@ -186,7 +186,11 @@ test("X13: servers:list reaches the remote-connect window; servers:changed never
   void serverWin;
 });
 
-test("X4: a revoked device is not loaded; the entry needs pairing and one dialog is offered", async () => {
+// The fake remote issues no `deviceNonce`, so this entry holds no device key. A revoked bearer off-host answers the
+// exchange with `403 network_not_allowed`, which to a keyless device looks the same as a refused network: the entry
+// keeps its bearer, reads "network not allowed" (display only) and offers "Pair again" once — the window never loads.
+// See change: device-key-mutual-check (electron-server-windows, "Keyless entries"; design D9).
+test("X4: a revoked device is not loaded; a keyless entry reads network not allowed and one dialog is offered", async () => {
   const { serverWin } = await pairAndOpen();
   const r = remote!;
   await serverWin!.close();
@@ -201,7 +205,7 @@ test("X4: a revoked device is not loaded; the entry needs pairing and one dialog
   const call = (await readDialogCalls(app!))[0]!;
   expect(call.buttons).toEqual(["Pair again", "Forget", "Close"]);
   expect(r.requests.filter((q) => q.method === "GET" && q.url === "/").length).toBe(rootGetsBefore);
-  await expect.poll(() => readServersMenu(app!)).toContain(`${r.host} — needs pairing`);
+  await expect.poll(() => readServersMenu(app!)).toContain(`${r.host} — network not allowed`);
 });
 
 test("X5: an address taken over by another identity blanks the window and removes the cookie", async () => {

@@ -5,3 +5,7 @@
 ## harden-peer-address-identity
 
 Wires `lookup` (`dns.promises.lookup({all:true})`), `interfaces` (`os.networkInterfaces`) and `hasLocalServer` (remote mode ⇒ `localFp()` is `"none"`). See change: harden-peer-address-identity.
+
+## device-key-mutual-check
+
+`prove` = `proveWithDeviceNonce`; `onDeviceChange: changed` (device view is memory only ⇒ list + menu refresh); menu entries carry `note: deviceNote(serverWindows.deviceView(fp))`; `askNeedsPairing(label, reason)` wording per `REPAIR_TEXT` (refused | access-removed | access-expired | network-not-allowed). See change: device-key-mutual-check.

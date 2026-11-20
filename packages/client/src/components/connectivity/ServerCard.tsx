@@ -21,8 +21,9 @@ import { useState } from "react";
 import { getOpenServerWindow } from "../../lib/electron-server-windows.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
-import type { ListEntry, ListRoute, PairedState } from "../../lib/server-list-model.js";
+import type { ListEntry, ListRoute } from "../../lib/server-list-model.js";
 import { BTN_SMALL, callout, identityPill, META, severityPill } from "./connectivity-ui.js";
+import { pairedStateText } from "./paired-state-text.js";
 import { PairWithCodeDialog } from "./PairWithCodeDialog.js";
 import { RemoveControl, RouteTable, routeAddress, routeUrl } from "./ServerRouteTable.js";
 import { type RouteExplain, shortFingerprint } from "./server-route-chips.js";
@@ -51,21 +52,6 @@ export interface ServerCardProps {
   /** A discovered route is already saved (host:port match, or fingerprint + port match). */
   isAdded(route: ListRoute, fingerprint: string | undefined): boolean;
   actions: ServerCardActions;
-}
-
-function pairedText(state: PairedState): string {
-  switch (state) {
-    case "this-dashboard":
-      return i18nT("connection.paired.thisDashboard", undefined, "This dashboard");
-    case "paired":
-      return i18nT("connection.paired.paired", undefined, "Paired");
-    case "needs-pairing":
-      return i18nT("connection.paired.needsPairing", undefined, "Needs pairing");
-    case "not-paired":
-      return i18nT("connection.paired.notPaired", undefined, "Not paired");
-    case "unknown-in-this-tab":
-      return i18nT("connection.paired.unknownInTab", undefined, "Unknown in this tab");
-  }
 }
 
 function pairActionView(action: PairAction): { label: string; icon: string } {
@@ -237,7 +223,7 @@ export function ServerCard({ entry, client, isLocal, canManage, explain, storedS
           <div className={META}>
             <span className="font-mono">{entry.fingerprint ? shortFingerprint(entry.fingerprint) : i18nT("connection.identityNotAdvertised", undefined, "identity not advertised")}</span>
             {" · "}
-            <span data-testid="paired-state">{pairedText(entry.pairedState)}</span>
+            <span data-testid="paired-state">{pairedStateText(entry)}</span>
             {" · "}
             {entry.routes.length === 1 ? i18nT("connection.oneAddress", undefined, "1 address") : i18nT("connection.nAddresses", { n: entry.routes.length }, "{n} addresses")}
             {version ? ` · v${version}` : ""}

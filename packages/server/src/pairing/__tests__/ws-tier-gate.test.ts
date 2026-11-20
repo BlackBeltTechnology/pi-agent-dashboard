@@ -1,8 +1,21 @@
 /**
  * See change: add-passkey-user-auth (WS half of the session tier gate).
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decideWsTier, sweepRevokedSockets, WS_CLOSE_SESSION_REVOKED, type SweepableSocket } from "../ws-tier-gate.js";
+import { authorizeWsUpgrade } from "../../auth/auth-plugin.js";
+import { WsTicketStore } from "../../auth/ws-ticket.js";
+import { PairedDeviceRegistry } from "../paired-devices.js";
+import {
+  closeDeviceSockets,
+  decideWsTier,
+  sweepRevokedSockets,
+  WS_CLOSE_DEVICE_REVOKED_REASON,
+  WS_CLOSE_SESSION_REVOKED,
+  type SweepableSocket,
+} from "../ws-tier-gate.js";
 
 describe("decideWsTier", () => {
   it("leaves sockets without a session tier ungated", () => {
@@ -193,5 +206,101 @@ describe("sweep wired to the auth reload (real plugin)", () => {
     expect(gh3.close).toHaveBeenCalledWith(4401, expect.any(String)); // G8: sweep still runs
     expect(local.close).not.toHaveBeenCalled();
     await app.close();
+  });
+});
+
+
+// ── X14 (device-key-mutual-check): a revoke closes the device's open sockets; a stale ticket is refused ──
+describe("X14 — revoke closes sockets, stale ticket refused", () => {
+  const tmps: string[] = [];
+  afterEach(() => {
+    for (const t of tmps.splice(0)) fs.rmSync(t, { recursive: true, force: true });
+  });
+
+  function setup() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-x14-"));
+    tmps.push(dir);
+    const reg = new PairedDeviceRegistry(path.join(dir, "paired.json"));
+    const tickets = new WsTicketStore();
+    const upgrade = (ticket: string) =>
+      authorizeWsUpgrade({
+        remoteAddress: "203.0.113.9",
+        ticket,
+        scope: "browser",
+        consumeTicket: (t, s) => tickets.consumeDetailed(t, s),
+        isDeviceActive: (id) => reg.activeIds().has(id),
+      });
+    return { reg, tickets, upgrade };
+  }
+
+  type DeviceSocket = SweepableSocket & { deviceId?: string };
+  const sock = (deviceId?: string): DeviceSocket & { close: ReturnType<typeof vi.fn> } =>
+    ({ readyState: 1, deviceId, close: vi.fn() }) as never;
+
+  it("a browser-scope ticket carries the device and the upgrade surfaces it", () => {
+    const { reg, tickets, upgrade } = setup();
+    const d = reg.add("d", "pairing", "operate");
+    const res = upgrade(tickets.mint("browser", d.device.id));
+    expect(res).toMatchObject({ ok: true, deviceId: d.device.id });
+  });
+
+  it("closes both of the revoked device's sockets with 4401 / device revoked; another device's stays open", () => {
+    const { reg } = setup();
+    const a = reg.add("a", "pairing", "operate");
+    const b = reg.add("b", "pairing", "operate");
+    const browser = sock(a.device.id);
+    const otherBrowser = sock(b.device.id);
+    const anonymous = sock(undefined);
+    const bridgeClients = [sock(a.device.id), sock(b.device.id)];
+    // Bridge sockets: the pi gateway reads the device from its own table.
+    const bridgeDevice = new Map(bridgeClients.map((s) => [s, s.deviceId]));
+    reg.onRevoked((id) => {
+      closeDeviceSockets([browser, otherBrowser, anonymous], id);
+      closeDeviceSockets(bridgeClients, id, (s) => bridgeDevice.get(s));
+    });
+
+    reg.revoke(a.device.id, "local");
+
+    for (const s of [browser, bridgeClients[0]]) {
+      expect(s.close).toHaveBeenCalledTimes(1);
+      expect(s.close).toHaveBeenCalledWith(WS_CLOSE_SESSION_REVOKED, WS_CLOSE_DEVICE_REVOKED_REASON);
+    }
+    expect(WS_CLOSE_SESSION_REVOKED).toBe(4401);
+    expect(WS_CLOSE_DEVICE_REVOKED_REASON).toBe("device revoked");
+    for (const s of [otherBrowser, anonymous, bridgeClients[1]]) expect(s.close).not.toHaveBeenCalled();
+  });
+
+  it("sockets already closing or closed are skipped, and a throwing close does not stop the sweep", () => {
+    const closing = sock("x");
+    closing.readyState = 2;
+    const closed = sock("x");
+    closed.readyState = 3;
+    const bad = sock("x");
+    bad.close.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const good = sock("x");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(closeDeviceSockets([closing, closed, bad, good], "x")).toBe(1);
+    expect(good.close).toHaveBeenCalledOnce();
+    expect(closing.close).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("a ticket minted before the revoke is refused at upgrade; after restore a new ticket upgrades", () => {
+    const { reg, tickets, upgrade } = setup();
+    const d = reg.add("d", "pairing", "operate");
+    const preRevoke = tickets.mint("browser", d.device.id);
+    reg.revoke(d.device.id, "local");
+    expect(upgrade(preRevoke).ok).toBe(false);
+    // the refused ticket was spent either way
+    expect(upgrade(preRevoke).ok).toBe(false);
+    expect(reg.restore(d.device.id)).toBe("restored");
+    expect(upgrade(tickets.mint("browser", d.device.id))).toMatchObject({ ok: true, deviceId: d.device.id });
+  });
+
+  it("a deviceless ticket (cookie / local caller) is unaffected by the active-device check", () => {
+    const { tickets, upgrade } = setup();
+    expect(upgrade(tickets.mint("browser")).ok).toBe(true);
   });
 });

@@ -2,7 +2,9 @@
 
 ## Purpose
 Flows-plugin renders the authoring tools (flow_write, flow_agents) as flow-aware timeline cards in the main session, distinct from the running-flow card grid. Cards read the real tool result contract, derive a Mermaid snapshot + counts from tool args, expose a view-file sub-row, and replay from persisted tool entries. A New/Edit launcher fires the /skill:edit-flow prompt.
+
 ## Requirements
+
 ### Requirement: Flows plugin claims tool-renderer slots for authoring tools
 
 The flows-plugin manifest SHALL declare `tool-renderer` slot claims for the `flow_write` and `flow_agents` tools so their main-session tool calls render with flow-aware cards instead of the generic tool renderer. Authoring tool calls SHALL render in the chat timeline, NOT in the flow card grid (which is reserved for running-flow lifecycle events).
@@ -51,7 +53,7 @@ When a `toolDetails` catalog is available, the card SHALL render an always-visib
 
 On a successful `flow_write`, the card SHALL render a static flow-graph snapshot and the step/agent/code counts. Because the result carries no parsed steps, the renderer SHALL parse the YAML from the tool ARGS (the submitted `content`) client-side, generate a Mermaid graph string, and render it via the `ui:markdown-content` primitive (which renders ```mermaid fences through MermaidBlock with zoom/pan).
 
-The generated Mermaid edge set SHALL be produced by the shared flow-edge derivation (see `flow-graph-edges`) and SHALL include, in addition to the existing `blockedBy` sequential edges and decision `branches` edges: implicit-segment edges (a step after a separator with no `blockedBy`) and `on_complete`/`on_error` routing edges. The snapshot SHALL therefore match the live FlowGraph's edge set for the same flow. Backward edges (branch/route targeting an earlier step, `max_iterations` loops) SHALL render dashed.
+The generated Mermaid edge set SHALL be produced by the shared flow-edge derivation (see `flow-graph-edges`) and SHALL include, in addition to the existing `blockedBy` sequential edges and decision `branches` edges: implicit fall-through edges (from each exit of an engine segment to each entry of the next declared segment, as defined in `flow-graph-edges`) and `on_complete`/`on_error` routing edges. The snapshot SHALL therefore derive the same edges as the live FlowGraph for the step data both callers carry (the live payload carries no `on_complete`). The snapshot draws every derived edge, while the live graph applies its error-route visibility toggle and terminal-sink pooling on top (see `flow-graph-edges`). Backward edges (branch/route targeting an earlier step, `max_iterations` loops) SHALL render dashed.
 
 #### Scenario: Snapshot derived from args
 - **WHEN** a `flow_write` call succeeds with YAML in its `content` arg containing 3 steps (2 agents, 1 code)
@@ -64,8 +66,8 @@ The generated Mermaid edge set SHALL be produced by the shared flow-edge derivat
 - **AND** SHALL omit the graph/counts without erroring
 
 #### Scenario: Implicit-segment edges appear in the snapshot
-- **WHEN** the YAML has a step following a separator (`fork` / `agent-decision` / `code-decision`) with no `blockedBy`
-- **THEN** the Mermaid graph SHALL include an edge from the preceding separator to that step
+- **WHEN** the YAML has a separator step without `branches` (e.g. a `code` step) followed in declared order by another step
+- **THEN** the Mermaid graph SHALL include an edge from that separator to the following step
 - **AND** the snapshot SHALL NOT emit a `flow-ref` node shape
 
 #### Scenario: on_complete / on_error edges appear in the snapshot
@@ -122,4 +124,3 @@ When the `flow_agents` `op:"list"` card has a catalog (from `toolDetails` or a p
 - **WHEN** the list card first renders
 - **THEN** every agent row SHALL be collapsed
 - **AND** no per-agent detail block SHALL be shown until the user expands a row
-

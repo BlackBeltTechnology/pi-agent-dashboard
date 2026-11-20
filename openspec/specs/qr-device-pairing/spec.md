@@ -474,7 +474,9 @@ SHALL show a warning, in text and not by colour alone, that the request and the
 resulting access travel unencrypted on this network. For a knock it SHALL also
 offer the tier choice specified by `lan-knock-pairing` ("Operator chooses the
 tier of a knock-paired device"), and its consequence statement SHALL name the
-selected tier. A QR redemption SHALL keep its existing presentation.
+selected tier. A QR redemption SHALL keep its existing presentation, except for the device key rows below.
+
+When the pending request carries a verified device key, the dialog SHALL show a "Device key" row with its short id (`dk:` followed by 12 characters), and "none" (or no row) when it carries none. When it carries a verified companion key, the dialog SHALL also show the companion statement and the "Allow this status check" checkbox specified by `device-key-mutual-check`, unticked by default and presented with the origin as claimed by the requester and rendered as plain text; approving SHALL send the checkbox state, and an unticked box SHALL pair the device without the companion.
 
 When an approval is refused for want of an operator credential and the refusal
 carries a `remedies` list, the dialog SHALL render one instructional row per
@@ -582,6 +584,18 @@ retry.
 #### Scenario: Queue shows one dialog at a time
 - **WHEN** two devices are pending
 - **THEN** one dialog SHALL be shown with a "+1 more waiting" indicator and the next SHALL open after the first is resolved or closed
+
+#### Scenario: Dialog shows the device key
+- **WHEN** a pending request carries a verified device key
+- **THEN** the dialog SHALL show a Device key row with its short id
+
+#### Scenario: Companion choice defaults to off
+- **WHEN** a pending request carries a verified companion for `http://192.168.16.31:8000`
+- **THEN** the dialog SHALL show "Allow this status check" unticked and the sentence that the other dashboard can only see the pairing and cannot sign in or act with it
+
+#### Scenario: Request without a companion shows no companion choice
+- **WHEN** a pending request carries no companion
+- **THEN** the dialog SHALL NOT show the companion statement or checkbox
 
 ### Requirement: Operator can deny a pending device
 An operator SHALL be able to deny a pending device. Denial SHALL require the same

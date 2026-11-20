@@ -28,10 +28,18 @@
  * Exemplars: pairing-qr.spec.ts test 1 (real payload + redeem), access-grant-dialog.spec.ts.
  */
 import type { APIRequestContext, Browser, BrowserContext, Page } from "@playwright/test";
-import { expect, test } from "./fixtures.js";
+import { expect, narrowTrust, test } from "./fixtures.js";
 import { operatorHeaders } from "./helpers/bridge-credential.js";
+import {
+  companionFragment,
+  deviceStatus,
+  listPairedDevices,
+  newDeviceKey,
+  purgeDevices,
+  restartServerAsOperator,
+} from "./helpers/device-key.js";
 import { gotoDashboard } from "./helpers/index.js";
-import { BASE_URL } from "./lifecycle.js";
+import { BASE_URL, DASHBOARD_PORT } from "./lifecycle.js";
 
 function encodePayloadString(payload: unknown): string {
   return `pi:pair:v1.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
@@ -239,5 +247,122 @@ test.describe("pairing approval dialog", () => {
     } finally {
       await ctx.close();
     }
+  });
+});
+
+/**
+ * device-key-mutual-check F7 — the approval dialog with a device key and a companion, end to end.
+ *
+ * The device context opens the knock landing with a valid companion fragment (signed here with
+ * `node:crypto` over the server fingerprint, for the claimed origin below). The landing signs its OWN
+ * device key in the browser (Playwright's Chromium has Ed25519 WebCrypto on the secure origin
+ * `127.0.0.1`); the companion key is a separate key that only this spec holds, so its status proof is
+ * signed with `node:crypto` too (helpers/device-key.ts).
+ *
+ * Harness facts (see lan-knock.spec.ts): every device context shares ONE gateway source address, so the
+ * knock limiter (5 admitted per 10 min; a deny elsewhere starts a 10-minute cooldown) is shared across
+ * spec files. The server is restarted once at the start of this group so its in-memory limiter is clean
+ * regardless of which specs ran before; the group uses 2 knocks and denies nothing.
+ */
+const LAN_BASE = `http://127.0.0.1:${DASHBOARD_PORT}`;
+const COMPANION_ORIGIN = "http://192.168.16.31:8000";
+const F7_PREFIX = "dk-f7-";
+
+test.describe("device key + companion approval", () => {
+  test.describe.configure({ mode: "serial" });
+  const companionKey = newDeviceKey();
+
+  test.beforeAll(async ({ request }) => {
+    await narrowTrust(request, { trustedNetworks: ["198.51.100.0/24"] });
+    await restartServerAsOperator(LAN_BASE);
+    const res = await request.put("/api/config", {
+      data: { pairing: { acceptLanRequests: true } },
+      headers: operatorHeaders(),
+    });
+    expect(res.ok(), await res.text()).toBe(true);
+  });
+
+  test.afterAll(async ({ request }) => {
+    await request.put("/api/config", { data: { pairing: { acceptLanRequests: false } }, headers: operatorHeaders() });
+    await purgeDevices(LAN_BASE, F7_PREFIX);
+  });
+
+  /** Knock from a credential-free context carrying the companion fragment; resolves with the operator dialog open. */
+  async function knockWithCompanion(browser: Browser, op: Page, name: string) {
+    const ctx = await browser.newContext();
+    const device = await ctx.newPage();
+    await device.goto(`${LAN_BASE}/pair?request${await companionFragment(LAN_BASE, companionKey, COMPANION_ORIGIN)}`);
+    await device.getByTestId("pair-landing-request-name").fill(name);
+    await device.getByTestId("pair-landing-request-send").click();
+    const codeEl = device.getByTestId("pair-landing-request-code");
+    await expect(codeEl).toBeVisible({ timeout: 20_000 });
+    const confirmCode = ((await codeEl.textContent()) ?? "").replace(/\D/g, "");
+    expect(confirmCode).toMatch(/^\d{8}$/);
+    const dialog = op.getByTestId("pairing-dialog");
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await expect(op.getByTestId("pairing-dialog-says")).toContainText(name);
+    return { ctx, device, dialog, confirmCode };
+  }
+
+  test("DK-F7: the dialog shows the device key and an UNticked companion box; the companion is stored only when ticked", async ({
+    page,
+    browser,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const op = await operatorPage(page);
+    const token = Date.now().toString(36);
+
+    // ── Run A: approve with the box left unticked ──
+    const nameA = `${F7_PREFIX}a-${token}`;
+    const a = await knockWithCompanion(browser, op, nameA);
+    try {
+      await expect(a.dialog.getByTestId("pairing-dialog-device-key")).toContainText(/dk:[A-Za-z0-9_-]{12}/);
+      const companion = a.dialog.getByTestId("pairing-dialog-companion");
+      await expect(companion).toBeVisible();
+      // The origin is the requester's CLAIM, rendered as plain text.
+      await expect(companion.locator("span.font-mono", { hasText: COMPANION_ORIGIN })).toHaveText(COMPANION_ORIGIN);
+      await expect(companion.locator("a")).toHaveCount(0);
+      const box = companion.getByRole("checkbox", { name: "Allow this status check" });
+      await expect(box).not.toBeChecked();
+
+      await op.getByTestId("pairing-code-input").fill(a.confirmCode);
+      await op.getByTestId("pairing-approve").click();
+      await expect(op.getByTestId("pairing-dialog-success")).toBeVisible({ timeout: 10_000 });
+      await a.device.waitForURL((url) => new URL(url).pathname === "/", { timeout: 20_000 });
+
+      const row = (await listPairedDevices(LAN_BASE)).find((d) => d.label === nameA);
+      expect(row, "device A is paired").toBeTruthy();
+      expect(row?.keyId).toMatch(/^dk:[A-Za-z0-9_-]{12}$/);
+      expect(row?.companions ?? []).toEqual([]);
+      // Nothing was stored for the companion key → it is not a known key.
+      expect((await deviceStatus(LAN_BASE, companionKey)).status).toBe("unknown");
+    } finally {
+      await a.ctx.close();
+    }
+
+    // ── Run B: a new knock, box ticked ──
+    const nameB = `${F7_PREFIX}b-${token}`;
+    const b = await knockWithCompanion(browser, op, nameB);
+    try {
+      const box = b.dialog.getByTestId("pairing-dialog-companion").getByRole("checkbox", { name: "Allow this status check" });
+      await expect(box).not.toBeChecked();
+      await box.check();
+      await op.getByTestId("pairing-code-input").fill(b.confirmCode);
+      await op.getByTestId("pairing-approve").click();
+      await expect(op.getByTestId("pairing-dialog-success")).toBeVisible({ timeout: 10_000 });
+      await b.device.waitForURL((url) => new URL(url).pathname === "/", { timeout: 20_000 });
+
+      const row = (await listPairedDevices(LAN_BASE)).find((d) => d.label === nameB);
+      expect(row?.keyId).toMatch(/^dk:[A-Za-z0-9_-]{12}$/);
+      expect(row?.companions?.map((c) => c.origin)).toEqual([COMPANION_ORIGIN]);
+      // The companion proof sees the pairing but gets no tier — status-only, never an authority.
+      const answer = await deviceStatus(LAN_BASE, companionKey);
+      expect(answer).toEqual({ status: "paired", scope: "status-only" });
+      expect(answer).not.toHaveProperty("tier");
+    } finally {
+      await b.ctx.close();
+    }
+    expect(await pendingIds(request)).toEqual([]);
   });
 });

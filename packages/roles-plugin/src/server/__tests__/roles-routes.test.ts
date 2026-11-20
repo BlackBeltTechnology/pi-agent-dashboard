@@ -351,3 +351,32 @@ describe("plugin unloaded (X6)", () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+// See change: default-model-follows-role (test-plan #E17).
+describe("E17 default model listed under its role", () => {
+  it("lists `Default model (new sessions)` under planning, then nowhere", async () => {
+    const { createRoleBindings } = await import("../role-bindings.js");
+    const { registerDefaultModelUsage } = await import("../host-default-model.js");
+    const dir = mkdtempSync(join(tmpdir(), "roles-usedby-"));
+    cleanup.push(dir);
+    const engine = createRoleBindings({
+      storePath: join(dir, "b.json"),
+      readRoleConfig: () => ({ roles: { planning: "anthropic/claude-sonnet-5-5" }, rolePresets: [], activePreset: null }),
+      logger: { info() {}, warn() {}, error() {} },
+    });
+    let ref: string | undefined = "@planning";
+    const services: Record<string, unknown> = { "host.defaultModelRef": () => ref };
+    registerDefaultModelUsage(<T>(k: string) => services[k] as T | undefined, engine.service);
+    const app = Fastify();
+    mountRolesRoutes(app, { configPath: missingConfigPath, getUsedBy: () => engine.service.getUsedBy() });
+
+    const first = (await app.inject({ method: "GET", url: "/api/roles/used-by" })).json();
+    expect(first.usedBy.planning).toEqual([expect.objectContaining({ kind: "usage", label: "Default model (new sessions)" })]);
+
+    ref = undefined;
+    const second = (await app.inject({ method: "GET", url: "/api/roles/used-by" })).json();
+    const labels = Object.values(second.usedBy as Record<string, Array<{ label: string }>>).flat().map((e) => e.label);
+    expect(labels).not.toContain("Default model (new sessions)");
+    await app.close();
+  });
+});

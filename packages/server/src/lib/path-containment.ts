@@ -8,7 +8,9 @@
  * worktree-of-bare session can read its OWN checkout. Evaluated in two layers
  * per anchor:
  *
- *   ① logical: resolved under `anchor` (pure string op, no spawn — the hot path).
+ *   ① anchor: resolved under `anchor` lexically AND its real path under the anchor's real
+ *      path (one `realpath`, no git spawn — the hot path). A link inside the anchor that
+ *      escapes it misses here and falls to ②/grants. See change: close-local-listener-and-egress-gaps.
  *   ② checkout roots: the anchor's `thisCheckout` / `mainCheckout` from the
  *      shared resolver, each kept only when BOUND to the anchor's repository,
  *      deduplicated, and compared on real paths (`fs.realpath`). git is spawned
@@ -132,16 +134,24 @@ export async function isGrantAdmitted(
   resolved: string,
   subjects: readonly string[],
 ): Promise<boolean> {
-  if (subjects.length === 0) return false;
+  return (await isGrantAdmittedReal(resolved, subjects)) !== null;
+}
+
+/** As {@link isGrantAdmitted} but returns the decided real path (or `null`), so the caller can bind the open to it. */
+export async function isGrantAdmittedReal(
+  resolved: string,
+  subjects: readonly string[],
+): Promise<string | null> {
+  if (subjects.length === 0) return null;
   // Dashboard secrets are never granted away. See change: close-container-loopback-impersonation (D8).
-  if (await dashboardStateRefuses(resolved)) return false;
+  if (await dashboardStateRefuses(resolved)) return null;
   let real: string;
   try {
     real = await fs.realpath(resolved);
   } catch {
-    return false;
+    return null;
   }
-  return subjects.some((subject) => within(real, subject));
+  return subjects.some((subject) => within(real, subject)) ? real : null;
 }
 
 /**
@@ -151,23 +161,35 @@ export async function isGrantAdmitted(
  */
 export async function isAllowed(
   resolved: string,
-  { anchors }: { anchors: string[] },
+  opts: { anchors: string[] },
 ): Promise<boolean> {
+  return (await isAllowedReal(resolved, opts)).allowed;
+}
+
+/**
+ * {@link isAllowed} plus the decided real path (`safeRealpath(resolved)`, computed once). Layer ①
+ * requires the REAL path to sit under the anchor's real path as well, so an in-cwd symlink to an
+ * outside file is no longer admitted lexically. See change: close-local-listener-and-egress-gaps (D1).
+ */
+export async function isAllowedReal(
+  resolved: string,
+  { anchors }: { anchors: string[] },
+): Promise<{ allowed: boolean; real: string }> {
   // The dashboard state dir (token, identity key, config) is outside every anchor, whatever the
   // anchor: a `$HOME` cwd or the `~/.pi` anchor would otherwise contain it. Decided on REAL paths.
   // See change: close-container-loopback-impersonation (D8).
-  if (await dashboardStateRefuses(resolved)) return false;
-  // Layer ① — logical, no spawn. Catches ~every real read.
+  if (await dashboardStateRefuses(resolved)) return { allowed: false, real: resolved };
+  const real = await safeRealpath(resolved);
+  // Layer ① — anchor, lexical AND real. One realpath per anchor, no spawn.
   for (const anchor of anchors) {
-    if (within(resolved, anchor)) return true;
+    if (within(resolved, anchor) && within(real, await safeRealpath(anchor))) return { allowed: true, real };
   }
   // Layer ② — bound checkout roots, real-path'd (symlink-safe). Cold path.
-  const realResolved = await safeRealpath(resolved);
   for (const anchor of anchors) {
     for (const root of await checkoutAnchors(anchor)) {
       if (samePath(root, anchor)) continue; // no widening: that subtree is layer ①
-      if (within(realResolved, await safeRealpath(root))) return true;
+      if (within(real, await safeRealpath(root))) return { allowed: true, real };
     }
   }
-  return false;
+  return { allowed: false, real };
 }

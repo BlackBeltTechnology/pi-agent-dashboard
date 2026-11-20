@@ -61,6 +61,12 @@ const EMPTY_STATE: FlowsSessionState = Object.freeze({
   flowStates: new Map() as ReadonlyMap<string, FlowState>,
 });
 
+/** `flowStates` without the runs whose `runId` is closed (same map when none). */
+function dropClosedRuns(flowStates: Map<string, FlowState>, closed: ReadonlySet<string>): Map<string, FlowState> {
+  const kept = [...flowStates].filter(([, s]) => s.runId === undefined || !closed.has(s.runId));
+  return kept.length === flowStates.size ? flowStates : new Map(kept);
+}
+
 /**
  * Reduce a session's event stream into flow state. Pure
  * function — no React, no side effects. Exported for tests and for
@@ -69,7 +75,8 @@ const EMPTY_STATE: FlowsSessionState = Object.freeze({
  *
  *   - flow events → reduceFlowEvent updates flowState; flowStates is
  *     resynced after each flow event so the active flow is also stored
- *     under its name. `flow_summary_dismissed` clears flowStates.
+ *     under its name. `flow_summary_dismissed` clears flowStates; with a
+ *     `runId` it removes only that run, independent of event order.
  *
  * Iterating the full event stream on every render is fine: the event
  * stream's reference is stable (returned from `useSessionEvents`) and
@@ -86,6 +93,10 @@ export function reduceFlowsSessionState(
   let lastAutonomousMode: boolean | undefined;
   let lastRejection: FlowsSessionState["lastRejection"];
   let catalog: FlowCatalogEntry[] | undefined;
+  // Runs dismissed by runId (live or replayed `flow-run-close`). Applied after
+  // the loop: replay sorts close records by seq, so one may precede its run.
+  // See change: persist-flow-run-close (D2).
+  const closedRunIds = new Set<string>();
 
   // Diagnostic counter for C1 — see fix-flows-plugin-polish. Gated to dev.
   let flowEventCount = 0;
@@ -101,6 +112,10 @@ export function reduceFlowsSessionState(
     if (isFlowEvent(event.eventType)) {
       flowEventCount++;
       const data = event.data ?? {};
+      if (event.eventType === "flow_summary_dismissed" && typeof data.runId === "string" && data.runId) {
+        closedRunIds.add(data.runId);
+        continue;
+      }
       if (event.eventType === "flow_started") {
         const ts = toEventTime(event.timestamp);
         if (lastFlowStartedAt === undefined || ts > lastFlowStartedAt) lastFlowStartedAt = ts;
@@ -128,6 +143,11 @@ export function reduceFlowsSessionState(
         }
       }
     }
+  }
+
+  if (closedRunIds.size > 0) {
+    if (flowState?.runId !== undefined && closedRunIds.has(flowState.runId)) flowState = null;
+    flowStates = dropClosedRuns(flowStates, closedRunIds);
   }
 
   if (typeof import.meta !== "undefined" && (import.meta as { env?: { DEV?: boolean } }).env?.DEV) {

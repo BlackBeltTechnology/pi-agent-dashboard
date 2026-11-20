@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setProbeLookupAll } from "../package/provider-probe.js";
 import { clearProviderHealth, getAllProviderHealth, setProviderHealth } from "../routes/provider-health-cache.js";
 import { registerProviderRoutes } from "../routes/provider-routes.js";
 import { startStalledUpstream } from "./stalled-upstream.js";
@@ -469,4 +470,34 @@ describe("the write does not block on the upstream probe (P1, P2 — task 4.5)",
       await stalled.close();
     }
   }, 30_000);
+});
+
+// -- NET-04: save road (PATCH) never sends an env key to a metadata Base URL (test-plan E112) --
+// See change: close-local-listener-and-egress-gaps (design D7).
+
+describe("PATCH /api/providers/:name — metadata Base URL on a saved $ENV provider", () => {
+  let originalFetch: typeof globalThis.fetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    process.env.NET04_PATCH_ENV = "env-secret";
+    setProbeLookupAll(async () => [{ address: "93.184.216.34", family: 4 }]);
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    delete process.env.NET04_PATCH_ENV;
+    setProbeLookupAll(null);
+  });
+
+  it("sends no request; cached health is ok:false with the refusal text", async () => {
+    writeFixture({ proxy: { baseUrl: "https://ok.example.com/v1", apiKey: "$NET04_PATCH_ENV", api: "openai-completions" } });
+    const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
+    globalThis.fetch = fetchSpy as any;
+    const { app } = await buildApp();
+    const res = await app.inject({ method: "PATCH", url: "/api/providers/proxy", payload: { baseUrl: "http://169.254.169.254/" } });
+    expect(res.statusCode).toBe(200);
+    await waitFor(() => getAllProviderHealth().proxy !== undefined);
+    expect(getAllProviderHealth().proxy).toMatchObject({ ok: false, error: "provider target is a link-local or metadata address" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await app.close();
+  });
 });

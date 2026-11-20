@@ -216,6 +216,30 @@ export function resolveModelRef(ref: string, cfg: Pick<RoleConfig, "roles">): Re
   return { kind: "role", role: parsed.role, ...concrete(base, parsed.level ?? level) };
 }
 
+/** Result of {@link resolveDefaultModel}. */
+export type ResolvedDefaultModel =
+  | { kind: "concrete"; value: string }
+  | { kind: "role"; role: string; provider: string; id: string; level?: string }
+  | { kind: "unresolved"; role: string; reason: string };
+
+/**
+ * Resolve a Settings `defaultModel` value. A value not starting with `@` is
+ * returned verbatim (`concrete`, no level strip). An `@role[:level]` value goes
+ * through {@link resolveModelRef}; a role that is unknown, unassigned, or
+ * assigned a value without `provider/` is `unresolved`. Thin wrapper — not a
+ * second resolver. See change: default-model-follows-role.
+ */
+export function resolveDefaultModel(value: string, cfg: Pick<RoleConfig, "roles">): ResolvedDefaultModel {
+  if (!value.startsWith("@")) return { kind: "concrete", value };
+  const r = resolveModelRef(value, cfg);
+  const role = r.role ?? value.slice(1);
+  if (r.unresolved) return { kind: "unresolved", role, reason: r.unresolved };
+  if (!r.provider || !r.id) return { kind: "unresolved", role, reason: `role '${role}' has no provider/ prefix` };
+  const out: ResolvedDefaultModel = { kind: "role", role, provider: r.provider, id: r.id };
+  if (r.level) out.level = r.level;
+  return out;
+}
+
 // -- Total normalizer -----------------------------------------------------
 
 /**

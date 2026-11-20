@@ -55,7 +55,7 @@
  */
 import { constants, promises as fs } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
-import { handleIsAlwaysRefused } from "../lib/dashboard-state-guard.js";
+import { assertHandleBoundToDecided, handleIsAlwaysRefused } from "../lib/dashboard-state-guard.js";
 
 /** Why a grant-admitted byte-serving read was refused. */
 export type VerifiedReadRefusalReason =
@@ -107,7 +107,7 @@ const SYMLINK_ERRNOS = new Set(["ELOOP", "EMLINK"]);
  * propagates `ENOENT`/`EACCES` unchanged so the site's existing 404/500 handling
  * still applies.
  */
-export async function openVerifiedRegularFile(resolved: string): Promise<FileHandle> {
+export async function openVerifiedRegularFile(resolved: string, opts: { decidedReal?: string } = {}): Promise<FileHandle> {
   const linkStat = await fs.lstat(resolved);
   if (!linkStat.isFile()) throw new VerifiedReadRefused("not-regular", resolved);
 
@@ -134,6 +134,14 @@ export async function openVerifiedRegularFile(resolved: string): Promise<FileHan
     // The handle is the checked file, but a grant (or a hard link in the granted tree) must never serve
     // an always-refused file: recheck its identity. See change: close-security-map-high-findings (D1, F7).
     if (await handleIsAlwaysRefused(handle)) throw new VerifiedReadRefused("state-file", resolved);
+    if (opts.decidedReal !== undefined) {
+      try {
+        await assertHandleBoundToDecided(handle, resolved, opts.decidedReal);
+      } catch {
+        // A grant-admitted read maps binding failure to the site's existing VerifiedReadRefused refusal.
+        throw new VerifiedReadRefused("handle-mismatch", resolved);
+      }
+    }
     return handle;
   } catch (err) {
     await handle.close().catch(() => {});
@@ -164,8 +172,8 @@ export async function assertRegularFile(resolved: string): Promise<void> {
  * `assertRegularFile`: the bytes come from the descriptor that was checked, so
  * there is no third resolution of the path to race.
  */
-export async function readFileVerified(resolved: string): Promise<Buffer> {
-  const handle = await openVerifiedRegularFile(resolved);
+export async function readFileVerified(resolved: string, opts: { decidedReal?: string } = {}): Promise<Buffer> {
+  const handle = await openVerifiedRegularFile(resolved, opts);
   try {
     return await handle.readFile();
   } finally {
@@ -174,6 +182,6 @@ export async function readFileVerified(resolved: string): Promise<Buffer> {
 }
 
 /** `readFileVerified` decoded as UTF-8. */
-export async function readFileVerifiedUtf8(resolved: string): Promise<string> {
-  return (await readFileVerified(resolved)).toString("utf-8");
+export async function readFileVerifiedUtf8(resolved: string, opts: { decidedReal?: string } = {}): Promise<string> {
+  return (await readFileVerified(resolved, opts)).toString("utf-8");
 }

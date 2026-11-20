@@ -90,6 +90,34 @@ describe("webhook URL helpers", () => {
     expect((await resolveAndVet("nx.example", 80, null, lookupAll)).ok).toBe(false);
   });
 
+  it("resolveAndVet's noun defaults to webhook; the provider path says provider (test-plan #E140)", async () => {
+    const unresolvable: LookupAll = async () => [];
+    expect(await resolveAndVet("169.254.169.254", 80, SELF_PORT)).toEqual({
+      ok: false,
+      error: "webhook target is a link-local or metadata address",
+    });
+    expect(await resolveAndVet("127.0.0.1", SELF_PORT, SELF_PORT)).toEqual({
+      ok: false,
+      error: "webhook target is this dashboard",
+    });
+    expect(await resolveAndVet("nx.example", 80, null, unresolvable)).toEqual({
+      ok: false,
+      error: "webhook host could not be resolved",
+    });
+    expect(await resolveAndVet("169.254.169.254", 80, SELF_PORT, undefined, "provider")).toEqual({
+      ok: false,
+      error: "provider target is a link-local or metadata address",
+    });
+    expect(await resolveAndVet("127.0.0.1", SELF_PORT, SELF_PORT, undefined, "provider")).toEqual({
+      ok: false,
+      error: "provider target is this dashboard",
+    });
+    expect(await resolveAndVet("nx.example", 80, null, unresolvable, "provider")).toEqual({
+      ok: false,
+      error: "provider host could not be resolved",
+    });
+  });
+
   it("redactWebhookUrl renders label (origin) or origin only", () => {
     expect(redactWebhookUrl("https://hooks.example:8443/api/hooks/h1?key=s3cret", "nanoMuse")).toBe(
       "nanoMuse (https://hooks.example:8443)",

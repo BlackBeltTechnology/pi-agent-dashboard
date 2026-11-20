@@ -5,3 +5,7 @@
 ## group-servers-by-identity
 
 Channels `servers:pair-with-code` (main only), `servers:submit-code` (connecting window only). See change: group-servers-by-identity.
+
+## device-key-mutual-check
+
+`pairedRow.deviceState?` / `tier?` / `networkNotAllowed?` from `serverWindows.deviceView(fp)` (last device check, memory only; paired ⇒ `paired` + tier, status-only, access-removed, access-expired, status-unknown); else credential + no key ⇒ `key-pending` (shared `deviceRowState`); keyed/credential-less rows with no check stay undefined. No bearer / private key / `privateKey` in any answer or push. See change: device-key-mutual-check.

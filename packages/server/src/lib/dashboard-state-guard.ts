@@ -417,16 +417,59 @@ export class DashboardStateRefused extends Error {
 }
 
 /**
+ * Thrown when an OPENED handle is not the file the containment decision was made on: the path now
+ * resolves elsewhere (a link swapped in after the decision) or the handle's identity differs, or the
+ * post-open check itself failed. Subclasses {@link DashboardStateRefused} so every site that already maps
+ * that to its containment refusal (403, never 2xx/500) maps this too.
+ * See change: close-local-listener-and-egress-gaps (D2).
+ */
+export class ContainmentBindingRefused extends DashboardStateRefused {
+  constructor() {
+    super();
+    this.message = "refused: opened file is not the path the containment decision bound";
+    this.name = "ContainmentBindingRefused";
+  }
+}
+
+/** Options binding an open to the real path a containment decision was made on. */
+export interface DecidedRealOpts {
+  decidedReal?: string;
+}
+
+/**
+ * Post-open binding: the path still resolves to `decidedReal` and the handle is that file
+ * (same dev+ino). Any failure of the check is the same refusal. Caller closes the handle.
+ */
+export async function assertHandleBoundToDecided(
+  fh: import("node:fs/promises").FileHandle,
+  p: string,
+  decidedReal: string,
+): Promise<void> {
+  try {
+    if ((await fs.realpath(p)) !== decidedReal) throw new ContainmentBindingRefused();
+    // lstat, not stat: if the path flipped to a link after the realpath above, `stat` would follow it to the
+    // very file the handle already holds and the check would pass; `lstat` sees the link's own identity.
+    const [handleStat, realStat] = await Promise.all([fh.stat(), fs.lstat(decidedReal)]);
+    if (handleStat.dev !== realStat.dev || handleStat.ino !== realStat.ino) throw new ContainmentBindingRefused();
+  } catch (err) {
+    throw err instanceof ContainmentBindingRefused ? err : new ContainmentBindingRefused();
+  }
+}
+
+/**
  * `fs.open` + the post-open handle check. A refused handle is closed at once and
- * nothing is read from it.
+ * nothing is read from it. With `opts.decidedReal` the handle must also be bound to
+ * that decided real path (see {@link assertHandleBoundToDecided}).
  */
 export async function openStateChecked(
   p: string,
   flags: string | number = "r",
+  opts: DecidedRealOpts = {},
 ): Promise<import("node:fs/promises").FileHandle> {
   const fh = await fs.open(p, flags);
   try {
     if (await handleIsAlwaysRefused(fh)) throw new DashboardStateRefused();
+    if (opts.decidedReal !== undefined) await assertHandleBoundToDecided(fh, p, opts.decidedReal);
   } catch (err) {
     await fh.close().catch(() => undefined);
     throw err;
@@ -435,10 +478,14 @@ export async function openStateChecked(
 }
 
 /** `fs.readFile` through {@link openStateChecked}: the bytes come from the checked handle. */
-export async function readFileStateChecked(p: string): Promise<Buffer>;
-export async function readFileStateChecked(p: string, encoding: BufferEncoding): Promise<string>;
-export async function readFileStateChecked(p: string, encoding?: BufferEncoding): Promise<Buffer | string> {
-  const fh = await openStateChecked(p, "r");
+export async function readFileStateChecked(p: string, encoding?: undefined, opts?: DecidedRealOpts): Promise<Buffer>;
+export async function readFileStateChecked(p: string, encoding: BufferEncoding, opts?: DecidedRealOpts): Promise<string>;
+export async function readFileStateChecked(
+  p: string,
+  encoding?: BufferEncoding,
+  opts: DecidedRealOpts = {},
+): Promise<Buffer | string> {
+  const fh = await openStateChecked(p, "r", opts);
   try {
     return encoding ? await fh.readFile(encoding) : await fh.readFile();
   } finally {

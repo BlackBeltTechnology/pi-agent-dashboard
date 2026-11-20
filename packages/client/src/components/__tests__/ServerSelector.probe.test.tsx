@@ -8,6 +8,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { acceptKnownServerMove, listKnownServers, probeKnownServer, probeKnownServerResult } from "../../lib/api/known-servers-api.js";
+import { detectDeviceKeySupport, ensureKey, hasKey, signCompanion, signDevcheck } from "../../lib/pairing/device-key.js";
 import { ServerSelector } from "../connectivity/ServerSelector.js";
 import { identityMock } from "./selector-identity-mock.js";
 
@@ -16,6 +17,16 @@ vi.mock("../../lib/api/known-servers-api.js", () => ({
   probeKnownServer: vi.fn(async () => null),
   probeKnownServerResult: vi.fn(async () => null),
   acceptKnownServerMove: vi.fn(async () => true),
+}));
+
+// The device key lives in IndexedDB + WebCrypto (covered in lib/pairing/__tests__/device-key.test.ts);
+// here a tab either holds a key for a fingerprint or it does not.
+vi.mock("../../lib/pairing/device-key.js", () => ({
+  detectDeviceKeySupport: vi.fn(async () => false),
+  ensureKey: vi.fn(async () => "A".repeat(43)),
+  hasKey: vi.fn(async () => false),
+  signDevcheck: vi.fn(async (_fp: string, nonce: string) => ({ deviceNonce: nonce, pub: "A".repeat(43), sig: "B".repeat(86) })),
+  signCompanion: vi.fn(async (_fp: string, origin: string) => ({ pub: "A".repeat(43), ts: 1_700_000_000, sig: "B".repeat(86), origin })),
 }));
 
 // The identity proof is covered with real WebCrypto in lib/__tests__/server-route-check.test.ts;
@@ -518,6 +529,92 @@ describe("ServerSelector server-side probe", () => {
       expect(new Headers((toRefused[0][1] as RequestInit).headers).has("Authorization")).toBe(false);
       expect(wsSpy).not.toHaveBeenCalled();
       vi.unstubAllGlobals();
+    });
+
+    // ── device-key-mutual-check (test-plan F6): a browser tab asking about another origin ──
+    describe("F6 browser tab: device status of another origin", () => {
+      const NONCE = "N".repeat(43);
+      const statusCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/pair/device-status"));
+      const paired = (host: string) => within(rowOf(host)).getByTestId("paired-state").textContent;
+      const serve = (reply: unknown) =>
+        fetchMock.mockImplementation((url: string) =>
+          String(url).includes("/api/pair/device-status") ? Promise.resolve({ ok: true, status: 200, json: async () => reply } as Response) : Promise.resolve(okBody()),
+        );
+      beforeEach(() => {
+        identityMock.deviceNonce = NONCE;
+        vi.mocked(hasKey).mockReset().mockResolvedValue(false);
+        vi.mocked(signDevcheck).mockClear();
+      });
+
+      it("(a) no key: 'Status unknown', never 'Not paired', zero device-status POSTs", async () => {
+        identityMock.proves.set("home-imac.lan", F);
+        serve({ status: "paired", scope: "status-only" });
+        const { trigger } = await mount([saved("home-imac.lan", "home-imac", { fingerprint: F, routes: [lanRoute("home-imac.lan")] })]);
+        act(() => trigger().click());
+        await waitFor(() => expect(within(rowOf("home-imac")).getByText("Available")).toBeTruthy());
+        await act(async () => {});
+        expect(paired("home-imac")).toBe("Status unknown");
+        expect(document.body.textContent).not.toMatch(/Not paired/);
+        expect(statusCalls()).toHaveLength(0);
+      });
+
+      it("(b) companion key + route proves the fingerprint + status-only → 'Paired · status only'; Open targets that server's own page", async () => {
+        identityMock.proves.set("home-imac.lan", F);
+        vi.mocked(hasKey).mockResolvedValue(true);
+        serve({ status: "paired", scope: "status-only" });
+        const { onSwitch, trigger } = await mount([saved("home-imac.lan", "home-imac", { fingerprint: F, routes: [lanRoute("home-imac.lan")] })]);
+        act(() => trigger().click());
+        await waitFor(() => expect(paired("home-imac")).toBe("Paired · status only"));
+        expect(statusCalls()).toHaveLength(1);
+        expect(String(statusCalls()[0]![0])).toBe("http://home-imac.lan:8000/api/pair/device-status");
+        expect(JSON.parse((statusCalls()[0]![1] as RequestInit).body as string)).toEqual({ deviceNonce: NONCE, pub: "A".repeat(43), sig: "B".repeat(86) });
+        act(() => rowOf("home-imac").click());
+        expect(onSwitch).toHaveBeenCalledWith("home-imac.lan", 8000);
+      });
+
+      it("(b') a full tier answer reads 'Paired · Operate'", async () => {
+        identityMock.proves.set("home-imac.lan", F);
+        vi.mocked(hasKey).mockResolvedValue(true);
+        serve({ status: "paired", scope: "full", tier: "operate" });
+        const { trigger } = await mount([saved("home-imac.lan", "home-imac", { fingerprint: F, routes: [lanRoute("home-imac.lan")] })]);
+        act(() => trigger().click());
+        await waitFor(() => expect(paired("home-imac")).toBe("Paired · Operate"));
+      });
+
+      it("(c) companion key + a different fingerprint proven: 'different identity', zero device-status POSTs", async () => {
+        identityMock.proves.set("home-imac.lan", OTHER);
+        vi.mocked(hasKey).mockResolvedValue(true);
+        serve({ status: "paired", scope: "status-only" });
+        const { trigger } = await mount([saved("home-imac.lan", "home-imac", { fingerprint: F, routes: [lanRoute("home-imac.lan")] })]);
+        act(() => trigger().click());
+        await waitFor(() => expect(within(rowOf("home-imac")).getAllByText(/different identity/i).length).toBeGreaterThan(0));
+        await act(async () => {});
+        expect(statusCalls()).toHaveLength(0);
+        expect(signDevcheck).not.toHaveBeenCalled();
+        expect(paired("home-imac")).toBe("Status unknown");
+      });
+
+      it("F3 wiring: 'Request access…' opens the peer with the companion fragment (noopener, no request from this page first)", async () => {
+        identityMock.proves.set("home-imac.lan", F);
+        vi.mocked(detectDeviceKeySupport).mockResolvedValue(true);
+        fetchMock.mockImplementation(() => Promise.resolve(okBody()));
+        const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+        const { trigger } = await mount([saved("home-imac.lan", "home-imac", { fingerprint: F, routes: [lanRoute("home-imac.lan")] })]);
+        act(() => trigger().click());
+        await waitFor(() => expect(within(rowOf("home-imac")).getByText("Available")).toBeTruthy());
+        const callsBefore = fetchMock.mock.calls.length;
+        act(() => screen.getByTestId("pair-action").click());
+        await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(1));
+        const [href, , features] = openSpy.mock.calls[0]!;
+        expect(String(href)).toBe(
+          `http://home-imac.lan:8000/pair?request#companion=${"A".repeat(43)}.1700000000.${"B".repeat(86)}&from=${encodeURIComponent(window.location.origin)}`,
+        );
+        expect(String(features)).toContain("noopener");
+        expect(ensureKey).toHaveBeenCalledWith(F);
+        expect(signCompanion).toHaveBeenCalledWith(F, window.location.origin);
+        expect(fetchMock.mock.calls.length).toBe(callsBefore);
+        vi.mocked(detectDeviceKeySupport).mockResolvedValue(false);
+      });
     });
   });
 });

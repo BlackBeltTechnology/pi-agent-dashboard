@@ -33,6 +33,8 @@ function makeApp(): FastifyInstance {
   for (const url of [
     "/api/tunnel-connect",
     "/api/pair/challenge",
+    "/api/pair/device-status",
+    "/api/pair/device-key",
     "/auth/logout",
     "/auth/login",
     "/editor/thing",
@@ -151,6 +153,31 @@ describe("mutating REST Origin gate", () => {
       const res = await inject("POST", "/api/pair/challenge", "https://pi-dashboard.dev");
       expect(res.statusCode).not.toBe(403);
     });
+  });
+
+  // #E18 (device-key-mutual-check) — the device-check routes neither widen nor narrow the origin rules.
+  describe("#E18 device-check routes follow the challenge's origin rules", () => {
+    const routes = ["/api/pair/challenge", "/api/pair/device-status", "/api/pair/device-key"];
+    for (const url of routes) {
+      it(`${url}: an untrusted cross-origin POST is refused before the handler`, async () => {
+        const res = await inject("POST", url, ATTACKER);
+        expect(res.statusCode).toBe(403);
+        expect(res.json()).toEqual({ error: "untrusted origin" });
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+        expect(handler).not.toHaveBeenCalled();
+      });
+
+      it(`${url}: loopback and no Origin are admitted, and every origin is judged exactly like the challenge`, async () => {
+        for (const origin of ["http://localhost:8000", undefined]) {
+          const res = await inject("POST", url, origin);
+          expect(res.statusCode, `${url} ${String(origin)}`).not.toBe(403);
+        }
+        for (const origin of ["https://x.share.zrok.io", ATTACKER, "https://pi-dashboard.dev"]) {
+          const same = (await inject("POST", "/api/pair/challenge", origin)).statusCode === 403;
+          expect((await inject("POST", url, origin)).statusCode === 403, `${url} ${origin}`).toBe(same);
+        }
+      });
+    }
   });
 
   // #X3 — malformed Origin values deny without throwing.

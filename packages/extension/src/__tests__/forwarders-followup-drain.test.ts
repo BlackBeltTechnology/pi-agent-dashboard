@@ -9,8 +9,10 @@
  * an idle session and the old 100 ms x 20 idle-retry loop is gone.
  *
  * Covers test-plan rows E15, E16, E17, E18.
+ * Held steers (bridge-owned-cancellable-steer): E18, E19, E21 of that plan.
  *
- * See change: update-pi-core-1-3-adopt-apis (design D4).
+ * See change: update-pi-core-1-3-adopt-apis (design D4),
+ * bridge-owned-cancellable-steer.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AbortLatch } from "../abort-latch.js";
@@ -19,12 +21,13 @@ import { createInstance } from "../bridge-handlers/instance.js";
 import { createFollowupBuffer } from "../followup-buffer.js";
 import { drainOneFollowup } from "../followup-drain.js";
 import { RetryTracker } from "../retry-tracker.js";
+import { createSteerBuffer } from "../steer-buffer.js";
 
 const SID = "s1";
 const errorEnd = { messages: [{ role: "assistant", stopReason: "error", errorMessage: "503" }] };
 const okEnd = { messages: [{ role: "assistant", stopReason: "end_turn" }] };
 
-function makeRig(initial: string[] = ["a"]) {
+function makeRig(initial: string[] = ["a"], held: Array<{ text: string; promptId?: string }> = []) {
   const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void> | void>();
   const abortLatch = new AbortLatch();
   const latchAtSend: boolean[] = [];
@@ -41,30 +44,42 @@ function makeRig(initial: string[] = ["a"]) {
   const buffer = createFollowupBuffer();
   for (const text of initial) buffer.push({ text });
   const emitQueueUpdate = vi.fn();
+  const steer = createSteerBuffer("n");
+  for (const entry of held) steer.push(entry);
+  const acks: Array<string | undefined> = [];
 
   const inst = createInstance(pi as never, 1, { generation: 1, isAgentStreaming: false } as never, {
     sessionId: SID,
     sessionReady: true,
     safe: (fn: unknown) => fn,
-    coalescer: { flush: () => {} },
+    coalescer: { flush: () => {}, messageStart: () => {} },
+    messageKeyOf: () => "k",
+    wrapAppendMessageForCtx: () => {},
+    wrapCustomPersistenceForCtx: () => {},
+    nextNonce: () => "nonce",
+    pendingNonces: new WeakMap(),
+    assistantMessageGen: 0,
+    extractUserMessageText: (m: { content?: unknown }) => (typeof m?.content === "string" ? m.content : ""),
     polling: {},
     abortLatch,
     retryTracker: new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 }),
     sendSyntheticRetryEvent: vi.fn(),
     drainUsage: vi.fn(),
     runAutoNameOnTurnEnd: vi.fn(),
-    emptyActionableGuard: { observe: () => ({ action: "none" }) },
+    emptyActionableGuard: { observe: () => ({ action: "none" }), reset: () => {} },
     connection: { send: vi.fn() },
     bridgeFollowUp: buffer,
-    bridgeSteering: [],
+    bridgeSteer: steer,
     emitQueueUpdate,
     enqueueSystemFollowup: vi.fn(),
     drainFollowupQueue: () => {
       drainOneFollowup({
         buffer,
+        steerBuffer: steer,
         ctx,
         emitQueueUpdate,
         sendUserMessage: (content) => pi.sendUserMessage(content),
+        ackSteer: (promptId) => acks.push(promptId),
       });
     },
   } as never);
@@ -75,7 +90,7 @@ function makeRig(initial: string[] = ["a"]) {
   };
   /** Let every pending `setTimeout(_, 0)` run. */
   const flush = () => vi.advanceTimersByTime(0);
-  return { pi, state, buffer, abortLatch, latchAtSend, fire, flush };
+  return { pi, state, buffer, steer, acks, emitQueueUpdate, abortLatch, latchAtSend, fire, flush };
 }
 
 describe("follow-up drain trigger (agent_settled)", () => {
@@ -145,5 +160,41 @@ describe("follow-up drain trigger (agent_settled)", () => {
     r.flush();
     expect(r.pi.sendUserMessage).toHaveBeenCalledTimes(1);
     expect(r.pi.sendUserMessage).toHaveBeenCalledWith("a");
+  });
+
+  it("steer E19: a held steer ships first (fresh prompt + promptId ack), one per settle; the follow-up waits", async () => {
+    const r = makeRig(["b"], [{ text: "a", promptId: "p2" }]);
+
+    await r.fire("agent_settled");
+    r.flush();
+    expect(r.pi.sendUserMessage.mock.calls).toEqual([["a"]]);
+    expect(r.acks).toEqual(["p2"]);
+    expect(r.steer.length).toBe(0);
+    expect(r.buffer.length).toBe(1);
+
+    await r.fire("agent_settled");
+    r.flush();
+    expect(r.pi.sendUserMessage.mock.calls).toEqual([["a"], ["b"]]);
+    expect(r.acks).toEqual(["p2"]);
+  });
+
+  it("steer E21: after an abort a held steer gets the same settle verdict as a follow-up in its place", async () => {
+    const steerRig = makeRig([], [{ text: "a" }]);
+    const followRig = makeRig(["a"]);
+    for (const r of [steerRig, followRig]) {
+      r.abortLatch.request(SID);
+      await r.fire("agent_settled", { aborted: true });
+      r.flush();
+    }
+    expect(steerRig.pi.sendUserMessage.mock.calls).toEqual(followRig.pi.sendUserMessage.mock.calls);
+    expect(steerRig.latchAtSend).toEqual(followRig.latchAtSend);
+  });
+
+  it("steer E18: a user message_start with a held steer's text never touches the steer buffer", async () => {
+    const r = makeRig([], [{ text: "hello" }]);
+    await r.fire("message_start", { message: { role: "user", content: "hello", timestamp: 1 } });
+    r.flush();
+    expect(r.steer.views().map((v) => v.text)).toEqual(["hello"]);
+    expect(r.emitQueueUpdate).not.toHaveBeenCalled();
   });
 });

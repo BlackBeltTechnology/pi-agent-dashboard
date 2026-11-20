@@ -38,6 +38,7 @@ export interface ArrivalInput {
   hasTail: boolean;
   /** The live reasoning block is on screen. */
   hasThinking: boolean;
+  /** Pending steer KEYS (bridge entry id; positional key for a legacy string), in render order. */
   steering: readonly string[];
   /** Effective motion (pref ∧ ¬reduced-motion ∧ visible). */
   motionActive: boolean;

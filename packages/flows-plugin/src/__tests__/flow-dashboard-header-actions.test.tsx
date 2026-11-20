@@ -14,8 +14,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 vi.mock("@blackbelt-technology/pi-dashboard-client-utils/useMobile", () => ({ useMobile: () => false }));
 
 import { FlowDashboardClaim } from "../client/FlowDashboard.js";
+import { FlowSummaryClaim } from "../client/FlowSummary.js";
 import { __resetFlowAttachStoreForTests, getAttachment, setAttachment } from "../client/flow-attach-store.js";
-import { useIsolatedLocalStorage, editMode, entry, fetchMock, publishCatalog, registry, started, tree } from "./flows-test-harness.js";
+import { useIsolatedLocalStorage, completed, editMode, entry, fetchMock, publishCatalog, registry, started, tree } from "./flows-test-harness.js";
 
 useIsolatedLocalStorage();
 
@@ -107,5 +108,39 @@ describe("header Abort / Auto dispatch (E39)", () => {
     const sid = `hdr-S-${++n}`;
     render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />));
     expect(screen.queryByTitle("Abort flow")).toBeNull();
+  });
+});
+
+/** T9: Dismiss names the shown run so the bridge can persist it.
+ *  See change: persist-flow-run-close (D3, D4). */
+describe("summary Dismiss sends the run's runId (T9)", () => {
+  const dismissals = (send: ReturnType<typeof vi.fn>) =>
+    send.mock.calls.map(([m]) => m as Record<string, unknown>).filter((m) => m.action === "flow.dismiss-summary");
+  const runEvents = () => {
+    const s = started("batch:apply", 10, 1);
+    const c = completed("batch:apply", 20, "aborted");
+    return [{ ...s, data: { ...s.data, runId: "r1" } }, { ...c, data: { ...c.data, runId: "r1" } }];
+  };
+
+  it("FlowDashboardClaim summary header", () => {
+    const sid = `hdr-S-${++n}`;
+    const send = vi.fn();
+    publishSessionEvents(sid, runEvents());
+    render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />, send));
+    fireEvent.click(screen.getByRole("button", { name: /Dismiss/ }));
+    expect(dismissals(send)).toEqual([
+      { type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.dismiss-summary", payload: { runId: "r1" } },
+    ]);
+  });
+
+  it("FlowSummaryClaim", () => {
+    const sid = `hdr-S-${++n}`;
+    const send = vi.fn();
+    publishSessionEvents(sid, runEvents());
+    render(tree(<FlowSummaryClaim session={{ id: sid } as DashboardSession} />, send));
+    fireEvent.click(screen.getByRole("button", { name: /Dismiss/ }));
+    expect(dismissals(send)).toEqual([
+      { type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.dismiss-summary", payload: { runId: "r1" } },
+    ]);
   });
 });

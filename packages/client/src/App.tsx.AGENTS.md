@@ -94,3 +94,5 @@ See change: fix-chat-transcript-layout (D5) — `composer-stack-anchor` = conten
 See change: add-spawn-model-choice. Mirrors `spawnDefaults` into `setSpawnDefaults` (spawn-choice store). Keyboard sibling (`handleForkPendingPrompt`) → `siblingSpawnOpts(target)`.
 
 `pathKeyPlatform` state (`NodeJS.Platform | undefined`): set by `setPathKeyPlatform` handler dep, reset to `undefined` in `clearInMemoryState`, passed to `SessionList` as `archiveKeyPlatform`. Static pin: `__tests__/app-clear-path-key-platform.test.ts`. See change: fix-archive-fold-key-and-filter-chips.
+
+`EMPTY_STEERING: readonly (SteerEntryView|string)[]`; ChatView gets `onCancelSteer={removeSteeringEntry}` / `onClearSteers={clearSteeringEntries}`. See change: bridge-owned-cancellable-steer.

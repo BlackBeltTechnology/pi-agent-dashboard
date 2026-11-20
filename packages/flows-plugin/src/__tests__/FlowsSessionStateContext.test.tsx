@@ -116,6 +116,79 @@ describe("reduceFlowsSessionState (pure)", () => {
   });
 });
 
+// ── Dismissal survives replay (persist-flow-run-close T1–T4) ──────
+
+const runStarted = (flowName: string, runId: string, ts: number) =>
+  ev("flow_started", ts, {
+    flowName,
+    runId,
+    task: "",
+    steps: [{ id: "s1", stepType: "agent", agent: "alpha", blockedBy: [] }],
+  });
+const runComplete = (flowName: string, runId: string, ts: number) =>
+  ev("flow_complete", ts, { flowName, runId, status: "aborted" });
+const runDismissed = (ts: number, runId?: string) =>
+  ev("flow_summary_dismissed", ts, runId === undefined ? {} : { runId });
+
+describe("reduceFlowsSessionState — dismissed runs (persist-flow-run-close)", () => {
+  it("T1: a dismissed run is absent after replay", () => {
+    const s = reduceFlowsSessionState([
+      runStarted("batch:apply", "r1", 10),
+      runComplete("batch:apply", "r1", 20),
+      runDismissed(30, "r1"),
+    ]);
+    expect(s.flowState).toBeNull();
+    expect(s.flowStates.has("batch:apply")).toBe(false);
+  });
+
+  it("T2: a close record sorted before its run's events still excludes the run", () => {
+    const s = reduceFlowsSessionState([
+      runDismissed(5, "r1"),
+      runStarted("batch:apply", "r1", 10),
+      runComplete("batch:apply", "r1", 20),
+    ]);
+    expect(s.flowState).toBeNull();
+    expect(s.flowStates.size).toBe(0);
+  });
+
+  it("T3: only the dismissed run is removed", () => {
+    const s = reduceFlowsSessionState([
+      runStarted("alpha", "r1", 10),
+      runComplete("alpha", "r1", 20),
+      runStarted("beta", "r2", 30),
+      runComplete("beta", "r2", 40),
+      runDismissed(50, "r1"),
+    ]);
+    expect(s.flowStates.has("alpha")).toBe(false);
+    expect(s.flowStates.get("beta")?.runId).toBe("r2");
+    expect(s.flowState?.flowName).toBe("beta");
+  });
+
+  it("T3b: dismissing the current run nulls flowState but keeps the other run", () => {
+    const s = reduceFlowsSessionState([
+      runStarted("alpha", "r1", 10),
+      runComplete("alpha", "r1", 20),
+      runStarted("beta", "r2", 30),
+      runComplete("beta", "r2", 40),
+      runDismissed(50, "r2"),
+    ]);
+    expect(s.flowState).toBeNull();
+    expect([...s.flowStates.keys()]).toEqual(["alpha"]);
+  });
+
+  it("T4: a legacy dismiss without runId clears everything", () => {
+    const s = reduceFlowsSessionState([
+      runStarted("alpha", "r1", 10),
+      runComplete("alpha", "r1", 20),
+      runStarted("beta", "r2", 30),
+      runComplete("beta", "r2", 40),
+      runDismissed(50),
+    ]);
+    expect(s.flowState).toBeNull();
+    expect(s.flowStates.size).toBe(0);
+  });
+});
+
 // ── attach-flow-before-run derivations (E13) ───────────────────────
 
 function ev(eventType: string, timestamp: number, data: Record<string, unknown>): DashboardEvent {

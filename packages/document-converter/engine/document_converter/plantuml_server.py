@@ -4,12 +4,18 @@ This module manages a Docker-based PlantUML server for rendering diagrams.
 The server is started on-demand and can be stopped when no longer needed.
 """
 import atexit
+import json
+import logging
 import socket
 import subprocess
 import time
 from typing import Optional
 import urllib.request
 import urllib.error
+
+logger = logging.getLogger(__name__)
+
+LOOPBACK_HOSTS = ('127.0.0.1', '::1')
 
 
 class PlantUMLServerError(Exception):
@@ -157,6 +163,51 @@ class PlantUMLServer:
                 f"Failed to start container: {result.stderr}"
             )
 
+    def _published_on_loopback(self) -> bool:
+        """True only if every host binding of the container port is a literal loopback IP.
+
+        Uses `docker inspect` (works for stopped containers, unlike `docker port`).
+        Inspect failure, unparsable output, no binding, an empty/wildcard HostIp,
+        `localhost` or any other address all count as non-loopback.
+        """
+        result = subprocess.run(
+            ['docker', 'inspect', '-f', '{{json .HostConfig.PortBindings}}',
+             self.CONTAINER_NAME],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return False
+        try:
+            data = json.loads(result.stdout)
+        except ValueError:
+            return False
+        if not isinstance(data, dict):
+            return False
+        entries = data.get('8080/tcp')
+        if not isinstance(entries, list) or not entries:
+            return False
+        return all(
+            isinstance(e, dict) and e.get('HostIp') in LOOPBACK_HOSTS
+            for e in entries
+        )
+
+    def _remove_container(self) -> None:
+        """Force-remove the container (running or stopped).
+
+        Raises:
+            PlantUMLServerError: If removal fails, unless the container is already gone.
+        """
+        result = subprocess.run(
+            ['docker', 'rm', '-f', self.CONTAINER_NAME],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0 and 'No such container' not in (result.stderr or ''):
+            raise PlantUMLServerError(
+                f"Failed to remove container: {result.stderr}"
+            )
+
     def _create_container(self) -> None:
         """Create and start a new container."""
         self._port = get_available_port()
@@ -164,7 +215,7 @@ class PlantUMLServer:
             [
                 'docker', 'run', '-d',
                 '--name', self.CONTAINER_NAME,
-                '-p', f'{self._port}:8080',
+                '-p', f'127.0.0.1:{self._port}:8080',
                 self.IMAGE_NAME
             ],
             capture_output=True,
@@ -199,15 +250,23 @@ class PlantUMLServer:
                 "Docker is not available. Please install and start Docker."
             )
 
-        # Check if already running
-        if self.is_container_running():
-            port = self.get_container_port()
-            if port:
-                self._port = port
-                return f"http://localhost:{port}"
+        exists = self.is_container_running() or self.is_container_exists()
 
+        # Legacy container published on all interfaces: recreate before any reuse/start.
+        if exists and not self._published_on_loopback():
+            logger.warning(
+                "Container %s is not published on loopback only; recreating it",
+                self.CONTAINER_NAME,
+            )
+            self._remove_container()
+            self._create_container()
+            self._started_by_us = True
+        # Check if already running
+        elif self.is_container_running() and (port := self.get_container_port()):
+            self._port = port
+            return f"http://localhost:{port}"
         # Start or create container
-        if self.is_container_exists():
+        elif exists:
             self._start_container()
             self._started_by_us = True
             # Get the port after starting

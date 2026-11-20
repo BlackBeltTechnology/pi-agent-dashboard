@@ -38,3 +38,5 @@ Body reads open through `openStateChecked`/`readFileStateChecked` (post-open dev
 Containment sites branch on `containmentAllows(decision, resolved)`; the raw pre-check uses `decidePassive(..., {allowGrant:false})`. See change: codeql-file-containment-barrier.
 
 Post-open credential recheck at every content site: digest + md-read + eml + eml-attachment + rendered-pdf (checked open right before converter) map `DashboardStateRefused` → 403 `path outside working directory`; raw/render/sheet same; raw open-time refusals reset media headers (`openRefusal`) so JSON body is not a 500. See change: close-security-map-high-findings (D1).
+
+Gates (`gateFilePath`/`gateReadPath`/`gateOfficeFile`) return `real`; every content open, office conversion, EML read and system-open uses it; binding failure → site's 403. See change: close-local-listener-and-egress-gaps.

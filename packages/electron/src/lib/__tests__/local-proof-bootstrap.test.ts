@@ -12,12 +12,16 @@ import {
   verifyProofMac,
 } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { installDefaultSessionPermissions } from "../permissions.js";
 import {
+  allowedOrigins,
   loadWithLocalProof,
   localApiBase,
   localProofHeaders,
+  mainWindowAllowedOrigin,
   mintLocalProofUrl,
   navigateToServer,
+  originOf,
   sanitizeNextPath,
 } from "../local-proof-bootstrap.js";
 
@@ -289,5 +293,118 @@ describe("navigateToServer — mint faults degrade to the plain target (X11–X1
     const win = { loadURL: vi.fn(async () => { throw new Error("ERR_ABORTED"); }) };
     const res = await navigateToServer(win, "http://localhost:8000", { config, fetchImpl: fetchOk("C"), token: "tok" });
     expect(res.navigated).toBe(false);
+  });
+});
+
+describe("main-window allowed origin (ELEC-01)", () => {
+  const config = { port: 8000, host: "localhost", knownServers: [{ host: "10.0.0.5", port: 9000 }] } as any;
+  const deps = (windowServerUrl?: string) => ({ config, windowServerUrl });
+
+  it("originOf / allowedOrigins are exported and normalise", () => {
+    expect(originOf("HTTP://LOCALHOST:8000/x")).toBe("http://localhost:8000");
+    expect(originOf("not a url")).toBeNull();
+    expect(allowedOrigins(deps()).has("http://127.0.0.1:8000")).toBe(true);
+  });
+
+  it("E78: file:// and unlisted URLs yield undefined; a known server is accepted", () => {
+    expect(mainWindowAllowedOrigin(() => "file:///x/doctor.html", deps("http://localhost:8000"))).toBeUndefined();
+    expect(mainWindowAllowedOrigin(() => "http://unlisted.example:8000/", deps("http://localhost:8000"))).toBeUndefined();
+    expect(mainWindowAllowedOrigin(() => "http://10.0.0.5:9000/x", deps("http://localhost:8000"))).toBe("http://10.0.0.5:9000");
+  });
+
+  it("E77: empty URL, no URL, a throwing getURL (destroyed window) → undefined", () => {
+    expect(mainWindowAllowedOrigin(() => "", deps("http://localhost:8000"))).toBeUndefined();
+    expect(mainWindowAllowedOrigin(undefined, deps("http://localhost:8000"))).toBeUndefined();
+    expect(
+      mainWindowAllowedOrigin(() => {
+        throw new Error("Object has been destroyed");
+      }, deps("http://localhost:8000")),
+    ).toBeUndefined();
+  });
+
+  it("E80: follows navigation (A → loopback variant B → known server C → unlisted D → A)", () => {
+    let url = "http://localhost:8000/";
+    const get = () => mainWindowAllowedOrigin(() => url, deps("http://localhost:8000"));
+    expect(get()).toBe("http://localhost:8000");
+    url = "http://127.0.0.1:8000/";
+    expect(get()).toBe("http://127.0.0.1:8000");
+    url = "http://10.0.0.5:9000/";
+    expect(get()).toBe("http://10.0.0.5:9000");
+    url = "http://evil.example:1/";
+    expect(get()).toBeUndefined();
+    url = "http://localhost:8000/";
+    expect(get()).toBe("http://localhost:8000");
+  });
+
+  it("the window's own server (remote mode) is accepted even when not configured", () => {
+    expect(mainWindowAllowedOrigin(() => "https://dash.example.com/", deps("https://dash.example.com"))).toBe("https://dash.example.com");
+  });
+});
+
+describe("default-session handlers fail closed when the origin source breaks (T.171 X40, T.172 X41)", () => {
+  type Req = (wc: unknown, perm: string, cb: (g: boolean) => void, d: Record<string, unknown>) => void;
+  type Chk = (wc: unknown, perm: string, origin: string, d: Record<string, unknown>) => boolean;
+  const ORIGIN = "http://localhost:8000";
+
+  /** Wire the handlers exactly like main.ts: origin = mainWindowAllowedOrigin(getURL, { config: loadMinimalConfig() }). */
+  function wire(getURL: () => string, loadMinimalConfig: () => unknown) {
+    let request!: Req;
+    let check!: Chk;
+    installDefaultSessionPermissions(
+      {
+        setPermissionRequestHandler: (h) => void (request = h as unknown as Req),
+        setPermissionCheckHandler: (h) => void (check = h as unknown as Chk),
+      },
+      () => mainWindowAllowedOrigin(getURL, { config: loadMinimalConfig() as any, windowServerUrl: ORIGIN }),
+      () => {},
+    );
+    const ask = (perm: string) => {
+      const cb = vi.fn();
+      request({}, perm, cb, { isMainFrame: true, requestingUrl: `${ORIGIN}/` });
+      return cb;
+    };
+    const chk = (perm: string) => check({}, perm, ORIGIN, { isMainFrame: true, requestingUrl: `${ORIGIN}/` });
+    return { ask, chk };
+  }
+  const goodConfig = () => ({ port: 8000, host: "localhost", knownServers: [] });
+
+  it("sanity: healthy getURL + config grants notifications", () => {
+    const w = wire(() => `${ORIGIN}/`, goodConfig);
+    expect(w.chk("notifications")).toBe(true);
+    expect(w.ask("notifications")).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
+  it("T.171: getURL throws (destroyed webContents) -> request and check handlers deny, nothing thrown", () => {
+    const w = wire(() => {
+      throw new Error("Object has been destroyed");
+    }, goodConfig);
+    for (const p of ["notifications", "fullscreen", "clipboard-sanitized-write", "media"]) {
+      expect(() => w.chk(p)).not.toThrow();
+      expect(w.chk(p), p).toBe(false);
+      const cb = w.ask(p);
+      expect(cb).toHaveBeenCalledExactlyOnceWith(false);
+    }
+  });
+
+  it("T.172: loadMinimalConfig throws -> denied, no origin trusted, no crash", () => {
+    const w = wire(() => `${ORIGIN}/`, () => {
+      throw new Error("ENOENT config");
+    });
+    expect(() => w.chk("notifications")).not.toThrow();
+    expect(w.chk("notifications")).toBe(false);
+    expect(w.ask("notifications")).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "garbage"],
+    ["an empty object (no knownServers)", {}],
+    ["knownServers not an array", { port: 8000, knownServers: 5 }],
+    ["knownServers with junk entries", { port: 8000, knownServers: [null, 7] }],
+  ])("T.172: corrupt config (%s) -> denied, no crash", (_n, cfg) => {
+    const w = wire(() => `${ORIGIN}/`, () => cfg);
+    expect(() => w.chk("notifications")).not.toThrow();
+    expect(w.chk("notifications")).toBe(false);
+    expect(w.ask("notifications")).toHaveBeenCalledExactlyOnceWith(false);
   });
 });

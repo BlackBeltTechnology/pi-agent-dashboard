@@ -12,6 +12,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  type DeviceStatusReply,
+  MAX_COMPANIONS,
+  shortKeyIdFromDigest,
+  storedCompanionOrigin,
+} from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
+import {
   defaultTierForSource,
   isTier,
   TIERS,
@@ -23,6 +29,9 @@ import { type BearerChannel, isProvenChannel } from "../auth/proven-tls.js";
 import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
 
 const REGISTRY_FILENAME = "paired-devices.json";
+const REVOKED_FILENAME = "revoked-devices.json";
+/** A revoked record is deleted for good once its age reaches this (age >= 90 d). See change: device-key-mutual-check (D6). */
+export const REVOKED_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const TOKEN_BYTES = 32; // 256-bit opaque bearer.
 // Throttle last-seen persistence: every authenticated request would otherwise
 // rewrite the registry file (write amplification). Coarse last-seen is fine.
@@ -37,6 +46,18 @@ const ROTATION_GRACE_MS = 60_000;
 /** Rotations allowed per device inside the sliding window. */
 const ROTATE_LIMIT = 10;
 const ROTATE_WINDOW_MS = 60_000;
+
+/** A status-only key held by a device for another dashboard origin (never authenticates). */
+interface DeviceCompanion {
+  /** Short stable id: `dk:` + 12 chars of SHA-256 over the raw key. */
+  id: string;
+  /** Raw Ed25519 public key, unpadded base64url. */
+  pub: string;
+  /** Claimed origin of the dashboard that asked; stored via `storedCompanionOrigin` (plain text). */
+  origin: string;
+  /** ISO timestamp. */
+  createdAt: string;
+}
 
 export interface PairedDevice {
   /** Stable per-device id. */
@@ -77,6 +98,18 @@ export interface PairedDevice {
    * See change: prove-vault-bridge-tls (D4).
    */
   exposure?: { trackedSince: string; plaintextSeenAt?: string };
+  /** Primary device key (one per row); absent until bound. See change: device-key-mutual-check (D3). */
+  keys?: { pub: string; createdAt: string };
+  /** Status-only companion keys, at most `MAX_COMPANIONS`. */
+  companions?: DeviceCompanion[];
+}
+
+/** A revoked device held apart from the active registry (D6): the whole row plus who/when. */
+export interface RevokedDevice extends PairedDevice {
+  /** Epoch ms of revocation (anchors the 90-day retention). */
+  revokedAt: number;
+  /** Display-only short actor string (`session:<sub8>` or `local`). */
+  revokedBy: string;
 }
 
 /** What the vault trust gate may do with a device. See change: prove-vault-bridge-tls (D4). */
@@ -86,6 +119,10 @@ export type DeviceTrust = "eligible" | "inactive" | "exposed" | "history-unknown
 export const BRIDGE_TOKEN_REQUIRES_HTTPS = "bridge_token_requires_https";
 
 export interface AddOptions {
+  /** Primary device key to bind to the new row; dropped silently when empty or already held anywhere. */
+  key?: string;
+  /** Companions to store with the new row; invalid/duplicate/over-cap ones are dropped silently. */
+  companions?: { pub: string; origin: string }[];
   /** The channel that DELIVERS the token. Absent = no exposure decision (QR `approve()`, collected later by `markDelivered`). */
   channel?: BearerChannel;
   /** `"bridge"` mints a TLS-only `pi_tls_` token and requires a proven channel. */
@@ -122,6 +159,28 @@ function isValidMs(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v > 0;
 }
 
+/** True while a row's previous bearer (rotation grace) is still honoured. Shared by `resolve` and the device-key check. */
+function previousGraceLive(d: PairedDevice, now: number): boolean {
+  return typeof d.previousHash === "string" && isValidMs(d.previousExpiresAt) && now < d.previousExpiresAt;
+}
+
+function newCompanion(pub: string, origin: string, createdAt: string): DeviceCompanion {
+  return { id: keyIdOf(pub), pub, origin: storedCompanionOrigin(origin), createdAt };
+}
+
+/** Minimum shape of a persisted revoked record; anything else sets the whole file aside. */
+function isRevokedShape(v: unknown): v is RevokedDevice {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.id === "string" &&
+    typeof o.tokenHash === "string" &&
+    typeof o.createdAt === "string" &&
+    isValidMs(o.revokedAt) &&
+    typeof o.revokedBy === "string"
+  );
+}
+
 /** Public view of a device (no token material) for Settings / listing. */
 export interface PairedDeviceView {
   id: string;
@@ -130,6 +189,29 @@ export interface PairedDeviceView {
   lastSeen: string | null;
   source: "pairing" | "manual";
   tier: Tier;
+  /** Short id of the primary key (`dk:` + 12), absent while no key is bound. */
+  keyId?: string;
+  /** Companions (id + origin + createdAt, never the key). Absent when none. */
+  companions?: { id: string; origin: string; createdAt: string }[];
+}
+
+/** A revoked device for the operator list (no token material). */
+export interface RevokedDeviceView extends PairedDeviceView {
+  revokedAt: number;
+  revokedBy: string;
+}
+
+export type BindKeyResult = "bound" | "replaced" | "held" | "no-device";
+export type AddCompanionResult = "added" | "cap" | "held" | "no-device";
+export type RestoreResult = "restored" | "not-found" | "active";
+export type DeleteRevokedResult = "deleted" | "not-found" | "active";
+
+/** Where a public key lives. Active rows are searched before revoked ones. */
+export interface KeyLookup {
+  device: PairedDevice;
+  kind: "primary" | "companion";
+  state: "active" | "revoked";
+  companion?: DeviceCompanion;
 }
 
 export function defaultRegistryPath(): string {
@@ -138,6 +220,11 @@ export function defaultRegistryPath(): string {
 
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+/** Short key id `dk:` + 12 chars; sync twin of the client's `shortKeyId`. */
+export function keyIdOf(pub: string): string {
+  return shortKeyIdFromDigest(crypto.createHash("sha256").update(Buffer.from(pub, "base64url")).digest());
 }
 
 /** Constant-time compare of two equal-length hex digests. */
@@ -160,9 +247,15 @@ export class PairedDeviceRegistry {
   /** Device ids whose first-exposure mark has not reached the disk yet (in memory only). */
   private pendingExposure = new Set<string>();
   private listeners: Array<() => void> = [];
+  private readonly revokedPath: string;
+  private revoked: RevokedDevice[] = [];
+  /** Set when the revoked file could not be read at start; surfaced by `listRevoked`. */
+  private revokedUnreadable = false;
+  private revokedListeners: Array<(id: string) => void> = [];
 
   constructor(filePath = defaultRegistryPath()) {
     this.filePath = filePath;
+    this.revokedPath = path.join(path.dirname(filePath), REVOKED_FILENAME);
     // Loader default, not a migration script (D4): a row written before
     // `source`/`tier` existed reads as `"pairing"` / `"operate"`, and the next
     // write back normalises it in place.
@@ -171,6 +264,57 @@ export class PairedDeviceRegistry {
       source: d.source === "manual" ? "manual" : "pairing",
       tier: isTier(d.tier) ? d.tier : "operate",
     }));
+    this.revoked = this.loadRevoked();
+    // An id in both files: the revoked record is the truth (crash between the two revoke/restore writes).
+    const held = new Set(this.revoked.map((r) => r.id));
+    if (this.devices.some((d) => held.has(d.id))) {
+      this.devices = this.devices.filter((d) => !held.has(d.id));
+      try {
+        this.persist();
+      } catch (err) {
+        console.error(`[pairing] registry rewrite after revoked-wins failed: ${(err as Error)?.name ?? "error"}`);
+      }
+    }
+    this.purgeExpired();
+  }
+
+  /** Read the revoked store. Unparseable or wrong-shape → set aside, error logged, empty + warning. */
+  private loadRevoked(): RevokedDevice[] {
+    let raw: string;
+    try {
+      if (!fs.existsSync(this.revokedPath)) return [];
+      raw = fs.readFileSync(this.revokedPath, "utf-8");
+    } catch {
+      return this.quarantineRevoked();
+    }
+    if (!raw.trim()) return [];
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed) || !parsed.every(isRevokedShape)) return this.quarantineRevoked();
+      return parsed.map((d) => ({
+        ...d,
+        source: d.source === "manual" ? "manual" : "pairing",
+        tier: isTier(d.tier) ? d.tier : "operate",
+      }));
+    } catch {
+      return this.quarantineRevoked();
+    }
+  }
+
+  private quarantineRevoked(): RevokedDevice[] {
+    this.revokedUnreadable = true;
+    const aside = path.join(path.dirname(this.revokedPath), `revoked-devices.corrupt-${Date.now()}.json`);
+    try {
+      fs.renameSync(this.revokedPath, aside);
+    } catch {
+      /* best-effort: the list starts empty either way */
+    }
+    console.error(`[pairing] revoked-devices store unreadable; set aside as ${path.basename(aside)}, starting with an empty revoked list`);
+    return [];
+  }
+
+  private persistRevoked(list: RevokedDevice[] = this.revoked): void {
+    writeJsonFile(this.revokedPath, list, { mode: 0o600 });
   }
 
   private persist(): void {
@@ -191,6 +335,24 @@ export class PairedDeviceRegistry {
     return () => {
       this.listeners = this.listeners.filter((l) => l !== listener);
     };
+  }
+
+  /** Subscribe to revocations: fires with the device id after a successful `revoke`. Returns an unsubscribe. */
+  onRevoked(listener: (id: string) => void): () => void {
+    this.revokedListeners.push(listener);
+    return () => {
+      this.revokedListeners = this.revokedListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private emitRevoked(id: string): void {
+    for (const l of [...this.revokedListeners]) {
+      try {
+        l(id);
+      } catch {
+        /* a listener fault never reaches the registry */
+      }
+    }
   }
 
   private emitChange(): void {
@@ -272,7 +434,7 @@ export class PairedDeviceRegistry {
     tier?: Tier,
     holder?: unknown,
     opts: AddOptions = {},
-  ): { device: PairedDeviceView; token: string; expiresAt?: number } {
+  ): { device: PairedDeviceView; token: string; expiresAt?: number; keyBound?: boolean; companionsAdded?: number } {
     if (tier !== undefined && !isTier(tier)) {
       throw new Error(`invalid tier: ${String(tier)} (expected one of ${TIERS.join(", ")})`);
     }
@@ -301,12 +463,23 @@ export class PairedDeviceRegistry {
       device.pairedAt = now;
       device.expiresAt = now + BROWSER_BEARER_TTL_MS;
     }
+    // Device key / companions (D3): a key held anywhere, or an invalid/over-cap companion, is dropped silently.
+    const wantKey = typeof opts.key === "string" && opts.key !== "";
+    if (wantKey && !this.keyOwner(opts.key as string)) device.keys = { pub: opts.key as string, createdAt };
+    for (const c of opts.companions ?? []) {
+      if ((device.companions?.length ?? 0) >= MAX_COMPANIONS) break;
+      if (typeof c?.pub !== "string" || c.pub === "" || typeof c.origin !== "string") continue;
+      if (this.keyOwner(c.pub) || device.keys?.pub === c.pub || device.companions?.some((x) => x.pub === c.pub)) continue;
+      (device.companions ??= []).push(newCompanion(c.pub, c.origin, createdAt));
+    }
     this.devices.push(device);
     this.persist();
     this.emitChange();
     return {
       device: this.toView(device),
       token,
+      ...(wantKey ? { keyBound: !!device.keys } : {}),
+      ...(opts.companions ? { companionsAdded: device.companions?.length ?? 0 } : {}),
       ...(device.expiresAt !== undefined ? { expiresAt: device.expiresAt as number } : {}),
     };
   }
@@ -350,7 +523,7 @@ export class PairedDeviceRegistry {
         return this.currentVerdict(d, now);
       }
       if (typeof d.previousHash === "string" && timingSafeEqualHex(presented, d.previousHash)) {
-        if (isValidMs(d.previousExpiresAt) && now < d.previousExpiresAt) {
+        if (previousGraceLive(d, now)) {
           return { status: "ok", id: d.id, tier: d.tier, superseded: true, row: d };
         }
         return { status: "invalid" };
@@ -474,16 +647,201 @@ export class PairedDeviceRegistry {
     return { ok: true, id: row.id, token: newToken, expiresAt };
   }
 
-  /** Delete a device by id. Returns true if a row was removed. */
-  revoke(id: string): boolean {
-    const before = this.devices.length;
-    this.devices = this.devices.filter((d) => d.id !== id);
-    if (this.devices.length === before) return false;
+  /**
+   * Revoke = hold (D6): write the whole row + `revokedAt`/`revokedBy` to `revoked-devices.json` FIRST,
+   * then drop it from the active registry. Unknown or already-revoked id → false (route: 404), nothing
+   * changes. A failed first write throws and the device stays active; a failed second write is logged
+   * only (the revoked record wins at next start and in memory the row is already gone).
+   */
+  revoke(id: string, by = "local"): boolean {
+    const row = this.devices.find((d) => d.id === id);
+    if (!row) return false;
+    const rec: RevokedDevice = { ...row, revokedAt: Date.now(), revokedBy: auditPrefix(by, 40) || "local" };
+    const next = [...this.revoked.filter((r) => r.id !== id), rec];
+    this.persistRevoked(next);
+    this.revoked = next;
+    this.devices = this.devices.filter((d) => d !== row);
     this.rotations.delete(id);
     this.pendingExposure.delete(id);
-    this.persist();
+    try {
+      this.persist();
+    } catch (err) {
+      console.error(`[pairing] registry rewrite after revoke failed id=${auditPrefix(id)}: ${(err as Error)?.name ?? "error"}`);
+    }
     this.emitChange();
+    this.emitRevoked(id);
     return true;
+  }
+
+  /**
+   * Undo a revoke: active file first, then drop the revoked record. Returns the row exactly as held
+   * (never extends expiry or restarts a grace window); `"active"` = id is currently active (409),
+   * `"not-found"` = not in the revoked store (404).
+   */
+  restore(id: string): RestoreResult {
+    this.purgeExpired();
+    if (this.devices.some((d) => d.id === id)) return "active";
+    const rec = this.revoked.find((r) => r.id === id);
+    if (!rec) return "not-found";
+    const row: Record<string, unknown> = { ...rec };
+    delete row.revokedAt;
+    delete row.revokedBy;
+    this.devices.push({
+      ...(row as unknown as PairedDevice),
+      source: rec.source === "manual" ? "manual" : "pairing",
+      tier: isTier(rec.tier) ? rec.tier : "operate",
+    });
+    try {
+      this.persist();
+    } catch (err) {
+      this.devices.pop();
+      throw err;
+    }
+    this.revoked = this.revoked.filter((r) => r.id !== id);
+    try {
+      this.persistRevoked();
+    } catch (err) {
+      // Both files now name the id; the revoked record wins at next start and the operator restores again.
+      console.error(`[pairing] revoked store rewrite after restore failed id=${auditPrefix(id)}: ${(err as Error)?.name ?? "error"}`);
+    }
+    this.emitChange();
+    return "restored";
+  }
+
+  /** Delete-now: drop a revoked record for good. Same codes as `restore`. */
+  deleteRevoked(id: string): DeleteRevokedResult {
+    this.purgeExpired();
+    if (this.devices.some((d) => d.id === id)) return "active";
+    if (!this.revoked.some((r) => r.id === id)) return "not-found";
+    const next = this.revoked.filter((r) => r.id !== id);
+    this.persistRevoked(next);
+    this.revoked = next;
+    return "deleted";
+  }
+
+  /** Revoked devices (after a purge pass) for the operator list, plus `warning` when the store was unreadable. */
+  listRevoked(): { devices: RevokedDeviceView[]; warning?: "unreadable" } {
+    this.purgeExpired();
+    return {
+      devices: this.revoked.map((r) => ({ ...this.toView(r), revokedAt: r.revokedAt, revokedBy: r.revokedBy })),
+      ...(this.revokedUnreadable ? { warning: "unreadable" as const } : {}),
+    };
+  }
+
+  /** Delete revoked records aged >= `REVOKED_RETENTION_MS`; one `purged` audit line each. Returns how many. */
+  purgeExpired(): number {
+    const now = Date.now();
+    const gone = this.revoked.filter((r) => now - r.revokedAt >= REVOKED_RETENTION_MS);
+    if (gone.length === 0) return 0;
+    this.revoked = this.revoked.filter((r) => !gone.includes(r));
+    try {
+      this.persistRevoked();
+    } catch (err) {
+      console.error(`[pairing] revoked store rewrite after purge failed: ${(err as Error)?.name ?? "error"}`);
+    }
+    for (const r of gone) auditLine("pairing", "purged", { id: auditPrefix(r.id) });
+    return gone.length;
+  }
+
+  // ── Device keys (D3, D5) ─────────────────────────────────────────
+
+  /** Active rows first (primary, then companions), then revoked ones. Pure scan; no purge. */
+  private scanKey(pub: string): KeyLookup | null {
+    for (const [rows, state] of [[this.devices, "active"], [this.revoked, "revoked"]] as const) {
+      for (const d of rows) {
+        if (d.keys?.pub === pub) return { device: d, kind: "primary", state };
+        const companion = (Array.isArray(d.companions) ? d.companions : []).find((c) => c.pub === pub);
+        if (companion) return { device: d, kind: "companion", state, companion };
+      }
+    }
+    return null;
+  }
+
+  private keyOwner(pub: string): KeyLookup | null {
+    this.purgeExpired();
+    return this.scanKey(pub);
+  }
+
+  /** Which device holds `pub`, as primary or companion, active before revoked. */
+  lookupKey(pub: string): KeyLookup | null {
+    return typeof pub === "string" && pub !== "" ? this.keyOwner(pub) : null;
+  }
+
+  /** Is `pub` held by any active or revoked row (primary or companion)? */
+  isKeyHeld(pub: string): boolean {
+    return this.lookupKey(pub) !== null;
+  }
+
+  /** Apply `fn` to an active row and persist; a failed write restores the row and rethrows. */
+  private mutateRow(row: PairedDevice, fn: (r: PairedDevice) => void): void {
+    const before = structuredClone(row);
+    fn(row);
+    try {
+      this.persist();
+    } catch (err) {
+      const i = this.devices.indexOf(row);
+      if (i >= 0) this.devices[i] = before;
+      throw err;
+    }
+    this.emitChange();
+  }
+
+  /**
+   * Bind (or replace) the primary key of an ACTIVE device. `held` = the key belongs to another row or
+   * is a companion (active or revoked); re-binding the same key is an idempotent `bound`.
+   */
+  bindKey(deviceId: string, pub: string): BindKeyResult {
+    const row = this.devices.find((d) => d.id === deviceId);
+    if (!row) return "no-device";
+    const owner = this.keyOwner(pub);
+    if (owner && !(owner.device.id === deviceId && owner.kind === "primary")) return "held";
+    if (row.keys?.pub === pub) return "bound";
+    const replaced = !!row.keys;
+    this.mutateRow(row, (r) => {
+      r.keys = { pub, createdAt: new Date().toISOString() };
+    });
+    return replaced ? "replaced" : "bound";
+  }
+
+  /** Add a status-only companion to an active device (cap `MAX_COMPANIONS`, key unique everywhere). */
+  addCompanion(deviceId: string, c: { pub: string; origin: string }): AddCompanionResult {
+    const row = this.devices.find((d) => d.id === deviceId);
+    if (!row) return "no-device";
+    if (this.keyOwner(c.pub)) return "held";
+    if ((row.companions?.length ?? 0) >= MAX_COMPANIONS) return "cap";
+    this.mutateRow(row, (r) => {
+      (r.companions ??= []).push(newCompanion(c.pub, c.origin, new Date().toISOString()));
+    });
+    return "added";
+  }
+
+  /** Remove one companion of an active device by id. True if one was removed. */
+  removeCompanion(deviceId: string, companionId: string): boolean {
+    const row = this.devices.find((d) => d.id === deviceId);
+    if (!row?.companions?.some((c) => c.id === companionId)) return false;
+    this.mutateRow(row, (r) => {
+      r.companions = (r.companions ?? []).filter((c) => c.id !== companionId);
+    });
+    return true;
+  }
+
+  /**
+   * Answer for a VERIFIED key (the caller checked the signature). `revoked` wins; `expired` uses the
+   * same per-row judgement as `verifyDetailed` (`currentVerdict` + the previous-bearer grace), so the
+   * check says `expired` exactly when the bearer is refused `bearer_expired`. Companions get
+   * `status-only` with no tier; `expired`/`revoked`/`unknown` carry no tier or scope.
+   */
+  deviceKeyStatus(pub: string): DeviceStatusReply {
+    const hit = this.lookupKey(pub);
+    if (!hit) return { status: "unknown" };
+    if (hit.state === "revoked") return { status: "revoked" };
+    const now = Date.now();
+    if (this.currentVerdict(hit.device, now).status !== "ok" && !previousGraceLive(hit.device, now)) {
+      return { status: "expired" };
+    }
+    return hit.kind === "companion"
+      ? { status: "paired", scope: "status-only" }
+      : { status: "paired", scope: "full", tier: hit.device.tier };
   }
 
   list(): PairedDeviceView[] {
@@ -498,6 +856,10 @@ export class PairedDeviceRegistry {
       lastSeen: d.lastSeen,
       source: d.source,
       tier: d.tier,
+      ...(d.keys?.pub ? { keyId: keyIdOf(d.keys.pub) } : {}),
+      ...(Array.isArray(d.companions) && d.companions.length > 0
+        ? { companions: d.companions.map((c) => ({ id: c.id, origin: c.origin, createdAt: c.createdAt })) }
+        : {}),
     };
   }
 }

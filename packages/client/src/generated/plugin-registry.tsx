@@ -278,7 +278,8 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             "dashboard-flows:report-files"
         ],
         "replayEntryTypes": [
-            "flow-event"
+            "flow-event",
+            "flow-run-close"
         ]
     },
     claims: [

@@ -4753,6 +4753,49 @@ Approval: operator types numeric confirm code shown on device → `POST /api/pai
 
 Gate: `reachableUrls()` (`packages/server/src/pairing.ts`) read-time filter (D4/D14) advertises only secure `wss`/`https` endpoints. Keeps `urls[]` secure. `createPayload()` returns null when no reachable url → route returns `{success:false,error:"no_reachable_endpoint"}` (HTTP 200).
 
+### Device keys and the mutual device check (change: device-key-mutual-check)
+
+Paired device proves possession of its own key. One key per server fingerprint. Check is mutual: device proves the server first, signs second.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server (route)
+    C->>S: POST /api/pair/challenge {nonce}
+    S-->>C: {fingerprint, publicKey, signature, deviceNonce}
+    Note over C: verify signature + fingerprint vs pin or advert
+    alt route not proven
+        Note over C: stop — no proof to this route
+    else route proven
+        C->>S: POST /api/pair/device-status {deviceNonce, pub, sig}
+        S-->>C: {status: paired|expired|unknown|revoked, tier?, scope?}
+    end
+    Note over S: any failure → {status:"unverified"} at HTTP 200
+```
+
+- Step 1 — `POST /api/pair/challenge {nonce}` reply gains `deviceNonce`: 32 random bytes, base64url (43 chars). Store single-use, 60 s TTL, bound 10 000 entries, oldest evicted. Carries no secret.
+- Client verifies step 1 against pin or advertised fingerprint FIRST. Unproven route → stop, no proof sent.
+- Step 2 — `POST /api/pair/device-status {deviceNonce, pub, sig}`. `sig` = Ed25519 over `pi-devcheck/v2\n<fp>\n<deviceNonce>`. `pub` = raw 32-byte key, unpadded base64url (43), not SPKI; `sig` 64 bytes (86). Charset + length checked before decode. Nonce consumed on first presentation, so no client timestamp.
+- Reply `{status: paired|expired|unknown|revoked, tier?, scope?}`. Full paired key → `tier` + `scope:"full"`. Companion → `scope:"status-only"`, no tier. `expired` / `revoked` → neither. `revoked` decided first, wins over `expired`.
+- `expired` reuses the per-row judgement that refuses a bearer `401 bearer_expired` (`currentVerdict`, `packages/server/src/pairing/paired-devices.ts`), never a copy of the expiry arithmetic.
+- Every failure — bad signature, malformed field, unknown / expired / consumed nonce, rate-limited peer — answers `{status:"unverified"}` at HTTP 200. Discloses only the caller's own key status.
+- Limit 60/min per peer address, sliding window, invalid attempts counted. Limiter map bound 1024 peers, oldest evicted. Step 1 never limited.
+- Route public (`PUBLIC_PAIRING_PREFIXES`), tier `observe` like the challenge. Not a prefix of `/api/pair/device-key` — auth hook matches `startsWith`.
+- Proof, key bind, keyed knock go ONLY to the route that proved the pin in that selection. Electron `http:` route → the address literal that proved it, never the host name or a sibling literal. `https:` → proven host name.
+- Key per fingerprint: browser `packages/client/src/lib/pairing/device-key.ts` — non-extractable WebCrypto key in IndexedDB, secure contexts only. Electron main `packages/electron/src/lib/device-key.ts`, private part under `safeStorage` (`server-keyring.ts`). Shell `packages/shell/src/lib/device-key.ts` — IndexedDB.
+- Created only when pairing starts (Request access, Pair with code, Pair again). Listing creates nothing.
+- Registered at approval: knock / redeem body carries `deviceKey: {deviceNonce, pub, sig}`, `sig` over `pi-devbind/v1`. Held on `PendingDevice`, passed to `registry.add` — deny / expiry / lockout leaves nothing behind.
+- Later bind: `POST /api/pair/device-key {deviceNonce, pub, sig}` with the device's own credential (`authVia === "device"`). `400` bad proof, `401` no credential, `409` key held by another row, tier `observe`. One primary key per row; replaces the old one.
+- Uniqueness: one public key across primary + companion keys of active and revoked rows. Duplicate at approval → pairing proceeds keyless; duplicate at bind → `409`.
+- Companion key: `#companion=<pub>.<ts>.<sig>&from=<origin>` fragment, `sig` over `pi-companion/v1`, `ts` ±300 s. Status-only, accepted nowhere else. Opt-in, unticked at approval, max 4 per device.
+- Revoke is a state. Whole row (hash, tier, keys, companions, expiry fields) moves to `~/.pi/dashboard/revoked-devices.json` (0600) plus `revokedAt` / `revokedBy`. Revoked written FIRST, then active removed; id in both files → revoked wins.
+- Undo restores hash, tier, keys, companions, expiry fields unchanged — never extends expiry, never restarts the grace window. Purge at 90 d (`REVOKED_RETENTION_MS`) or Delete now.
+- Unreadable revoked file → set aside as `revoked-devices.corrupt-<time>.json`, empty list, `warning` on `GET /api/paired-devices/revoked`.
+- `registry.onRevoked(listener)` → browser gateway + pi gateway close matching sockets, code `4401`, reason `device revoked`. `verify()` scans active rows only, so REST, device-session, ws-ticket, bridge mint need no change.
+- Rollback-safe: older builds ignore the second file, degrade to "revoke = delete". Only Undo is lost.
+- Discard rule: no device-status answer discards anything — `unknown`, `expired`, `revoked` all keep credential and key. Only a refused credential at a proven route (`401`, incl. `401 bearer_expired`; refused cookie exchange) discards credential + key together.
+- Shared helpers: `packages/shared/src/device-key-proof.ts` — message builders, validators, `deviceRowState`. Server verifier `packages/server/src/auth/device-proof.ts`.
+
 ### Built-in TLS listener (change: add-tailscale-cert-tls)
 
 Optional second `https.Server`. Off by default (`tls.enabled: false`). Serves the SAME Fastify app as the main listener.
@@ -5492,6 +5535,69 @@ flowchart LR
   Index --> List["GET /api/sessions/archived"]
   Index --> Open["read-only open\n?archived=1"]
   List --> Fold["Archive (N) fold"]
+```
+
+## Mid-turn prompt queue (steer + follow-up)
+
+- Follow-ups: bridge-owned `bridgeFollowUp` (`packages/extension/src/followup-buffer.ts`).
+- pi never sees held follow-ups until `drainOneFollowup` (`followup-drain.ts`) ships one per `agent_settled` as fresh prompt.
+- Steers: bridge holds dashboard steers sent while streaming in `inst.bridgeSteer` (`packages/extension/src/steer-buffer.ts`, `createSteerBuffer(instanceNonce)`).
+- Steer ids `<nonce>:<seq>`; entries `{id,text,images?,promptId?}`.
+- Steer buffer: cap 20 + byte ceiling 32 MiB, same as follow-ups, accounted independently.
+- `admitSteer` validates images. Refusal → `command_feedback` for `send_prompt`.
+- Routing (`command-handler.ts` passthrough + `bridge.ts` `sessionPrompt` fallback):
+  - flags `bufferFollowUp` / `bufferSteer`.
+  - streaming steer → steer buffer, no pi call, `prompt_received` ack without `promptId`.
+  - idle steer → direct `pi.sendUserMessage`.
+- Hand-off: `handOffHeldSteers` (`bridge-handlers/lifecycle.ts`) runs inside awaited `turn_end` handler, `outcome === "completed"` only.
+- pi awaits extension `turn_end` handlers before `getSteeringMessages()` (`pi-agent-core` `agent-loop.js`).
+- Hand-off takes oldest (`steeringMode` `"one-at-a-time"`, default) or all (`"all"`).
+- Hand-off removes entries + emits `queue_update` synchronously BEFORE sends.
+- Hand-off per entry: `pi.sendUserMessage(content,{deliverAs:"steer"})` → `prompt_received{fresh:false,promptId}` → one macrotask yield.
+- After hand-off: not cancellable. Bubble gone. pi renders user message.
+- Settle drain: `drainOneFollowup` ships oldest held steer BEFORE follow-ups, one per `agent_settled`, same gates, acks `promptId`.
+- Settle drain covers steer after last turn and aborted/error runs.
+- Cancel: browser → server → bridge `remove_steering_entry{sessionId,id}` / `clear_steering_entries{sessionId}`.
+- Cancel handlers: `bridge-handlers/dispatch.ts`. No pi call.
+- Unknown id → `command_feedback` "Steer already sent or cancelled".
+- Server relay: `session-action-handler.ts` `handleRemoveSteeringEntry` / `handleClearSteeringEntries`.
+- ACP sessions ignore cancel (`acp-bridge/server-requests.ts`).
+- `clear_steering_queue` stays deleted (pi exposes no queue removal).
+- Wire: `queue_update.steering` / `pendingQueues.steering` = `(SteerEntryView | string)[]`.
+- `SteerEntryView{id,text,imageCount}`.
+- Plain strings = legacy bridges (one release), no cancel.
+- `message_start` matcher touches follow-ups only.
+- Re-announce `queue_update` (empty included) on:
+  - register: `lifecycle.ts`, after `sessionReady = true`.
+  - re-register: `bridge.ts` `onReconnect`, after `sendStateSync`.
+- Trade-off: held steers live in bridge memory. Bridge reload mid-turn drops them.
+- Client: `PendingSteerCard.tsx`.
+  - ✕ `pending-steer-cancel-<id>`.
+  - image badge.
+  - `PendingSteerClearAll` from 2 entries.
+  - no confirmation.
+
+```mermaid
+sequenceDiagram
+  participant D as Dashboard
+  participant S as Server
+  participant B as Bridge
+  participant P as pi
+  D->>S: send_prompt (streaming, steer)
+  S->>B: send_prompt
+  B->>B: held in inst.bridgeSteer (cancellable)
+  B-->>S: prompt_received (no promptId)
+  B-->>S: queue_update
+  Note over B,P: turn_end (outcome completed)
+  B->>B: handOffHeldSteers: remove + queue_update
+  B->>P: sendUserMessage(deliverAs steer)
+  B-->>S: prompt_received{fresh:false,promptId}
+  Note over B: cancel path
+  D->>S: remove_steering_entry{id}
+  S->>B: remove_steering_entry{sessionId,id}
+  B->>B: drop entry (no pi call)
+  B-->>S: queue_update
+  S-->>D: queue_update
 ```
 
 ## Persistence

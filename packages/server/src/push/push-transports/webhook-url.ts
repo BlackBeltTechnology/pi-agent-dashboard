@@ -110,13 +110,16 @@ export function effectivePort(url: URL): number {
 
 /**
  * Resolve every A/AAAA record and refuse if any is blocked, or if the target is
- * the dashboard's own port on a loopback / local-interface address.
+ * the dashboard's own port on a loopback / local-interface address. `noun`
+ * names the caller in the refusal strings (default `"webhook"`; the provider
+ * probe passes `"provider"`). See change: close-local-listener-and-egress-gaps.
  */
 export async function resolveAndVet(
   hostname: string,
   port: number,
   selfPort: number | null,
   lookupAll: LookupAll = defaultLookupAll,
+  noun = "webhook",
 ): Promise<VetResult> {
   const host = bareHost(hostname);
   let addresses: VettedAddress[];
@@ -127,14 +130,14 @@ export async function resolveAndVet(
     try {
       addresses = await lookupAll(host);
     } catch {
-      return { ok: false, error: "webhook host could not be resolved" };
+      return { ok: false, error: `${noun} host could not be resolved` };
     }
-    if (addresses.length === 0) return { ok: false, error: "webhook host could not be resolved" };
+    if (addresses.length === 0) return { ok: false, error: `${noun} host could not be resolved` };
   }
   for (const a of addresses) {
-    if (isBlockedAddress(a.address)) return { ok: false, error: "webhook target is a link-local or metadata address" };
+    if (isBlockedAddress(a.address)) return { ok: false, error: `${noun} target is a link-local or metadata address` };
     if (selfPort !== null && port === selfPort && isLocalAddress(a.address)) {
-      return { ok: false, error: "webhook target is this dashboard" };
+      return { ok: false, error: `${noun} target is this dashboard` };
     }
   }
   return { ok: true, addresses };

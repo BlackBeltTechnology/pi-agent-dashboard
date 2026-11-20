@@ -69,16 +69,20 @@ The gate SHALL return false when the prerequisites for applying a model are abse
 When the default-model gate applies `config.defaultModel` to a brand-new startup
 session AND a non-empty `config.defaultThinkingLevel` is configured, the bridge
 SHALL also apply that thinking level to the session via pi's thinking-level API
-after the model is set. The bridge SHALL rely on pi to clamp the requested level
-to the model's capabilities; the bridge SHALL NOT itself reject or pre-validate
-the level.
+after the model is set. When `config.defaultThinkingLevel` is empty and
+`config.defaultModel` is a role ref (`@<role>` or `@<role>:<level>`), the bridge
+SHALL apply the ref's `:<level>` suffix, else the level assigned to the role, when
+one exists. The bridge SHALL rely on pi to clamp the requested level to the
+model's capabilities; the bridge SHALL NOT itself reject or pre-validate the
+level.
 
-When `config.defaultThinkingLevel` is empty, the bridge SHALL NOT set the thinking
-level and pi's own resolution SHALL stand. When the default-model gate does not
-apply the default model (resumed, forked, reloaded, or non-startup sessions,
-sessions launched with an explicit `--model` argument, or when prerequisites are
-absent), the bridge SHALL NOT apply the default thinking level either — the
-session keeps its existing level.
+When no level results (empty `config.defaultThinkingLevel` and, for a role ref,
+no suffix and no role level), the bridge SHALL NOT set the thinking level and
+pi's own resolution SHALL stand. When the default-model gate does not apply the
+default model (resumed, forked, reloaded, or non-startup sessions, sessions
+launched with an explicit `--model` argument, or when prerequisites are absent),
+the bridge SHALL NOT apply the default thinking level either — the session keeps
+its existing level.
 
 #### Scenario: Brand-new startup applies both model and thinking level
 
@@ -89,7 +93,7 @@ session keeps its existing level.
 
 #### Scenario: Empty default thinking level leaves pi resolution intact
 
-- **WHEN** the default-model gate applies `config.defaultModel` to a brand-new startup session
+- **WHEN** the default-model gate applies a concrete `config.defaultModel` to a brand-new startup session
 - **AND** `config.defaultThinkingLevel` is an empty string
 - **THEN** the bridge does not set the thinking level
 - **AND** the session's thinking level is whatever pi resolves on its own
@@ -121,6 +125,32 @@ session keeps its existing level.
 - **AND** a non-empty `config.defaultThinkingLevel` is configured
 - **THEN** the bridge does not apply the default thinking level either
 - **AND** the session's thinking level is whatever its launch arguments and pi's own resolution produce
+
+#### Scenario: Role-assigned level applies when the Settings level is empty
+
+- **GIVEN** `config.defaultModel` is `@planning`, role `planning` is assigned `anthropic/claude-sonnet-5-5:high`, and `config.defaultThinkingLevel` is `""`
+- **WHEN** the gate applies the default to a brand-new startup session
+- **THEN** the bridge applies model `anthropic/claude-sonnet-5-5`
+- **AND** the bridge applies thinking level `high`
+
+#### Scenario: Settings level beats the role level
+
+- **GIVEN** `config.defaultModel` is `@planning`, role `planning` is assigned `anthropic/claude-sonnet-5-5:high`, and `config.defaultThinkingLevel` is `low`
+- **WHEN** the gate applies the default to a brand-new startup session
+- **THEN** the bridge applies thinking level `low`
+
+#### Scenario: Ref suffix beats the role level
+
+- **GIVEN** `config.defaultModel` is `@planning:medium`, role `planning` is assigned `anthropic/claude-sonnet-5-5:high`, and `config.defaultThinkingLevel` is `""`
+- **WHEN** the gate applies the default to a brand-new startup session
+- **THEN** the bridge applies thinking level `medium`
+
+#### Scenario: Role without any level leaves pi's level resolution intact
+
+- **GIVEN** `config.defaultModel` is `@coding`, role `coding` is assigned `anthropic/claude-haiku-5-5` with no level, and `config.defaultThinkingLevel` is `""`
+- **WHEN** the gate applies the default to a brand-new startup session
+- **THEN** the bridge applies model `anthropic/claude-haiku-5-5`
+- **AND** the bridge does not set the thinking level
 
 ### Requirement: Never override an explicitly requested model
 

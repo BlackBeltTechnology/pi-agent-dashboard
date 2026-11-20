@@ -55,7 +55,8 @@
       "dashboard-flows:report-files"
     ],
     "replayEntryTypes": [
-      "flow-event"
+      "flow-event",
+      "flow-run-close"
     ],
     "i18nCatalog": "catalog",
     "priority": 100,

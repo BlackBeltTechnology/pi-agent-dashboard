@@ -122,10 +122,10 @@ export function useSessionActions(deps: SessionActionDeps) {
   //
   // These four senders dispatch the wire messages defined in
   // browser-protocol.ts. The bridge mutates `bridgeFollowUp` locally; pi
-  // is not involved. Steer mutation is intentionally NOT exposed (steer
-  // drains too fast for it to matter; user direction).
+  // is not involved. Steers are cancellable only while the bridge still holds
+  // them (`removeSteeringEntry` / `clearSteeringEntries` below).
   //
-  // See change: rework-mid-turn-prompt-queue.
+  // See change: rework-mid-turn-prompt-queue, bridge-owned-cancellable-steer.
 
   const removeFollowUpEntry = useCallback((index: number) => {
     if (!selectedId) return;
@@ -149,6 +149,19 @@ export function useSessionActions(deps: SessionActionDeps) {
   const clearFollowUpEntries = useCallback((indices: number[] | "all") => {
     if (!selectedId) return;
     send({ type: "clear_followup_entries", sessionId: selectedId, indices });
+  }, [selectedId, send]);
+
+  // Bridge-held steers, by stable id. A cancel that loses the race with the
+  // hand-off comes back as a `command_feedback` toast. No confirmation.
+  // See change: bridge-owned-cancellable-steer.
+  const removeSteeringEntry = useCallback((id: string) => {
+    if (!selectedId) return;
+    send({ type: "remove_steering_entry", sessionId: selectedId, id });
+  }, [selectedId, send]);
+
+  const clearSteeringEntries = useCallback(() => {
+    if (!selectedId) return;
+    send({ type: "clear_steering_entries", sessionId: selectedId });
   }, [selectedId, send]);
 
   const handleCancelPending = useCallback(() => {
@@ -587,5 +600,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     handleListFiles,
     // Bridge-owned follow-up buffer mutation senders. See change: rework-mid-turn-prompt-queue.
     removeFollowUpEntry, editFollowUpEntry, promoteFollowUpEntry, clearFollowUpEntries,
+    // Bridge-held steer cancel senders. See change: bridge-owned-cancellable-steer.
+    removeSteeringEntry, clearSteeringEntries,
   };
 }

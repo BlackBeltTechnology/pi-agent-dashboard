@@ -34,6 +34,19 @@
 
 import { getAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { getApiBase, VITE_API_URL } from "../api/api-context.js";
+import type { discardRefusedCredential as DiscardRefusedCredential } from "./credential-refusal.js";
+import type { BindOutcome, bindDeviceKeyOnce as BindDeviceKeyOnce } from "./device-key-bind.js";
+
+// The device-key modules (IndexedDB key store, route proof, bind) load on demand, never on the cold
+// landing: this file is boot code. See change: device-key-mutual-check.
+async function discardRefusedCredential(
+  ...args: Parameters<typeof DiscardRefusedCredential>
+): ReturnType<typeof DiscardRefusedCredential> {
+  return (await import("./credential-refusal.js")).discardRefusedCredential(...args);
+}
+async function bindDeviceKeyOnce(...args: Parameters<typeof BindDeviceKeyOnce>): ReturnType<typeof BindDeviceKeyOnce> {
+  return (await import("./device-key-bind.js")).bindDeviceKeyOnce(...args);
+}
 import { requestAccessTarget } from "./request-access-target.js";
 
 /** Legacy single global bearer key — only ever DELETED (see `migrateLegacyDeviceBearer`). */
@@ -48,10 +61,15 @@ const ROTATE_RETRY_INTERVAL_MS = 60_000;
 /** Nominal browser-bearer lifetime (7 d); the issue time assumed for a slot this page session did not write. */
 const NOMINAL_LIFETIME_MS = 7 * 24 * 3_600_000;
 
-/** A server's stored bearer. `expiresAt` (epoch ms) is absent for a non-expiring bearer. */
+/**
+ * A server's stored bearer. `expiresAt` (epoch ms) is absent for a non-expiring bearer. `fingerprint`
+ * is the server identity the bearer was paired with, when known: a refusal discards the credential and
+ * the device key only at a route that proves it (device-key-mutual-check D9).
+ */
 interface BearerSlot {
   token: string;
   expiresAt?: number;
+  fingerprint?: string;
 }
 
 const slotKey = (origin: string): string => `${SLOT_PREFIX}${origin}`;
@@ -120,11 +138,13 @@ function readSlot(origin: string): BearerSlot | null {
   try {
     const raw = localStorage.getItem(slotKey(origin));
     if (!raw) return null;
-    const v = JSON.parse(raw) as { token?: unknown; expiresAt?: unknown } | null;
+    const v = JSON.parse(raw) as { token?: unknown; expiresAt?: unknown; fingerprint?: unknown } | null;
     if (!v || typeof v.token !== "string" || !v.token) return null;
-    return typeof v.expiresAt === "number" && Number.isFinite(v.expiresAt)
-      ? { token: v.token, expiresAt: v.expiresAt }
-      : { token: v.token };
+    return {
+      token: v.token,
+      ...(typeof v.expiresAt === "number" && Number.isFinite(v.expiresAt) ? { expiresAt: v.expiresAt } : {}),
+      ...(typeof v.fingerprint === "string" && v.fingerprint ? { fingerprint: v.fingerprint } : {}),
+    };
   } catch {
     return null;
   }
@@ -279,8 +299,12 @@ export function getApiBearer(): string | null {
 }
 
 /** Persist the paired-device bearer (with its `expiresAt`, epoch ms, when known) in the current origin's slot. */
-export function storeDeviceBearer(token: string, expiresAt?: number): void {
-  writeSlot(apiOrigin(), typeof expiresAt === "number" && Number.isFinite(expiresAt) ? { token, expiresAt } : { token });
+export function storeDeviceBearer(token: string, expiresAt?: number, fingerprint?: string): void {
+  writeSlot(apiOrigin(), {
+    token,
+    ...(typeof expiresAt === "number" && Number.isFinite(expiresAt) ? { expiresAt } : {}),
+    ...(fingerprint ? { fingerprint } : {}),
+  });
 }
 
 /** Forget the current origin's paired-device bearer (revoked/expired token cleanup). */
@@ -300,6 +324,8 @@ const rotation = new Map<string, RotationState>();
 
 /** Origins whose `bearer_expired` re-pair navigation already started (dedupe across concurrent 401s). */
 const repairing = new Set<string>();
+/** Origins whose `bearer_expired` proof-then-discard check is in flight (one challenge across concurrent 401s). */
+const refusalChecks = new Set<string>();
 
 /** Reset module-held runtime state (rotation bookkeeping, memory slots, notices). For tests. */
 export function resetDeviceAuthRuntimeForTests(): void {
@@ -307,6 +333,7 @@ export function resetDeviceAuthRuntimeForTests(): void {
   issuedAt.clear();
   rotation.clear();
   repairing.clear();
+  refusalChecks.clear();
   noticeShown = false;
   pendingNotice = null;
   noticeListeners.clear();
@@ -370,7 +397,7 @@ async function rotateBearer(origin: string): Promise<void> {
     }
     if (res.status !== 200) return;
     const fresh = parseRotated(await res.json().catch(() => null), Date.now());
-    if (fresh) writeSlot(origin, fresh);
+    if (fresh) writeSlot(origin, slot.fingerprint ? { ...fresh, fingerprint: slot.fingerprint } : fresh);
   } catch {
     /* transport error: keep the old bearer; retried on a later call */
   } finally {
@@ -412,8 +439,25 @@ async function handleBearerExpired(res: Response, origin: string, sentToken: str
     return;
   }
   if (code !== "bearer_expired") return;
-  if (readSlot(origin)?.token !== sentToken) return; // another tab already replaced it
-  clearSlot(origin);
+  const slot = readSlot(origin);
+  if (slot?.token !== sentToken) return; // another tab already replaced it
+  if (refusalChecks.has(origin)) return;
+  refusalChecks.add(origin);
+  let outcome: "discarded" | "kept";
+  try {
+    // A refused credential is dropped only at a route that proves the server (and then the device key
+    // goes with it); an unproven route changes nothing. See change: device-key-mutual-check (D9).
+    outcome = await discardRefusedCredential({
+      route: origin,
+      fingerprint: slot.fingerprint,
+      clearCredential: () => {
+        if (readSlot(origin)?.token === sentToken) clearSlot(origin);
+      },
+    });
+  } finally {
+    refusalChecks.delete(origin);
+  }
+  if (outcome === "kept") return;
   if (repairing.has(origin)) return;
   repairing.add(origin);
   // client-sinks: allow — origin comes from the configured server base; fixed `/pair?request` path
@@ -521,7 +565,10 @@ export async function mintWsTicket(
       body: JSON.stringify({ scope }),
     });
     // Stale marker (cookie revoked/expired): forget it.
-    if (cookieOnly && marked && res.status === 401) setDevicePaired(false);
+    // Fire-and-forget: the marker (and the device key) go only if this route proves the server.
+    if (cookieOnly && marked && res.status === 401) {
+      void discardRefusedCredential({ route: apiOrigin(), clearCredential: () => setDevicePaired(false) });
+    }
     const json = (await res.json()) as { success?: boolean; data?: { ticket?: string } };
     const ticket = json?.data?.ticket ?? null;
     if (cookieOnly && !marked && res.ok && ticket) setDevicePaired(true);
@@ -535,4 +582,18 @@ export async function mintWsTicket(
 export function appendWsTicket(wsUrl: string, ticket: string): string {
   const sep = wsUrl.includes("?") ? "&" : "?";
   return `${wsUrl}${sep}ticket=${encodeURIComponent(ticket)}`;
+}
+
+/**
+ * "Key pending" bind for the server this page talks to: its bearer slot, else (same-origin) the device
+ * cookie marker, binds a device key once per app start. Zero requests without a credential, on a
+ * cross-origin cookie-only setup, or where the page cannot hold a key (plain http).
+ * See change: device-key-mutual-check (task 5.3).
+ */
+export async function bindDeviceKeyForCurrentServer(): Promise<BindOutcome | "no-credential"> {
+  const origin = apiOrigin();
+  const slot = readSlot(origin);
+  if (slot) return bindDeviceKeyOnce({ route: origin, credential: { bearer: slot.token }, fingerprint: slot.fingerprint });
+  if (isDevicePaired() && isSameOriginApi()) return bindDeviceKeyOnce({ route: origin, credential: { cookie: true } });
+  return "no-credential";
 }

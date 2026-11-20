@@ -12,6 +12,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Default model can follow a role.** Settings › Sessions › Default model has Models | Roles tabs; picking a role saves `@role` and new sessions start on whatever that role resolves to in the active preset, so loading another preset changes the next new session's model with no Settings edit. The thinking level adopts the role's level until you pick one. A hint names the active preset and resolved model; an unassigned role warns and new sessions fall back to pi's own default. pi's `settings.json` default is re-mirrored when the role's resolution changes. Rollback: re-pick a concrete default model before downgrading.
 - **Mock site `Highlights` switch.** The top bar has a checkbox that hides every ring outline, badge and tip (shell and phone panes, no reload); the choice persists in `localStorage`.
 - **Queued subagents and per-subagent stop.** Subagent calls past the limit wait in a visible queued state instead of failing. Each subagent has a stop control: `POST /api/plugins/subagents/stop` (operate authority; emits `subagents:stop`). Set the limit in Settings → Plugins → Subagents → **Max parallel subagents** (default 4, `0` = unlimited, applies live).
 - **Live-component mock site** (`@blackbelt-technology/frontend-mockup-loop`). Mocks render the app's real components in Current | Proposed frames, with numbered rings around the elements that change, a page decision stored next to each mock in git, and a link for every page, frame, side and ring. New `serve_mock_site` tool and `mock-decide` CLI, with which the agent records accept or reject. Rejected mocks are never offered when a proposal adopts mockups; accepted ones are offered first. The dashboard's own mock site: `npm run mocks`.
@@ -100,6 +101,13 @@ see [`docs/release-process.md`](docs/release-process.md).
     volume instead). A copy of the `/home/pi/.pi` volume alone carries no key.
   - **Key loss** (keychain reset, restore on a new machine) leaves the files locked; restore the key or run
     `pi-dashboard credentials reset` and enter the credentials again.
+
+- **File reads follow symlinks by real path (DEP-02).** **BREAKING:** an in-cwd link to a file outside the anchor is now refused (403) instead of served; grant the target's directory from the denial remedy to read it. Opens are bound to the decided real path, so a link swapped in after the check is refused; `/api/open-in-system` and reveal act on the real path, and `/api/session-file` no longer has a lexical in-cwd shortcut.
+- **Electron default-session permission policy (ELEC-01).** **BREAKING:** the default session grants only `clipboard-sanitized-write`, `notifications` and `fullscreen`, to the main frame at the server origin; everything else (camera, microphone, geolocation, `openExternal`) is denied and logged once.
+- **`serve_mockup` binds loopback (NET-02).** **BREAKING:** it listens on `127.0.0.1` by default and serves under a token URL (root-relative links like `/style.css` no longer resolve; use relative links). Pass `lan: true` for the LAN. Dotfiles, symlink escapes and rebinding `Host` headers are refused, and `dir` must stay inside the session cwd.
+- **Document-converter containers publish on loopback (NET-03).** **BREAKING:** the PDF and PlantUML containers publish `127.0.0.1:<port>` only; an existing container with a wildcard binding is removed and recreated on next use.
+
+- **Provider Test no longer sends a saved secret to a different Base URL (NET-04).** `POST /api/providers/test` resolves a `***` or `$ENV` key only for a saved provider with the same Base URL, so an unsaved `$ENV` key is refused: "Environment-variable keys can only be tested with the Base URL saved with them". Every provider probe (Test, the probe after a save or refresh, model discovery) refuses a link-local / cloud-metadata target or the dashboard's own port before any request; localhost and LAN providers still work.
 
 ## [0.11.0] - 2026-10-26
 

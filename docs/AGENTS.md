@@ -23,6 +23,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `craft-apps.md` | ArtCraft craft apps (13) headless via `pi-craft`. Provision `<CRAFT_HOME>/<app>/<v>/`; `<APP>_BIN`/`_VERSION`, `CRAFT_SOURCE`; MCP confinement table; `verify` exit 0/1/2/3. See change: add-craft-apps-core. |
 | `craft-web-plugin.md` | ArtCraft web editors in editor pane. Provision, sandbox/CSP, shim v3, §14 spikes, §15 `craft_control` live agent control. See change: edit-office-in-pane-with-craft-web; add-craft-live-control. → see `craft-web-plugin.md.AGENTS.md` |
 | `credential-vault.md` | Hub `vault.json`: encrypted at rest (§12), bindings, grants, TLS trust gate. → see `credential-vault.md.AGENTS.md` |
+| `default-model-role-ref.md` | Settings `defaultModel` `@role[:level]` follows role. Resolve per use; pi mirror; re-mirror rule; unresolved fallback. See change: default-model-follows-role. |
 | `doctor-skill.md` | Modular doctor diagnostic skill. Router + 7 capability modules + _lib. → see `doctor-skill.md.AGENTS.md` |
 | `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. Launch kinds attach/devMonorepo/localLink/overlay/bundled. `switchRuntime` + 2 s activation watcher. → see `electron-bootstrap-flow.md.AGENTS.md` See change: electron-runtime-overlay-updates. |
 | `electron-build-methods.md` | 3 Electron build paths: local native (`npm run electron:build`), Docker cross-compile (--windows/--linux), CI publish.yml (tag push). Per-platform artifact/signing/node-pty matrix. |

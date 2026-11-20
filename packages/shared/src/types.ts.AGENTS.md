@@ -11,3 +11,5 @@ Core dashboard shared type surface. Exports `DashboardSession`, `DashboardEvent`
 `FlowInfo` removed (flows plugin owns `FlowCatalogEntry`). See change: flows-dock-chip-and-panel-actions.
 
 `PidNamespace` interface `{platform, kind:"host"|"wsl", distro?, nsId?, hostId?}`; `DashboardSession.pidNamespace?: PidNamespace | null` — server-only (null = malformed report), never on the wire. See change: scope-pids-to-namespace.
+
+`SteerEntryView{id,text,imageCount}`; `pendingQueues.steering: (SteerEntryView|string)[]`. See change: bridge-owned-cancellable-steer.

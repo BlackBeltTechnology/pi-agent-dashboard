@@ -68,6 +68,7 @@ import {
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
 import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
+import { notePiMirrorWrite } from "../pi-default-remirror.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
 import type { ServerConfig } from "../server.js";
 import { serverHeapTelemetry } from "../server-heap-telemetry.js";
@@ -168,6 +169,7 @@ function saveConfigAndMirror(partial: Record<string, any>) {
         console.warn("[pi-settings] default-model mirror threw:", err instanceof Error ? err.message : err);
       }
       if (!piMirror.ok) console.warn(`[pi-settings] default-model mirror failed: ${piMirror.error}`);
+      else notePiMirrorWrite();
     }
     return { ok: true as const, result, reloaded, piMirror };
   };

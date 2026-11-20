@@ -117,4 +117,83 @@ test.describe("Model roles promotion (L3)", () => {
       if (await remove.isVisible().catch(() => false)) await remove.click();
     }
   });
+  // change: default-model-follows-role (test-plan #F9). A preset Load moves the
+  // role default's resolution; the Settings hint follows, config keeps @role.
+  test("F9: loading another preset moves the default-model hint; config keeps @role", async ({ page }) => {
+    test.setTimeout(300_000);
+    page.on("dialog", (d) => d.accept());
+    const DROLE = "e2e-default";
+    const PA = "e2e-dm-a";
+    const PB = "e2e-dm-b";
+    await spawnFreshGitSession(page);
+    const original = ((await (await page.request.get("/api/config")).json()) as { data?: { defaultModel?: string; defaultThinkingLevel?: string } }).data;
+    const echoModel = (echo: string) => (echo.split(/\s+/).find((t) => t.includes("/")) ?? echo).replace(/:(off|minimal|low|medium|high|xhigh|max)$/, "");
+
+    const assign = async (which: "first" | "last"): Promise<string> => {
+      await gotoSettings(page, "/settings/plugins/roles");
+      await expect(page.getByTestId("roles-group-custom")).toBeVisible({ timeout: 30_000 });
+      if (!(await page.getByTestId(`roles-row-${DROLE}`).isVisible())) {
+        await page.getByTestId("roles-add-custom").click();
+        await page.getByTestId("roles-add-custom-input").fill(DROLE);
+        await page.getByTestId("roles-add-custom-confirm").click();
+      } else {
+        await page.getByTestId(`roles-row-${DROLE}`).click();
+      }
+      const picker = page.getByTestId("roles-model-picker");
+      await expect(picker).toBeVisible({ timeout: 15_000 });
+      await picker.getByTestId("model-selector-button").first().click();
+      const rows = page.getByTestId("model-row");
+      await expect(rows.first()).toBeVisible({ timeout: 15_000 });
+      await (which === "first" ? rows.first() : rows.last()).click();
+      const ref = echoModel(((await page.getByTestId("roles-ref-echo").textContent()) ?? "").trim());
+      await page.getByTestId("save-btn").click();
+      await expect(page.getByTestId("settings-save-bar")).toBeHidden({ timeout: 20_000 });
+      return ref;
+    };
+    const savePreset = async (name: string) => {
+      await page.getByTestId("roles-preset-save-new").click();
+      await page.getByTestId("roles-preset-name-input").fill(name);
+      await page.getByTestId("roles-preset-save-confirm").click();
+      await expect(page.getByTestId(`roles-preset-load-${name}`)).toBeVisible({ timeout: 15_000 });
+    };
+
+    try {
+      const a = await assign("first");
+      await savePreset(PA);
+      const b = await assign("last");
+      test.skip(a === b, "harness catalogue has a single model — cannot observe a change");
+      await savePreset(PB);
+
+      await page.getByTestId(`roles-preset-load-${PA}`).click();
+      const put = await page.request.put("/api/config", { data: { defaultModel: `@${DROLE}`, defaultThinkingLevel: "" } });
+      expect(put.ok()).toBeTruthy();
+
+      await page.getByTestId(`roles-preset-load-${PB}`).click();
+      await expect
+        .poll(async () => {
+          const r = (await (await page.request.get("/api/roles")).json()) as { data?: Array<{ preset: string | null; active?: boolean }> };
+          return r.data?.find((g) => g.preset !== null && g.active)?.preset;
+        }, { timeout: 15_000 })
+        .toBe(PB);
+
+      await gotoSettings(page, "/settings/sessions");
+      const hint = page.getByTestId("default-model-follows");
+      await expect(hint).toBeVisible({ timeout: 20_000 });
+      await expect(hint).toContainText(PB);
+      await expect(hint).toContainText(b.slice(b.indexOf("/") + 1));
+      const cfg = (await (await page.request.get("/api/config")).json()) as { data?: { defaultModel?: string } };
+      expect(cfg.data?.defaultModel).toBe(`@${DROLE}`);
+    } finally {
+      await page.request.put("/api/config", {
+        data: { defaultModel: original?.defaultModel ?? "", defaultThinkingLevel: original?.defaultThinkingLevel ?? "" },
+      });
+      await gotoSettings(page, "/settings/plugins/roles").catch(() => {});
+      for (const name of [PA, PB]) {
+        const del = page.getByTestId(`roles-preset-delete-${name}`);
+        if (await del.isVisible().catch(() => false)) await del.click();
+      }
+      const remove = page.getByTestId(`roles-row-${DROLE}-remove`);
+      if (await remove.isVisible().catch(() => false)) await remove.click();
+    }
+  });
 });

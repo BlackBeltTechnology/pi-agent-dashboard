@@ -128,6 +128,16 @@ describe("E18: model / thinking defaults", () => {
     expect(opts).not.toHaveProperty("thinkingLevel");
   });
 
+  // See change: default-model-follows-role (test-plan #E11).
+  it("E11 role default with no thinking default: @role sent, no thinkingLevel key", () => {
+    const { onSpawnSession } = renderView({ defaultModel: "@planning", defaultThinkingLevel: "" });
+    typePrompt("hi");
+    send();
+    const opts = onSpawnSession.mock.calls[0]?.[2];
+    expect(opts).toEqual({ initialPrompt: "hi", model: "@planning" });
+    expect(opts).not.toHaveProperty("thinkingLevel");
+  });
+
   it("(c) no defaults: chip reads pi default and neither field is sent", () => {
     const { onSpawnSession } = renderView();
     expect(screen.getByTestId("model-selector-button").textContent).toContain("pi default");

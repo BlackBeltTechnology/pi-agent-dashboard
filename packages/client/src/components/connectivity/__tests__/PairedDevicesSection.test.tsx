@@ -3,25 +3,44 @@
  * unchanged, manual rows get exactly one badge, and the create-token flow
  * shows the token + snippet once and clears on dismiss.
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setGlobalApiBase } from "../../../lib/api/api-context.js";
 import { PairedDevicesSection } from "../PairedDevicesSection.js";
 
-const { listPairedDevices, revokePairedDevice, createPairedDevice, reachableUrls, getBridgeTokenContext } = vi.hoisted(() => ({
-  listPairedDevices: vi.fn(),
-  revokePairedDevice: vi.fn(),
-  createPairedDevice: vi.fn(),
-  reachableUrls: vi.fn(),
-  getBridgeTokenContext: vi.fn(),
-}));
-
-vi.mock("../../../lib/pairing/paired-devices-api.js", () => ({
+const {
   listPairedDevices,
   revokePairedDevice,
   createPairedDevice,
   reachableUrls,
   getBridgeTokenContext,
+  listRevokedDevices,
+  restorePairedDevice,
+  deleteRevokedDevice,
+  removeCompanion,
+} = vi.hoisted(() => ({
+  listPairedDevices: vi.fn(),
+  revokePairedDevice: vi.fn(),
+  createPairedDevice: vi.fn(),
+  reachableUrls: vi.fn(),
+  getBridgeTokenContext: vi.fn(),
+  listRevokedDevices: vi.fn(),
+  restorePairedDevice: vi.fn(),
+  deleteRevokedDevice: vi.fn(),
+  removeCompanion: vi.fn(),
+}));
+
+vi.mock("../../../lib/pairing/paired-devices-api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/pairing/paired-devices-api.js")>()),
+  listPairedDevices,
+  revokePairedDevice,
+  createPairedDevice,
+  reachableUrls,
+  getBridgeTokenContext,
+  listRevokedDevices,
+  restorePairedDevice,
+  deleteRevokedDevice,
+  removeCompanion,
 }));
 
 const PAIRING_ROW = {
@@ -50,6 +69,11 @@ beforeEach(() => {
   reachableUrls.mockReset().mockResolvedValue([]);
   // Default: a plain-HTTP dashboard with no TLS listener (the pre-change world).
   getBridgeTokenContext.mockReset().mockResolvedValue({ httpsChannel: false, tlsListenerUrls: [], acceptBridges: false });
+  // Default viewer: an operator with nothing revoked (the pre-change world keeps its Revoke buttons).
+  listRevokedDevices.mockReset().mockResolvedValue({ operator: true, devices: [], unreadable: false });
+  restorePairedDevice.mockReset().mockResolvedValue("restored");
+  deleteRevokedDevice.mockReset().mockResolvedValue("deleted");
+  removeCompanion.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -230,8 +254,9 @@ describe("F5 — tier badge on every row", () => {
     ]);
     render(<PairedDevicesSection />);
     await screen.findByText("My iPhone");
-    expect(screen.getByTestId("tier-d-o").textContent).toBe("observe");
-    expect(screen.getByTestId("tier-d-p").textContent).toBe("operate");
+    // Names come from TIER_OPTIONS (Observe / Control / Operate). See change: device-key-mutual-check (F4).
+    expect(screen.getByTestId("tier-d-o").textContent).toBe("Observe");
+    expect(screen.getByTestId("tier-d-p").textContent).toBe("Operate");
   });
 });
 
@@ -344,5 +369,257 @@ describe("F7 — bridge purpose in the token-issue dialog", () => {
     await openDialog();
     await waitFor(() => expect(screen.getByTestId("bridge-unavailable")).toBeTruthy());
     expect(screen.getByTestId("create-token-form").innerHTML).not.toMatch(/text-\[(?:\d|1[01])(?:\.\d+)?px\]/);
+  });
+});
+
+// ── F4 (test-plan, device-key-mutual-check): key + companion columns, held revoke, operator-only ──
+
+describe("F4 — device key, status checks, revoke notice, revoked list", () => {
+  const DAY = 86_400_000;
+  const KEYED = {
+    id: "dev-k",
+    label: "Roberts-MacBook",
+    createdAt: "2026-08-01T00:00:00.000Z",
+    lastSeen: null,
+    source: "pairing" as const,
+    tier: "control" as const,
+    keyId: "dk:AbCdEfGhIjKl",
+    companions: [{ id: "dk:ZZZZZZZZZZZZ", origin: "http://192.168.16.31:8000", createdAt: 1 }],
+  };
+  const KEYLESS = PAIRING_ROW;
+  const revoked = (over: Record<string, unknown> = {}) => ({
+    ...KEYLESS,
+    id: "dev-r",
+    label: "Old phone",
+    revokedAt: Date.now(),
+    revokedBy: "local",
+    ...over,
+  });
+  const asOperator = (devices: unknown[] = [], unreadable = false) =>
+    listRevokedDevices.mockResolvedValue({ operator: true, devices, unreadable });
+  const NOT_OPERATOR = { operator: false };
+  const LOST_STOLEN =
+    "Undo only if you revoked by mistake. If the device was lost or stolen, leave it revoked: undo makes its saved access work again.";
+
+  afterEach(() => vi.useRealTimers());
+
+  it("Device key column: short id, or 'none yet' for a keyless device; no raw i18n keys render", async () => {
+    listPairedDevices.mockResolvedValue([KEYED, KEYLESS]);
+    const { container } = render(<PairedDevicesSection />);
+    await screen.findByText("Roberts-MacBook");
+    expect(screen.getByTestId("device-key-dev-k").textContent).toContain("dk:AbCdEfGhIjKl");
+    expect(screen.getByTestId("device-key-dev-1").textContent).toContain("none yet");
+    expect(container.textContent).not.toMatch(/\b(pairedDevices|common|settings)\.[a-zA-Z]+/);
+  });
+
+  it("'Status checks from' lists the companion origin as text with its own remove control", async () => {
+    listPairedDevices.mockResolvedValue([KEYED, KEYLESS]);
+    render(<PairedDevicesSection />);
+    await screen.findByText("Roberts-MacBook");
+    const cell = screen.getByTestId("companions-dev-k");
+    expect(cell.textContent).toContain("Status checks from");
+    expect(cell.textContent).toContain("http://192.168.16.31:8000");
+    expect(screen.getByTestId("companions-dev-1").textContent).toContain("none");
+    listPairedDevices.mockResolvedValue([{ ...KEYED, companions: [] }, KEYLESS]);
+    fireEvent.click(within(cell).getByRole("button", { name: "Remove status check from http://192.168.16.31:8000" }));
+    await waitFor(() => expect(removeCompanion).toHaveBeenCalledWith("dev-k", "dk:ZZZZZZZZZZZZ"));
+    await waitFor(() => expect(screen.getByTestId("companions-dev-k").textContent).not.toContain("192.168.16.31"));
+  });
+
+  it("a hostile companion origin renders as text, never markup", async () => {
+    listPairedDevices.mockResolvedValue([{ ...KEYED, companions: [{ id: "dk:X", origin: "http://a<b>.example", createdAt: 1 }] }]);
+    render(<PairedDevicesSection />);
+    await screen.findByText("Roberts-MacBook");
+    const cell = screen.getByTestId("companions-dev-k");
+    expect(cell.querySelector("b")).toBeNull();
+    expect(cell.textContent).toContain("http://a<b>.example");
+  });
+
+  it("tier badges use the Observe / Control / Operate names", async () => {
+    listPairedDevices.mockResolvedValue([KEYED, KEYLESS, MANUAL_ROW]);
+    render(<PairedDevicesSection />);
+    await screen.findByText("Roberts-MacBook");
+    expect(screen.getByTestId("tier-dev-k").textContent).toBe("Control");
+    expect(screen.getByTestId("tier-dev-1").textContent).toBe("Operate");
+    expect(screen.getByTestId("tier-dev-2").textContent).toBe("Observe");
+  });
+
+  async function revokeKeyless() {
+    listPairedDevices.mockResolvedValueOnce([KEYLESS]).mockResolvedValue([]);
+    listRevokedDevices.mockResolvedValueOnce({ operator: true, devices: [], unreadable: false });
+    render(<PairedDevicesSection />);
+    await screen.findByText("My iPhone");
+    listRevokedDevices.mockResolvedValue({ operator: true, devices: [revoked({ label: "My iPhone", id: "dev-1" })], unreadable: false });
+    fireEvent.click(screen.getByTitle("Revoke device"));
+    fireEvent.click(screen.getByText("Confirm revoke"));
+    return screen.findByTestId("revoke-notice-dev-1");
+  }
+
+  it("revoke shows '<name> revoked' with Undo for exactly 10 s: present at 9.9 s, gone at 10 s", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    listPairedDevices.mockResolvedValueOnce([KEYLESS]).mockResolvedValue([]);
+    render(<PairedDevicesSection />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByTitle("Revoke device"));
+    await act(async () => { fireEvent.click(screen.getByText("Confirm revoke")); await vi.advanceTimersByTimeAsync(0); });
+    const notice = screen.getByTestId("revoke-notice-dev-1");
+    expect(notice.textContent).toContain("My iPhone revoked");
+    expect(within(notice).getByRole("button", { name: "Undo" })).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_900); });
+    expect(screen.queryByTestId("revoke-notice-dev-1")).not.toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(screen.queryByTestId("revoke-notice-dev-1")).toBeNull();
+  });
+
+  it("Undo at 9.9 s restores the device and removes the notice", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    listPairedDevices.mockResolvedValueOnce([KEYLESS]).mockResolvedValue([]);
+    render(<PairedDevicesSection />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByTitle("Revoke device"));
+    await act(async () => { fireEvent.click(screen.getByText("Confirm revoke")); await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_900); });
+    listPairedDevices.mockResolvedValue([KEYLESS]);
+    await act(async () => { fireEvent.click(within(screen.getByTestId("revoke-notice-dev-1")).getByRole("button", { name: "Undo" })); await vi.advanceTimersByTimeAsync(0); });
+    expect(restorePairedDevice).toHaveBeenCalledWith("dev-1");
+    expect(screen.queryByTestId("revoke-notice-dev-1")).toBeNull();
+    // the timer of the dismissed notice must not fire anything later
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.getByText("My iPhone")).toBeTruthy();
+  });
+
+  it("Undo on the notice answered 'unavailable' shows 'No longer available' and refreshes", async () => {
+    restorePairedDevice.mockResolvedValue("unavailable");
+    const notice = await revokeKeyless();
+    const callsBefore = listPairedDevices.mock.calls.length;
+    fireEvent.click(within(notice).getByRole("button", { name: "Undo" }));
+    await screen.findByText("No longer available");
+    await waitFor(() => expect(listPairedDevices.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
+  it("revoked list: name, who/when, 'Deleted for good in 90 days', Undo revoke, Delete now and the exact warning", async () => {
+    asOperator([revoked({ revokedAt: Date.now() })]);
+    render(<PairedDevicesSection />);
+    const list = await screen.findByTestId("revoked-devices");
+    expect(list.textContent).toContain("Revoked devices");
+    const row = within(list).getByTestId("revoked-dev-r");
+    expect(row.textContent).toContain("Old phone");
+    expect(row.textContent).toContain("local");
+    expect(row.textContent).toContain("Deleted for good in 90 days");
+    expect(within(row).getByRole("button", { name: "Undo revoke" })).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Delete now" })).toBeTruthy();
+    expect(screen.getByTestId("revoked-lost-warning").textContent).toBe(LOST_STOLEN);
+    expect(screen.queryByTestId("revoked-unreadable")).toBeNull();
+  });
+
+  it("N days rounds up: 89 d 12 h left → 90 days, 24 h or more → N days, under 24 h → 1 day (singular)", async () => {
+    asOperator([
+      revoked({ id: "a", label: "A", revokedAt: Date.now() - 0.5 * DAY }),
+      revoked({ id: "b", label: "B", revokedAt: Date.now() - 89.5 * DAY }),
+      revoked({ id: "c", label: "C", revokedAt: Date.now() - 60 * DAY }),
+    ]);
+    render(<PairedDevicesSection />);
+    await screen.findByTestId("revoked-devices");
+    expect(screen.getByTestId("revoked-a").textContent).toContain("Deleted for good in 90 days");
+    expect(screen.getByTestId("revoked-b").textContent).toContain("Deleted for good in 1 day");
+    expect(screen.getByTestId("revoked-b").textContent).not.toContain("1 days");
+    expect(screen.getByTestId("revoked-c").textContent).toContain("Deleted for good in 30 days");
+  });
+
+  it("Undo revoke restores and refreshes both lists", async () => {
+    asOperator([revoked()]);
+    render(<PairedDevicesSection />);
+    const row = await screen.findByTestId("revoked-dev-r");
+    asOperator([]);
+    fireEvent.click(within(row).getByRole("button", { name: "Undo revoke" }));
+    await waitFor(() => expect(restorePairedDevice).toHaveBeenCalledWith("dev-r"));
+    await waitFor(() => expect(screen.queryByTestId("revoked-dev-r")).toBeNull());
+  });
+
+  it.each(["unavailable"] as const)("Undo revoke answered %s shows 'No longer available' and refreshes the lists", async () => {
+    asOperator([revoked()]);
+    restorePairedDevice.mockResolvedValue("unavailable");
+    render(<PairedDevicesSection />);
+    const row = await screen.findByTestId("revoked-dev-r");
+    const before = listRevokedDevices.mock.calls.length;
+    asOperator([]);
+    fireEvent.click(within(row).getByRole("button", { name: "Undo revoke" }));
+    await screen.findByText("No longer available");
+    await waitFor(() => expect(listRevokedDevices.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it("Delete now opens a confirm dialog naming the device and deletes nothing until confirmed", async () => {
+    asOperator([revoked()]);
+    render(<PairedDevicesSection />);
+    const row = await screen.findByTestId("revoked-dev-r");
+    fireEvent.click(within(row).getByRole("button", { name: "Delete now" }));
+    const dialog = await screen.findByTestId("delete-revoked-confirm");
+    expect(dialog.textContent).toContain("Old phone");
+    expect(deleteRevokedDevice).not.toHaveBeenCalled();
+    // cancel: nothing deleted
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByTestId("delete-revoked-confirm")).toBeNull());
+    expect(deleteRevokedDevice).not.toHaveBeenCalled();
+    // confirm: deleted
+    fireEvent.click(within(screen.getByTestId("revoked-dev-r")).getByRole("button", { name: "Delete now" }));
+    asOperator([]);
+    fireEvent.click(within(await screen.findByTestId("delete-revoked-confirm")).getByRole("button", { name: "Delete now" }));
+    await waitFor(() => expect(deleteRevokedDevice).toHaveBeenCalledWith("dev-r"));
+    await waitFor(() => expect(screen.queryByTestId("revoked-dev-r")).toBeNull());
+  });
+
+  it("Delete now answered 'unavailable' shows 'No longer available' and refreshes", async () => {
+    asOperator([revoked()]);
+    deleteRevokedDevice.mockResolvedValue("unavailable");
+    render(<PairedDevicesSection />);
+    fireEvent.click(within(await screen.findByTestId("revoked-dev-r")).getByRole("button", { name: "Delete now" }));
+    asOperator([]);
+    fireEvent.click(within(await screen.findByTestId("delete-revoked-confirm")).getByRole("button", { name: "Delete now" }));
+    await screen.findByText("No longer available");
+  });
+
+  it("unreadable store: warning shows, also when the revoked list is empty; absent otherwise", async () => {
+    asOperator([], true);
+    render(<PairedDevicesSection />);
+    expect((await screen.findByTestId("revoked-unreadable")).textContent).toBe(
+      "Revoked-device list unreadable — revoked devices may be purged early",
+    );
+    cleanup();
+    asOperator([], false);
+    render(<PairedDevicesSection />);
+    await screen.findByText("My iPhone");
+    expect(screen.queryByTestId("revoked-unreadable")).toBeNull();
+    expect(screen.queryByTestId("revoked-devices")).toBeNull();
+  });
+
+  it("a viewer without an operator credential gets no Revoke, Undo revoke, Delete now or companion-remove control", async () => {
+    listRevokedDevices.mockResolvedValue(NOT_OPERATOR);
+    listPairedDevices.mockResolvedValue([KEYED, KEYLESS]);
+    render(<PairedDevicesSection />);
+    await screen.findByText("Roberts-MacBook");
+    expect(screen.queryByTitle("Revoke device")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Remove status check/ })).toBeNull();
+    expect(screen.queryByTestId("revoked-devices")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Undo revoke" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete now" })).toBeNull();
+    // the read-only columns are still shown
+    expect(screen.getByTestId("device-key-dev-k").textContent).toContain("dk:AbCdEfGhIjKl");
+    expect(screen.getByTestId("companions-dev-k").textContent).toContain("http://192.168.16.31:8000");
+  });
+
+  it("an operator sees every control", async () => {
+    asOperator([revoked()]);
+    listPairedDevices.mockResolvedValue([KEYED, KEYLESS]);
+    render(<PairedDevicesSection />);
+    await screen.findByTestId("revoked-devices");
+    expect(screen.getAllByTitle("Revoke device")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /Remove status check/ })).toBeTruthy();
+  });
+
+  it("a failing revoked-list call hides the controls (fail closed) but never the paired list", async () => {
+    listRevokedDevices.mockRejectedValue(new Error("boom"));
+    render(<PairedDevicesSection />);
+    await screen.findByText("My iPhone");
+    expect(screen.queryByTitle("Revoke device")).toBeNull();
   });
 });

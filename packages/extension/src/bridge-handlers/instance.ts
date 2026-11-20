@@ -39,6 +39,7 @@ import type { createPluginRequestClient } from "../plugin-request-client.js";
 import type { PrStatusScheduler } from "../pr-status.js";
 import type { PromptBus } from "../prompt-bus.js";
 import type { RetryTracker } from "../retry-tracker.js";
+import type { SteerBuffer } from "../steer-buffer.js";
 import type { SubagentFrameBuffer } from "../subagent-frame-buffer.js";
 import type { SubagentTickThrottle } from "../subagent-tick-throttle.js";
 import type { createTransportDiagnostics } from "../transport-diagnostics.js";
@@ -162,7 +163,10 @@ export interface BridgeInstance {
   coalescer: MessageUpdateCoalescer<Record<string, unknown>>;
   assistantMessageGen: number;
   messageKeyOf: (gen: number, message: unknown) => string;
-  bridgeSteering: string[];
+  /** Bridge-held steers (cancellable until hand-off). See change: bridge-owned-cancellable-steer. */
+  bridgeSteer: SteerBuffer;
+  /** Emit `prompt_received { fresh:false, promptId }` for a steer handed to pi. */
+  ackSteerDelivered: (promptId: string | undefined) => void;
   bridgeFollowUp: ReturnType<typeof createFollowupBuffer>;
   emitQueueUpdate: () => void;
   sendCommandFeedback: (command: string, message: string) => void;

@@ -8,8 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { computeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
-import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
+import { createPiDefaultRemirror, setActivePiDefaultRemirror } from "./pi-default-remirror.js";
 import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createPluginSessionManager, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
@@ -23,6 +22,7 @@ import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashb
 import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import { parseFileHandlerClaimKey } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
+import { computeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, resolveAdvertisedAddresses, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
@@ -77,6 +77,7 @@ import { YOLO_ENV } from "./access/yolo-env.js";
 import { YoloController } from "./access/yolo-session.js";
 import { scanAcpSessions } from "./acp-bridge/acp-restore.js";
 import { stopAllLocalAcpSessions } from "./acp-bridge/local-host.js";
+import { createAgentEventHub } from "./agent-events/agent-event-hub.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
 import { authorizeWsUpgrade, buildLoginAvailable, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
@@ -120,8 +121,8 @@ import { ensureLocalToken } from "./auth/local-token.js";
 import {
   createLanInterfaceProvider,
   createNetworkGuard,
-  evaluateNetworkPass,
   createNetworkGuardHook,
+  evaluateNetworkPass,
   isLocallyTrusted,
   isPluginScopePeerLocal,
   needsLocalProof,
@@ -138,6 +139,7 @@ import { UserDirectory } from "./auth/passkey/user-directory.js";
 import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
 import { isServerTrusted } from "./auth/plugin-server-trust.js";
+import { bearerChannelOf, isProvenTls } from "./auth/proven-tls.js";
 import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
 import { hasAnthropicCredential, readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
@@ -253,16 +255,14 @@ import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec
 import { fetchPackageMeta } from "./package/npm-search-proxy.js";
 import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
+import { setProbeSelfPort } from "./package/provider-probe.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
-import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
-import { bearerChannelOf, isProvenTls } from "./auth/proven-tls.js";
 import { createDeviceTokenServices } from "./pairing/device-token-services.js";
-import { onTlsBridgeSwitchChanged, routeBridgeUpgrade } from "./tls/tls-bridge-route.js";
-import { startDeviceExpirySweep } from "./vault/device-expiry-sweep.js";
+import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import { stampSocketLocality } from "./pairing/socket-locality.js";
-import { sweepRevokedSockets, type TieredSocket } from "./pairing/ws-tier-gate.js";
+import { closeDeviceSockets, sweepRevokedSockets, type TieredSocket } from "./pairing/ws-tier-gate.js";
 import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
@@ -286,6 +286,7 @@ import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
 import { createPackageCompletionHandler, createPluginDiscoveryWiring, type PluginDiscoveryWiring } from "./plugin-discovery-wiring.js";
+import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
@@ -293,14 +294,13 @@ import { getRuntimeClientRegistry, installRuntimeClientRegistry, logRuntimeAdmis
 import { createPushService, type PushService } from "./push/push-service.js";
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
-import { createAgentEventHub } from "./agent-events/agent-event-hub.js";
-import { registerAgentEventStreamRoutes } from "./routes/agent-event-stream-routes.js";
 import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAcmeRoutes } from "./routes/acme-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
 import { registerAddonsRoutes } from "./routes/addons-routes.js";
+import { registerAgentEventStreamRoutes } from "./routes/agent-event-stream-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCspViolationRoutes } from "./routes/csp-violations-routes.js";
@@ -389,10 +389,10 @@ import { bootScanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
 import { createAbortSpawnedRun } from "./spawn-process/abort-spawned-run.js";
 import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spawn-process/acp-spawn.js";
-import { mapPluginSpawnOptions } from "./spawn-process/plugin-spawn-choice.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
+import { mapPluginSpawnOptions } from "./spawn-process/plugin-spawn-choice.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createSessionTerminator } from "./spawn-process/session-terminator.js";
@@ -403,6 +403,7 @@ import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/term
 import { createAcmeCredentials } from "./tls/sources/acme/credentials.js";
 import { acmeGc } from "./tls/sources/acme/gc.js";
 import { configureAcmeRuntime } from "./tls/sources/acme/runtime.js";
+import { onTlsBridgeSwitchChanged, routeBridgeUpgrade } from "./tls/tls-bridge-route.js";
 import {
   MAIN_CONNECTION_TIMEOUT_MS,
   MAIN_KEEP_ALIVE_TIMEOUT_MS,
@@ -411,6 +412,7 @@ import {
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, liveTunnelOrigins, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { collectEndpoints } from "./tunnel/tunnel-endpoints.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
+import { startDeviceExpirySweep } from "./vault/device-expiry-sweep.js";
 import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
 import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
 import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
@@ -1040,7 +1042,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // (heartbeat tail, click-induced state sync, late bridge events) do
     // NOT re-fire it.
     // See changes: pin-and-search-sessions, simplify-session-card-ordering.
-    const wasEnded = endedSessionIds.has(sessionId);
+    // `priorStatus === "ended"` covers an ended record `restore()`d after the
+    // boot snapshot (on-demand discovery seed, unarchive, late boot seed),
+    // which the set never saw. See change: fix-discovery-resurrects-archived.
+    const wasEnded = endedSessionIds.has(sessionId) || ctx?.priorStatus === "ended";
     const isEnded = session.status === "ended";
     if (isEnded && !wasEnded) {
       // Just transitioned alive→ended. The id STAYS in the order map
@@ -1142,9 +1147,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     }
   };
-  // Track which session ids we've seen as ended at least once, so the
-  // onChange hook can detect actual alive→ended transitions vs. mere
-  // re-emits of the ended state.
+  // Ids seen as ended: the boot snapshot plus every alive→ended `onChange`,
+  // so the hook can tell a real alive→ended transition from a re-emit of the
+  // ended state. Ended records `restore()`d after this snapshot are NOT in
+  // it; their ended→alive register is detected via `ctx.priorStatus`.
+  // See change: fix-discovery-resurrects-archived.
   const endedSessionIds = new Set<string>(
     sessionManager.listAll().filter((s) => s.status === "ended").map((s) => s.id),
   );
@@ -1488,6 +1495,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const replayState = createReplayState(config.replayTimings);
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore, browseRoots, replayState);
+  // A revoke closes every open socket of that device (4401 / `device revoked`): browser sockets (tagged at
+  // upgrade from the ticket) and bridge sockets. See change: device-key-mutual-check (D7).
+  pairedDeviceRegistry.onRevoked((deviceId) => {
+    const closed = closeDeviceSockets(browserGateway.wss.clients, deviceId) + piGateway.closeDeviceSockets(deviceId);
+    if (closed > 0) console.log(`[ws-gate] device revoke closed ${closed} socket(s)`);
+  });
   // Transition-only feed behind `GET /api/events/stream` (registry frames + question changes).
   // See change: add-agent-event-stream.
   const agentEventHub = createAgentEventHub({
@@ -1765,6 +1778,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // cwd-policy as the spawn funnel composes it, so the team plugin can refuse a
   // start whose skill set the policy would narrow. See change: add-team-skill-access (D7).
   pluginServiceRegistry.set("host.resolveCwdPolicy", (cwd: string) => cwdPolicyRegistry.resolve(cwd));
+  // `@role` default model: re-mirror into pi when its resolution moves (roles
+  // watcher calls this), and expose the ref for the Roles "used by" list.
+  // See change: default-model-follows-role (D4, D5).
+  const piDefaultRemirror = createPiDefaultRemirror({ readDashboardConfig: loadConfig });
+  piDefaultRemirror.seed();
+  setActivePiDefaultRemirror(piDefaultRemirror);
+  pluginServiceRegistry.set("host.remirrorPiDefaults", () => piDefaultRemirror.remirror());
+  pluginServiceRegistry.set("host.defaultModelRef", () => piDefaultRemirror.defaultModelRef());
   // Operator-visible (global + global-package) skills for the team plugin's
   // admin skill picker. Never project-local. See change: add-team-skill-access (D11).
   pluginServiceRegistry.set("host.listOperatorSkills", async () =>
@@ -3640,7 +3661,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const identity = authed.principal
         ? { principal: authed.principal, principalExpiresAt: authed.principalExpiresAt }
         : undefined;
-      return { success: true as const, data: { ticket: wsTicketStore.mint(scope, undefined, identity) } };
+      // A device-bearer caller's id rides the ticket (like a bridge ticket), so the socket it opens is
+      // tagged with it, a revoke closes it, and a pre-revoke ticket is refused at upgrade.
+      // See change: device-key-mutual-check (D7).
+      const deviceId = (request as { principalDeviceId?: string }).principalDeviceId;
+      return { success: true as const, data: { ticket: wsTicketStore.mint(scope, deviceId, identity) } };
     },
   );
   registerPluginConfigRoutes(fastify, {
@@ -3697,6 +3722,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     setPluginsEnabled,
     // Fastify here runs with logger:false, so its log would drop every toggle line.
     log: { info: (m) => console.log(m), warn: (m) => console.warn(m), error: (m) => console.error(m) },
+  });
+  // Egress vet for provider probes refuses the dashboard's own port on a local
+  // address. See change: close-local-listener-and-egress-gaps (NET-04).
+  setProbeSelfPort(() => {
+    const addr = fastify.server.address();
+    const ports = addr && typeof addr === "object" ? [addr.port] : [];
+    const tls = loadConfig().tls; // the TLS listener is the dashboard too (same idiom as `ownPorts` above)
+    if (tls?.enabled) ports.push(tls.port);
+    return ports.length ? ports : null;
   });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
 
@@ -4998,6 +5032,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             : null,
           // A revoked / disabled passkey user's cookie opens no socket (D4).
           isSessionLive: (p) => effectiveSessionTier(p, passkeyService, sessionProviderRejected) !== null,
+          // A ticket minted before its device was revoked opens nothing (D7).
+          isDeviceActive: (id) => pairedDeviceRegistry.activeIds().has(id),
         });
         // Cookie-session sockets carry the session's LIVE tier (passkey users
         // re-read the directory). Terminals need operate, live previews
@@ -5093,6 +5129,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               stampSocketLocality(ws, request, localTrust);
               if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               if (sessionTierOf) (ws as TieredSocket).sessionTier = sessionTierOf;
+              // Tag with the minting device so `closeDeviceSockets` can find it on revoke (D7).
+              if (upgradeAuth.deviceId) (ws as { deviceId?: string }).deviceId = upgradeAuth.deviceId;
               browserGateway.wss.emit("connection", ws, request);
             });
             if (identityEnforced() && policyRegistry.hasPolicy()) {

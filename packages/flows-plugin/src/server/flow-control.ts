@@ -124,9 +124,15 @@ export function runFlowControl(
     case "flow.toggle-autonomous":
       emit("flow:toggle-autonomous", {});
       return { ok: true };
-    case "flow.dismiss-summary":
-      emit("flow:summary-dismissed", {});
+    case "flow.dismiss-summary": {
+      // Optional runId names the run so the bridge persists the dismissal; an
+      // invalid one degrades to the legacy clear-all. See change:
+      // persist-flow-run-close (D4).
+      const runId = payload.runId;
+      const valid = typeof runId === "string" && runId.length >= 1 && runId.length <= 128;
+      emit("flow:summary-dismissed", valid ? { runId } : {});
       return { ok: true };
+    }
     case "flow.delete": {
       const flowName = payload.flowName;
       if (!isValidFlowName(flowName)) return reject(deps, 400, "invalid_flow_name", "invalid flowName", sessionId, action);
@@ -190,7 +196,7 @@ export async function registerFlowControlRoute(deps: FlowControlRouteDeps): Prom
       }
       const action = typeof body.action === "string" ? body.action : "";
       const payload: Record<string, unknown> = {};
-      for (const k of ["flowName", "task", "enabled", "inputs"]) {
+      for (const k of ["flowName", "task", "enabled", "inputs", "runId"]) {
         if (Object.prototype.hasOwnProperty.call(body, k)) payload[k] = body[k];
       }
       const r = runFlowControl(deps, sessionId, action, payload, { requireSession: true });
