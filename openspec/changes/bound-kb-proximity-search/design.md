@@ -54,6 +54,15 @@ Scratch reproduction at HEAD, one macOS host; the DFS copy has a 2e7-call budget
 
 Differential: 20 000 random (query, body) pairs, duplicates in the query allowed, DFS vs greedy — 0 mismatches. `rawTokens` on an 827 KB body: 2.7 ms (so tokenising is not the cost; the issue's 10 ms/450 KB estimate is the same order).
 
+**Implementation branch (tasks 1.1 / 8.1, macOS, Node 26.9):**
+
+- DFS baseline (call budget 2e7): k=5×50 3.48 M calls / 47 ms; k=6×50, k=8×100, k=10×100 budget exhausted at 240–270 ms.
+- Greedy (`proximity-perf-child.mts`, median of 5): k=10×100 0.24 ms, k=6×50 0.06 ms, k=8×100 0.16 ms; end-to-end `store.search` over the k=10×100 chunk + a 450 KB chunk 19.8 ms, event-loop max delay 0; 600-doc pool 14.3 ms; no budget warn.
+- Fixture gate (D4): `run-fixtures.ts` before/after — all 12 variant rows identical in R@10, P@1, P@5, MRR, nDCG@10, distinctSrc, dupShare, singleSrcPage.
+- Synthetic #1075 equivalent (6022 chunks; 22 single-chunk ≈400 KB AGENTS.md bodies with the field term frequencies, 7-term query): proximity over ALL chunks 107 ms (< 250 ms default — kept); search median 776 ms boosted vs 596 ms plain (the remainder is FTS5 `snippet()`/BM25 over huge chunks, outside this change); budget guard did not fire.
+- `measure-search-latency.ts` (repo fixture index, 212 queries): develop 148 ms median, branch 113–118 ms — no regression.
+- Finding (out of scope): FTS5 `snippet()` is quadratic in query-term hits per chunk (1000→4000 interleaved repeats: 0.5 s → 8.2 s). P2 therefore pads the 450 KB chunk with non-query prose (the field shape) instead of making every token a query term.
+
 The issue additionally reports (not re-run here: it needs the reporter's index): real 450 KB chunk ≈3.97e18 combinations, greedy 12.6 ms for that chunk and 208 ms over all 5957 chunks of that index. Treated as indicative; task 8.1 re-measures on a synthetic equivalent.
 
 ## Goals

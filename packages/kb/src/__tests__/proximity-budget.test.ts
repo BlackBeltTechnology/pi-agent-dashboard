@@ -42,7 +42,7 @@ afterAll(() => {
 afterEach(() => vi.restoreAllMocks());
 
 const plain = (q = Q, o: SearchOpts = {}) => store.search(q, { limit: 20, ...o, proximityBoost: false });
-const boosted = (o: SearchOpts & { proximityBudgetMs?: unknown }, q = Q) =>
+const boosted = (o: Omit<SearchOpts, "proximityBudgetMs"> & { proximityBudgetMs?: unknown }, q = Q) =>
   store.search(q, { limit: 20, ...(o as SearchOpts), proximityBoost: true });
 const byId = (hits: KbHit[]) => new Map(hits.map((h) => [h.chunkId, h.score]));
 /** chunkIds whose score differs from the plain-BM25 score. */

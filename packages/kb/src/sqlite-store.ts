@@ -13,7 +13,7 @@ export const SCHEMA_VERSION = 3;
 /** Default per-search proximity time budget, ms (design D2 of change
  *  bound-kb-proximity-search). A backstop: the exact window search (D1) keeps
  *  measured calls far below it. */
-export const PROXIMITY_BUDGET_MS = 250;
+const PROXIMITY_BUDGET_MS = 250;
 
 const DDL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(

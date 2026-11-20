@@ -29,6 +29,7 @@ import {
   stampPass,
   stampSource,
 } from "@blackbelt-technology/pi-dashboard-kb";
+import { queryWorkerHost } from "./query-worker-host.js";
 
 /** Resolve a DOX row path relative to its AGENTS.md dir, with a project-root
  *  fallback (a nested AGENTS.md may document a file living at the root).
@@ -79,6 +80,20 @@ export function resolveFreshnessBudgetMs(raw: string | undefined): number {
   if (!/^\d+$/.test(v)) return DEFAULT_FRESHNESS_BUDGET_MS;
   const n = Number(v);
   return Math.min(n, MAX_FRESHNESS_BUDGET_MS);
+}
+
+// --- off-thread retrieval deadline (change: bound-kb-proximity-search, design D8) ---
+
+export const DEFAULT_QUERY_TIMEOUT_MS = 60000;
+export const MIN_QUERY_TIMEOUT_MS = 1000;
+export const MAX_QUERY_TIMEOUT_MS = 600000;
+
+/** Resolve `KB_QUERY_TIMEOUT_MS`. Trimmed; anything but a strict non-negative
+ *  decimal integer → default; else clamped to [1000, 600000]. */
+export function resolveQueryTimeoutMs(raw: string | undefined): number {
+  const v = (raw ?? "").trim();
+  if (!/^\d+$/.test(v)) return DEFAULT_QUERY_TIMEOUT_MS;
+  return Math.min(MAX_QUERY_TIMEOUT_MS, Math.max(MIN_QUERY_TIMEOUT_MS, Number(v)));
 }
 
 /** Model-facing status lines (text channel; `details` is rendering-only). */
@@ -418,6 +433,9 @@ export function scheduleReindex(state: ReindexState, cwd: string, _path: string,
  *  no residue lingers. See change: sweep-worktree-residual-on-remove. */
 export function closeKbForCwd(state: ReindexState, cwd: string): void {
   const entry = state.kb.get(cwd);
+  // Release the query worker's read connection too, BEFORE the entry (and with
+  // it the db path) is forgotten. See change: bound-kb-proximity-search (D6).
+  if (entry) queryWorkerHost().close(entry.cfg.dbAbsPath);
   if (entry) { try { entry.store.close(); } catch { /* */ } }
   state.kb.delete(cwd);
   state.completed.delete(cwd);
