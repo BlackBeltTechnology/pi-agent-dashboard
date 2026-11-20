@@ -291,7 +291,7 @@ jobs:
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'e2e-browser')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     continue-on-error: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
@@ -314,6 +314,7 @@ jobs:
           tests/e2e/csp-strict-report.spec.ts
           tests/e2e/runtime-plugin-remote-and-paired.spec.ts
           tests/e2e/known-server-stale-name.spec.ts
+          tests/e2e/retro-ux-identity-connectivity.spec.ts
           --reporter=blob,json
         env:
           CI: "1"
@@ -325,7 +326,7 @@ jobs:
 
       - name: Zero-skip lane check
         if: ${{ always() }}
-        run: node scripts/e2e-csp-lane-check.mjs test-results/csp-report-lane.json --require csp-strict-report.spec.ts,runtime-plugin-remote-and-paired.spec.ts,known-server-stale-name.spec.ts
+        run: node scripts/e2e-csp-lane-check.mjs test-results/csp-report-lane.json --require csp-strict-report.spec.ts,runtime-plugin-remote-and-paired.spec.ts,known-server-stale-name.spec.ts,retro-ux-identity-connectivity.spec.ts
 
       - name: Upload blob report
         if: ${{ always() }}

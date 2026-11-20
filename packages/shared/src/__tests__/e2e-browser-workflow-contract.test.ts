@@ -307,7 +307,12 @@ describe("ci-e2e-browser.yml — CSP report lane (test-plan #E7)", () => {
   // lane and every report-lane member skips there. This leg boots `PI_DASHBOARD_CSP=report` and runs the members
   // plus csp-strict-report.spec.ts, then fails on any CSP-reason skip or a missing member.
   const job = jobBlock(yaml, "e2e-csp-report-lane");
-  const MEMBERS = ["csp-strict-report.spec.ts", "runtime-plugin-remote-and-paired.spec.ts", "known-server-stale-name.spec.ts"];
+  const MEMBERS = [
+    "csp-strict-report.spec.ts",
+    "runtime-plugin-remote-and-paired.spec.ts",
+    "known-server-stale-name.spec.ts",
+    "retro-ux-identity-connectivity.spec.ts",
+  ];
 
   it("exists", () => {
     expect(job, "no `e2e-csp-report-lane` job — the report lane would never run in CI").not.toBe("");

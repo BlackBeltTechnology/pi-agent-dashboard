@@ -5,8 +5,9 @@ import { knownServersStates } from "./fixtures/retro-ux/known-servers.js";
 import { serverSelectorStates } from "./fixtures/retro-ux/server-selector.js";
 import { hitCount, resetHits } from "./fixtures/retro-ux/stubs.js";
 import { impactStates, usersStates } from "./fixtures/retro-ux/users.js";
-import { expect, type Page, test } from "./fixtures.js";
+import { type APIRequestContext, expect, type Page, test } from "./fixtures.js";
 import { resolveColor, setThemeMode } from "./helpers/computed-contrast.js";
+import { REPORT_LANE_SKIP } from "./helpers/csp-strict.js";
 import { resolveEvidencePath } from "./helpers/evidence-path.js";
 import { gotoDashboard } from "./helpers/index.js";
 import { type CaptureResult, captureStates, RETRO_UX_THEMES, type UiState } from "./helpers/ui-capture.js";
@@ -31,6 +32,18 @@ const SURFACES: Record<string, UiState[]> = {
   "known-servers": knownServersStates,
   discovery: discoveryStates,
 };
+
+/**
+ * The server selector and Settings ▸ Servers prove every known address from the BROWSER (identity challenge +
+ * health, answered by `page.route` stubs on other origins). An enforcing `connect-src 'self' ws: wss:` refuses
+ * those requests before a route sees them, so these surfaces run on the report lane (`PI_DASHBOARD_CSP=report`).
+ * See change: enforce-strict-csp-default (D4).
+ */
+const CROSS_ORIGIN_SURFACES = new Set(["server-selector", "known-servers"]);
+async function skipOnEnforcingCsp(request: APIRequestContext): Promise<void> {
+  const csp = (await request.get("/")).headers()["content-security-policy"];
+  test.skip(!!csp, REPORT_LANE_SKIP);
+}
 
 const byId = (states: UiState[], id: string): UiState => {
   const s = states.find((x) => x.id === id);
@@ -67,8 +80,9 @@ test.describe("retro-ux identity + connectivity", () => {
   for (const [surface, states] of Object.entries(SURFACES)) {
     // RETRO_UX_ONLY=id[,id] narrows a run to named states (debugging aid); other surfaces skip.
     const only = process.env.RETRO_UX_ONLY?.split(",").filter((id) => states.some((s) => s.id === id));
-    test(`E13: ${surface} passes the contract probes in every state, theme and width`, async ({ page }) => {
+    test(`E13: ${surface} passes the contract probes in every state, theme and width`, async ({ page, request }) => {
       test.skip(only?.length === 0, "RETRO_UX_ONLY names no state of this surface");
+      if (CROSS_ORIGIN_SURFACES.has(surface)) await skipOnEnforcingCsp(request);
       test.setTimeout(states.length * RETRO_UX_THEMES.length * 3 * 12_000);
       const before = process.env.RETRO_UX_CAPTURE === "1" ? null : afterSnapshot();
       await gotoDashboard(page); // arms the first-launch dismissal for the whole page lifetime
@@ -79,7 +93,8 @@ test.describe("retro-ux identity + connectivity", () => {
     });
   }
 
-  test("F6: the portalled selector menu is probed non-vacuously in all 3 themes", async ({ page }) => {
+  test("F6: the portalled selector menu is probed non-vacuously in all 3 themes", async ({ page, request }) => {
+    await skipOnEnforcingCsp(request);
     test.setTimeout(120_000);
     await gotoDashboard(page);
     const results = await captureStates(page, {
@@ -96,7 +111,8 @@ test.describe("retro-ux identity + connectivity", () => {
 
   // group-servers-by-identity (test-plan #F12): the identity rows — chips, a refused chip, the pair actions —
   // and the can't-prove / different-identity rows pass contrast, size and focus in the 3 themes at both widths.
-  test("F12: identity rows, route chips and pair actions are probed non-vacuously in all 3 themes", async ({ page }) => {
+  test("F12: identity rows, route chips and pair actions are probed non-vacuously in all 3 themes", async ({ page, request }) => {
+    await skipOnEnforcingCsp(request);
     test.setTimeout(240_000);
     await gotoDashboard(page);
     const results = await captureStates(page, {
@@ -114,7 +130,8 @@ test.describe("retro-ux identity + connectivity", () => {
   // group-servers-by-identity (test-plan #F12, Settings part): cards with several routes, a refused route, a
   // route that cannot prove identity, and the pair-with-code dialog (open and refusing) pass contrast, size and
   // focus in the 3 themes at both widths. Not run in the authoring session (needs the docker harness).
-  test("F12: Settings ▸ Servers cards and the pair-with-code dialog are probed non-vacuously in all 3 themes", async ({ page }) => {
+  test("F12: Settings ▸ Servers cards and the pair-with-code dialog are probed non-vacuously in all 3 themes", async ({ page, request }) => {
+    await skipOnEnforcingCsp(request);
     test.setTimeout(360_000);
     await gotoDashboard(page);
     const states = ["identity-cards", "cant-prove", "pair-with-code", "pair-with-code-refused"];
@@ -143,7 +160,8 @@ test.describe("retro-ux identity + connectivity", () => {
     expect(hitCount("/api/users")).toBeGreaterThanOrEqual(2);
   });
 
-  test("F8: the menu is open at screenshot time at both widths", async ({ page }) => {
+  test("F8: the menu is open at screenshot time at both widths", async ({ page, request }) => {
+    await skipOnEnforcingCsp(request);
     test.setTimeout(120_000);
     await gotoDashboard(page);
     const mixed = byId(serverSelectorStates, "open-mixed");
