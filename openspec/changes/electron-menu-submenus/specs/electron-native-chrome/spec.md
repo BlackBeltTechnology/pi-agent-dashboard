@@ -19,6 +19,12 @@ The application menu SHALL provide About, update-check, Doctor, and remote-conne
 - **AND** View contains Reload `CmdOrCtrl+R`, Force Reload `CmdOrCtrl+Shift+R`, toggleDevTools, zoom, and togglefullscreen
 - **AND** Help contains "Doctor", "Check for Updates…", "View Update Log", a separator, and "About"
 
+#### Scenario: Servers submenu stays live on Windows and Linux
+
+- **WHEN** the paired-server list changes while the app runs on Windows or Linux
+- **THEN** the application menu is rebuilt once and the Dashboard → Servers submenu lists the new server without a restart
+- **AND** the top-level items remain exactly Dashboard, Edit, View, and Help
+
 #### Scenario: Update-check item hidden in dev
 
 - **WHEN** running an unpackaged dev build

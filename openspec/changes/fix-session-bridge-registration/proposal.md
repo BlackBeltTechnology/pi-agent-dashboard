@@ -77,6 +77,8 @@ _None._
   `terminated?`/`terminatedPids?` on `REGISTER_TIMEOUT` entries (#1128).
 - `settings-panel` — MODIFIED `Settings panel exposes spawn-register timeout`: helper text states
   termination (#1128).
+- `faux-model-integration-tests` — MODIFIED `Clean-environment VM smoke`: allows one additional
+  faux-backed VM check (`qa/tests/53-bridge-session-replacement.sh`, #1175) beside the prompt smoke.
 
 ## Non-goals
 

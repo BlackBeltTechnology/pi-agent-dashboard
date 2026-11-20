@@ -198,6 +198,11 @@ When a split workspace is live for the link's session, a resolved file link (rel
 - **WHEN** the client then resolves the original path (contained by the git common root, so no `outside`)
 - **THEN** the pane SHALL open an absolute-path tab for `<parentRoot>/src/a.ts` and saving it SHALL raise the write prompt (bound-checkout roots do not admit a write)
 
+#### Scenario: Windows drive-letter case does not duplicate the tab
+- **GIVEN** a live split with cwd `C:/Work/repo` and the server resolves the link to `c:/Work/repo/a.md` (drive letter lower-case)
+- **WHEN** the client normalises the resolved path against the cwd
+- **THEN** only the drive letter SHALL be compared case-insensitively and the cwd-relative tab `a.md` SHALL open, not an absolute-path tab; the rest of the path stays case-sensitive
+
 #### Scenario: nonexistent contained path still shows not-found
 - **WHEN** the server returns `{ resolved: null }`
 - **THEN** the link SHALL render the inline not-found affordance and nothing SHALL open
@@ -213,10 +218,15 @@ Whenever a split is live for the link's session, a file link SHALL open the edit
 
 ### Requirement: File links without a live split SHALL deep-link before falling back to the overlay
 
-Without a live split for the link's session, a link carrying a session id SHALL navigate to `buildEditorUrl(sessionId, path, line)`; only a link with no session id SHALL keep the preview overlay.
+Without a live split for the link's session, a localhost browser with a detected editor SHALL keep today's `openEditor` / `POST /api/open-editor` call (see "Click routing — localhost editor"); the deep link is used only when no editor is detected or the page is not on localhost. In that case a link carrying a session id SHALL navigate to `buildEditorUrl(sessionId, path, line)`; only a link with no session id SHALL keep the preview overlay.
+
+#### Scenario: no live split on localhost with a detected editor keeps the editor call
+- **GIVEN** `isLocalhost()` is true, `ToolContext.editors` is non-empty, no split workspace for the session and a link with `sessionId` `s1`
+- **WHEN** the user clicks an absolute path link
+- **THEN** `openEditor` / `POST /api/open-editor` SHALL be called once, and the client SHALL NOT navigate to `buildEditorUrl` and SHALL NOT mount `FilePreviewOverlay`
 
 #### Scenario: no live split but a session id deep-links
-- **GIVEN** no split workspace for the session and a link with `sessionId` `s1`
+- **GIVEN** no split workspace for the session, no detected editor (or a non-localhost page) and a link with `sessionId` `s1`
 - **WHEN** the user clicks an absolute path link
 - **THEN** the client SHALL navigate to `buildEditorUrl("s1", <path>, line)`
 

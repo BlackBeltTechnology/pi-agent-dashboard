@@ -62,6 +62,21 @@ When a built-in editable tab (`MarkdownViewer`, `EditablePreviewTab`) holds an u
 
 In-app leaves SHALL show Save / Discard / Cancel. Cancel keeps the tab and buffer; Discard proceeds and drops the buffer; Save writes through `POST /api/file/write` and proceeds only on success (a 409 shows `ChangedOnDiskBanner`, a 403 shows the error; neither proceeds).
 
+#### Scenario: One dialog lists every dirty tab
+- **GIVEN** two dirty built-in tabs in scope of one leave (pane close, session switch or layout switch)
+- **WHEN** the leave is attempted
+- **THEN** one dialog SHALL list both tabs; Save SHALL save them in order and proceed only if every save succeeds (a failing tab stops the sequence, keeps its buffer and shows its error, and tabs already saved stay saved); Discard SHALL drop all listed buffers; Cancel SHALL change nothing
+
+#### Scenario: An overlapping leave joins the open dialog
+- **GIVEN** the unsaved dialog is open from one leave attempt
+- **WHEN** a second leave is attempted (e.g. pane close while a session switch is pending)
+- **THEN** no second dialog SHALL stack; the second leave SHALL wait on the open dialog and receive the same verdict
+
+#### Scenario: Dialog keyboard and focus
+- **GIVEN** the unsaved dialog opens
+- **WHEN** it receives focus, then the user presses Escape or clicks the backdrop
+- **THEN** initial focus SHALL be on Cancel, Escape and a backdrop click SHALL both act as Cancel, and Enter SHALL NOT trigger Discard by default
+
 #### Scenario: Cancel keeps the buffer
 - **GIVEN** the dialog above
 - **WHEN** the user chooses Cancel

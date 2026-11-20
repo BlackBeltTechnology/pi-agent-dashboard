@@ -19,7 +19,8 @@ a later different-instance load would pass the guard. This is the same fail-open
 has.
 Verify (task): the replacement instance's `handleSessionChange` sends a second `session_unregister`
 for the already-unregistered outgoing id (`session-sync.ts:~267`); the server must treat it as a
-no-op, including under `harden-bridge-session-claim` ownership gating. The existing
+no-op. This change tests only today's gateway; the claim-gated unregister semantics are owned and
+tested by `harden-bridge-session-claim` (owner decision, G1). The existing
 `bridge-resume-disconnect.test.ts` passes because it reuses the SAME `pi` object; the new bridge test
 uses a distinct `pi2` so it cannot regress to that simulation. Relationship: the main
 `bridge-extension` requirement "Bridge WebSocket survives session replacement" is the outcome contract;
@@ -60,7 +61,8 @@ Control set (named const `PINNED_FRAME_TYPES` in `connection.ts`): `session_regi
 `session_unregister`, `replay_complete`, `commands_list`, `models_list`, `providers_list`.
 `event_forward` (incl. `replay: true`) is never pinned. Known residual (not pinned): one-shot sync
 frames `session_name_update`, `first_message_update`, `usage_recorded` can still be evicted in a flood;
-the session still registers. Whether to widen the set is an open owner question.
+the session still registers. Owner decision (G2): the set is NOT widened; a test pins these frames as evictable, and widening is a follow-up if
+the aggregated overflow warning shows loss in practice.
 
 ## D3 — #1128: honest wording + evidence, reclaim unchanged
 

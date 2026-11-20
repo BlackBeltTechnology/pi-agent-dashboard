@@ -28,6 +28,12 @@ The Automation board SHALL show a loading state until its definitions fetch sett
 - **WHEN** a mutation (delete, enable/disable, run now, stop, create) triggers a refresh
 - **THEN** the previously loaded list SHALL stay rendered (no `automation-loading`) and card-local state, including a stop result notice, SHALL be preserved
 
+#### Scenario: Folder change clears the list and ignores stale responses
+- **GIVEN** the board is loading definitions for folder A
+- **WHEN** the folder changes to B before A's request settles
+- **THEN** the list SHALL be cleared and `automation-loading` SHALL show (no folder-A definitions visible)
+- **AND** a late response for A, success or failure, SHALL be ignored (last-request-wins) so the board converges to B's result with no error caused by A
+
 #### Scenario: Failed reload clears the list
 - **GIVEN** a board that loaded definitions earlier
 - **WHEN** a Retry or mutation refresh fetch fails

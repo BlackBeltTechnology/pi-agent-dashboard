@@ -14,7 +14,7 @@ The shell SHALL NOT render an empty panel for a `shell-overlay-route` claim. Whi
 #### Scenario: Claim chunk fails to load
 - **GIVEN** a lazy `shell-overlay-route` claim whose module import rejects
 - **WHEN** the route is opened
-- **THEN** an error panel naming the claim's plugin SHALL render with a Back control
+- **THEN** an error panel naming the claim's plugin by its raw `pluginId` (no manifest lookup, no error message text) SHALL render with a Back control
 - **AND** the overlay SHALL NOT be empty
 
 #### Scenario: Claim throws on render

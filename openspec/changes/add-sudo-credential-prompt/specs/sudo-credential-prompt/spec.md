@@ -15,6 +15,10 @@ When `sudoCredentialPrompt.enabled` is true (the default) on macOS or Linux and 
 - **WHEN** the setting is explicitly false, or the platform is `win32`
 - **THEN** `SUDO_ASKPASS` is not set by the bridge
 
+#### Scenario: Disabling at runtime takes effect immediately
+- **WHEN** the operator sets `sudoCredentialPrompt.enabled` to false while a session is running
+- **THEN** the cache is zeroed, a pending prompt is dismissed (helper exit 1), and the wrapper and socket are removed and `SUDO_ASKPASS` unset only if still ours, without waiting for the next session start
+
 #### Scenario: Pre-existing operator SUDO_ASKPASS is never overwritten
 - **WHEN** `SUDO_ASKPASS` is already set when the identity is observed
 - **THEN** the bridge leaves it untouched and installs no helper
@@ -48,7 +52,7 @@ When `sudoCredentialPrompt.enabled` is true (the default) on macOS or Linux and 
 - **THEN** the socket and wrapper are deleted and `SUDO_ASKPASS` is unset only if it still equals the bridge's path
 
 ### Requirement: Operator is prompted per askpass invocation
-Each askpass invocation without a fresh cached password SHALL show one masked-password modal in the dashboard stating the session, every bash/`user_bash` command in flight (shown in full, scrollable), and sudo's prompt text (control characters stripped, labelled as text supplied by the command, any truncation from the middle with a marker). A submitted password SHALL be returned to sudo on stdout only; Cancel, Esc, or timeout (default 120 s) SHALL make the helper exit non-zero.
+Each askpass invocation without a fresh cached password SHALL show one masked-password modal in the dashboard stating the session, every bash/`user_bash` command in flight (shown in full, scrollable), and sudo's prompt text (escaped, labelled as text supplied by the command, bounded: see the prompt-text requirement). A submitted password SHALL be returned to sudo on stdout only; Cancel, Esc, or timeout (default 120 s) SHALL make the helper exit non-zero.
 
 #### Scenario: Password continues the command
 - **WHEN** `sudo true` runs in a bash tool call and the operator submits the correct password
@@ -61,6 +65,10 @@ Each askpass invocation without a fresh cached password SHALL show one masked-pa
 #### Scenario: Timeout fails closed
 - **WHEN** no answer arrives within the timeout
 - **THEN** the helper exits 1 and the modal is dismissed on all browsers
+
+#### Scenario: Timeout is not sticky
+- **WHEN** a prompt timed out and the same still-running call runs `sudo` again
+- **THEN** a new modal is raised (not refused); sudo's own three-attempt budget bounds repeats
 
 #### Scenario: Password manager does not capture
 - **WHEN** the modal renders its password field
@@ -117,11 +125,11 @@ While the askpass feature is installed, the single `user_bash` handler SHALL alw
 - **THEN** the helper exits 1 at once without waiting for the timeout
 
 #### Scenario: Stale client that cannot show the modal is refused fast
-- **WHEN** the only subscribed browser runs an old client that ignores `sudo_credential_request` and sends no `sudo_credential_shown {callId}` within ~2 s
+- **WHEN** the only subscribed browser runs an old client that ignores `sudo_credential_request` and sends no `sudo_credential_shown {callId}` within 2 000 ms
 - **THEN** the server relays `sudo_credential_cancel {callId, reason:"unanswerable"}`, the helper exits 1, and the refusal is not sticky for later prompts
 
 #### Scenario: Any one ack keeps the prompt open
-- **WHEN** at least one subscribed browser acks with the pending `callId` within ~2 s
+- **WHEN** at least one subscribed browser acks with the pending `callId` within 2 000 ms
 - **THEN** the prompt stays pending until answered, cancelled, dismissed or timed out
 
 #### Scenario: Same-user residual is documented
@@ -181,12 +189,20 @@ The helper SHALL receive the password only over the accepted socket connection a
 - **WHEN** a browser subscribes while a sudo prompt is pending
 - **THEN** it receives the request metadata and no credential field
 
+#### Scenario: Pending request is replayed to a reloaded owner
+- **WHEN** an owner browser at tier `control` reloads or newly subscribes while a prompt is pending
+- **THEN** it receives the pending request again (commands and prompt text only, never a password), may ack it with `sudo_credential_shown`, and its answer is delivered once
+
 ### Requirement: Any authenticated session-owner client may answer
 `sudo_credential_response`, `_cancel`, `_forget` and the `_shown` ack SHALL be accepted from any authenticated browser owning the session (session-owner scope; WS tier `control`, listed in `WS_MESSAGE_TIERS`), including over plain non-loopback HTTP. A remote bridge SHALL be served only when the vault trust predicate (`decideVaultTrust`) passes. The first answer wins; other browsers get `sudo_credential_dismiss`.
 
 #### Scenario: Plain-HTTP LAN browser can answer
 - **WHEN** the only subscribed browser is authenticated over non-loopback `http`
 - **THEN** the modal is shown and its answer is accepted
+
+#### Scenario: Observe-tier sockets neither receive nor ack
+- **WHEN** an owning browser socket is at tier `observe` while a prompt is pending
+- **THEN** it receives no `sudo_credential_request` or replay and its `sudo_credential_shown` or response is dropped; with only observe sockets subscribed the request is refused at once
 
 #### Scenario: Non-owner cannot answer
 - **WHEN** the owner resolver is active and a browser not owning the session sends `sudo_credential_response`
@@ -249,3 +265,40 @@ The bridge SHALL cache the operator-entered password in memory only, per session
 #### Scenario: Gate precedes the cache
 - **WHEN** a helper request fails the in-flight or single-pending gate while the cache is fresh
 - **THEN** it is refused and the cached password is not returned
+
+### Requirement: Configuration values are clamped and defaulted
+`sudoCredentialPrompt.cacheMinutes` SHALL be floored to an integer and clamped to 0–60, non-numeric values defaulting to 5. `sudoCredentialPrompt.timeoutMs` SHALL be clamped to 5 000–600 000, non-numeric values defaulting to 120 000. A missing `sudoCredentialPrompt` key SHALL resolve to `{enabled:true, timeoutMs:120000, cacheMinutes:5}`. Invalid values never reject the config write.
+
+#### Scenario: Out-of-range and non-numeric values are clamped
+- **WHEN** config holds `cacheMinutes` of -1, 1.5, 61 or `"abc"`, or `timeoutMs` of 0, 1e9 or `"abc"`
+- **THEN** they resolve to 0, 1, 60, 5 and to 5 000, 600 000, 120 000 respectively
+
+### Requirement: Latency and memory bounds
+Refusing a helper request, and answering one from a fresh cache, SHALL complete with p95 at most 250 ms and 100 ms respectively on the unix socket, with no 120 s wait. Per-sudo-pid invocation state SHALL be evicted no later than the cache window after the last invocation. The masker overhead for a registered password SHALL stay within 2x of baseline on 10 MiB of output (regression guard).
+
+#### Scenario: Refusal and cache hit are prompt
+- **WHEN** 200 gate-refused requests and 1 000 cache-hit requests are issued
+- **THEN** p95 latency is at most 250 ms and 100 ms respectively
+
+#### Scenario: Per-pid state does not leak
+- **WHEN** 1 000 distinct sudo pids have invoked the helper and the cache window has elapsed
+- **THEN** no per-pid counter entries remain
+
+### Requirement: Prompt text is bounded and the answer is validated
+The prompt text SHALL be capped at 500 displayed characters; beyond the cap the first 250 and last 250 characters are kept with an `N more chars` marker between them. An empty password, or one longer than 1 024 characters, SHALL be rejected by the dialog and by the relay and SHALL never reach the bridge masker, the cache or the helper. Only one prompt is pending per session: a second helper request while one is pending SHALL be refused at once (helper exit 1) and never queued.
+
+#### Scenario: Second request while a prompt is pending is refused
+- **WHEN** a prompt is pending and a second helper request arrives (for example from a parallel bash call)
+- **THEN** the second helper exits 1 at once, no second modal or queue entry exists, and the first modal is unaffected
+
+#### Scenario: Prompt text with hostile characters is shown as escapes
+- **WHEN** `sudo -p` text contains ESC, CR, BEL, NUL, newline, U+202E or U+200B
+- **THEN** each is displayed as a visible escape (`\x1b`, `\r`, `\x07`, `\x00`, `\n`, `\u202E`, `\u200B`) and the text is rendered inert
+
+#### Scenario: Long prompt text is truncated from the middle
+- **WHEN** the displayed prompt text exceeds 500 characters
+- **THEN** the first 250 and last 250 characters are shown with an `N more chars` marker between them; a text of 500 characters or fewer is shown whole
+
+#### Scenario: Empty or over-long password is rejected
+- **WHEN** the operator submits an empty password, or a password longer than 1 024 characters, or such a response reaches the relay or bridge
+- **THEN** the dialog sends nothing, the relay drops it, the bridge never registers, caches or delivers it, and the prompt stays pending

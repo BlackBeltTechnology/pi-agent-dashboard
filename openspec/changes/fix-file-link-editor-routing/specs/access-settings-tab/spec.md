@@ -29,6 +29,18 @@ Two stores have no revoke capability today — the worktree-init hook trust stor
 - **WHEN** any grant is revoked
 - **THEN** the corresponding gate SHALL enforce the revocation on the next request without a server restart
 
+#### Scenario: Revoke mode values are validated
+
+- **GIVEN** a subject with a read grant and a write grant
+- **WHEN** `DELETE /api/access/grants` is sent with `mode` omitted
+- **THEN** every entry for the subject SHALL be removed
+- **WHEN** it is sent with `mode: "write"`
+- **THEN** only the write entry SHALL be removed
+- **WHEN** it is sent with `mode: "read"`
+- **THEN** only the read entry SHALL be removed
+- **WHEN** it is sent with any other `mode` value
+- **THEN** the response SHALL be `400` and nothing SHALL be removed
+
 #### Scenario: A write grant is shown and revoked on its own
 
 - **GIVEN** a write grant and a read grant for the same directory

@@ -33,3 +33,10 @@ Layout change ⇒ per `frontend-mockup-loop-dashboard` a live-component mock is 
 
 ### D5 — #1153 reproduce first (confirmed (owner, 2026-11-20))
 The issue does not name the failing menu and no surface reproduces from code. Ask the reporter which menu/viewport on the issue, and keep the reproduction-first task (4.1) before any fix; keep the 1280×720 spec as a regression guard if nothing reproduces.
+
+## Test-plan decisions (scenario-design gaps, accepted 2026-11-20)
+
+- Count button name is plural-aware: `1 session` / `N sessions`, reusing the existing i18n plural keys (verify the key supports plural at apply time).
+- Confirm-dialog session list renders every live session in a `max-h-32 overflow-y-auto` box (as `CloseWorktreeDialog`); no row-count cap.
+- No perf budget for the confirm-time live-set derivation (client-only O(n) filter on a click); no timed test.
+- Best-effort removal: each `onShutdown` call is wrapped so one throw does not stop the rest or the removal messages; when `onShutdown` is not provided and the folder has live sessions the Remove from sidebar item is not offered.

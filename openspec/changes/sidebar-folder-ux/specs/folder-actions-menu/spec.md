@@ -37,6 +37,23 @@ The `directory` group SHALL contain a **Remove from sidebar** item (`id: remove-
 - **THEN** a `shutdown` message SHALL be sent for every session in the folder's group (same grouping key as the card, including unpinned worktree sessions shown in it) whose status is not `ended` at the moment of confirming (including one that went live after the dialog opened)
 - **AND** the removal messages (`remove_folder_from_workspace` / `unpin_directory`, as applicable) SHALL be sent after them
 
+#### Scenario: Long live-session list stays usable
+- **GIVEN** a folder with many live sessions (for example 60) with long names
+- **WHEN** the confirm dialog opens
+- **THEN** every live session SHALL be listed inside a height-capped scrollable container (`max-h-32 overflow-y-auto`, as in `CloseWorktreeDialog`), with long names truncated
+- **AND** the Cancel and Confirm buttons SHALL remain visible
+
+#### Scenario: One failing shutdown does not abort the rest
+- **GIVEN** the confirm dialog for a folder with live sessions A and B, where sending `shutdown` for A throws
+- **WHEN** the user confirms
+- **THEN** `shutdown` SHALL still be sent for B, the removal messages SHALL still be sent, and the dialog SHALL close (best-effort, no client ack; the user may retry)
+
+#### Scenario: Shutdown callback unavailable
+- **GIVEN** a mount of the folder menu without an `onShutdown` callback and a folder with live sessions
+- **WHEN** the menu opens
+- **THEN** no Remove from sidebar item SHALL render for that folder
+- **AND** a folder with no live sessions SHALL still offer the item
+
 #### Scenario: Dialog outlives the menu
 - **GIVEN** the confirm dialog opened from the folder menu
 - **WHEN** the menu closes, or the folder leaves the list while the dialog is open

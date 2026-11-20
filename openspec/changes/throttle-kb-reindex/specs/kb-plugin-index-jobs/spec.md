@@ -1,11 +1,12 @@
 ## ADDED Requirements
 
 ### Requirement: Reindex runs in a kb worker thread
-The dashboard SHALL run a folder's reindex index work (opening the database, indexing every resolved source, stamping the gate records) in a dedicated `worker_threads` worker that owns its own SQLite handle. The main thread SHALL only resolve sources, schedule the worker, receive progress and log messages and request cancellation, and SHALL NOT write to that database while the worker runs. At most one worker SHALL run per folder. A crashed worker SHALL fail the job without affecting the server.
+The dashboard SHALL run a folder's reindex index work in a dedicated `worker_threads` worker that owns its own SQLite handle. The main thread SHALL only resolve sources, schedule the worker, receive progress and log messages and request cancellation, and SHALL NOT write to that database while the worker runs. At most one worker SHALL run per folder. A crash after ready SHALL fail only the job; a load failure before ready SHALL fall back in-process.
 
 #### Scenario: Large reindex leaves the main loop responsive
 - **WHEN** a forced reindex of a knowledge base of about 50,000 chunks runs
 - **THEN** the server main thread's maximum event-loop delay does not exceed 200 ms
+- **AND** this threshold is asserted by an opt-in measurement test (`KB_MEASURE=1`, run at ship time, result recorded in `design.md`), not by the default test suite
 
 #### Scenario: Reads proceed during the worker's writes
 - **WHEN** a search or `GET /api/kb/stats` runs while the worker is writing
@@ -16,8 +17,14 @@ The dashboard SHALL run a folder's reindex index work (opening the database, ind
 - **THEN** no second worker starts and the response is still `202`
 
 #### Scenario: Worker crash fails the job only
-- **WHEN** the worker exits abnormally
+- **WHEN** the worker exits abnormally after it reported ready
 - **THEN** the job ends in `error` with a message, the server keeps running and a later reindex can start
+
+#### Scenario: Worker load failure falls back in-process
+- **WHEN** the worker fails to load (bootstrap or import error) before it reports ready
+- **THEN** that job runs in-process through the same indexing core and ends as it would have in worker mode
+- **AND** a warning naming the load failure is logged and the job's log line records `mode=inprocess`
+- **AND** a later reindex tries the worker again
 
 #### Scenario: Config edited between resolve and worker load
 - **WHEN** the folder's configuration changes after the main thread resolved the sources but before the worker loads it
@@ -58,6 +65,16 @@ A folder's running job SHALL be cancellable via `POST /api/kb/reindex/cancel?cwd
 - **WHEN** the server shuts down while a worker is running
 - **THEN** the worker is terminated without waiting out the grace period
 
+#### Scenario: Repeated cancel is idempotent
+- **GIVEN** a job whose cancellation is in progress (grace period not elapsed)
+- **WHEN** cancel is requested again
+- **THEN** the response is `200` with `cancelled: true`, no second termination is scheduled and `GET /api/kb/stats` still reports `jobStatus: "running"` (no new status value) until the job settles
+
+#### Scenario: Cancel keeps an already completed source's stamp
+- **GIVEN** a multi-source pass in which source A completed and was stamped and source B is running
+- **WHEN** cancel is requested during B
+- **THEN** A's per-source stamp is kept, B and the pass receive no stamp, and a later run completes indexing only changed files
+
 #### Scenario: Reindex requested during cancellation
 - **WHEN** a reindex request arrives for a folder whose job is being cancelled
 - **THEN** a new job starts after the cancelled job settles and the request is not dropped
@@ -76,6 +93,10 @@ While a job runs, `GET /api/kb/stats` SHALL include an optional transient `progr
 #### Scenario: Stats exposes progress
 - **WHEN** stats is polled during a running job after at least one batch committed
 - **THEN** the response includes `progress` with `done` and `total`
+
+#### Scenario: Progress absent before the first batch commits
+- **WHEN** stats is polled during a running job before any batch has committed
+- **THEN** the response has no `progress` field
 
 #### Scenario: Progress absent when idle
 - **WHEN** no job is running for the folder

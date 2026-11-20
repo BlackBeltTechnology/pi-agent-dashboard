@@ -35,12 +35,16 @@ The partial answer of an unanswered ask-user prompt (`select`/`multiselect` chec
 - **WHEN** a prompt reaches a surface without a prompt id (e.g. a question row from an older server)
 - **THEN** no draft SHALL be stored or restored for it, and two such prompts SHALL NOT share a draft
 
+#### Scenario: Renderer without a session id is not persisted
+- **WHEN** an interactive renderer is mounted with a prompt id but no session id
+- **THEN** no draft SHALL be stored or restored for it, and no `ask-draft` key SHALL be written for it, while typing still works within the mounted card
+
 #### Scenario: No leak
 - **WHEN** session B has its own pending prompt while session A has a draft
 - **THEN** B's prompt SHALL show no content from A's draft
 
 ### Requirement: Prompt draft storage and lifecycle
-Prompt drafts SHALL live in an in-memory store, mirrored debounced and size-capped to `sessionStorage` (per tab) under `ask-draft:<sessionId>:<promptId>` and flushed on unmount and page hide. Invalid entries SHALL be ignored. Pasted images SHALL stay in memory, scoped per session, prompt and step, never serialised. A draft SHALL be deleted when its prompt is no longer pending (from session state, mounted or not) or is older than 24 hours.
+Prompt drafts SHALL live in an in-memory store, mirrored debounced and size-capped (serialised entry at most 16 384 UTF-16 code units) to `sessionStorage` (per tab) under `ask-draft:<sessionId>:<promptId>` and flushed on unmount and page hide. Invalid entries SHALL be ignored. Pasted images SHALL stay in memory, scoped per session, prompt and step, never serialised. A draft SHALL be deleted when its prompt is no longer pending (from session state, mounted or not) or is older than 24 hours.
 
 #### Scenario: Key naming
 - **WHEN** a draft exists for session `s1`, prompt `p1`
@@ -65,6 +69,14 @@ Prompt drafts SHALL live in an in-memory store, mirrored debounced and size-capp
 #### Scenario: Per-tab storage
 - **WHEN** a draft is written and the page is reloaded in the same tab, or a second tab opens the same session
 - **THEN** the reloaded tab SHALL restore it, the second tab SHALL NOT see it, and nothing SHALL be written to `localStorage`
+
+#### Scenario: Per-entry size cap
+- **WHEN** a draft's serialised entry is 16 384 UTF-16 code units or fewer
+- **THEN** it SHALL be mirrored to `sessionStorage`; when it is 16 385 or more the mirror write SHALL be skipped while the in-memory draft is kept and still restorable within the tab
+
+#### Scenario: Storage failure is non-fatal
+- **WHEN** `sessionStorage` throws on read or write (quota exceeded, storage disabled, `SecurityError`)
+- **THEN** the store SHALL stay memory-only without crashing or showing any user-visible notice, and the renderer SHALL still restore the in-memory draft within the tab
 
 #### Scenario: Corrupt or stale entry
 - **WHEN** an entry is invalid JSON, or a batch draft's step exceeds the question count

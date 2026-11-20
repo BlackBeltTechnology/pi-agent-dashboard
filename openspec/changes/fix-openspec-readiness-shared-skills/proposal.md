@@ -12,6 +12,7 @@ Issue [#1165](https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/1
 
 - `hasOpenSpecSkillsFor` returns `true` when `<configRoot>/.pi/skills/openspec-explore` **or** `<configRoot>/.agents/skills/openspec-explore` exists (short-circuit; legacy first). Config-root resolution and the `null`-root refusal stay unchanged.
 - `openspec-readiness` spec: skill-presence requirement + worktree requirement accept either layout; new scenarios for shared-only, both-absent, worktree via main checkout, null config root. The restated requirement also corrects the stale "fall back to the cwd" sentence to the implemented refusal (`false`, `directory-service.ts:595-598`, test E20); rationale and trade-off prose cover the committed shared layout.
+- The spec states that skill presence is recomputed on every poll (code-verified: `finalizeOpenSpecData` calls `hasOpenSpecSkillsFor` on every `pollOne` exit, including the status-all gate-hit path; the gate caches `allData` before skills are attached), so relocation converges without restart. If apply-time verification finds otherwise, widening the fingerprint to skill-dir mtimes is a scope decision, not silent.
 - Doc comments on `OpenSpecData.hasOpenSpecSkills` (`packages/shared/src/types.ts:1414`) and `ReadinessInputs.hasOpenSpecSkills` (`readiness.ts:40`) updated. No wire-format change.
 
 ## Capabilities

@@ -19,6 +19,11 @@ The server chip's label SHALL be capped to at most 32ch with an ellipsis, and th
 #### Scenario: Fallback overlay stays bottom-right
 - **GIVEN** a server chip with no live composer slot
 - **THEN** the chip SHALL render in the fixed bottom-right safe-area overlay
+#### Scenario: Root or absent path is omitted from the address
+- **GIVEN** a server chip on port 57783 whose path is `/` or absent
+- **THEN** the visible address SHALL be `127.0.0.1:57783` with no trailing `/`
+- **AND** the tooltip and accessible name SHALL end at the same address (`<title> — 127.0.0.1:57783` followed by the probe hint)
+
 #### Scenario: Address never truncates, accessible name carries the title
 - **GIVEN** a server chip with a long title and path
 - **THEN** the `127.0.0.1:<port>` part SHALL NOT shrink and only the path (then the label) SHALL truncate

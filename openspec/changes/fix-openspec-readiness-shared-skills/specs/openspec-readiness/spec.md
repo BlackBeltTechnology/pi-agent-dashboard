@@ -19,6 +19,11 @@ When the config root cannot be resolved (`null`), the probe SHALL be refused and
 `hasOpenSpecSkills` SHALL be `false`; it SHALL NOT be coerced to the cwd, and neither layout
 SHALL be probed under the cwd.
 
+`hasOpenSpecSkills` SHALL be recomputed on every poll tick, including a tick whose `openspec/`
+change gate reuses a previous build: skill presence SHALL NOT be served from a cached payload, so a
+skills directory created or removed out-of-band is reflected on the next poll without a server
+restart.
+
 The field is additive and optional: a client receiving `undefined` SHALL fall back to existing
 behaviour and SHALL NOT infer absence.
 
@@ -39,6 +44,12 @@ behaviour and SHALL NOT infer absence.
 - **WHEN** a cwd contains `<cwd>/.agents/skills/openspec-explore/` and no `<cwd>/.pi/skills/`
 - **THEN** its broadcast `OpenSpecData` SHALL carry `hasOpenSpecSkills: true`
 - **AND** the emitted readiness SHALL NOT be `STALE` with reason `missing-skills`
+
+#### Scenario: Skills relocation is reflected on the next poll
+
+- **WHEN** `<cwd>/.agents/skills/openspec-explore/` is created after a poll reported `hasOpenSpecSkills: false` and `<cwd>/openspec/` is unchanged
+- **THEN** the next poll's `OpenSpecData` SHALL carry `hasOpenSpecSkills: true`
+- **AND** removing both layouts afterwards SHALL make the following poll report `false` again
 
 ### Requirement: Worktree skill presence SHALL resolve to the config root
 

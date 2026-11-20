@@ -2,12 +2,16 @@
 
 ### Requirement: Compact-empty affordance
 
-In accordion mode, a folder rendering `compact empty` SHALL show its session count in the condensed header as a subdued `N`, and SHALL render no separate row below the header. N counts the folder's sessions after the hidden-session and search filters. The count SHALL be a `<button>` rendered as a sibling of the header name link (not inside its accessible name), with accessible name `N sessions`, painted `--text-secondary` or stronger (never `--text-muted`), and its click SHALL stop propagation so it does NOT navigate to the folder home. Activating the count SHALL focus the folder without changing its collapsed or pinned-open state. When N is zero the count SHALL NOT render. Clicking the rest of the header keeps its existing behaviour (focus the folder and open the folder home).
+In accordion mode, a folder rendering `compact empty` SHALL show its session count in the condensed header as a subdued `N`, and SHALL render no separate row below the header. N counts the folder's sessions after the hidden-session and search filters. The count SHALL be a `<button>` rendered as a sibling of the header name link (not inside its accessible name), with a plural-aware accessible name (`1 session` for N = 1, `N sessions` otherwise, reusing the existing i18n plural mechanism), painted `--text-secondary` or stronger (never `--text-muted`), and its click SHALL stop propagation so it does NOT navigate to the folder home. Activating the count SHALL focus the folder without changing its collapsed or pinned-open state. When N is zero the count SHALL NOT render. Clicking the rest of the header keeps its existing behaviour (focus the folder and open the folder home).
 
 #### Scenario: Count shown
 - **GIVEN** unfocused `/foo` with 18 visible sessions, none needing attention
 - **THEN** its header SHALL show `18` with accessible name `18 sessions`
 - **AND** no `N sessions — click to view` row SHALL render
+
+#### Scenario: Singular count
+- **GIVEN** unfocused `/foo` with exactly 1 visible session, none needing attention
+- **THEN** its header SHALL show `1` with accessible name `1 session`
 
 #### Scenario: Activating focuses
 - **WHEN** the user activates the count button of `/foo`, even while a session in another folder is selected

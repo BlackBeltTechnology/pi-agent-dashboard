@@ -27,6 +27,14 @@ to different things.
 - **WHEN** an unknown-working-directory denial arrives naming the same directory
 - **THEN** it SHALL be recorded as a separate entry, so the verdict applies the correct remedy
 
+#### Scenario: Concurrent writes coalesce and allow-once admits only the first
+
+- **GIVEN** a held write for `/out/a.md` and a second write for `/out/b.md` (same directory subject) joined onto the same entry
+- **WHEN** the operator answers allow-once
+- **THEN** only the request that raised the prompt SHALL be admitted, the joined request SHALL be refused (`403`, as a coalesced read is today), no grant SHALL be persisted, and a later write SHALL prompt again
+- **WHEN** the operator answers allow-always instead
+- **THEN** both held requests SHALL be released and re-evaluated against the persisted write grant
+
 #### Scenario: A write denial does not join a read entry
 
 - **GIVEN** a pending read request for a directory
