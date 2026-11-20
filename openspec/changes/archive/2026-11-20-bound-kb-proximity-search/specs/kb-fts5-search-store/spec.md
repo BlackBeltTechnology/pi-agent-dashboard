@@ -19,7 +19,7 @@ The store SHALL, when proximity boost is enabled, reward hits whose query terms 
 Proximity scoring SHALL NOT take time exponential in the number of query terms or in per-term occurrence counts. One search call SHALL stop starting new proximity computations once a fixed proximity-time budget, summed across all lanes, is spent.
 
 #### Scenario: Pathological repeated terms complete promptly
-- **WHEN** proximity boost is enabled and a candidate body repeats each of at least 10 query terms at least 100 times, interleaved
+- **WHEN** proximity boost is enabled and a candidate body repeats each of at least 10 query terms at least 100 times, interleaved, in an otherwise small index (so retrieval cost is dominated by proximity scoring)
 - **THEN** the search SHALL return in under 100 ms
 - **AND** the boost applied SHALL equal the boost of the smallest in-order window
 

@@ -28,8 +28,8 @@ type BeforeAgentStartInput = {
 };
 
 import { readFileSync } from "node:fs";
-import type { DoctrineConfig, GitScopeOptions } from "@blackbelt-technology/pi-dashboard-kb";
-import { agentsChain, buildFetchRoots, createGitScope, enrichHits, loadConfig, renderFetch, renderHits, resolveFetch, searchOptsFromConfig } from "@blackbelt-technology/pi-dashboard-kb";
+import type { DoctrineConfig, GitScopeOptions, KbHit, RenderedFetch } from "@blackbelt-technology/pi-dashboard-kb";
+import { agentsChain, createGitScope, enrichHits, loadConfig, renderHits, searchOptsFromConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import { Type } from "typebox";
 import {
   buildDoctrineFragment,
@@ -41,6 +41,8 @@ import {
 } from "./doctrine.js";
 import { createGuard, type GuardInput, guardNoteSafe, type KbGuard, resolveGuardMode } from "./guard.js";
 import { indexedPathPredicate } from "./indexed-paths.js";
+import { type FetchRequest, runQuery, type SearchRequest } from "./query-worker-entry.js";
+import { type QueryOutcome, queryWorkerHost } from "./query-worker-host.js";
 import {
   acknowledgeRows,
   awaitFreshness,
@@ -51,10 +53,12 @@ import {
   decideNudge,
   type FreshnessOutcome,
   freshnessStatus,
+  getKb,
   getKbOrEmpty,
   nudgeText,
   type ReindexState,
   resolveFreshnessBudgetMs,
+  resolveQueryTimeoutMs,
   STALE_LINE,
   scheduleReindex,
 } from "./reindex.js";
@@ -94,6 +98,32 @@ const textResult = (text: string, details: Record<string, unknown>): TextResult 
  *  `format: "json"`: the status line, then the bare `[]` as the final line.
  *  Returned, never thrown: an AbortError would end the call in an error state. */
 const cancelledResult = (details: Record<string, unknown>, json = false): TextResult => textResult(json ? `${CANCELLED_LINE}\n[]` : CANCELLED_LINE, { ...details, aborted: true });
+
+/** Docs retrieval for a cwd WITH a database: off the session thread via the
+ *  query worker, so Stop and the deadline interrupt it (change:
+ *  bound-kb-proximity-search, design D6–D9). The in-process fallback runs the
+ *  same `runQuery` on the session's store. Non-ok outcomes map to one status
+ *  line, `[]` as the final line for kb_search json; returned, never thrown. */
+async function retrieve<T>(
+  req: SearchRequest | FetchRequest,
+  store: Parameters<typeof runQuery>[0],
+  signal: AbortSignal | undefined,
+  label: string,
+): Promise<QueryOutcome<T>> {
+  return queryWorkerHost().run<T>(req, {
+    signal,
+    label,
+    timeoutMs: resolveQueryTimeoutMs(process.env.KB_QUERY_TIMEOUT_MS),
+    inProcess: () => runQuery(store, req) as T,
+  });
+}
+const outcomeResult = (out: Exclude<QueryOutcome<unknown>, { kind: "ok" }>, details: Record<string, unknown>, json = false): TextResult => {
+  if (out.kind === "cancelled") return cancelledResult(details, json);
+  const line = out.kind === "timeout"
+    ? `kb: query timed out after ${out.seconds}s — index may be oversized; try a narrower query`
+    : "kb: retrieval failed (query worker crashed)";
+  return textResult(json ? `${line}\n[]` : line, { ...details, ...(out.kind === "timeout" ? { timedOut: true } : { failed: true }) });
+};
 
 /** Freshness wait shared by the three tools: budget from env, outcome → status. */
 async function freshness(state: ReindexState, cwd: string, start: "always" | "if-empty", signal: AbortSignal | undefined): Promise<{ outcome: FreshnessOutcome; status: ReturnType<typeof freshnessStatus> }> {
@@ -291,16 +321,26 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
       // existing index (awaitFreshness never throws). See change: bound-kb-search-freshness.
       const fresh = await freshness(state, cwd, "always", signal);
       if (fresh.status === "cancelled" || signal?.aborted) return cancelledResult({ hits: 0 }, fmt === "json");
-      const { store, cfg } = getKbOrEmpty(state, cwd);
+      const kb = getKb(state, cwd);
+      const { store, cfg } = kb ?? getKbOrEmpty(state, cwd);
       if (fresh.status === "building") return textResult(fmt === "json" ? `${BUILDING_LINE}\n[]` : BUILDING_LINE, { hits: 0, stale: true });
       // One shared mapping (design D2, fix-kb-eval-measurement-integrity).
       // expandGraph:false + rerank:false are this tool's long-standing behaviour
       // (never expand/rerank), now written down as explicit overrides instead of
       // a silent omission.
-      const hits = store.search(
+      const req: SearchRequest = {
+        op: "search",
+        dbPath: cfg.dbAbsPath,
         query,
-        { limit, docType: docType as any, ...searchOptsFromConfig(cfg, { overrides: { expandGraph: false, rerank: false } }) },
-      );
+        opts: { limit, docType: docType as any, ...searchOptsFromConfig(cfg, { overrides: { expandGraph: false, rerank: false } }) },
+      };
+      // No database → the empty store, in-process as before (no worker).
+      let hits: KbHit[];
+      if (kb) {
+        const out = await retrieve<KbHit[]>(req, store, signal, "kb_search");
+        if (out.kind !== "ok") return outcomeResult(out, { hits: 0 }, fmt === "json");
+        hits = out.value;
+      } else hits = runQuery(store, req) as KbHit[];
       if (signal?.aborted) return cancelledResult({ hits: 0 }, fmt === "json");
       // Post-search trust-verdict enrichment (arm A) — async stage OUTSIDE the
       // store (design D10); store.search() stays sync. Labels only: ordering is
@@ -387,14 +427,28 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
       // Cold-start populate, bounded + abortable (see kb_neighbors).
       const fresh = await freshness(state, cwd, "if-empty", signal);
       if (fresh.status === "cancelled" || signal?.aborted) return cancelledResult({ found: false });
-      const { store, cfg } = getKbOrEmpty(state, cwd);
+      const kb = getKb(state, cwd);
+      const { store, cfg } = kb ?? getKbOrEmpty(state, cwd);
       if (fresh.status === "building") return textResult(BUILDING_LINE, { found: false, suppressedSections: 0, stale: true });
       // Every indexed root (remote included) via the shared resolver — the CLI
       // `kb get` uses the same one. Collisions list candidates, never a body.
       // See change: fix-kb-get-roots-and-guard (D1–D4).
       const arg = String(params.path ?? "");
-      const roots = buildFetchRoots(store.listRoots(), cfg.resolvedSources, cwd);
-      const r = renderFetch(resolveFetch(store, roots, arg, params.section), arg, params.section, "pass `section`");
+      const req: FetchRequest = {
+        op: "fetch",
+        dbPath: cfg.dbAbsPath,
+        arg,
+        section: params.section,
+        hint: "pass `section`",
+        fsSources: cfg.resolvedSources.map((s) => ({ id: s.id, dir: s.dir })),
+        cwd,
+      };
+      let r: RenderedFetch;
+      if (kb) {
+        const out = await retrieve<RenderedFetch>(req, store, signal, "kb_get");
+        if (out.kind !== "ok") return outcomeResult(out, { found: false });
+        r = out.value;
+      } else r = runQuery(store, req) as RenderedFetch;
       if (signal?.aborted) return cancelledResult({ found: false });
       const stale = fresh.status === "stale";
       const details: Record<string, unknown> = { found: r.found, suppressedSections: r.suppressedSections };
@@ -539,6 +593,7 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
   });
 
   pi.on("session_shutdown", async () => {
+    queryWorkerHost().shutdown();
     closeKb(state);
     await gitScope.shutdown(); // aborts background git-scope work, releases the lease
   });
