@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { chunkMarkdown } from "../chunker.js";
 import { loadConfig, validateConfig } from "../config.js";
 import { DEFAULT_SEARCHABLE_KEYS } from "../frontmatter.js";
 import { runIndexAtomic } from "../index-run.js";
@@ -261,6 +262,34 @@ describe("schema-version + config-hash reindex gate", () => {
   }
 
   const ADOC = "= Doc\n\n== Sec\nasciidoc body padded well past the tiny-chunk merge threshold so it survives.\n";
+
+  // See change: fix-kb-parent-link-and-section-miss (test-plan #X1).
+  it("X1 a stale-version index re-chunks wrong stored parents through the legacy gate", async () => {
+    const lines = ["---", "title: Frontend Extension Points", "---", "", "# Frontend Extension Points", "i".repeat(98)];
+    for (let i = 0; i < 12; i++) lines.push(`## Section ${i}`, String.fromCharCode(97 + i).repeat(200));
+    lines.push("### Nested", "n".repeat(150));
+    const text = lines.join("\n");
+    const dir = mkdir();
+    md(dir, "ext.md", text);
+    const dbPath = join(mkdir(), "index.db");
+    await runIndexAtomic({ dbPath, sources: [{ id: "t", dir }] });
+    // simulate an index written by the previous engine: self-referential parents, older version
+    const old = new DatabaseSync(dbPath);
+    old.exec("UPDATE chunks SET parent_chunk_id = chunk_id WHERE path = 'ext.md'");
+    old.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
+    old.close();
+
+    await runIndexAtomic({ dbPath, sources: [{ id: "t", dir }] }); // no force, no per-source gate
+    const want = new Map(chunkMarkdown({ root: "t", path: "ext.md", text }).chunks.map((c) => [c.chunkId, c.parentChunkId]));
+    const db = new DatabaseSync(dbPath);
+    const rows = db.prepare("SELECT chunk_id, parent_chunk_id FROM chunks WHERE path = 'ext.md' AND chunk_id NOT LIKE '%:meta'").all() as Array<{ chunk_id: string; parent_chunk_id: string | null }>;
+    db.close();
+    expect(rows.length).toBe(want.size);
+    for (const r of rows) expect(r.parent_chunk_id ?? null, r.chunk_id).toBe(want.get(r.chunk_id));
+    const q = new SqliteFtsStore(dbPath);
+    expect(q.getUserVersion()).toBe(SCHEMA_VERSION);
+    q.close();
+  });
 
   it("E17 (asciidoc-support): the PRE-change chunks table is rebuilt via runIndexAtomic, not bricked", async () => {
     const dir = mkdir();

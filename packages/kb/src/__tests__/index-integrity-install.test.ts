@@ -226,7 +226,7 @@ describe("kb index CLI under concurrency (D1)", () => {
     const rep = c.out().stdout.match(/indexed (\d+) files .*?(\d+) chunks/);
     const fresh = countsOf(dbPath);
     expect(fresh.files).toBe(500);
-    expect(fresh.uv).toBe(3);
+    expect(fresh.uv).toBe(4);
     expect(String(fresh.chunks)).toBe(rep?.[2]);
     expect(h.counts().files).toBe(500); // the holder's next query sees the installed index
     h.close();
