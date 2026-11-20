@@ -29,6 +29,11 @@ The repository SHALL contain a non-test, never-executed module `scripts/codeql-a
 - **THEN** none SHALL carry an `accepted-risk:` reason or cite `#1104`
 - **AND** any entry that remains SHALL be `false-positive:` and SHALL name the admission gate and the file:line where the route and the `plugin_action` handler run it
 
+#### Scenario: A still-reproducing F1 entry is re-typed by a reason-only edit
+- **GIVEN** the F1 alerts still reproduce after #1104 is fixed (no script mode re-types a still-reproducing entry)
+- **WHEN** only the `reason` of each `automation-writer.ts` entry is changed to a `false-positive:` reason naming the admission gate, and the analysis is then re-run
+- **THEN** the run SHALL be recorded against the edited baseline and `--check-baseline-diff` SHALL show only those reason changes (no `ruleId`, `file`, `lineHash` or `count` change)
+
 #### Scenario: Test code stays out of scope
 - **WHEN** a flagged pattern exists only in a `__tests__` file
 - **THEN** no result SHALL reference that file

@@ -24,3 +24,8 @@ When `folder-banner` resolves hidden and the folder is in a state that would sho
 - **GIVEN** Focus mode is off, `folder-banner` hidden, and folder `/a` has a trusted init hook that has not run
 - **WHEN** `/a` renders
 - **THEN** the compact chip naming the state SHALL render exactly as before
+
+#### Scenario: Focus with the banner shown is unaffected
+- **GIVEN** Focus mode is on, the focus profile shows `folder-banner`, and folder `/a` requires re-trust
+- **WHEN** `/a` renders expanded
+- **THEN** the full banner SHALL render for `/a`

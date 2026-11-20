@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Engine fingerprint covers only row-producing sources
-The kb engine fingerprint recorded per source and compared by the staleness gate SHALL be `rowsHash` of `engine-fingerprint.json`: a digest of the LF-normalized contents of the row-producing source files (the chunkers, the indexer, frontmatter/property extraction and the gitignore walk filter). An edit to any other file under `packages/kb/src/` SHALL NOT change it. `srcHash`, `tsconfigHash` and `distHash` SHALL remain in the file for the build-freshness gate.
+The kb engine fingerprint recorded per source and compared by the staleness gate and the worktree seed gate SHALL be `rowsHash` of `engine-fingerprint.json`: a digest of the row-producing source files (chunkers, indexer, frontmatter extraction, gitignore filter). Other files under `packages/kb/src/` SHALL NOT affect it. `srcHash`, `tsconfigHash` and `distHash` SHALL remain for the build-freshness gate.
 
 #### Scenario: Non-row edit does not force a reindex
 - **GIVEN** a docs database whose source `docs` records the running engine fingerprint
@@ -16,6 +16,10 @@ The kb engine fingerprint recorded per source and compared by the staleness gate
 - **WHEN** `indexer.ts` (transitively) imports a module that is neither in the row-producing set nor in the declared non-row list
 - **THEN** the guard test fails
 
+#### Scenario: Store DDL edit without a schema bump is caught
+- **WHEN** the `sqlite-store.ts` table definitions change while `SCHEMA_VERSION` is unchanged
+- **THEN** the golden test pinning `{SCHEMA_VERSION, digest of the definitions}` fails and tells the author to bump `SCHEMA_VERSION`
+
 #### Scenario: Missing rowsHash disables engine gating
 - **WHEN** `engine-fingerprint.json` lacks `rowsHash`
 - **THEN** the running engine is `null` and no engine record is kept or required
@@ -27,9 +31,9 @@ The indexer SHALL commit the open batch and yield to the event loop when either 
 - **WHEN** files are processed slowly enough that the budget elapses before the count threshold
 - **THEN** the transaction is committed and control yields to the event loop at that point
 
-#### Scenario: Forced pass keeps the loop responsive
-- **WHEN** a forced pass indexes a synthetic multi-thousand-file corpus
-- **THEN** the maximum observed event-loop delay does not exceed 250 ms
+#### Scenario: Yield cadence is bounded by the budget
+- **WHEN** a forced pass indexes a synthetic multi-thousand-file corpus under a controlled clock
+- **THEN** the span between consecutive commit-and-yield points never exceeds the budget plus one file's processing time
 - **AND** the resulting rows are identical to a pass without the time budget
 
 ### Requirement: Index passes are cancellable and report progress

@@ -17,8 +17,9 @@ resolved path when it is contained by `cwd` (in its request spelling or, when it
 server-derived home allowlist rooted at `<os.homedir()>/.pi`; the `~/.pi` anchor
 is a server constant and MUST NOT be derived from request input. A leading
 `~user/` MUST NOT be expanded. The SAME anchor set (cwd in both spellings + git-root + `~/.pi`)
-MUST govern the eventual open/preview route, so a resolve never succeeds on a
-path the open route would reject. A mention that is contained
+MUST govern the eventual open/preview route, so a resolve never returns a contained
+result for a path the open route would reject; the only result for an uncontained path
+is `outside: true` (below), which the open route still gates. A mention that is contained
 but does not exist MUST return null (never an error). A mention that FAILS containment
 MUST NOT be statted: the endpoint SHALL return `{ resolved, kind, outside: true }` where
 `resolved` is the normalized absolute candidate (`~/` expanded, `..` collapsed), which
@@ -50,6 +51,11 @@ prompt, 403/404) stays the sole authority for reading it.
 - **THEN** the path SHALL fail containment, no `fs.stat` SHALL run, and the result SHALL be `{ resolved: "<home>/Downloads/x.md", kind: "tilde", outside: true }`
 - **AND** the result SHALL be identical whether or not the file exists
 
+#### Scenario: sensitive home path returns outside but is still refused on read
+- **WHEN** a request with a known `cwd` asks to resolve `~/.ssh/id_rsa`
+- **THEN** the result SHALL be `{ resolved: "<home>/.ssh/id_rsa", kind: "tilde", outside: true }` with no stat
+- **AND** opening it SHALL still be refused by the open route's forbidden-subject rule with no grant prompt
+
 #### Scenario: granted outside path resolves as contained
 - **GIVEN** a path-anchor grant covering `~/Downloads`
 - **WHEN** a request asks to resolve `~/Downloads/x.md` and the file exists
@@ -75,6 +81,97 @@ When the editor pane is NOT available for the link's session (no split workspace
 - **WHEN** the user clicks a file link
 - **THEN** an overlay SHALL open
 
+### Requirement: File links resolve lazily on open
+
+_Phase 1._ A detected file mention SHALL render synchronously on the client exactly as
+before (no render-time server dependency). Resolution against the filesystem
+SHALL occur when the link is opened: on activation the client SHALL request
+server resolution for the mention and open the server-resolved path. When the
+server returns null (a contained path with no such file) the client SHALL surface a not-found
+affordance and MUST NOT open an incorrect path. A result flagged `outside: true` is not
+null: the link opens, and a missing outside file is reported by the open route's load error
+in the opened tab, not by the not-found affordance (existence is never probed at resolve time).
+When the resolution request
+itself fails (network error, timeout, 5xx) the client SHALL fall back to its
+existing client-side open behavior and MUST NOT treat the failure as a null
+result. The server-resolved path SHALL be the authoritative open target. The client MUST NOT alter a path the server resolved, except the worktree probe of "Worktree link-origin re-rooting": it MAY first resolve the re-rooted worktree candidate and open that iff it resolves non-null.
+
+#### Scenario: click resolves and opens the real path
+- **WHEN** the user activates a link for `~/.pi/agent/settings.json` and the server resolves it
+- **THEN** the client SHALL open the server-resolved home path, not a filesystem-root path
+
+#### Scenario: click on a nonexistent mention does not open a wrong file
+- **WHEN** the user activates a link whose server resolution is null
+- **THEN** the client SHALL render an inline not-found affordance on the link (e.g. strikethrough / disabled) and MUST NOT make any open call
+
+#### Scenario: outside and missing opens a tab that shows the load error
+- **WHEN** the user activates `~/Downloads/missing.md` (outside the cwd, no such file) and the server returns `outside: true`
+- **THEN** the pane tab SHALL open and show the load error after the open route's gate and 404, and the link SHALL NOT render the not-found affordance
+
+#### Scenario: resolution request failure falls back to client behavior
+- **WHEN** the resolution request fails with a network error or 5xx
+- **THEN** the client SHALL fall back to its existing client-side open path and MUST NOT declare the file absent
+
+### Requirement: Worktree link-origin re-rooting
+
+The link resolution SHALL re-root an **absolute** file-link token whose path is rooted in the parent checkout onto the worktree's own tree when the session `cwd` is a dashboard worktree (`<parentRoot>/.worktrees/<slug>`). The re-root SHALL apply before the path is used for the tooltip, the preview overlay target, and the open-in-editor target, and SHALL replace the leading `<parentRoot>` segment of the path with the session `cwd` (the worktree root). When a link is opened, the re-rooted worktree path SHALL be used only if the server resolves it to an existing file; otherwise the original parent-checkout path SHALL open (existence is probed with the existing resolve call; a failed probe request is not "absent").
+
+`<parentRoot>` SHALL be derived from `cwd` alone by stripping a trailing
+`/.worktrees/<slug>` (or `\.worktrees\<slug>` on Windows) segment — a pure string
+operation, no server round-trip and no git invocation. Separator style and
+drive-letter case SHALL be normalized before the prefix compare so a forward-slash
+path and a native-separator cwd still match on Windows.
+
+Re-rooting SHALL apply ONLY when all hold; otherwise the path SHALL pass through
+unchanged (fail-open, never widening the target set beyond today's behavior):
+
+- the token is absolute, AND
+- `cwd` matches the `<parentRoot>/.worktrees/<slug>` shape, AND
+- the absolute path is under `<parentRoot>` but NOT already under `cwd`.
+
+Relative tokens SHALL continue to resolve against `cwd` unchanged.
+
+#### Scenario: parent-rooted absolute path re-rooted to the worktree
+- **GIVEN** session `cwd` is `/repo/.worktrees/x` and `/repo/.worktrees/x/node_modules/vitest/package.json` exists
+- **WHEN** an absolute token `path="/repo/node_modules/vitest/package.json"` is clicked
+- **THEN** the resolved/opened target SHALL be `/repo/.worktrees/x/node_modules/vitest/package.json`
+- **AND** the tooltip SHALL show the worktree-rooted path
+
+#### Scenario: path already under the worktree is unchanged
+- **GIVEN** session `cwd` is `/repo/.worktrees/x`
+- **WHEN** an absolute token `path="/repo/.worktrees/x/src/foo.ts"` is clicked
+- **THEN** the target SHALL remain `/repo/.worktrees/x/src/foo.ts` (no double-rooting)
+
+#### Scenario: foreign absolute path is unchanged
+- **GIVEN** session `cwd` is `/repo/.worktrees/x`
+- **WHEN** an absolute token `path="/etc/hosts"` (not under `<parentRoot>`) is clicked
+- **THEN** the target SHALL remain `/etc/hosts` verbatim
+
+#### Scenario: non-worktree session is unchanged
+- **GIVEN** session `cwd` is `/repo` (no `.worktrees/<slug>` segment)
+- **WHEN** an absolute token `path="/repo/node_modules/vitest/package.json"` is clicked
+- **THEN** the target SHALL remain `/repo/node_modules/vitest/package.json` verbatim
+
+#### Scenario: re-root applies to the open target, not only the tooltip
+- **GIVEN** session `cwd` is `/repo/.worktrees/x` and a localhost editor is detected
+- **WHEN** an absolute token `path="/repo/node_modules/vitest/package.json"` is clicked
+- **THEN** the `POST /api/open-editor` request SHALL target `/repo/.worktrees/x/node_modules/vitest/package.json`
+
+#### Scenario: relative token still resolves against cwd
+- **GIVEN** session `cwd` is `/repo/.worktrees/x`
+- **WHEN** a relative token `path="node_modules/vitest/package.json"` is clicked
+- **THEN** the target SHALL resolve to `/repo/.worktrees/x/node_modules/vitest/package.json` as today
+
+#### Scenario: no worktree copy falls back to the parent path
+- **GIVEN** session `cwd` is `/repo/.worktrees/x` and the worktree has no `node_modules/vitest/package.json` while `/repo/node_modules/vitest/package.json` exists
+- **WHEN** an absolute token `path="/repo/node_modules/vitest/package.json"` is clicked
+- **THEN** the re-rooted candidate SHALL resolve `null` and the target SHALL be the parent path `/repo/node_modules/vitest/package.json`, not a not-found
+
+#### Scenario: a failed probe is not treated as absent
+- **GIVEN** the same session and token and the resolve request for the re-rooted candidate fails (network error or 5xx)
+- **WHEN** the link is clicked
+- **THEN** the client SHALL take the offline fallback and SHALL NOT open the parent path as though the worktree copy were absent
+
 ## ADDED Requirements
 
 ### Requirement: File links open in the editor pane
@@ -91,9 +188,28 @@ When a split workspace is live for the link's session, a resolved file link (rel
 - **WHEN** the user clicks `~/Downloads/x.md` and the server returns `{ resolved: "/Users/u/Downloads/x.md", outside: true }`
 - **THEN** `openInSplit("/Users/u/Downloads/x.md", line)` SHALL be called and the link SHALL NOT be marked not-found
 
+#### Scenario: worktree session parent-checkout link opens the worktree copy when it exists
+- **GIVEN** a worktree session with cwd `<parentRoot>/.worktrees/w1`, a link to the absolute `<parentRoot>/src/a.ts` and `src/a.ts` existing in the worktree
+- **WHEN** the user clicks it and the server resolves the re-rooted `<parentRoot>/.worktrees/w1/src/a.ts`
+- **THEN** the pane SHALL open the cwd-relative tab `src/a.ts` (the worktree copy)
+
+#### Scenario: worktree session link opens the parent file when the worktree has no copy
+- **GIVEN** the same session and link, but the re-rooted candidate resolves `null`
+- **WHEN** the client then resolves the original path (contained by the git common root, so no `outside`)
+- **THEN** the pane SHALL open an absolute-path tab for `<parentRoot>/src/a.ts` and saving it SHALL raise the write prompt (bound-checkout roots do not admit a write)
+
 #### Scenario: nonexistent contained path still shows not-found
 - **WHEN** the server returns `{ resolved: null }`
 - **THEN** the link SHALL render the inline not-found affordance and nothing SHALL open
+
+### Requirement: Pane-first routing takes precedence over the localhost editor call
+
+Whenever a split is live for the link's session, a file link SHALL open the editor pane with the server-resolved path (the worktree probe aside, no client re-root on top, per "File links resolve lazily on open") and SHALL NOT call `openEditor` / `POST /api/open-editor`, regardless of "Click routing — localhost editor".
+
+#### Scenario: live split on localhost with a detected editor still opens the pane
+- **GIVEN** `isLocalhost()` is true, `ToolContext.editors` is non-empty and a split is live for the link's session
+- **WHEN** the user clicks a file link
+- **THEN** the pane SHALL open the file and no `POST /api/open-editor` request SHALL be made
 
 ### Requirement: File links without a live split SHALL deep-link before falling back to the overlay
 

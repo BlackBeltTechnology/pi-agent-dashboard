@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: Bridge ownership is released on session-replacing shutdown
-When the bridge instance that owns the process-wide bridge slot receives `session_shutdown` with `reason` `reload`, `new`, `resume` or `fork`, it SHALL release ownership so the fresh extension instance pi loads next initialises the bridge. A different pi instance that loads while the owner has not shut down (a subagent) SHALL still be skipped. `quit` SHALL NOT release ownership.
+When the bridge instance that owns the process-wide bridge slot receives `session_shutdown` with `reason` `reload`, `new`, `resume` or `fork`, it SHALL release ownership so the fresh `ExtensionAPI` pi loads next initialises the bridge (the ownership mechanism behind "Bridge WebSocket survives session replacement"). A different pi instance loading while the owner has not shut down (a subagent) SHALL still be skipped. `quit`, other and absent reasons SHALL NOT release.
 
 #### Scenario: Resume replacement registers
-- **WHEN** the owning instance receives `session_shutdown{reason:"resume"}` and pi then loads a new extension instance
+- **WHEN** the owning instance receives `session_shutdown{reason:"resume"}` and pi then loads a new extension instance (a distinct `ExtensionAPI` object)
 - **THEN** the new instance SHALL pass the re-entry guard and send `session_register` for the incoming session
 
 #### Scenario: New and fork replacement register

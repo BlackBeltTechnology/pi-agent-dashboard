@@ -2,7 +2,7 @@
 
 ### Requirement: Files outside the session folder SHALL edit and save only through the path grant gate
 
-A tab outside the session cwd (opened by an absolute or `~/` link) SHALL read via `GET /api/file` under the usual containment and grant prompt, and SHALL offer the same Edit toggle as any tab. Saving SHALL be admitted only by the `scoped-markdown-editing` grant gate; a refused save SHALL show the error and keep the buffer. Such tabs are not watched for disk changes.
+A tab outside the session cwd (opened by an absolute or `~/` link) SHALL read via `GET /api/file` under the usual containment and grant prompt, and SHALL offer the same Edit toggle as any tab. Saving SHALL be admitted only by the `scoped-markdown-editing` write-mode grant gate (a read grant does not admit it); a refused save SHALL show the error and keep the buffer. Such tabs are not watched for disk changes.
 
 #### Scenario: outside markdown keeps the Edit toggle
 - **GIVEN** cwd `/work/repo` and a granted tab for `/Users/u/Downloads/x.md`
@@ -20,7 +20,7 @@ A tab outside the session cwd (opened by an absolute or `~/` link) SHALL read vi
 - **THEN** the error SHALL be shown, the buffer SHALL stay dirty and the tab SHALL stay open
 
 #### Scenario: Granted outside save succeeds
-- **GIVEN** an edited buffer for `/Users/u/Downloads/x.md` and a grant covering `/Users/u/Downloads`
+- **GIVEN** an edited buffer for `/Users/u/Downloads/x.md` and a write-mode grant covering `/Users/u/Downloads`
 - **WHEN** the user saves
 - **THEN** the file SHALL be written, the dirty indicator SHALL clear and a concurrent disk change SHALL still yield the `409` banner
 

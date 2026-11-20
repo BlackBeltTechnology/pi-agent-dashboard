@@ -4,7 +4,7 @@
 
 The call SHALL be blocked, with a reason returned to the agent, when: the operator denies or dismisses the prompt; the operator chooses always-allow and then declines or dismisses the confirmation; the prompts are not settled within the configured timeout (default 120 seconds), which SHALL bound the first prompt and the confirmation together; no interactive UI is available to ask; a live YOLO session reports that the subject carries a remembered refusal; or the gate itself errors. A block reason SHALL be distinguishable by cause (denied, recently denied, timed out, no UI, refused by a remembered refusal under YOLO, error). A failure to obtain a YOLO answer from the dashboard server (error, timeout, disconnect, unsupported server) SHALL NOT count as the gate erroring: the gate SHALL continue with the ordinary prompt.
 
-After a call is blocked because the operator denied or dismissed it or it timed out, further gated calls in the same session whose target lies in the same containing directory (the direct parent of the canonical target, whether or not it exists yet) SHALL be blocked without a prompt for 120 seconds, with the reason `recently denied`. This suppression SHALL never allow a call, and SHALL take precedence over asking, including for targets in sensitive locations. It SHALL also take precedence over asking the server for a YOLO answer, except for a grantable, non-sensitive target when a live YOLO session answers it (see the YOLO requirement); a timed-out prompt is overridable that way, an operator Deny is not (the server holds it as a remembered refusal).
+After a call is blocked because the operator denied or dismissed it or it timed out, further gated calls in the same session whose target lies in the same containing directory (the direct parent of the canonical target, whether or not it exists yet) SHALL be blocked without a prompt for 120 seconds, with the reason `recently denied`. This suppression SHALL never allow a call, and SHALL take precedence over asking, including for targets in sensitive locations. It SHALL also take precedence over asking the server for a YOLO answer, except for a grantable, non-sensitive target when a live YOLO session answers it (see the YOLO requirement); a timed-out prompt is overridable that way, and so is a Deny that left no remembered refusal (see the Deny requirement), but an operator Deny the server remembered is not (it answers `refused`).
 
 A target inside a sensitive location (a subject the path-grant store refuses together with its descendants, such as `~/.ssh`) SHALL still be asked about, SHALL be marked as sensitive in the prompt, and SHALL offer only `Allow once` and `Deny`.
 
@@ -94,10 +94,20 @@ A target inside a sensitive location (a subject the path-grant store refuses tog
 - **WHEN** the agent retries under the same directory within 120 seconds
 - **THEN** the call SHALL be blocked as recently denied and the server SHALL NOT be asked
 
+#### Scenario: A recent timeout still blocks an ungrantable subject under YOLO
+- **GIVEN** a prompt for a file directly in the home directory timed out and an unscoped YOLO session is live
+- **WHEN** the agent retries under the same directory within 120 seconds
+- **THEN** the call SHALL be blocked as recently denied and the server SHALL NOT be asked
+
+#### Scenario: A YOLO decline leaves the recent-denial suppression in force
+- **GIVEN** the operator denied a read of `/w/other/a.txt` in session S and a YOLO session is live whose scope does not contain `/w/other`
+- **WHEN** session S reads `/w/other/b.txt` within 120 seconds and the server answers neither auto-allow nor refused
+- **THEN** the call SHALL be blocked without a prompt with the reason `recently denied`
+
 ### Requirement: A live YOLO session answers the out-of-root prompt
 
 When an out-of-root `read`, `write` or `edit` call would raise a prompt, the gate
-SHALL first ask (before the recent-denial suppression, for a grantable, non-sensitive target) the dashboard server whether a live YOLO session answers it. If
+SHALL first ask (before the recent-denial suppression, for a grantable, non-sensitive target) the dashboard server whether a live YOLO session answers it. When the server does not answer auto-allow or refused (any other answer, an error, no answer, or the question not being asked), the recent-denial suppression SHALL then apply before the ordinary prompt; for a sensitive or ungrantable target it applies directly because the server is never asked. If
 the server answers auto-allow, the call SHALL proceed exactly once, with no
 prompt shown and nothing granted. If the server answers that the subject carries
 a remembered refusal, the call SHALL be blocked without a prompt and logged as
@@ -117,9 +127,6 @@ when:
 - the target is a sensitive location (credentials or the agent's own control
   plane) — the prompt with its sensitive warning SHALL still be raised;
 - the subject is ungrantable — today's behaviour SHALL apply;
-- access under the same subject was denied or timed out moments ago AND the
-  target is a sensitive location or an ungrantable subject — the call SHALL be
-  blocked as recently denied;
 - no interactive UI is attached — the call SHALL be blocked as no-ui, since
   YOLO answers only what could have been asked.
 
@@ -159,7 +166,7 @@ prompted as usual.
 
 #### Scenario: A recent denial is not overridden
 
-- **GIVEN** an unscoped YOLO session is live and the operator denied access under a sensitive or ungrantable subject moments ago
+- **GIVEN** an unscoped YOLO session is live and the operator denied or timed out access under a sensitive or ungrantable subject moments ago
 - **WHEN** the agent retries a call under that subject
 - **THEN** the call SHALL be blocked as recently denied
 
@@ -197,3 +204,99 @@ prompted as usual.
 
 - **WHEN** a bridge connection asks for a YOLO answer naming a different session id
 - **THEN** the server SHALL refuse it and record no auto-allow
+
+### Requirement: An operator Deny at the gate is remembered durably
+
+When the operator explicitly answers `Deny` on the gate's access prompt, or
+dismisses that prompt, the bridge SHALL report the denied subject — the
+directory the always-allow requirement would name for that path — together with
+the path and the identity of the prompt that was answered, to the dashboard
+server — only when the connected server is proven to share the agent's host, as
+for the YOLO question. The server SHALL record it as a remembered refusal for the agent path
+gate under the YOLO refusal rules: durable across restarts, listed and clearable
+on the Access surface, never self-expiring.
+
+A timeout SHALL NOT be recorded, because nobody answered. Declining or
+dismissing the always-allow confirmation SHALL NOT be recorded, because the
+operator was choosing to allow.
+
+The server SHALL accept a report only from the authenticated bridge connection
+of the session it names, and only against an access prompt of that session that
+the server itself observed being raised, used at most once. It SHALL re-derive
+the subject from the path and refuse the report when the result differs from
+the reported subject. A report that cannot be delivered or is refused SHALL NOT
+change the outcome of the denied call. A Deny given while the session's bridge is
+not connected to the dashboard is not remembered durably (the server never saw
+the prompt); the recent-denial suppression still applies to a retry made while the
+YOLO question cannot be asked (no connected, same-host, `path-yolo`-announcing
+server), but once the bridge has reconnected a live YOLO session MAY auto-allow a
+grantable, non-sensitive retry within the window, as for any unremembered Deny. Where the bridge is connected, a Deny that nevertheless left no
+remembered refusal (the report was lost or not persisted by the server, or the
+answer was a declined always-allow confirmation) is covered by the recent-denial
+suppression only against an ordinary prompt: a live YOLO session MAY auto-allow
+a later call under that directory within the suppression window.
+
+Every path the bridge sends to the server for a YOLO question or a refusal
+report SHALL be the gate's absolute canonical target; the server SHALL refuse a
+non-absolute path.
+
+#### Scenario: A gate Deny becomes a remembered refusal
+
+- **GIVEN** the session's bridge is connected to the dashboard
+- **WHEN** the operator denies an out-of-root write to `/other/dir/a.txt`
+- **THEN** a remembered refusal for the agent path gate naming `/other/dir` SHALL be listed on the Access surface
+
+#### Scenario: A remembered gate refusal blocks a later YOLO auto-allow
+
+- **GIVEN** the session's bridge is connected to the dashboard, the operator denied `/other/dir/a.txt` at the gate, and the recent-denial window has elapsed
+- **AND** a YOLO session is later activated whose scope contains `/other/dir`
+- **WHEN** the agent writes `/other/dir/b.txt`
+- **THEN** the call SHALL NOT be auto-allowed and SHALL be blocked without a prompt
+- **AND** the gate SHALL log outcome `yolo-refused`
+- **AND** the server SHALL record the YOLO outcome as refused-by-prior-refusal
+
+#### Scenario: A remembered refusal does not change the gate without YOLO
+
+- **GIVEN** a remembered agent-path refusal for `/other/dir`, no live YOLO session, and the recent-denial window has elapsed
+- **WHEN** the agent writes `/other/dir/b.txt`
+- **THEN** the ordinary prompt SHALL be shown
+
+#### Scenario: A timeout is not remembered
+
+- **WHEN** a gate prompt times out without an answer
+- **THEN** no remembered refusal SHALL be recorded
+
+#### Scenario: A declined always-allow confirmation is not remembered
+
+- **WHEN** the operator chooses always-allow and then declines the confirmation
+- **THEN** the call SHALL be blocked as denied and no remembered refusal SHALL be recorded
+- **AND** a live YOLO session MAY auto-allow a later call under that directory within 120 seconds
+
+#### Scenario: A report without an observed prompt is refused
+
+- **WHEN** a bridge reports a refusal naming a prompt the server never observed for that session, or reuses one already reported
+- **THEN** no remembered refusal SHALL be recorded
+
+#### Scenario: Clearing the refusal restores YOLO
+
+- **GIVEN** a remembered agent-path refusal for `/other/dir` and the recent-denial window has elapsed
+- **WHEN** the operator clears it on the Access surface and YOLO is live with scope containing `/other/dir`
+- **THEN** the next out-of-root call under `/other/dir` SHALL be auto-allowed
+
+#### Scenario: A Deny whose report is lost is overridable under YOLO
+
+- **GIVEN** the operator denied `/other/dir/a.txt` but the refusal report was lost or not persisted, and an unscoped YOLO session is live
+- **WHEN** the agent writes `/other/dir/b.txt` within 120 seconds
+- **THEN** the denied call SHALL have been blocked, and the later call MAY proceed as `yolo-allowed`
+
+#### Scenario: A Deny while the bridge is disconnected is suppressed while YOLO cannot be asked
+
+- **GIVEN** the session's bridge was not connected to the dashboard when the operator denied `/other/dir/a.txt`, and no live YOLO session can answer the retry (the YOLO link is still down)
+- **WHEN** the agent writes `/other/dir/b.txt` within 120 seconds
+- **THEN** the call SHALL be blocked without a prompt with the reason `recently denied`
+
+#### Scenario: A Deny while the bridge was disconnected is overridable once YOLO is live
+
+- **GIVEN** the session's bridge was not connected when the operator denied `/other/dir/a.txt`, and the bridge has since reconnected to a live, unscoped YOLO session
+- **WHEN** the agent writes `/other/dir/b.txt` (grantable, non-sensitive) within 120 seconds
+- **THEN** the call MAY proceed as `yolo-allowed`

@@ -2,8 +2,15 @@
 
 ### Requirement: A failed or loading overlay claim is never a blank panel
 
-The shell SHALL NOT render an empty panel for a `shell-overlay-route` claim. While its component loads it SHALL show a loading placeholder; if the claim fails to load or throws while rendering it SHALL show a visible error panel (`data-testid="overlay-claim-error"`) with a Back control wired to the route's `onBack`. Other slots' error boundaries SHALL keep rendering nothing on failure.
+The shell SHALL NOT render an empty panel for a `shell-overlay-route` claim. While its component loads it SHALL show the existing claim loading skeleton (`data-testid="content-claim-loading"`, `aria-busy="true"`); if the claim has no component, fails to load or throws while rendering it SHALL show a visible error panel (`data-testid="overlay-claim-error"`) with a Back control wired to the route's `onBack`. Other slots' error boundaries SHALL keep rendering nothing on failure.
 
+#### Scenario: Claim still loading
+- **GIVEN** a lazy `shell-overlay-route` claim whose module import has not settled
+- **THEN** the overlay SHALL render the loading skeleton (`content-claim-loading`, `aria-busy="true"`) and SHALL NOT render the error panel
+#### Scenario: Claim has no component
+- **GIVEN** a `shell-overlay-route` claim with no `Component`
+- **WHEN** the route is opened
+- **THEN** the same error panel SHALL render with a Back control
 #### Scenario: Claim chunk fails to load
 - **GIVEN** a lazy `shell-overlay-route` claim whose module import rejects
 - **WHEN** the route is opened

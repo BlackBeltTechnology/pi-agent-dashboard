@@ -11,7 +11,7 @@ Issue [#1165](https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/1
 ## What Changes
 
 - `hasOpenSpecSkillsFor` returns `true` when `<configRoot>/.pi/skills/openspec-explore` **or** `<configRoot>/.agents/skills/openspec-explore` exists (short-circuit; legacy first). Config-root resolution and the `null`-root refusal stay unchanged.
-- `openspec-readiness` spec: skill-presence requirement + worktree requirement accept either layout; new scenarios for shared-only, both-absent, worktree via main checkout.
+- `openspec-readiness` spec: skill-presence requirement + worktree requirement accept either layout; new scenarios for shared-only, both-absent, worktree via main checkout, null config root. The restated requirement also corrects the stale "fall back to the cwd" sentence to the implemented refusal (`false`, `directory-service.ts:595-598`, test E20); rationale and trade-off prose cover the committed shared layout.
 - Doc comments on `OpenSpecData.hasOpenSpecSkills` (`packages/shared/src/types.ts:1414`) and `ReadinessInputs.hasOpenSpecSkills` (`readiness.ts:40`) updated. No wire-format change.
 
 ## Capabilities
@@ -28,6 +28,8 @@ None.
 - Walking ancestor `.agents/skills/` dirs the way pi does; the dashboard keeps checking the config root only.
 - Changing `POST /api/openspec/init|update` (still `--tools pi`), bumping the pinned CLI, or detecting the shared layout before offering Update (issue's follow-up; separate change).
 - Changing the `/skill:openspec-explore` send path.
+- The `project-init` skill (`packages/extension/.pi/skills/project-init/SKILL.md:162,392`; `openspec/specs/project-init-skill/spec.md:66,89,95,134,140`) still treats `.pi/skills/openspec-explore/` as its sole "initialized" predicate: a shared-layout project is `repair`ed (`openspec init --tools pi --force`) and its verify step expects `.pi/skills/`. Dashboard readiness and that scaffold-time skill therefore disagree for shared-layout projects until a follow-up widens the skill predicate + spec (owner choice recorded in `/tmp/rev/fix-openspec-readiness-shared-skills-tradeoffs.md`). Not changed here.
+- The activity detector `SKILL_PATH_RE` (`packages/shared/src/openspec-activity-detector.ts:78`, spec `openspec-detection`) matches only `.pi/skills/openspec-*/SKILL.md`, so phase detection from skill reads stays blind on shared-layout projects. Follow-up.
 
 ## Relationship
 
@@ -42,6 +44,7 @@ None.
 ## Impact
 
 - Code: `packages/server/src/directory-service.ts` (`hasOpenSpecSkillsFor`), doc comments in `packages/shared/src/types.ts`, `packages/server/src/openspec/readiness.ts`; tests in `packages/server/src/__tests__/directory-service-readiness.test.ts`.
+- Docs: `docs/architecture.md` (`hasOpenSpecSkills` paragraph) and `docs/faq.md` (`missing-skills` bullet), written via DocScribe.
 - Compatibility: purely widens the "skills present" answer; legacy layout behaves identically. Wire shape unchanged.
 - Migration: none. Rollback: revert the commit (readiness reverts to `.pi/skills`-only).
 - Rebuild: server change → restart server.

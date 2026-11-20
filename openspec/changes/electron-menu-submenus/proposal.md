@@ -6,9 +6,10 @@ Root cause **CONFIRMED**: `packages/electron/src/lib/app-menu.ts:238-278` — th
 
 ## What Changes
 
-- Windows/Linux template regrouped into four top-level menus: **Dashboard** (Servers, Connect to Remote Dashboard…, Use Local Dashboard, Runtime, Browser relay, separator, Exit), **Edit** (undo/redo/cut/copy/paste/selectAll roles), **View** (unchanged items), **Help** (Doctor, Check for Updates… [hidden in dev], View Update Log, separator, About).
+- Windows/Linux template regrouped into four top-level menus: **Dashboard** (Servers, Connect to Remote Dashboard…, Use Local Dashboard, Runtime, Browser relay, separator, `quit` role — Electron labels it "Exit" on Windows, "Quit" on Linux), **Edit** (undo/redo/cut/copy/paste/selectAll roles), **View** (unchanged items), **Help** (Doctor, Check for Updates… [hidden in dev], View Update Log, separator, About).
 - Extract the Win/Linux template into an exported pure builder `buildWinLinuxMenuTemplate()` in `app-menu.ts` so the structure is unit-testable without a real `Menu`.
 - macOS template, handlers, labels: **unchanged**.
+- New unit test `packages/electron/src/lib/__tests__/app-menu.test.ts` mocks `electron` and runs under the package-local vitest only (`cd packages/electron && npx vitest run src/lib/__tests__/app-menu.test.ts`). It is **not** collected by root `npm test`/`quality:changed` and not CI-gated (root `vitest.config.ts` excludes `packages/electron`; the build-contract config is for pure tests only and is not extended here).
 - Fix stale spec text (`electron-shell` "minimal Help menu"; `electron-native-chrome` "flat top-level").
 
 ## Capabilities

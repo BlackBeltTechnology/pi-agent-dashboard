@@ -2,7 +2,7 @@
 
 ### Requirement: Automation and flows plugin routes admit the request cwd
 A `cwd` on any automation route or `/flow-inputs` SHALL be admitted tri-state (403/503) before scope resolution or filesystem/git access, in every scope. A missing `cwd` SHALL get 400 `cwd_required` on folder-scope automation routes (the default, incl. generated MCP tools) and `/flow-inputs`; global scope needs none. The MCP tool manifest SHALL mark `cwd` required for folder-scope tools (create, update, delete, definition, runs, result only). A non-string `cwd` SHALL get 400 `invalid_cwd`.
-The automation `plugin_action` `create` and `run` actions SHALL apply the same shape, presence and admission checks to `payload.cwd`, with no fallback to the server process cwd for `create`, and SHALL refuse without writing or starting a run.
+The automation `plugin_action` `create` and `run` actions SHALL apply the same shape and admission checks to `payload.cwd` (a non-string value is refused), and `create` SHALL also apply the presence check on folder scope with no fallback to the server process cwd; `run` with no `payload.cwd` is unchanged. A refused action SHALL write nothing and start no run.
 
 #### Scenario: Automation route refuses an unknown cwd
 - **WHEN** an automation create, update, delete, run, stop, result, runs, definition, list, actions or git-capable request carries a `cwd` that is not admitted, in any scope
@@ -70,10 +70,18 @@ The automation `plugin_action` `create` and `run` actions SHALL apply the same s
 - **WHEN** a `plugin_action` `create` names `scope: "global"` and no cwd
 - **THEN** it SHALL write under the home-directory scope as before
 
+#### Scenario: plugin_action run with a non-string cwd starts nothing
+- **WHEN** a `plugin_action` `run` carries a `payload.cwd` that is a number, object or array
+- **THEN** the handler SHALL refuse it and SHALL NOT scan any cwd or start a run
+
+#### Scenario: plugin_action run without a cwd is unchanged
+- **WHEN** a `plugin_action` `run` carries no `payload.cwd`
+- **THEN** its behavior SHALL be unchanged from before this requirement
+
 #### Scenario: plugin_action run with an unadmitted cwd starts nothing
 - **WHEN** a `plugin_action` `run` carries a `payload.cwd` that is not admitted
 - **THEN** the handler SHALL log a refusal and SHALL NOT scan that cwd or start a run
 
 #### Scenario: Indeterminate admission refuses the plugin_action
 - **WHEN** admission for a `plugin_action` `create` or `run` is `indeterminate`
-- **THEN** the handler SHALL refuse it (nothing written or started) and the admission token SHALL be released
+- **THEN** the handler SHALL refuse it, writing nothing and starting no run

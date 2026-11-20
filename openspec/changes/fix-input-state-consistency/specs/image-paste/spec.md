@@ -19,6 +19,10 @@ When the user sends a message with pending images, the images SHALL be included 
 - **WHEN** the Explore dialog text is empty, an image is pending, and the user activates Explore
 - **THEN** the dialog SHALL send with the image and its Explore action SHALL be enabled
 
+#### Scenario: Image-only Explore composes a valid prompt
+- **WHEN** the Explore dialog sends with empty text and an image
+- **THEN** the composed `send_prompt` text SHALL be the skill prefix followed by a newline (e.g. `/skill:openspec-explore\n`) with the image attached, and it SHALL route as a passthrough prompt
+
 #### Scenario: Empty and no images stays blocked
 - **WHEN** the text is empty and no image is pending
 - **THEN** the send action SHALL be disabled and Enter SHALL send nothing
@@ -30,20 +34,3 @@ When the user sends a message with pending images, the images SHALL be included 
 #### Scenario: Images cleared after send
 - **WHEN** a message with images is sent successfully from any prompt input surface
 - **THEN** that surface's pending images list SHALL be empty and thumbnails SHALL disappear
-
-## ADDED Requirements
-
-### Requirement: Image-only prompt carries no empty text block
-When a `send_prompt` has empty text and at least one valid image, the bridge SHALL build the user message content from the images only, with no `{type:"text", text:""}` block. This applies to the idle, steer and buffered follow-up drain paths. With no valid image the content SHALL stay the bare text string.
-
-#### Scenario: Image-only content
-- **WHEN** `buildUserMessageContent("", [validImage])` runs
-- **THEN** it SHALL return `[validImage]`
-
-#### Scenario: Text plus image unchanged
-- **WHEN** `buildUserMessageContent("hi", [validImage])` runs
-- **THEN** it SHALL return `[{type:"text",text:"hi"}, validImage]`
-
-#### Scenario: Image-only follow-up drain
-- **WHEN** a buffered follow-up with empty text and one image drains
-- **THEN** `pi.sendUserMessage` SHALL receive the images-only content array

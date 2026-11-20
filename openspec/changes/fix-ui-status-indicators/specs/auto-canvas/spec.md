@@ -2,7 +2,7 @@
 
 ### Requirement: Server chip label is capped and the in-column tray aligns to the dock inset
 
-The server chip's label SHALL be capped to at most 32ch and truncated with an ellipsis, with the full title and address available through the chip's tooltip and accessible name. The address SHALL render as secondary text in the form `127.0.0.1:<port><path>`. In the in-column slot the tray SHALL align to the slot's left edge (the dock's `mx-5` inset); the fixed no-composer fallback SHALL stay bottom-right.
+The server chip's label SHALL be capped to at most 32ch with an ellipsis, and the address SHALL render as secondary text `127.0.0.1:<port><path>`. In the in-column slot the tray SHALL align to the slot's left edge (the dock's `mx-5` inset); the fixed no-composer fallback SHALL stay bottom-right.
 
 #### Scenario: Long page title is capped
 - **GIVEN** a server chip titled "Saját jóváhagyó csoportok — A + C — a very long page title" on port 57783
@@ -19,3 +19,7 @@ The server chip's label SHALL be capped to at most 32ch and truncated with an el
 #### Scenario: Fallback overlay stays bottom-right
 - **GIVEN** a server chip with no live composer slot
 - **THEN** the chip SHALL render in the fixed bottom-right safe-area overlay
+#### Scenario: Address never truncates, accessible name carries the title
+- **GIVEN** a server chip with a long title and path
+- **THEN** the `127.0.0.1:<port>` part SHALL NOT shrink and only the path (then the label) SHALL truncate
+- **AND** the tooltip and accessible name SHALL be `<title> — 127.0.0.1:<port><path>` followed by the existing probe hint ("Tap to probe 127.0.0.1 and open a restricted preview")

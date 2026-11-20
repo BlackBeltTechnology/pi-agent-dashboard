@@ -21,6 +21,7 @@ While working, the `stop-after-turn` affordance SHALL render immediately before 
 - **WHEN** the draft is empty, one image is pending and the session is idle
 - **THEN** the action button SHALL render an enabled send affordance
 - **AND** activating it SHALL send the image with empty text
+- **AND** the optimistic pending-prompt bubble SHALL show the image and SHALL NOT render an empty text row
 
 #### Scenario: Morph to stop while working
 - **WHEN** the session status is `streaming`

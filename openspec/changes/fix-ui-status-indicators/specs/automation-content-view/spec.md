@@ -2,7 +2,7 @@
 
 ### Requirement: Board distinguishes loading, error and empty
 
-The Automation board SHALL show a loading state until its first definitions fetch settles, an error state with a Retry control when the fetch fails (network error or non-2xx), and the "No automations in this folder" empty state only when the fetch succeeds with zero definitions. A failed fetch SHALL NOT render the empty state or a blank list. Retry SHALL re-run the fetch; the board chrome (title, Create, Show archived) SHALL render in every state.
+The Automation board SHALL show a loading state until its definitions fetch settles, an error state with Retry when it fails (network error or non-2xx), and the empty state only when it succeeds with zero definitions. The board chrome SHALL render in every state.
 
 #### Scenario: Pending fetch shows loading
 - **WHEN** the board mounts and the definitions request has not settled
@@ -17,8 +17,18 @@ The Automation board SHALL show a loading state until its first definitions fetc
 #### Scenario: Retry recovers
 - **GIVEN** the board is in the error state and the next request succeeds with 2 definitions
 - **WHEN** the user activates Retry
-- **THEN** the 2 definitions SHALL render and the error SHALL clear
+- **THEN** `automation-loading` SHALL show until the request settles, then the 2 definitions SHALL render and the error SHALL clear
 
 #### Scenario: Successful empty fetch shows the explainer
 - **WHEN** the request succeeds with zero definitions
 - **THEN** the empty state with the Create action SHALL render
+
+#### Scenario: Mutation refresh revalidates in place
+- **GIVEN** a board that loaded definitions earlier
+- **WHEN** a mutation (delete, enable/disable, run now, stop, create) triggers a refresh
+- **THEN** the previously loaded list SHALL stay rendered (no `automation-loading`) and card-local state, including a stop result notice, SHALL be preserved
+
+#### Scenario: Failed reload clears the list
+- **GIVEN** a board that loaded definitions earlier
+- **WHEN** a Retry or mutation refresh fetch fails
+- **THEN** the board SHALL show the error state, the previously loaded list SHALL be cleared and the run-history fetches SHALL be skipped

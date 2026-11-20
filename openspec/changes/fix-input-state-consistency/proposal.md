@@ -10,15 +10,16 @@ Three client input-handling defects, all in the composer / ask-user surfaces:
 - [#1136](https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/1136) — image-only messages are blocked.
   - **CONFIRMED** (line numbers drifted). `CommandInput.tsx:605-607` `handleSend` returns on empty `trimmed`; `:883` button `disabled={… || !text.trim()}`. `ExploreDialog.tsx:30` `if (!text.trim()) return;`, `:80` `disabled={!text.trim() || sending}`.
   - **Spec reversal:** `image-paste` scenario "Send image without text" currently REQUIRES blocking ("text is required"); this change flips it (MODIFIED).
-  - **Extra finding (not in issue):** the bridge builds `[{type:"text",text:""}, image…]` for an image-only prompt (`packages/extension/src/command-handler.ts:1297-1304` `buildUserMessageContent`, also used by `followup-drain.ts:69`). Providers commonly reject empty text blocks; unblocking the client alone could turn into a failed turn. Explore is unaffected on the wire (callers prefix `/skill:openspec-explore\n`, `SessionOpenSpecActions.tsx:423-428`).
+  - **Checked, no bridge change:** the bridge builds `[{type:"text",text:""}, image…]` for an image-only prompt (`packages/extension/src/command-handler.ts` `buildUserMessageContent`, also used by `followup-drain.ts`). Omitting the empty block would change nothing on the wire: pi core's `AgentSession.sendUserMessage` joins all text parts into a string and calls `prompt(text, {images})`, which always rebuilds `content:[{type:"text",text}, …images]` (also `_queueSteer`/`_queueFollowUp`), and provider converters drop empty text blocks (e.g. `pi-ai` `anthropic-messages.js` filters `text.trim().length > 0`). So unblocking the client is sufficient for pi sessions. ACP sessions (`acp-bridge/acp-session-adapter.ts` `promptBlocks`) also emit an empty leading text block; left unchanged (see Non-goals).
+  - **Explore:** five call sites mount `ExploreDialog` (`SessionOpenSpecActions.tsx`, `ComposerSessionActions.tsx`, `MobileActionMenu.tsx`, `SessionCardDialogs.tsx`); all compose `/skill:openspec-explore[ name]\n` + text, which contains `\n` and so routes as passthrough (`command-handler.ts` step 5/6 guards), so an empty body stays a valid passthrough prompt.
   - **Extra finding:** `DirectoryHomeView.tsx:188-192` `onSend(text)` ignores images and returns on empty text; it must keep blocking image-only (spawn carries no images).
 
 ## What Changes
 
 - **#1136** `CommandInput`: send enabled and `handleSend` proceeds when `trimmed` is empty but `pendingImages.length > 0` (button + Enter + Alt+Enter); `onSend("", images, delivery)`. New optional prop `allowImageOnlySend` (default `true`); `DirectoryHomeView` passes `false`. `ExploreDialog`: same guard using its own `pendingImages`. Empty text and no images stays blocked.
-- **#1136** Bridge: `buildUserMessageContent` omits the text block when `text` is empty and images survive validation (all-images content array); empty text and no valid image keeps today's string result.
-- **#1116** When a prompt is opted in (`allowOther: true`) and lists its own "Other…" option, the inline row replaces it: `isOtherAllowed` drops the `!hasOwnOtherOption` clause; renderers filter own-Other options out of the option list (new shared `isOwnOtherOption`); typed text is the answer. The literal option string stays a valid REST answer. Prompts without `allowOther` are untouched. *(confirmed (owner, 2026-11-20) — see design.md D1, `/tmp/issue-batch/fix-input-state-consistency-DECISIONS.md`)*
-- **#1117** New client store `lib/state/prompt-draft-storage.ts` keyed `ask-draft:<sessionId>:<promptId>` (localStorage JSON, debounced, size-capped, TTL-swept); `usePromptDraft` hook; Select/Multiselect/Input/Batch renderers initialise from and write to it; renderers get an optional `sessionId` prop. Pasted images stay in an in-memory map. Cleared on answer/cancel/non-pending status/session removal.
+- **#1136** Optimistic `pendingPrompt` bubble renders its text row only when the text is non-empty (committed bubble already guards `msg.content`).
+- **#1116** When a prompt is opted in (`allowOther: true`) and lists its own "Other…" option, the inline row replaces it: `isOtherAllowed` drops the `!hasOwnOtherOption` clause; renderers filter own-Other options out of the option list (new shared `isOwnOtherOption`); typed text is the answer. The literal option string stays a valid REST answer. Prompts without `allowOther` are untouched. *(confirmed (owner, 2026-11-20) — see design.md D1)*
+- **#1117** New client store `lib/state/prompt-draft-storage.ts` keyed `ask-draft:<sessionId>:<promptId>` (`sessionStorage` JSON — per-tab, reload-survivable, confirmed (owner, 2026-11-20); debounced, size-capped, 24 h TTL-swept); `usePromptDraft` hook; Select/Multiselect/Input/Batch renderers initialise from and write to it; renderers get an optional `sessionId` prop. A module-level in-memory store is the live source of truth (flushed to `sessionStorage` on unmount/`pagehide`); pasted images stay in an in-memory map, not restored in `QuestionDialog` (its answer road is text-only). Cleared when the request leaves `pending` (state-driven sweep, works with unmounted renderers) and by a 24 h TTL sweep. Card ↔ dialog draft sharing is same-tab only.
 - **#1117** Additive `promptId` on `QuestionRow` so `QuestionDialog` shares the key with the chat card and panel.
 
 ## Capabilities
@@ -29,7 +30,7 @@ None.
 ### Modified Capabilities
 - `interactive-renderers` — MODIFIED "Inline Other enablement and suppression"; ADDED "Caller's own Other option collapses into the inline row".
 - `chat-input-state` — ADDED "Per-prompt answer draft persistence", "Prompt draft storage and lifecycle".
-- `image-paste` — MODIFIED "Images sent with message" (image-only); ADDED "Image-only prompt carries no empty text block".
+- `image-paste` — MODIFIED "Images sent with message" (image-only).
 - `chat-view` — MODIFIED "One morphing send/stop action button" (send enabled with images only).
 
 ## Non-goals
@@ -38,6 +39,7 @@ None.
 - Persisting `editor` renderer text, or pasted-image bytes across reload.
 - Server-side persistence of partial answers (drafts are browser-local, like the composer draft).
 - Image-bearing spawn from the directory home composer.
+- Bridge/ACP wire shape for image-only prompts (pi core re-adds the empty text block; ACP adapter keeps its leading text block — verified manually in task 4.3, no change here).
 
 ## Relationship
 
@@ -49,12 +51,13 @@ None.
 
 - `review-code` — non-trivial multi-package change; run before commit.
 - `doubt-driven-review` — #1116 changes the answer contract (shared predicate used by REST validator) and the additive `QuestionRow.promptId` protocol field.
-- No auth/secrets/untrusted-input/latency-budget trigger. (Draft JSON read from localStorage is parsed defensively; covered by tests, not a security surface.)
+- `security-hardening` — free-text `input` answers are persisted in browser storage and may hold credentials/PII (any extension's `ctx.ui.input`); `input` text is stored in `sessionStorage` (per-tab, dropped when the tab closes; confirmed — owner, 2026-11-20, design.md D2) with a 24 h TTL. Draft JSON read back is parsed defensively and shape-validated.
+- No auth/latency-budget trigger.
 
 ## Impact
 
-- Client: `components/chat/CommandInput.tsx`, `components/folder/DirectoryHomeView.tsx`, `components/openspec/ExploreDialog.tsx`, `components/interactive-renderers/{Select,Multiselect,Input,Batch}Renderer.tsx`, `types.ts`, `components/chat/{ChatView,MultiAskPanel}.tsx`, `components/questions/QuestionDialog.tsx`, new `lib/state/prompt-draft-storage.ts` + hook, `App.tsx` (session-removal sweep).
+- Client: `components/chat/CommandInput.tsx`, `components/folder/DirectoryHomeView.tsx`, `components/openspec/ExploreDialog.tsx`, `components/interactive-renderers/{Select,Multiselect,Input,Batch}Renderer.tsx`, `types.ts`, `components/chat/{ChatView,MultiAskPanel}.tsx`, `components/questions/QuestionDialog.tsx`, new `lib/state/prompt-draft-storage.ts` + hook, `App.tsx` (state-driven sweep of drafts for non-pending requests).
 - Shared: `prompt-answer.ts` (predicate, `isOwnOtherOption`), `question-types.ts` (`promptId`).
-- Server: `questions/question-store.ts` row projection adds `promptId`. Compat: additive optional field; old clients ignore it. Rollback: revert; no persisted data (localStorage drafts are orphaned keys, TTL-swept).
-- Extension: `command-handler.ts` `buildUserMessageContent`.
+- Server: `questions/question-store.ts` row projection adds `promptId`. Compat: additive optional field; old clients ignore it. Rollback: revert; no persisted data (`sessionStorage` drafts are orphaned keys that vanish with the tab).
+- Extension/bridge: no change.
 - Behaviour change to flag: REST `validateQuestionAnswer` now accepts custom text for opted-in prompts that list their own Other (previously rejected `400`).

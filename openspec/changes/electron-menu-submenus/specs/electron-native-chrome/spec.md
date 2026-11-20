@@ -14,7 +14,7 @@ The application menu SHALL provide About, update-check, Doctor, and remote-conne
 
 - **WHEN** the app menu is set up on Windows or Linux
 - **THEN** the top-level items are exactly Dashboard, Edit, View, and Help
-- **AND** Dashboard contains Servers, "Connect to Remote Dashboard…", "Use Local Dashboard", Runtime, Browser relay, a separator, and the quit role
+- **AND** Dashboard contains Servers, "Connect to Remote Dashboard…", "Use Local Dashboard", Runtime, Browser relay, a separator, and the quit role (labelled "Exit" on Windows, "Quit" on Linux)
 - **AND** Edit contains undo, redo, cut, copy, paste, and selectAll roles
 - **AND** View contains Reload `CmdOrCtrl+R`, Force Reload `CmdOrCtrl+Shift+R`, toggleDevTools, zoom, and togglefullscreen
 - **AND** Help contains "Doctor", "Check for Updates…", "View Update Log", a separator, and "About"

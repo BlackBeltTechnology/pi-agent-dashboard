@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Settings panel exposes spawn-register timeout
-The Settings panel (`packages/client/src/components/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "Session register timeout" with helper text "How long to wait for a new pi session to connect before reporting a failure and terminating the spawned pi process. Default 30000 (30s). Range 5000–120000."
+The Settings panel (`packages/client/src/components/settings/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "+Session register timeout" with a `ms` unit badge (the label key `session.sessionRegisterTimeoutMs`, unchanged; it already matches the shipped UI and the `ui-terminology` wording) and helper text (key `common.howLongToWaitForA`, unchanged key) "How long to wait for a new pi session to connect before reporting a failure and terminating the new pi process. Default 30000 (30s). Range 5000–120000."
 
 The input SHALL accept integers in the closed range `[5000, 120000]`. Out-of-range or non-numeric inputs SHALL be flagged as invalid (existing settings-form invalidation pattern) and SHALL prevent save until corrected.
 
@@ -30,4 +30,5 @@ On save, the value SHALL be persisted via the existing `POST /api/config` config
 
 #### Scenario: helper text states the process is terminated
 - **WHEN** the field is rendered
-- **THEN** the helper text SHALL state that the spawned pi process is terminated on timeout and SHALL NOT describe the timeout as only a warning
+- **THEN** the helper text SHALL state that the new pi process is terminated on timeout and SHALL NOT describe the timeout as only a warning
+- **AND** the English helper text SHALL contain no form of the word "spawn" (`ui-terminology`)

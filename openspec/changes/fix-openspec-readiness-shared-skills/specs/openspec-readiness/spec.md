@@ -9,11 +9,15 @@ pass that computes `hasOpenspecDir`, as the existence of
 where `configRoot` is the cwd's resolved config
 root (for a git worktree, its main checkout; otherwise the cwd itself).
 
-Resolving at the config root is required because `.pi/skills/openspec-*` is gitignored and so
-never checks out into a worktree. Statting at the worktree cwd would report every worktree as
-lacking skills even when its main checkout is healthy.
+Resolving at the config root is required because the legacy `.pi/skills/openspec-*` is gitignored
+and so never checks out into a worktree; statting at the worktree cwd would report every
+worktree as lacking skills even when its main checkout is healthy. The shared `.agents/skills/`
+layout is committed, so a worktree may carry its own copy; it is nevertheless resolved at the
+config root too, so one fleet-wide answer applies with no per-layout worktree exemption.
 
-When the config root cannot be resolved, the stat SHALL fall back to the cwd.
+When the config root cannot be resolved (`null`), the probe SHALL be refused and
+`hasOpenSpecSkills` SHALL be `false`; it SHALL NOT be coerced to the cwd, and neither layout
+SHALL be probed under the cwd.
 
 The field is additive and optional: a client receiving `undefined` SHALL fall back to existing
 behaviour and SHALL NOT infer absence.
@@ -42,8 +46,10 @@ A git worktree SHALL take its `hasOpenSpecSkills` answer from its main checkout,
 root resolution above, accepting either skill layout. No separate worktree exemption rule SHALL exist.
 
 This is a deliberate trade-off: pi resolves `/skill:` from the session cwd, so a worktree whose
-own `.pi/skills/` is empty can still fail to expand `openspec-explore` while readiness reports
-`READY`. It is accepted because the worktree bootstrap flow is responsible for initializing
+own skills (`.pi/skills/` or `.agents/skills/`) are empty can still fail to expand
+`openspec-explore` while readiness reports `READY`. For the committed shared layout the skew can
+also run the other way: a worktree on a branch that carries `.agents/skills/` inherits `false`
+from a main checkout that lacks it. It is accepted because the worktree bootstrap flow is responsible for initializing
 OpenSpec inside the worktree, and the alternative — every worktree permanently `STALE` — is
 both worse and far more common.
 
@@ -66,3 +72,8 @@ both worse and far more common.
 - **WHEN** a non-worktree cwd reports `initialized: true` and has neither
   `.pi/skills/openspec-explore/` nor `.agents/skills/openspec-explore/`
 - **THEN** the emitted state SHALL be `STALE` with reason `missing-skills`
+
+#### Scenario: Null config root refuses both layouts
+
+- **WHEN** the cwd's config root resolves to `null` and `<cwd>/.agents/skills/openspec-explore/` exists
+- **THEN** `hasOpenSpecSkills` SHALL be `false`
