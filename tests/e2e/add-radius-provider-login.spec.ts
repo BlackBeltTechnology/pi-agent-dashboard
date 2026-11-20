@@ -1,5 +1,5 @@
-import { createRequire } from "node:module";
 import { expect, type Page, test } from "./fixtures.js";
+import { injectAxe } from "./helpers/axe.js";
 import { openAddPicker, openProvidersSettings, providerStatusRow, routeProviderData } from "./helpers/index.js";
 
 /**
@@ -157,7 +157,7 @@ test.describe("add-radius-provider-login — Radius generic panes (L3)", () => {
     const decline = offer.getByRole("button", { name: "Not now" });
     await expect(decline).toBeVisible();
 
-    await page.addScriptTag({ path: createRequire(import.meta.url).resolve("axe-core/axe.min.js") });
+    await injectAxe(page);
     const violations = await page.evaluate(async () => {
       const axe = (window as unknown as { axe: { run: (c: string, o: unknown) => Promise<unknown> } }).axe;
       const result = (await axe.run('[data-testid="radius-mcp-offer"]', {

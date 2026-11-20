@@ -139,7 +139,8 @@ export async function pixelDiff(page: Page, a: Buffer, b: Buffer): Promise<numbe
   return page.evaluate(
     async ([x, y]) => {
       const load = async (b64: string) => {
-        const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+        // Decode in-page, not via fetch(data:): the enforcing `connect-src 'self' ws: wss:` refuses data: URLs.
+        const blob = new Blob([Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))], { type: "image/png" });
         const bmp = await createImageBitmap(blob);
         const c = new OffscreenCanvas(bmp.width, bmp.height);
         const ctx = c.getContext("2d") as OffscreenCanvasRenderingContext2D;

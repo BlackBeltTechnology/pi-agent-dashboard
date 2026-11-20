@@ -31,12 +31,11 @@
  * See change: add-host-allowlist-admission (tasks 4.14, 4.15).
  */
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
 import { type APIRequestContext, expect, narrowTrust, type Page, test } from "./fixtures.js";
+import { injectAxe } from "./helpers/axe.js";
 import { gotoDashboard } from "./helpers/index.js";
 import { readBaselineFile, readConfig as readTrustConfig } from "./helpers/trust-access.js";
-import { DASHBOARD_PORT, harnessProject, REPO_ROOT } from "./lifecycle.js";
+import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 import { compareTrust, pickTrust } from "./reap-core.js";
 
 /** The name F9 admits. Not a real host — it only has to be non-admissible. */
@@ -154,13 +153,6 @@ async function tabThroughSection(page: Page, maxStops = 24): Promise<TabStop[]> 
   }
   expect(entered, "tab order must reach the Allowed hostnames section").toBe(true);
   return stops;
-}
-
-/** axe-core, injected from the workspace tree (no @axe-core/playwright dep). */
-function axeSourcePath(): string {
-  const p = path.join(REPO_ROOT, "node_modules", "axe-core", "axe.min.js");
-  if (!fs.existsSync(p)) throw new Error(`axe-core not installed at ${p} — run pnpm install`);
-  return p;
 }
 
 test.describe.serial("host gate — Allow → Save → admitted", () => {
@@ -284,7 +276,7 @@ test.describe.serial("host gate — Allow → Save → admitted", () => {
     // theme-token state, not something this section introduces. Contrast is
     // therefore still asserted below, by the repo's standard rather than not at
     // all.
-    await page.addScriptTag({ path: axeSourcePath() });
+    await injectAxe(page);
     const violations = await page.evaluate(async () => {
       const axe = (
         window as unknown as {

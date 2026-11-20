@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
+import { injectAxe } from "./helpers/axe.js";
 import { assertHitAreas, gotoDashboard } from "./helpers/index.js";
 import { REPO_ROOT } from "./lifecycle.js";
 
@@ -28,13 +29,6 @@ import { REPO_ROOT } from "./lifecycle.js";
 
 const PLUGIN_PATH = "/settings/plugins/mcp-client";
 const SECTION = '[data-testid="mcp-settings"]';
-
-/** axe-core, injected from the workspace tree (no @axe-core/playwright dep). */
-function axeSourcePath(): string {
-  const p = path.join(REPO_ROOT, "node_modules", "axe-core", "axe.min.js");
-  if (!fs.existsSync(p)) throw new Error(`axe-core not installed at ${p} — run pnpm install`);
-  return p;
-}
 
 function schemaFixture(): unknown {
   return JSON.parse(
@@ -155,7 +149,7 @@ test.describe("mcp-client settings section accessibility (L3)", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await gotoMcpClient(page);
 
-    await page.addScriptTag({ path: axeSourcePath() });
+    await injectAxe(page);
     const violations = await page.evaluate(async (selector) => {
       const axe = (
         window as unknown as {

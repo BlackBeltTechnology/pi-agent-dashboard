@@ -259,13 +259,17 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
   const [expanded, setExpanded] = useState(false);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const previewable = att.mimeType === "application/pdf" || att.mimeType.startsWith("image/");
+  const isPdf = att.mimeType === "application/pdf";
+  const previewable = isPdf || att.mimeType.startsWith("image/");
 
-  // Lazily fetch bytes into a blob URL when first expanded. `blobUrl`/`loading`
+  // A PDF goes to pdf.js as the same-origin attachment URL: pdf.js fetches its own
+  // source, and the enforcing `connect-src 'self' ws: wss:` refuses a `blob:` URL.
+  // See change: enforce-strict-csp-default.
+  // Images: lazily fetch bytes into a blob URL when first expanded (`img-src` allows `blob:`). `blobUrl`/`loading`
   // are read from the closure (NOT deps) so setting `loading` does not re-run
   // this effect and cancel its own in-flight fetch.
   useEffect(() => {
-    if (!expanded || blobUrl) return;
+    if (!expanded || isPdf || blobUrl) return;
     let cancelled = false;
     let created: string | null = null;
     setLoading(true);
@@ -285,7 +289,7 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [expanded, target.cwd, target.path, att.index, previewFetch]);
+  }, [expanded, isPdf, target.cwd, target.path, att.index, previewFetch]);
 
   return (
     <div className="text-xs" data-testid="eml-attachment" data-mime={att.mimeType}>
@@ -314,12 +318,12 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
       </div>
       {expanded && previewable && (
         <div className="h-[50vh] border-t border-[var(--border-secondary)]">
-          {loading || !blobUrl ? (
-            <div className="text-[var(--text-muted)] p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>
-          ) : att.mimeType === "application/pdf" ? (
+          {isPdf ? (
             <Suspense fallback={<div className="text-[var(--text-muted)] p-2">{i18nT("status.loadingPdfViewer", undefined, "Loading PDF viewer…")}</div>}>
-              <PdfPreview target={target} srcUrl={blobUrl} />
+              <PdfPreview target={target} srcUrl={emlAttachmentUrl(target, att.index)} />
             </Suspense>
+          ) : loading || !blobUrl ? (
+            <div className="text-[var(--text-muted)] p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>
           ) : (
             <ImagePreview target={target} srcUrl={blobUrl} />
           )}

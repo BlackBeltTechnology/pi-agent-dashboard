@@ -10,11 +10,10 @@
  * from `.pi-test-harness.json` — never hardcoded.
  */
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
+import { injectAxe } from "./helpers/axe.js";
 import { ensureGitSession, expandFolder, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
-import { DASHBOARD_PORT, harnessProject, REPO_ROOT } from "./lifecycle.js";
+import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 
 const CWD = FIXTURE_GIT;
 const PREFIX = "e2e-atlas-";
@@ -67,9 +66,7 @@ async function restartDashboard(): Promise<void> {
 }
 
 async function axeSeriousOrWorse(page: Page, selector: string): Promise<string[]> {
-  const axePath = path.join(REPO_ROOT, "node_modules", "axe-core", "axe.min.js");
-  if (!fs.existsSync(axePath)) throw new Error(`axe-core not installed at ${axePath}`);
-  await page.addScriptTag({ path: axePath });
+  await injectAxe(page);
   return page.evaluate(async (sel) => {
     const axe = (window as unknown as { axe: { run: (c: string, o: unknown) => Promise<{ violations: Array<{ id: string; impact: string | null }> }> } }).axe;
     const r = await axe.run(sel, { runOnly: ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"] });

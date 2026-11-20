@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
+import { injectAxe } from "./helpers/axe.js";
 import { gotoDashboard } from "./helpers/index.js";
 import { REPO_ROOT } from "./lifecycle.js";
 
@@ -252,7 +253,7 @@ test.describe("system-one settings section (L3)", () => {
         for (const d of Array.from(document.querySelectorAll(`${sel} details`))) (d as HTMLDetailsElement).open = true;
       }, SECTION);
 
-      await page.addScriptTag({ path: path.join(REPO_ROOT, "node_modules", "axe-core", "axe.min.js") });
+      await injectAxe(page);
       const violations = await page.evaluate(async (selector) => {
         type Violation = { id: string; impact: string | null; nodes: Array<{ target: string[] }> };
         const axe = (window as unknown as { axe: { run: (c: string, o: unknown) => Promise<{ violations: Violation[] }> } }).axe;
