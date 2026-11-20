@@ -4,6 +4,7 @@
 // #W16, #W18, #W21, #W24, #W26, #W27). Exemplars: kb-search-tool.test.ts
 // (:364-388, execute + AbortController), kb-get-tool.test.ts (multi-root
 // fixture), packages/kb/src/__tests__/helpers/event-loop-lag.ts.
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -272,5 +273,37 @@ describe("parity and lifecycle (real worker)", () => {
       if (prevEnv === undefined) delete process.env.KB_QUERY_WORKER;
       else process.env.KB_QUERY_WORKER = prevEnv;
     }
+  }, 60_000);
+});
+
+// See change: fix-kb-parent-link-and-section-miss (test-plan #X2).
+// Exemplar for the CLI subprocess: packages/kb/src/__tests__/eval-guard.test.ts.
+describe("unknown section: CLI and kb_get agree", () => {
+  it("X2: `kb get --section` and the kb_get worker path print the same section-not-found text", async () => {
+    const proj = mkdtempSync(join(tmpdir(), "kb-qw-miss-"));
+    dirs.push(proj);
+    mkdirSync(join(proj, ".pi", "dashboard", "kb"), { recursive: true });
+    writeFileSync(join(proj, ".pi", "dashboard", "knowledge_base.json"), JSON.stringify({ sources: [{ ref: "docs" }], dbPath: ".pi/dashboard/kb/index.db" }));
+    mkdirSync(join(proj, "docs"), { recursive: true });
+    writeFileSync(join(proj, "docs", "guide.md"), ["# Guide", body("intro"), "## Setup", body("setup"), "## Config", body("config")].join("\n"));
+    const state = createReindexState();
+    await reindexNow(state, proj);
+    closeKbForCwd(state, proj);
+    const expected = "(section not found: Guide > Nope in guide.md — sections:)\nGuide\nGuide > Setup\nGuide > Config";
+
+    useHost();
+    const { get } = load();
+    const tool = await get.execute("x", { path: "guide.md", section: "Guide > Nope" }, undefined, undefined, { cwd: proj });
+    expect(tool.content[0].text).toBe(expected);
+    expect(tool.details.found).toBe(false);
+
+    const repo = fileURLToPath(new URL("../../../../", import.meta.url));
+    const cli = spawnSync(
+      process.execPath,
+      [join(repo, "node_modules", "tsx", "dist", "cli.mjs"), "src/cli.ts", "get", "guide.md", "--section", "Guide > Nope", "--cwd", proj, "--no-reindex"],
+      { cwd: join(repo, "packages", "kb"), encoding: "utf8", env: { ...process.env, NODE_OPTIONS: "--experimental-sqlite", HOME: proj } },
+    );
+    expect(cli.stderr).not.toMatch(/Error/);
+    expect(cli.stdout).toBe(`${expected}\n`);
   }, 60_000);
 });

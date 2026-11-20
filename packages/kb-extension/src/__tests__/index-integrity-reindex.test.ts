@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writ
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { indexOptionsFromConfig, indexOptionsHash, indexSource, loadConfig, runIndexAtomic, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { indexOptionsFromConfig, indexOptionsHash, indexSource, loadConfig, runIndexAtomic, SCHEMA_VERSION, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import kbExtension from "../extension.js";
 import { closeKb, createReindexState, reindexNow } from "../reindex.js";
@@ -181,7 +181,7 @@ describe("per-source gate + isolation in reindexNow (D6)", () => {
     expect(r.chunks).toBeGreaterThan(0);
     closeKb(state);
     const rec = rows(dbOf(dir), "SELECT v FROM kb_meta WHERE k='gate:docs'");
-    expect(rec[0]?.v).toBe(`3:${indexOptionsHash(cfg)}`);
+    expect(rec[0]?.v).toBe(`${SCHEMA_VERSION}:${indexOptionsHash(cfg)}`);
   });
 
   it("X10 one failing source does not stop the others; its record stays unwritten so the next pass forces it", async () => {

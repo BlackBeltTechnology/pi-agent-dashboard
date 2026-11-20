@@ -403,6 +403,7 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
       "Fetch the full body of a markdown section by path (and optional heading_path). " +
       "A path-only fetch of a multi-section file returns the first section AND reports how many further sections exist — " +
       "it never silently hands back one arbitrary slice. Pass `section` (the full `headingPath` from `kb_search` JSON output, or just its last heading when unique) to address one. " +
+      "An unknown section in a found file returns `(section not found: <section> in <path> — sections:)` plus up to 50 of the file's heading paths to retry with; `(not found: <path>)` means the path itself is not indexed. " +
       "Every indexed source is searched; a path indexed in several sources returns a candidate list (`<source-id>:<path>`, pass one back) instead of a body. " +
       "A path may be qualified by its source directory (`.pi/docs/x.md`) or source id (`<id>:<path>`). " +
       "Pass `scope: \"git\"` with `path` = `commit/<sha prefix ≥7>`, `pr/<n>` or `issue/<n>` to fetch a commit, pull/merge request or issue (with its cached comments and linked items); " +

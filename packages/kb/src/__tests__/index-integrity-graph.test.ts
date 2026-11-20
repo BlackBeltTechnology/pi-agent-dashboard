@@ -85,6 +85,21 @@ describe("graph identity (D4)", () => {
     expect(g.nodes.filter((n) => n.startsWith("heading|")).length).toBe(2);
   });
 
+  // See change: fix-kb-parent-link-and-section-miss (test-plan #E9).
+  it("E9 child_of follows the direct parent: chunkless parent → file node, no self-loop", async () => {
+    put("e3.md", `# Title\n\n${PAD}\n## P\n### C\n\n${PAD}\n## A\n\n${PAD}\n### K\n\n${PAD}\n`);
+    const s = newStore();
+    await run(s);
+    const g = graphOf(s);
+    expect(g.edges).toContain("e3.md#Title > P > C|e3.md|child_of");
+    expect(g.edges).toContain("e3.md#Title > A|e3.md#Title|child_of");
+    expect(g.edges).toContain("e3.md#Title > A > K|e3.md#Title > A|child_of");
+    for (const e of g.edges.filter((x) => x.endsWith("|child_of"))) {
+      const [src, dst] = e.split("|");
+      expect(src).not.toBe(dst);
+    }
+  });
+
   it("E8 re-chunking one file leaves another file's heading node and edge untouched", async () => {
     put("a.md", body("Why"));
     put("b.md", body("Why"));

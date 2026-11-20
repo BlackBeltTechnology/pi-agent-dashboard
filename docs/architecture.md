@@ -8436,13 +8436,14 @@ Path-only fetch (`getChunk` without `headingPath`) returns first chunk plus `sup
   - dir-qualified `<relDir>/<path>`. `relDir` = `relative(cwd, dir)`, `/`-normalized, filesystem roots only.
   - Dedup by (root, path).
 - 1 reading → hit.
-- 0 → `(not found: <arg>)`.
+- 0 → `(not found: <arg>)`. Unresolved path only.
 - >1 → `(ambiguous: <arg> is indexed in N sources — pass one of:)` + sorted `<source-id>:<path>` candidates. No body. Details `{found:false, candidates:N}`.
 - Section: `getChunkBySection(root, path, section)` (`packages/kb/src/sqlite-store.ts`).
   - Exact `heading_path` first.
   - Else (no ` > ` in arg) last-heading suffix match.
   - Several distinct heading paths → ambiguous section candidate list.
   - `getChunk` exact semantics unchanged.
+  - No match in a resolved file → `section-missing` result. Render `(section not found: <section> in <arg> — sections:)` + ≤50 distinct body heading paths (rowid order, `:meta` chunk excluded) + `(+K more section[s])` when K > 0. Empty list → `(section not found: <section> in <arg> — no sections)`. `found:false`. Paths via required `FetchStore.getChunks(root, path)`. See change: fix-kb-parent-link-and-section-miss.
 - Source classification (`classifyRef`, `packages/kb/src/sources.ts`):
   - `ssh://` → `git`.
   - GitHub repo ref (`[https://]github.com/<o>/<r>` + optional `.git`, `@<ref>`, `/tree/<ref>`) → `git` (regex `GITHUB_REPO`). Cloned as `https://github.com/<o>/<r>` (`.git` kept if given). Revision from `@ref`/`/tree/<ref>`. `pin` wins. No auto-subdir.

@@ -9,7 +9,7 @@ import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, Ra
 
 /** Bump when the frontmatter structural schema/behavior changes so an existing
  *  DB force-reindexes once on open (design D6). */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 /** Default per-search proximity time budget, ms (design D2 of change
  *  bound-kb-proximity-search). A backstop: the exact window search (D1) keeps
  *  measured calls far below it. */

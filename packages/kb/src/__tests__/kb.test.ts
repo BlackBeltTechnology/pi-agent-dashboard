@@ -268,6 +268,27 @@ describe("retrieval pipeline (Tier A/B/C)", () => {
     expect(rot!.parent!.headingPath).toContain("Auth");
   });
 
+  // See change: fix-kb-parent-link-and-section-miss (test-plan #E10).
+  it("E10 parent is the direct enclosing heading; a chunkless parent attaches none", async () => {
+    const d = mkdtempSync(join(tmpdir(), "kb-parent-"));
+    const pad = (w: string) => `${w} body padded comfortably beyond the hundred character minimum merge threshold so it stays a chunk.`;
+    // leading blank line = a dropped preamble, which used to shift parent ids onto siblings/self
+    writeFileSync(join(d, "e1.md"), ["", "# Title", pad("alpha"), "## A", pad("zebraonly"), "## B", pad("yakonly")].join("\n"));
+    writeFileSync(join(d, "e3.md"), ["# Root", pad("gamma"), "## P", "### C", pad("quokkaonly")].join("\n"));
+    const s = new SqliteFtsStore(join(d, ".kb.db"));
+    s.init();
+    await indexSource(s, { root: "p", dir: d });
+    const a = s.search("zebraonly", { limit: 3, expandParent: true }).find((h) => h.headingPath === "Title > A");
+    expect(a?.parent?.headingPath).toBe("Title");
+    const b = s.search("yakonly", { limit: 3, expandParent: true }).find((h) => h.headingPath === "Title > B");
+    expect(b?.parent?.headingPath).toBe("Title");
+    const c = s.search("quokkaonly", { limit: 3, expandParent: true }).find((h) => h.headingPath === "Root > P > C");
+    expect(c).toBeTruthy();
+    expect(c!.parent).toBeUndefined();
+    s.close();
+    rmSync(d, { recursive: true, force: true });
+  });
+
   it("rerank flag is a clean no-op without a model", () => {
     const hits = store.search("token", { limit: 5, rerank: true });
     expect(hits.length).toBeGreaterThan(0); // no error, BM25 order preserved
