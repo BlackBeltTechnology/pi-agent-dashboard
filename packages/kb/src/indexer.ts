@@ -66,6 +66,13 @@ const TITLE_EXT_RE = /\.(md|mdx|markdown|adoc|asciidoc)$/i;
  *  and would see no live progress. Committing per batch also releases the WAL
  *  write lock so the reader is served. See change: fix-kb-index-feedback. */
 const YIELD_EVERY = 100;
+/** Wall-clock bound on one batch: also commit + yield once this many ms passed since the last
+ *  yield, whichever of the count / time bound hits first. Per-file cost varies by orders of
+ *  magnitude (a 100-file batch of large files pinned the loop for seconds), so the count alone
+ *  cannot bound a blocked turn. One file's chunk + write stays the minimum unit — the check runs
+ *  between files, never inside one. Same idiom as `WALK_YIELD_MAX_MS`.
+ *  See change: throttle-kb-reindex (D2). */
+export const INDEX_BATCH_MAX_MS = 50;
 const yieldToEventLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
 /** Directory entries (walk) / directories (gitignore pre-scan) processed between
  *  event-loop yields. One constant for both traversals. Bounds deep and broad
@@ -179,6 +186,7 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
   // leaves earlier batches committed; a reindex is idempotent so a re-run
   // completes it. See change: fix-kb-index-feedback.
   let sinceYield = 0;
+  let lastYield = performance.now();
   // Rebuild the per-file chunk-rowid record when it may be stale (first pass of a
   // connection, or another connection committed since); throws BEFORE any per-file
   // delete. See change: fix-kb-index-integrity (D5).
@@ -189,11 +197,12 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
     // prior (consistent) state, a kill after leaves the hook's effect. See change: add-kb-worktree-seed (D6).
     opts.onFirstBatch?.();
     for (const abs of files) {
-      if (sinceYield >= YIELD_EVERY) {
+      if (sinceYield >= YIELD_EVERY || performance.now() - lastYield >= INDEX_BATCH_MAX_MS) {
         store.commit();
         await yieldToEventLoop();
         store.begin();
         sinceYield = 0;
+        lastYield = performance.now();
       }
       sinceYield++;
       opts.heartbeat?.();

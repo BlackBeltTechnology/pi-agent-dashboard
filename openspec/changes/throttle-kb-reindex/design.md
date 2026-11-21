@@ -55,7 +55,21 @@ flowchart LR
 
 ## Measurements
 
-_To be recorded by tasks 1.2 (baseline), 3.4 (time budget, in-process) and 4.9 (worker mode): max/p99 event-loop delay, wall ms, commit count, chunks, files._
+_Recorded by tasks 1.2 (baseline), 3.7/3.8 (time budget, in-process) and 4.9 (worker mode): max/p99 event-loop delay, wall ms, commit count, chunks, files._
+
+Harness: `KB_MEASURE=1 npx vitest run reindex-measure` in `packages/kb` (`src/__tests__/reindex-measure.test.ts` → `helpers/measure-reindex.ts` over the `helpers/reindex-corpus.ts` corpus: 3250 files, 1 in 13 gitignored ⇒ 3000 indexed, 16 `##` sections each, ≈ 51k chunks; mixed md / adoc / frontmatter). One forced `indexSource` into a fresh DB, in-process, lag via `perf_hooks.monitorEventLoopDelay` (resolution 10 ms), wall via `process.hrtime`. Machine: Apple M5 Pro, 18 cores, Node 24.15.0, load average ≈ 5 (other work running — wall numbers are indicative, compare same-machine runs only). With so few event-loop turns the histogram has ≈ 30 samples, so p99 = max (the histogram cannot resolve p99 on a blocked loop — the max is the meaningful figure).
+
+| Run | Code | files | chunks | commits | wall ms | max lag ms | p99 lag ms |
+|---|---|---|---|---|---|---|---|
+| baseline #1 (1.2/1.3) | current (`YIELD_EVERY` = 100 only) | 3000 | 51390 | 30 | 66759 | 5130 | 5130 |
+| baseline #2 (1.2/1.3) | current (`YIELD_EVERY` = 100 only) | 3000 | 51390 | 30 | 70893 | 4677 | 4677 |
+| baseline, `KB_MEASURE` guard run "budget off" (3.5) | current behaviour (count-only; budget neutralised by a constant clock) | 3000 | 51390 | 30 | 66127 | 4358 | 4358 |
+| **after #1** (3.7/3.8) | `INDEX_BATCH_MAX_MS` = 50 + `YIELD_EVERY` = 100 | 3000 | 51390 | 938 | 63013 | 106 | 97 |
+| **after #2** `KB_MEASURE` guard run "budget on" (3.5/3.7) | same | 3000 | 51390 | 1005 | 68340 | 277 | 108 |
+
+Baseline premise check (1.3): max lag ≈ 4.7–5.1 s ≫ 250 ms — the premise holds; the loop is blocked ≈ 2.3 s per 100-file batch (≈ 23 ms/file incl. chunk + FTS5 insert), so the count-only cadence cannot meet any sub-second budget.
+
+After (3.7/3.8, in-process, time budget): max lag fell from 4.4–5.1 s to 106–277 ms (p99 97–108 ms) — a ≈ 20–45× reduction — at 938–1005 commits instead of 30 (≈ 3 files per 50 ms batch). Wall regression vs count-only batching: +3.3 % on the paired guard run (66.1 s → 68.3 s; run #1 was 63.0 s — run-to-run noise on this loaded machine is ± 7 %), inside the 15 % guard, so `INDEX_BATCH_MAX_MS` stays 50. Deviation from the expectation in 3.7/3.8 ("in-process lag > 200 ms is expected"): the in-process max lag was 106 ms in one run and 277 ms in the other — the time budget alone lands at/near the ~200 ms target on this corpus and machine. The 277 ms outlier was not attributed (candidates, unverified: the post-walk single-statement sweeps `listPaths`/`sweepPlaceholders`, GC, load from other processes on the shared machine; the budget cannot split the sweeps — see Risks). The worker (section 4) still owns the guarantee under load and for slower disks/CPUs. `reindex-measure` / the S75 guard print the numbers; both are opt-in (`KB_MEASURE=1`) and non-gating.
 
 ## Risks / Trade-offs
 
