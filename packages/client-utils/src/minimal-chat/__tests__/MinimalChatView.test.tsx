@@ -138,7 +138,7 @@ describe("MinimalChatView", () => {
     expect(screen.queryByText(/↓/)).toBeNull();
   });
 
-  it("renders ↑/↓ tokens and formatted duration when meta supplied", () => {
+  it("renders ↓in ↑out tokens and formatted duration when meta supplied", () => {
     renderView(
       <MinimalChatView
         title="hdr"
@@ -147,9 +147,8 @@ describe("MinimalChatView", () => {
         meta={{ tokens: { input: 1234, output: 567 }, durationMs: 4500 }}
       />,
     );
-    expect(screen.getByText(/↑1\.2k/)).toBeTruthy();
-    expect(screen.getByText(/↓567/)).toBeTruthy();
-    expect(screen.getByText(/4\.5s/)).toBeTruthy();
+    // See change: fix-ui-status-indicators (D1, test-plan #S18).
+    expect(screen.getByText(/↓1\.2k ↑567 · 4\.5s/)).toBeTruthy();
   });
 
   it("renders subtitle path under the title in monospace", () => {

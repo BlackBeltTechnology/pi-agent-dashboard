@@ -970,6 +970,7 @@ export const huCatalog: Record<string, string> = {
   "common.back": "Vissza",
   "common.back2": "Vissza",
   "common.back22": "← Vissza",
+  "overlayClaim.failed": "Ez a panel nem tölthető be ({plugin}). Töltsd újra az oldalt a próbálkozáshoz.",
   "common.backgroundProcesses": "Háttérfolyamatok",
   "common.batch": "Köteg",
   "common.binaryPathLeaveEmptyForAuto": "Bináris elérési út (hagyd üresen az automatikus felismeréshez)",

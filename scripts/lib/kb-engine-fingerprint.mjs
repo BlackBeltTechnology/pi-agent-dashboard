@@ -6,7 +6,9 @@
 export {
   FINGERPRINT_FILE,
   FINGERPRINT_MALFORMED,
+  ROW_PRODUCING_FILES,
   computeDistHash,
+  computeRowsHash,
   computeSrcHash,
   computeTsconfigHash,
   fingerprintPackage,

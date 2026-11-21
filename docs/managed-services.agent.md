@@ -94,6 +94,7 @@ Source: `packages/server/src/services/cli-service.ts` (`SERVICE_HELP`).
 - `remove <id> [--purge-data]` / `--all`. `prefetch <id> [--yes]`. `secret set <id> <name>` (stdin), `secret import <id> <name> <file>`.
 - `--json` → exit 0, payload `{ok, …}`. Plain → non-zero on failure. `ensure` non-zero unless `healthy`. `exec` forwards child exit.
 - Server unreachable → `state: "no-server"` (CLI only).
+- `exec` signals (#1103): SIGTERM/SIGINT/SIGHUP → forwarded to direct child. Exit 128+n (143/130/129). Child alive 5 s after first signal → SIGKILL, exit 137. Repeat signal never shortens grace. Lease released after exit. `exec` SIGKILL → lease expires at TTL.
 
 ## Consumer contract
 - `ensure --json`: `id`, `state` (`healthy`|`starting`|`blocked`|`failed`|`unavailable`|`not-added`|`no-server`|`stop-failed`), `tried?`, `reason?`, `retryAt?`, `endpoints?` (`{http}`), `leaseId?`, `driver?`, `exposure?`, `updateAvailable?`, `hint?`.

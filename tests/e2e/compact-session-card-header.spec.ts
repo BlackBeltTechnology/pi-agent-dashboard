@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
 import { contrastRatio, elementColors, setThemeMode } from "./helpers/computed-contrast.js";
 import { harnessContainer } from "./helpers/folder-collapse.js";
-import { expandFolder, FIXTURE_GIT, gotoDashboard, pinDirectory, setSearch } from "./helpers/index.js";
+import { expandFolder, FIXTURE_GIT, gotoDashboard, pinDirectory, sendPrompt, setSearch, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -328,5 +328,42 @@ test.describe("desktop session header — one 48 px row", () => {
       const px = await t.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize));
       expect(px, "font-size px").toBeGreaterThanOrEqual(12);
     }
+  });
+});
+
+// A failed run reads "Failed" (not "Idle") in the status row, and survives a
+// narrow sidebar without wrapping or overflowing the card.
+// The error is LIVE client state (`lastError`), so it is seeded in the same page
+// that asserts it. See change: fix-ui-status-indicators (D2; test-plan #S42).
+test.describe("desktop card header — Failed label", () => {
+  test.setTimeout(180_000);
+
+  test("S42: an errored idle session shows Failed on one line, inside the card, in a narrow sidebar", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // Narrow sidebar from the first paint (the error cannot survive a reload).
+    await page.addInitScript(() => localStorage.setItem("dashboard:sidebar-width", "240"));
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:model-error]] go");
+    await expect(page.getByTestId("error-banner")).toBeVisible({ timeout: 30_000 });
+
+    const meta = card.getByTestId("session-card-meta");
+    await expect(meta).toContainText("Failed", { timeout: 30_000 });
+    await expect(meta).not.toContainText("Idle");
+    const geometry = await meta.evaluate((el) => {
+      const word = el.querySelector('[data-testid="activity-failed"]') as HTMLElement | null;
+      const cardEl = el.closest('[data-testid="session-card-desktop"]') as HTMLElement;
+      const w = word?.getBoundingClientRect();
+      const c = cardEl.getBoundingClientRect();
+      return {
+        wrapped: word ? word.getBoundingClientRect().height > parseFloat(getComputedStyle(word).lineHeight || "0") * 1.5 : true,
+        // The status row clips instead of pushing past its box, and the label stays inside the card.
+        rowOverflow: el.scrollWidth - el.clientWidth,
+        labelOutsideCard: w ? Math.max(0, w.right - c.right, c.left - w.left) : 999,
+      };
+    });
+    expect(geometry.wrapped, "Failed label stays on one line").toBe(false);
+    expect(geometry.rowOverflow, "status row does not overflow").toBeLessThanOrEqual(TOL);
+    expect(geometry.labelOutsideCard, "Failed label inside the card").toBeLessThanOrEqual(TOL);
   });
 });

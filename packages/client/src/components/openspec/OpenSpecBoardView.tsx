@@ -1383,7 +1383,7 @@ function BoardSessionRow({
 
       {/* Row 3: stats */}
       <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-[var(--text-tertiary)]" onClick={(e) => e.stopPropagation()}>
-        <span className="whitespace-nowrap">{formatTokens(s.tokensIn ?? 0)}↑ {formatTokens(s.tokensOut ?? 0)}↓</span>
+        <span className="whitespace-nowrap">{formatTokens(s.tokensIn ?? 0)}↓ {formatTokens(s.tokensOut ?? 0)}↑</span>
         {s.contextTokens != null && s.contextWindow ? (
           <span className="w-[26px] h-1 rounded-[3px] bg-[var(--bg-tertiary)] overflow-hidden" title={`context ${Math.round((100 * s.contextTokens) / s.contextWindow)}%`}>
             <i className="block h-full bg-blue-500" style={{ width: `${Math.min(100, Math.round((100 * s.contextTokens) / s.contextWindow))}%` }} />

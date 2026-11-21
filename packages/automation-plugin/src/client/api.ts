@@ -4,9 +4,9 @@
  */
 import type {
   ActionDescriptor,
-  DiscoveredAutomation,
   AutomationConfig,
   AutomationScope,
+  DiscoveredAutomation,
   RunRecord,
   StopOutcome,
   TriggerCategoryDescriptor,
@@ -82,6 +82,26 @@ export async function listAutomations(cwd?: string): Promise<DiscoveredAutomatio
     return json.automations ?? [];
   } catch {
     return [];
+  }
+}
+
+/** Result of a board fetch: a failed request is distinguishable from an empty folder. */
+export type FetchAutomationsResult = { ok: true; automations: DiscoveredAutomation[] } | { ok: false; error: string };
+
+/**
+ * Like `listAutomations`, but reports failure instead of swallowing it into `[]`:
+ * a non-2xx (cwd admission 403, 503), network reject or malformed JSON body →
+ * `{ ok: false }`. See change: fix-ui-status-indicators (#1155, design D5).
+ */
+export async function fetchAutomations(cwd?: string): Promise<FetchAutomationsResult> {
+  const url = cwd ? `${BASE}/list?cwd=${encodeURIComponent(cwd)}` : `${BASE}/list`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const json = (await res.json()) as { automations?: DiscoveredAutomation[] };
+    return { ok: true, automations: json.automations ?? [] };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
