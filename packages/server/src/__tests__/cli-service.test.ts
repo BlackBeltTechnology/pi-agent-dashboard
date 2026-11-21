@@ -357,10 +357,13 @@ describe("exec signal forwarding (#1103, change: harden-path-and-process-guards)
     }
   });
 
-  it("#P5 200 mixed runs leak no listeners or timers", async () => {
+  it("#P5 200 mixed runs leak no listeners and clear every heartbeat / grace timer exec arms", async () => {
     vi.useFakeTimers();
+    const setI = vi.spyOn(globalThis, "setInterval");
+    const clearI = vi.spyOn(globalThis, "clearInterval");
+    const setT = vi.spyOn(globalThis, "setTimeout");
+    const clearT = vi.spyOn(globalThis, "clearTimeout");
     const source = new EventEmitter();
-    const baseline = vi.getTimerCount();
     for (let i = 0; i < 200; i++) {
       const child = mkChild([], exitsOn("SIGTERM"));
       // Wait until exec has spawned the child and installed its handlers (no timing guess).
@@ -373,8 +376,17 @@ describe("exec signal forwarding (#1103, change: harden-path-and-process-guards)
       else child.emit("exit", 0, null);
       await done;
       expect(listeners(source), `iteration ${i}`).toEqual([0, 0, 0]);
-      expect(vi.getTimerCount(), `iteration ${i}`).toBe(baseline); // no growth: no leaked heartbeat/grace timer
     }
+    // Only exec's own timers (30 s heartbeat, 5 s kill-grace) — not the unrelated fetch timeouts.
+    // vi.getTimerCount() is not used: it also sees runtime-internal timers that come and go with GC.
+    const armed = (set: typeof setI | typeof setT, ms: number) =>
+      set.mock.calls.flatMap((c, k) => (c[1] === ms ? [set.mock.results[k]?.value] : []));
+    const heartbeats = armed(setI, 30_000);
+    const graces = armed(setT, 5_000);
+    expect(heartbeats).toHaveLength(200);
+    expect(graces).toHaveLength(100); // one per signalled run
+    for (const h of heartbeats) expect(clearI.mock.calls.some((c) => c[0] === h)).toBe(true);
+    for (const h of graces) expect(clearT.mock.calls.some((c) => c[0] === h)).toBe(true);
   });
 
   it("#X13 a signal while the lease release is in flight is a no-op; exec returns the child's status", async () => {
