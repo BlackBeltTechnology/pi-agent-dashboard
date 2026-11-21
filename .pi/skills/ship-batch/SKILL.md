@@ -1,6 +1,6 @@
 ---
 name: ship-batch
-description: 'Ship a whole OpenSpec group unattended: one detached runner schedules `ship-it` sessions N at a time in their own worktrees, never answers their questions, archives every finished session and removes worktrees only when nothing unpushed would be lost. Resumable, one runner per repo. Triggers: "ship the group", "batch ship-it", "ship all changes in <group>", "run the group through ship-it", "ship the batch", "ship-batch status".'
+description: 'Ship a whole OpenSpec group unattended: one detached runner schedules ship-it sessions N at a time in their own worktrees, never answers their questions, archives finished sessions and removes worktrees only when nothing unpushed is lost. Resumable. Triggers: "ship the group", "batch ship-it", "ship all changes in <group>", "ship-batch status".'
 metadata:
   version: "1.0"
   scope: project
