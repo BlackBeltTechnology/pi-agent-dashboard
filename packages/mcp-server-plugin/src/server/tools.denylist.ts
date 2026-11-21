@@ -181,6 +181,10 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // cross-session self-approval road. The REST route stays registered + tiered for
   // the browser; the chat gateway answers via its own chat-local tier entry.
   { pattern: "prompt_response", reason: "agent prompt answers stay human-in-the-loop; broken session bind" },
+  { pattern: "sudo_credential_cancel", reason: "operator-only sudo password answer; an agent must never answer its own sudo prompt" },
+  { pattern: "sudo_credential_forget", reason: "operator-only sudo password answer; an agent must never answer its own sudo prompt" },
+  { pattern: "sudo_credential_response", reason: "operator-only sudo password answer; an agent must never answer its own sudo prompt" },
+  { pattern: "sudo_credential_shown", reason: "operator-only sudo password answer; an agent must never answer its own sudo prompt" },
   { pattern: "/api/session/:id/extension-ui-response", reason: "agent prompt answers stay human-in-the-loop; inert (the bridge drops the legacy message)" },
   { pattern: "kill_process", reason: "duplicate-of:kill_process" },
   { pattern: "kill_terminal", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

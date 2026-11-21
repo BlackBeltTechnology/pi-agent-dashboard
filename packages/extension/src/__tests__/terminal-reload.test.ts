@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCommandHandler } from "../command-handler.js";
 import {
+  BRIDGE_RELEASE_REASONS,
   consumePendingReloadOnSessionStart,
   createTerminalReload,
   FINISH_TIMEOUT_MS,
@@ -332,12 +333,73 @@ describe("bridge wiring (E6, E7)", () => {
     expect(isBridgeReentry(prev, P2)).toBe(false);
   });
 
-  it("E7b: no shutdown → a different pi (subagent load) is still skipped", () => {
+  it("E7b: a non-allow-listed shutdown reason does not release → a different pi is still skipped", () => {
     const P1 = {};
     const P3 = {};
+    for (const reason of ["quit", undefined, "", "startup", "bogus"]) {
+      const prev = { generation: 1, pi: P1 as unknown };
+      releaseBridgeOwnerOnShutdown(prev, reason);
+      expect(isBridgeReentry(prev, P3), String(reason)).toBe(true);
+      expect(prev.pi).toBe(P1);
+    }
+  });
+});
+
+describe("bridge ownership release on session replacement (#1175)", () => {
+  // test-plan #E1: every replacement reason releases, so the replacement instance re-initialises.
+  for (const reason of ["reload", "new", "resume", "fork"] as const) {
+    it(`E1: session_shutdown{${reason}} releases ownership`, () => {
+      const prev = { generation: 1, pi: {} as unknown };
+      releaseBridgeOwnerOnShutdown(prev, reason);
+      expect(prev.pi).toBeUndefined();
+      expect(isBridgeReentry(prev, {})).toBe(false);
+    });
+  }
+
+  // test-plan #E3: no shutdown at all (a subagent load) → the guard still rejects.
+  it("E3: with no shutdown a different pi is rejected and the owner is untouched", () => {
+    const P1 = {};
     const prev = { generation: 1, pi: P1 as unknown };
-    releaseBridgeOwnerOnShutdown(prev, "quit");
-    expect(isBridgeReentry(prev, P3)).toBe(true);
+    expect(isBridgeReentry(prev, {})).toBe(true);
     expect(prev.pi).toBe(P1);
+    expect(prev.generation).toBe(1);
+  });
+
+  // test-plan #E4: boundary states are never re-entry, widened release or not.
+  it("E4: boundary owner states are not re-entry", () => {
+    const pi = {};
+    expect(isBridgeReentry({}, pi)).toBe(false);
+    expect(isBridgeReentry({ generation: 0, pi: {} }, pi)).toBe(false);
+    expect(isBridgeReentry({ generation: 1, pi }, pi)).toBe(false);
+    expect(isBridgeReentry({ generation: 1, pi: undefined }, pi)).toBe(false);
+    for (const reason of ["reload", "new", "resume", "fork", "quit"]) {
+      const prev = { generation: 1, pi: undefined as unknown };
+      releaseBridgeOwnerOnShutdown(prev, reason);
+      expect(isBridgeReentry(prev, pi)).toBe(false);
+    }
+  });
+
+  // test-plan #E5: characterisation pin of the accepted fail-open window (same as `reload`).
+  it("E5: owner shut down with resume and no replacement → a later different pi passes the guard", () => {
+    const prev = { generation: 1, pi: {} as unknown };
+    releaseBridgeOwnerOnShutdown(prev, "resume");
+    expect(isBridgeReentry(prev, {})).toBe(false);
+  });
+
+  // test-plan #X7: a new pi shutdown reason must be classified here, so the allow-list is reviewed.
+  // The installed pi types are not importable by name under this package's ambient `pi-env.d.ts`
+  // shadow, so the `reason` union is read from pi's published declaration file.
+  it("X7: pi's SessionShutdownEvent reasons = allow-list ∪ {quit}", () => {
+    const dts = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts",
+    );
+    const src = readFileSync(dts, "utf8");
+    const body = /interface SessionShutdownEvent \{[^}]*?reason:\s*([^;]+);/.exec(src);
+    expect(body, "SessionShutdownEvent.reason not found in pi's types.d.ts").not.toBeNull();
+    const union = [...body![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
+    expect(union.length).toBeGreaterThan(0);
+    expect([...BRIDGE_RELEASE_REASONS, "quit"].sort()).toEqual(union);
+    expect(BRIDGE_RELEASE_REASONS).not.toContain("quit");
   });
 });

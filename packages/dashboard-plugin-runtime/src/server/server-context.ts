@@ -152,7 +152,11 @@ export type OnSessionResolvedFn = (
  * for headless sessions). Returns false when the session is not connected.
  * See change: add-goal-continuation-plugin.
  */
-export type SendToSessionFn = (sessionId: string, text: string) => boolean;
+export type SendToSessionFn = (
+  sessionId: string,
+  text: string,
+  opts?: { delivery?: "steer" | "followUp" },
+) => boolean;
 
 /**
  * Send a raw server→extension control message to ONE session's bridge socket

@@ -56,6 +56,55 @@ describe("activityContent — same branch list the indicator rendered before", (
   });
 });
 
+/**
+ * `Failed` label — idle/active + `hasError`, only above the final `Idle`.
+ * See change: fix-ui-status-indicators (D2; test-plan S1, S2, S5-S9).
+ */
+describe("activityContent — Failed label (hasError)", () => {
+  const html = (node: ReturnType<typeof activityContent>) => {
+    const { container } = render(<>{node}</>);
+    return container;
+  };
+
+  it.each(["idle", "active"] as const)("%s + hasError → Failed with error glyph, no Idle", (status) => {
+    const c = html(activityContent(s({ status }), undefined, false, true));
+    expect(c.textContent).toContain("Failed");
+    expect(c.textContent).not.toContain("Idle");
+    const glyph = c.querySelector('[data-status-dot="error"]');
+    expect(glyph).not.toBeNull();
+    expect(glyph?.className).toContain("--status-error");
+  });
+
+  it("legacy 3-arg call and hasError=false keep the muted Idle label", () => {
+    for (const node of [activityContent(s(), undefined, false), activityContent(s(), undefined, false, false)]) {
+      const t = text(node);
+      expect(t).toBe("Idle");
+    }
+  });
+
+  it("Retry outranks Failed", () => {
+    expect(text(activityContent(s(), 2, false, true))).toBe("Retry 2");
+  });
+
+  it("Streaming outranks Failed", () => {
+    expect(text(activityContent(s({ status: "streaming" }), undefined, false, true))).toBe("Thinking…");
+  });
+
+  it.each(["idle", "active"] as const)("current tool outranks Failed (%s)", (status) => {
+    expect(text(activityContent(s({ status, currentTool: "bash" }), undefined, false, true))).toBe("bash");
+  });
+
+  it("Needs-you and Resuming outrank Failed", () => {
+    expect(text(activityContent(s({ status: "streaming", currentTool: "ask_user" }), undefined, false, true))).toBe("Needs you");
+    expect(text(activityContent(s({ resuming: true }), undefined, false, true))).toBe("Resuming…");
+  });
+
+  it("ended + hasError keeps the ended-reason pill, no Failed", () => {
+    const t = text(activityContent(s({ status: "ended", closedReason: "process_gone" }), undefined, false, true));
+    expect(t).toBe("✕process gone");
+  });
+});
+
 describe("metaChipsVisible", () => {
   it("is true for moved-away, remote-origin and ACP sessions, false for a plain one", () => {
     expect(metaChipsVisible(s({ status: "ended", movedTo: { instanceId: "i2" } as never }))).toBe(true);

@@ -92,11 +92,36 @@ function gateErrors(rest: string, root: string): string[] {
   return errs;
 }
 
-/** F1 (#1104): an unfixed finding keeps `accepted-risk:` citing its issue. */
-function validateF1Reason(key: string, reason: string): string[] {
+const F1_GATE_SITES = [
+  "packages/automation-plugin/src/server/index.ts",
+  "packages/automation-plugin/src/server/routes.ts",
+] as const;
+
+/**
+ * F1 (#1104) is fixed: the `plugin_action` create/run admit `payload.cwd`. An entry that still
+ * reproduces (CodeQL cannot see the custom `admitRouteCwdParam` gate) is `false-positive:` and
+ * names the gate plus the file:line where the route and the handler run it — never
+ * `accepted-risk:` and never a `#1104` citation.
+ */
+function validateF1Reason(key: string, reason: string, root: string): string[] {
   const body = reasonBody(reason);
-  if (/^accepted-risk: .*#\d+/.test(body)) return [];
-  return [`${key}: must be accepted-risk: citing the tracking issue as #<digits>`];
+  const errs: string[] = [];
+  const err = (m: string) => errs.push(`${key}: ${m}`);
+  if (/^accepted-risk:/.test(body) || body.includes("#1104")) err("F1 is fixed: no accepted-risk reason and no #1104 citation");
+  if (!body.startsWith("false-positive:")) err("must be false-positive: naming the admission gate");
+  if (!body.includes("admitRouteCwdParam")) err("must name the admission gate admitRouteCwdParam");
+  for (const site of F1_GATE_SITES) {
+    const m = new RegExp(`${site.replace(/[.]/g, "\\.")}:(\\d+)`).exec(body);
+    if (!m) {
+      err(`must cite ${site}:<line>`);
+      continue;
+    }
+    const abs = path.join(root, site);
+    const lines = fs.existsSync(abs) ? fs.readFileSync(abs, "utf8").split("\n").length : 0;
+    const line = Number(m[1]);
+    if (line < 1 || line > lines) err(`${site}:${line} outside 1..${lines}`);
+  }
+  return errs;
 }
 
 const baseline = JSON.parse(fs.readFileSync(path.join(repoRoot, "codeql-baseline.json"), "utf8")) as {
@@ -158,13 +183,10 @@ describe("operator-authz reasons cite their bounding gate — real baseline", ()
     }
   });
 
-  it("#E32 automation-writer entries are accepted-risk citing #1104 (vacuous without the anchor)", () => {
+  it("#E32/#S10 no automation-writer entry is accepted-risk or cites #1104; any that remains names the gate", () => {
     const es = baseline.entries.filter((e) => e.file === F1_FILE);
-    for (const e of es) {
-      expect(validateF1Reason(entryKey(e), e.reason)).toEqual([]);
-      expect(e.reason).toContain("#1104");
-      expect(reasonBody(e.reason)).not.toMatch(/^false-positive:/);
-    }
+    expect(es.flatMap((e) => validateF1Reason(entryKey(e), e.reason, repoRoot))).toEqual([]);
+    expect(es.filter((e) => /accepted-risk|#1104/.test(e.reason)).map(entryKey)).toEqual([]);
   });
 });
 
@@ -274,15 +296,23 @@ describe("validateOperatorAuthzReason — fixtures", () => {
     ).toEqual([]);
   });
 
-  it("#E32 F1 reason class × issue ref", () => {
+  it("#E32/#S10/#X6 F1 reason fixtures: 0 entries and gate-naming false-positives pass; the rest fail by key", () => {
     const k = key(F1_FILE);
-    expect(validateF1Reason(k, "accepted-risk: writeAutomation reachable; tracked in #1104")).toEqual([]);
+    const gate = "false-positive: gate: admitRouteCwdParam packages/automation-plugin/src/server/index.ts:1; packages/automation-plugin/src/server/routes.ts:1";
+    // (a) zero entries: nothing to validate.
+    expect([].flatMap(() => validateF1Reason(k, "", repoRoot))).toEqual([]);
+    // (b) a false-positive naming the gate and both file:line sites.
+    expect(validateF1Reason(k, gate, repoRoot)).toEqual([]);
     for (const bad of [
-      "false-positive: isValidAutomationName",
-      "accepted-risk: tracked in #<n>",
-      "accepted-risk: tracked elsewhere",
+      "accepted-risk: writeAutomation reachable; tracked in #1104", // (c) still accepted-risk / #1104
+      "false-positive: isValidAutomationName", // (d) no gate named
+      "false-positive: gate: admitRouteCwdParam packages/automation-plugin/src/server/index.ts:1", // one site missing
+      "false-positive: gate: admitRouteCwdParam packages/automation-plugin/src/server/index.ts:999999; packages/automation-plugin/src/server/routes.ts:1", // line out of range
+      "weird-prefix: gate admitRouteCwdParam", // (e) unknown prefix
+      "TBD", // placeholder
+      "false-positive: tracked in #1104 admitRouteCwdParam", // cites the fixed issue
     ]) {
-      expect(validateF1Reason(k, bad).join("\n"), bad).toContain(k);
+      expect(validateF1Reason(k, bad, repoRoot).join("\n"), bad).toContain(k);
     }
   });
 });

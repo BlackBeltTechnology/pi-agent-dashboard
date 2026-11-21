@@ -39,6 +39,24 @@ vi.mock("../git-worktree/git-operations.js", async (importOriginal) => {
   };
 });
 
+// ── statMtimeOr probe hook: the poll helpers import `fs` as a namespace, which
+// `vi.spyOn(fs, …)` cannot intercept. Tests arm `statProbe` to record every
+// stat and to simulate EACCES (statMtimeOr swallows it → `undefined`).
+let statProbe: { calls: string[]; failOn: (p: string) => boolean } | null = null;
+vi.mock("../openspec/openspec-poll-fs-helpers.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../openspec/openspec-poll-fs-helpers.js")>();
+  return {
+    ...actual,
+    statMtimeOr: (p: string) => {
+      if (statProbe) {
+        statProbe.calls.push(p);
+        if (statProbe.failOn(p)) return undefined;
+      }
+      return actual.statMtimeOr(p);
+    },
+  };
+});
+
 // Mock CLI entry points so polls are deterministic and spawn-free.
 vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (importOriginal) => {
   const actual = await importOriginal<
@@ -152,10 +170,13 @@ function inputs(over: Partial<ReadinessInputs>): ReadinessInputs {
 }
 
 /** Real fs fixture — hasOpenspecDir comes from a genuine stat. */
-function mkProject(cwd: string, opts: { skills?: boolean } = {}): void {
+function mkProject(cwd: string, opts: { skills?: boolean; sharedSkills?: boolean } = {}): void {
   fs.mkdirSync(path.join(cwd, "openspec", "changes"), { recursive: true });
   if (opts.skills) {
     fs.mkdirSync(path.join(cwd, ".pi", "skills", "openspec-explore"), { recursive: true });
+  }
+  if (opts.sharedSkills) {
+    fs.mkdirSync(path.join(cwd, ".agents", "skills", "openspec-explore"), { recursive: true });
   }
 }
 function mkTmpRoot(): string {
@@ -927,5 +948,236 @@ describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-s
     put(repo, "openspec/config.yaml", "schema: spec-driven\n");
     const out = await make().refreshOpenSpec(repo);
     expect(out.workflowSchema?.projectSchemas).toEqual([]);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Shared skills layout — `.agents/skills/` counts like `.pi/skills/`
+// ══════════════════════════════════════════════════════════════════
+
+describe("DirectoryService — shared skills layout (fix-openspec-readiness-shared-skills)", () => {
+  let service: DirectoryService;
+  let tmpRoot: string;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    configRootCalls = 0;
+    fakeConfigRoot = (cwd) => cwd;
+    tmpRoot = mkTmpRoot();
+    const { runOpenSpecList } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+    (runOpenSpecList as any).mockResolvedValue({ changes: [] });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    statProbe = null;
+    service?.stopPolling();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  function make(opts: { signature?: string; useWorker?: boolean } = {}): DirectoryService {
+    service = createDirectoryService(
+      makePrefs({ recordedSignature: opts.signature ?? "sig" }),
+      makeSessionMgr(),
+      opts.useWorker === false ? { ...DEFAULT_OPENSPEC_POLL, useWorker: false } : {},
+      { currentGlobalSignature: async () => "sig" },
+    );
+    return service;
+  }
+
+  /** Arm the stat probe; `failOn` paths behave as EACCES, the rest hit the real fs. */
+  function spyStat(failOn: (p: string) => boolean = () => false) {
+    const probe = { calls: [] as string[], failOn };
+    statProbe = probe;
+    const skillCalls = () => probe.calls.filter((c) => /[\\/]skills[\\/]openspec-explore$/.test(c));
+    return { skillCalls, reset: () => { probe.calls.length = 0; } };
+  }
+
+  it("S1: shared-only project is READY, not STALE·missing-skills", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { sharedSkills: true });
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.hasOpenSpecSkills).toBe(true);
+    expect(out.readiness).toEqual({ state: "READY" });
+  });
+
+  it("S3: both layouts present → READY", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true, sharedSkills: true });
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.hasOpenSpecSkills).toBe(true);
+    expect(out.readiness).toEqual({ state: "READY" });
+  });
+
+  it("S4: neither layout present → STALE·missing-skills", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo);
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.initialized).toBe(true);
+    expect(out.hasOpenSpecSkills).toBe(false);
+    expect(out.readiness).toEqual({ state: "STALE", reason: "missing-skills" });
+  });
+
+  it("S5: wrong sibling skills only (no openspec-explore) → STALE·missing-skills", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo);
+    for (const d of ["other-skill", "openspec-propose"]) {
+      fs.mkdirSync(path.join(repo, ".agents", "skills", d), { recursive: true });
+    }
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.hasOpenSpecSkills).toBe(false);
+    expect(out.readiness).toEqual({ state: "STALE", reason: "missing-skills" });
+  });
+
+  it("S6: empty .agents/skills/ → hasOpenSpecSkills false", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo);
+    fs.mkdirSync(path.join(repo, ".agents", "skills"), { recursive: true });
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.hasOpenSpecSkills).toBe(false);
+  });
+
+  it("S7: worktree inherits a shared-layout answer from the main checkout", async () => {
+    const mainRoot = path.join(tmpRoot, "main");
+    const worktree = path.join(tmpRoot, "wt");
+    mkProject(worktree);
+    fs.mkdirSync(path.join(mainRoot, ".agents", "skills", "openspec-explore"), { recursive: true });
+    fakeConfigRoot = (cwd) => (cwd === worktree ? mainRoot : cwd);
+    const out = await make().refreshOpenSpec(worktree);
+    expect(out.hasOpenSpecSkills).toBe(true);
+    expect(out.readiness).toEqual({ state: "READY" });
+  });
+
+  it("S9: worktree's own shared skills do not count when main has neither layout", async () => {
+    const mainRoot = path.join(tmpRoot, "main");
+    const worktree = path.join(tmpRoot, "wt");
+    mkProject(worktree, { sharedSkills: true });
+    fs.mkdirSync(mainRoot, { recursive: true });
+    fakeConfigRoot = (cwd) => (cwd === worktree ? mainRoot : cwd);
+    const out = await make().refreshOpenSpec(worktree);
+    expect(out.hasOpenSpecSkills).toBe(false);
+    expect(out.readiness).toEqual({ state: "STALE", reason: "missing-skills" });
+  });
+
+  it("S10: mixed layouts — main's legacy answer wins for a worktree", async () => {
+    const mainRoot = path.join(tmpRoot, "main");
+    const worktree = path.join(tmpRoot, "wt");
+    mkProject(worktree, { sharedSkills: true });
+    fs.mkdirSync(path.join(mainRoot, ".pi", "skills", "openspec-explore"), { recursive: true });
+    fakeConfigRoot = (cwd) => (cwd === worktree ? mainRoot : cwd);
+    const out = await make().refreshOpenSpec(worktree);
+    expect(out.hasOpenSpecSkills).toBe(true);
+  });
+
+  it("S11: null config root refuses shared skills at cwd", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { sharedSkills: true });
+    fakeConfigRoot = () => null;
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.hasOpenSpecSkills).toBe(false);
+  });
+
+  it("S12: null config root with both layouts never stats a skills path under cwd", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true, sharedSkills: true });
+    fakeConfigRoot = () => null;
+    const { skillCalls } = spyStat();
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.hasOpenSpecSkills).toBe(false);
+    expect(skillCalls().filter((c) => c.startsWith(repo))).toEqual([]);
+  });
+
+  it("S13: null-root TTL recovery works for the shared layout", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { sharedSkills: true });
+    let now = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      fakeConfigRoot = () => null;
+      make({ useWorker: false });
+      expect((await service.pollDirectoryGated(repo)).hasOpenSpecSkills).toBe(false);
+      fakeConfigRoot = (cwd) => cwd;
+      const callsBefore = configRootCalls;
+      expect((await service.pollDirectoryGated(repo)).hasOpenSpecSkills).toBe(false);
+      expect(configRootCalls).toBe(callsBefore);
+      now += 61_000;
+      const out = await service.pollDirectoryGated(repo);
+      expect(out.hasOpenSpecSkills).toBe(true);
+      expect(out.readiness).toEqual({ state: "READY" });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("S14: non-goal pin — no ancestor walk for .agents/skills", async () => {
+    const parent = tmpRoot;
+    const pkg = path.join(parent, "pkg");
+    mkProject(pkg);
+    fs.mkdirSync(path.join(parent, ".agents", "skills", "openspec-explore"), { recursive: true });
+    const out = await make().refreshOpenSpec(pkg);
+    expect(out.hasOpenSpecSkills).toBe(false);
+  });
+
+  it.skipIf(process.platform === "win32")("S15: symlinked shared skill — live target true, dangling false", async () => {
+    const live = path.join(tmpRoot, "live");
+    const dangling = path.join(tmpRoot, "dangling");
+    mkProject(live);
+    mkProject(dangling);
+    const target = path.join(tmpRoot, "target-skill");
+    fs.mkdirSync(target, { recursive: true });
+    fs.mkdirSync(path.join(live, ".agents", "skills"), { recursive: true });
+    fs.mkdirSync(path.join(dangling, ".agents", "skills"), { recursive: true });
+    fs.symlinkSync(target, path.join(live, ".agents", "skills", "openspec-explore"), "dir");
+    fs.symlinkSync(path.join(tmpRoot, "nope"), path.join(dangling, ".agents", "skills", "openspec-explore"), "dir");
+    const svc = make();
+    expect((await svc.refreshOpenSpec(live)).hasOpenSpecSkills).toBe(true);
+    expect((await svc.refreshOpenSpec(dangling)).hasOpenSpecSkills).toBe(false);
+  });
+
+  it("P1: probe count — legacy hit short-circuits (1); shared hit costs 2; none costs 2", async () => {
+    const a = path.join(tmpRoot, "a");
+    const b = path.join(tmpRoot, "b");
+    const c = path.join(tmpRoot, "c");
+    mkProject(a, { skills: true });
+    mkProject(b, { sharedSkills: true });
+    mkProject(c);
+    const svc = make(); // one service: afterEach stops its worker pool
+    for (const [cwd, expected] of [[a, 1], [b, 2], [c, 2]] as const) {
+      const { skillCalls } = spyStat();
+      await svc.refreshOpenSpec(cwd);
+      expect(skillCalls().filter((p) => p.startsWith(cwd)).length).toBe(expected);
+    }
+  });
+
+  it("X1: EACCES on the legacy probe only → shared probe still runs, true", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { sharedSkills: true });
+    spyStat((p) => p === path.join(repo, ".pi", "skills", "openspec-explore"));
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.hasOpenSpecSkills).toBe(true);
+  });
+
+  it("X2: EACCES on both probes → no throw, STALE·missing-skills, initialized intact", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true, sharedSkills: true });
+    spyStat((p) => /[\\/]skills[\\/]openspec-explore$/.test(p));
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.initialized).toBe(true);
+    expect(out.hasOpenSpecSkills).toBe(false);
+    expect(out.readiness).toEqual({ state: "STALE", reason: "missing-skills" });
+  });
+
+  it("X3: skills presence is recomputed every poll, not carried from the unchanged-openspec/ gate", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo);
+    make({ useWorker: false });
+    expect((await service.pollDirectoryGated(repo)).hasOpenSpecSkills).toBe(false);
+    fs.mkdirSync(path.join(repo, ".agents", "skills", "openspec-explore"), { recursive: true });
+    const second = await service.pollDirectoryGated(repo);
+    expect(second.hasOpenSpecSkills).toBe(true);
+    expect(second.readiness).toEqual({ state: "READY" });
+    fs.rmSync(path.join(repo, ".agents"), { recursive: true, force: true });
+    const third = await service.pollDirectoryGated(repo);
+    expect(third.hasOpenSpecSkills).toBe(false);
+    expect(third.readiness).toEqual({ state: "STALE", reason: "missing-skills" });
   });
 });

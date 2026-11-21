@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryEventStore } from "../../persistence/memory-event-store.js";
 import type { BriefOutcome } from "../brief-generator.js";
 import { createQuestionFileStore } from "../question-files.js";
-import { createQuestionStore, TRANSMITTED_WINDOW_MS, type QuestionChange } from "../question-store.js";
+import { createQuestionStore, type QuestionChange, TRANSMITTED_WINDOW_MS } from "../question-store.js";
 
 const ID_RE = /^[A-Za-z0-9_-]{22}$/;
 
@@ -121,11 +121,21 @@ describe("question store", () => {
       const byPrompt = (q: string) => rows.find((r) => r.preview.startsWith(q))!;
       const first = rows.find((r) => r.preview === "Q".repeat(140))!;
       expect(first).toMatchObject({ sessionId: "s1", sessionLabel: "My session", changeName: "add-x", type: "select", briefStatus: "pending" });
-      expect(Object.keys(first).sort()).toEqual(["askedAt", "briefStatus", "changeName", "id", "preview", "sessionId", "sessionLabel", "type"].sort());
+      expect(Object.keys(first).sort()).toEqual(["askedAt", "briefStatus", "changeName", "id", "preview", "promptId", "sessionId", "sessionLabel", "type"].sort());
       expect(rows.filter((r) => r.origin === "file")).toHaveLength(1);
       expect(rows.filter((r) => r.origin === "widget-bar")).toHaveLength(1);
       expect(rows.filter((r) => r.origin === "chat-gateway")).toHaveLength(1);
       expect(byPrompt("Resume")).toBeDefined();
+    });
+
+    // See change: fix-input-state-consistency (S35): additive promptId on the row.
+    it("S35: a row carries the PromptBus promptId (additive); detail inherits it", () => {
+      const { store } = make({ config: { autoBrief: false, minBriefChars: 240 } });
+      store.onTracked("s1", promptMsg("s1", "p1"));
+      const [row] = store.listRows();
+      expect(row.promptId).toBe("p1");
+      expect(row).toMatchObject({ id: expect.stringMatching(ID_RE), sessionId: "s1", type: "select" });
+      expect(store.getDetail(row.id)?.promptId).toBe("p1");
     });
 
     it("listRows(isVisible) filters per session; newest first", () => {

@@ -141,7 +141,13 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // can load), the FileLink routing rewrite, and the en/hu/zh-CN catalog rows (dialog, Write badge, write prompt copy).
 // The dialog host is a lazy chunk. 624,927 B on CI, 287 B over the old cap; 611 KiB (625,664 B) leaves ~740 B for
 // CI's compressor variance. Smallest KiB step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 611 * 1024;
+// fix-input-state-consistency (2026-11-21): 611 -> 613 KiB. Unavoidably eager: the interactive renderers
+// (`Select`/`Multiselect`/`Input`/`Batch`) mount in ChatView on first paint and now restore/mirror their answer
+// draft, so the prompt-draft store (`prompt-draft-storage.ts`), its two hooks and the App-level sweep ride the
+// index chunk, plus the image-only-send guards. +1,950 B gz measured locally against the same develop base
+// (624,927 CI -> 626,877 B). 612 KiB (626,688 B) would still be 189 B short, so 613 KiB (627,712 B, ~835 B
+// headroom for CI's compressor variance). Smallest KiB step that clears it; not a general raise.
+const INDEX_GZ_CAP_BYTES = 613 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

@@ -9,7 +9,7 @@
  * `waitForBind`) follows `pi-gateway-bind-host.test.ts`.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
@@ -815,5 +815,61 @@ describe("pi-gateway: drop reports and prompt acks", () => {
     const ack = seen.find((e) => e.msg.type === "prompt_received")!;
     expect(ack.sessionId).toBe("S_ack");
     expect(ack.msg.promptId).toBe("p-1");
+  });
+});
+
+// ── #1175 test-plan #E7 ──────────────────────────────────────────────────────
+// A session replacement on a single bridge socket: the outgoing owner already sent
+// `session_unregister{A}`, then the replacement instance's `handleSessionChange` sends a
+// second one for the same id on the same socket while B is registered. Today's gateway must
+// treat it as a no-op (claim-gated unregister semantics belong to `harden-bridge-session-claim`).
+describe("pi-gateway: repeated session_unregister for an already-removed id", () => {
+  let gateway: ReturnType<typeof createPiGateway>;
+  const sockets: Client[] = [];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const c of sockets) c.ws.terminate();
+    sockets.length = 0;
+    gateway?.stop();
+  });
+
+  it("E7: a second unregister for the outgoing id leaves the incoming registration untouched", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const sessionManager = createMemorySessionManager();
+    gateway = createPiGateway(sessionManager, { pingInterval: 0 });
+    gateway.start(0, "127.0.0.1");
+    const port = await waitForBind(gateway);
+
+    const first = await connect(port);
+    sockets.push(first);
+    register(first, "A");
+    await until(() => sessionManager.get("A") !== undefined);
+
+    // Replacement: the outgoing owner unregisters A, the new socket registers B.
+    first.ws.send(JSON.stringify({ type: "session_unregister", sessionId: "A" }));
+    await until(() => sessionManager.get("A")?.status === "ended" || sessionManager.get("A") === undefined);
+    const second = await connect(port);
+    sockets.push(second);
+    register(second, "B");
+    await until(() => sessionManager.get("B") !== undefined);
+    const absentBefore = sessionManager.get("A");
+    errorLog.mockClear();
+
+    // The replacement's handleSessionChange unregisters the already-gone outgoing id again.
+    second.ws.send(JSON.stringify({ type: "session_unregister", sessionId: "A" }));
+    await delay(150);
+
+    expect(second.closed).toBe(false);
+    expect(sessionManager.get("B")).toBeDefined();
+    expect(sessionManager.get("B")!.status).not.toBe("ended");
+    expect(gateway.sendToSession("B", { type: "reload" } as any)).toBe(true);
+    await until(() => second.received.some((m) => m.type === "reload"), 2000);
+    expect(sessionManager.get("A")).toEqual(absentBefore);
+    // Only the routine "session unregistered" trace is allowed; no Error objects / failure lines.
+    const failures = errorLog.mock.calls.filter(
+      (args) => args.some((a) => a instanceof Error) || /fail|error|exception|unknown session/i.test(args.join(" ")),
+    );
+    expect(failures).toEqual([]);
   });
 });

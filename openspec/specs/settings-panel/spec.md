@@ -581,7 +581,7 @@ A subsequent `GET /api/config` SHALL return the persisted `auth.bypassHosts` and
 - **AND** `GET /api/config` SHALL return `auth.secret: "***"` (redacted, per existing rule)
 
 ### Requirement: Settings panel exposes spawn-register timeout
-The Settings panel (`packages/client/src/components/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "Spawn register timeout (ms)" with helper text "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000."
+The Settings panel (`packages/client/src/components/settings/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "+Session register timeout" with a `ms` unit badge (the label key `session.sessionRegisterTimeoutMs`, unchanged; it already matches the shipped UI and the `ui-terminology` wording) and helper text (key `common.howLongToWaitForA`, unchanged key) "How long to wait for a new pi session to connect before reporting a failure and terminating the new pi process. Default 30000 (30s). Range 5000–120000."
 
 The input SHALL accept integers in the closed range `[5000, 120000]`. Out-of-range or non-numeric inputs SHALL be flagged as invalid (existing settings-form invalidation pattern) and SHALL prevent save until corrected.
 
@@ -607,6 +607,11 @@ On save, the value SHALL be persisted via the existing `POST /api/config` config
 #### Scenario: helper text mentions default and range
 - **WHEN** the field is rendered
 - **THEN** the helper text SHALL include both the default value (30000 / 30s) and the valid range (5000–120000)
+
+#### Scenario: helper text states the process is terminated
+- **WHEN** the field is rendered
+- **THEN** the helper text SHALL state that the new pi process is terminated on timeout and SHALL NOT describe the timeout as only a warning
+- **AND** the English helper text SHALL contain no form of the word "spawn" (`ui-terminology`)
 
 ### Requirement: OpenSpec section exposes `openspec.enabled` toggle
 The settings panel SHALL render a toggle control for `DashboardConfig.openspec.enabled` in the OpenSpec polling configuration block (currently rendered alongside `pollIntervalSeconds`, `maxConcurrentSpawns`, etc. — see `SettingsPanel.tsx` lines ~722–791). The toggle SHALL be a checkbox or switch labeled "Enable OpenSpec" (or equivalent) with help text indicating that disabling it hides all OpenSpec UI surfaces and stops background polling.

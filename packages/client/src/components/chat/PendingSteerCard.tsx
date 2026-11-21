@@ -56,7 +56,7 @@ export function PendingSteerCard({ steer, maxWidthClass, onCancel }: {
       </div>
       <div className="flex items-start gap-1.5">
         <div className="flex-1 min-w-0 flex flex-col gap-1">
-          <MarkdownContent content={steer.text} />
+          {steer.text && <MarkdownContent content={steer.text} />}
           {steer.imageCount > 0 && (
             <span
               data-testid="pending-steer-attachments"

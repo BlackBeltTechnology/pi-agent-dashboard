@@ -123,7 +123,7 @@ export function CanvasDriver({ state, anchor }: Props) {
   // bottom gap clears the dock's Hide handle (`-translate-y-1/2`, 12/22 px).
   if (anchor != null && split.mode !== "full") {
     return createPortal(
-      <div data-testid="canvas-chip-tray" className="flex flex-col items-end gap-2 pb-3 max-md:pb-6">
+      <div data-testid="canvas-chip-tray" className="flex flex-col items-start gap-2 pb-3 max-md:pb-6">
         {chips}
       </div>,
       anchor,

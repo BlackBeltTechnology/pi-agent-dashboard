@@ -48,6 +48,18 @@ export type SendVerdict =
   | { status: "queued"; /** Correlates the queued message with its outbox entry. */ entryId: number }
   | { status: "rejected"; reason: "no_socket" | "send_failed" };
 
+/**
+ * Rejection for a send that must NOT enter the outbox: no socket at all, or a
+ * secret-bearing / answer-once `sudo_credential_*` frame — a replay after
+ * reconnect could deliver a stale password or answer a different prompt, so the
+ * caller must see the rejection and retry explicitly.
+ * See change: add-sudo-credential-prompt.
+ */
+function refuseUnqueueable(socket: WebSocket | null, msg: BrowserToServerMessage): SendVerdict | null {
+  if (!socket || msg.type.startsWith("sudo_credential_")) return { status: "rejected", reason: "no_socket" };
+  return null;
+}
+
 interface OutboxEntry {
   /** Process-unique id; the caller keys late drop reports on it, NOT on text. */
   id: number;
@@ -319,9 +331,8 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
         return { status: "rejected", reason: "send_failed" };
       }
     }
-    if (!socket) {
-      return { status: "rejected", reason: "no_socket" };
-    }
+    const refused = refuseUnqueueable(socket, msg);
+    if (refused) return refused;
     // A socket exists but is CONNECTING/CLOSING/CLOSED: retain the message for
     // flush on reconnect. Prompts expire before the pending-prompt deadline;
     // every other message waits for capacity eviction.

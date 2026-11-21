@@ -147,6 +147,15 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const admitOnIndeterminate = ctx.consume<NonNullable<AdmitCwdOptions["onIndeterminate"]>>(
     "host.cwdAdmissionOnIndeterminate",
   );
+  // One admission closure for the WS `plugin_action` create/run/stop: the same
+  // admit set + options the REST routes use, so a browser-supplied `cwd` is
+  // decided exactly like a REST one. See change: harden-path-and-process-guards (#1104).
+  const admit = (raw: unknown, required: boolean) =>
+    admitRouteCwdParam(raw, {
+      required,
+      knownCwds: () => [...hostKnownFolders(), ...contributedFolders()],
+      ...(admitOnIndeterminate ? { admitOptions: { onIndeterminate: admitOnIndeterminate } } : {}),
+    });
   // Mount REST routes synchronously (must register before fastify.listen).
   // Handler bodies lazy-import heavy modules so this stays cheap.
   mountAutomationRoutes(ctx.fastify, {
@@ -180,15 +189,22 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     if (m.pluginId !== PLUGIN_ID) return;
     const p = m.payload ?? {};
     const scope: AutomationScope = p.scope === "global" ? "global" : "folder";
-    const cwd = typeof p.cwd === "string" ? p.cwd : undefined;
     void (async () => {
       try {
         switch (m.action) {
           case "run": {
             const name = typeof p.name === "string" ? p.name : "";
             if (!name) return ctx.logger.warn("automation run: name required");
-            const r = await runNowViaEngine(scope, cwd, name);
-            ctx.logger.info(`automation run "${name}" scope=${scope} ok=${r.ok}${r.runId ? ` runId=${r.runId}` : ""}${r.error ? ` error=${r.error}` : ""}`);
+            // A supplied cwd is admitted before the scan/run (as REST /run); an
+            // absent one keeps today's behaviour.
+            const adm = await admit(p.cwd, false);
+            if (!adm.ok) return ctx.logger.warn("automation run: cwd not admitted");
+            try {
+              const r = await runNowViaEngine(scope, adm.cwd, name);
+              ctx.logger.info(`automation run "${name}" scope=${scope} ok=${r.ok}${r.runId ? ` runId=${r.runId}` : ""}${r.error ? ` error=${r.error}` : ""}`);
+            } finally {
+              adm.release();
+            }
             break;
           }
           case "stop": {
@@ -197,11 +213,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
             // Same admission as the REST route: a folder Stop needs an
             // admitted cwd; an unadmitted one is refused before any lookup.
             // See change: polish-automation-board (design D3).
-            const adm = await admitRouteCwdParam(p.cwd, {
-              required: scope !== "global",
-              knownCwds: () => [...hostKnownFolders(), ...contributedFolders()],
-              ...(admitOnIndeterminate ? { admitOptions: { onIndeterminate: admitOnIndeterminate } } : {}),
-            });
+            const adm = await admit(p.cwd, scope !== "global");
             if (!adm.ok) return ctx.logger.warn(`automation stop runId=${runId}: cwd not admitted`);
             try {
               const r = await stopViaPipeline(scope, adm.cwd, runId);
@@ -221,14 +233,22 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
             if (!isValidAutomationName(name)) return ctx.logger.warn(`automation create: invalid name "${name}"`);
             const badKind = unknownActionKind(config, collectRegistry?.().ids());
             if (badKind) return ctx.logger.warn(`automation create: unknown action kind "${badKind}"`);
-            const base = scope === "global" ? os.homedir() : cwd ? path.resolve(cwd) : process.cwd();
-            const result = writeAutomation({
-              scopeBase: base,
-              name,
-              config,
-              ...(typeof p.promptBody === "string" ? { promptBody: p.promptBody } : {}),
-            });
-            ctx.logger.info(`automation create "${name}" scope=${scope} dir=${result.dir}`);
+            // Folder scope needs an admitted cwd (never the server process cwd);
+            // global scope writes under the home dir but still admits a supplied cwd.
+            const adm = await admit(p.cwd, scope !== "global");
+            if (!adm.ok) return ctx.logger.warn("automation create: cwd not admitted");
+            try {
+              const base = scope === "global" ? os.homedir() : path.resolve(adm.cwd as string);
+              const result = writeAutomation({
+                scopeBase: base,
+                name,
+                config,
+                ...(typeof p.promptBody === "string" ? { promptBody: p.promptBody } : {}),
+              });
+              ctx.logger.info(`automation create "${name}" scope=${scope} dir=${result.dir}`);
+            } finally {
+              adm.release();
+            }
             break;
           }
           default:

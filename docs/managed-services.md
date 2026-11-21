@@ -301,6 +301,13 @@ Exit rule:
 - `--json` → exit 0, payload `{ ok, … }`. Outcome in payload.
 - Plain → non-zero on failure. `ensure` non-zero unless `healthy`.
 - `exec` forwards child exit code.
+- `exec` signal contract (#1103):
+  - SIGTERM / SIGINT / SIGHUP → `child.kill(sig)` on direct child. Waits for exit, releases lease, exits with child status.
+  - Child dies to signal → exit 128+n (143 SIGTERM, 130 SIGINT, 129 SIGHUP).
+  - Child alive `killGraceMs` (default 5 s, from FIRST signal) → SIGKILL child → release lease → exit 137.
+  - Repeat signal forwarded; never shortens or re-arms grace.
+  - Signal during lease release → no-op. Handlers removed after release.
+  - Not covered: SIGKILL of `exec` (lease expires at TTL); reparented descendants (`shell:false`); Windows `child.kill` force-terminates, grace best-effort.
 - Server unreachable → `state: "no-server"` (CLI-produced only).
 
 ## Consumer contract

@@ -30,7 +30,7 @@ caller's tier. Do not edit the table by hand.
 | Tool | Tier | Description |
 | --- | --- | --- |
 | `list_sessions` | observe | List sessions. Bounded, filterable, cursor-paged; default 25, max 200, hidden excluded. |
-| `send_prompt` | control | Send prompt text to a session. |
+| `send_prompt` | control | Send prompt to a session; steer = mid-turn (ACP: queued), followUp/absent = after the turn. |
 | `spawn_session` | control | Spawn a new pi session in a working directory. |
 | `abort` | control | Abort the running turn of a session. |
 | `resume_session` | control | POST /api/session/:id/resume |

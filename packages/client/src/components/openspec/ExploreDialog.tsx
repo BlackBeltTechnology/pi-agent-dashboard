@@ -27,7 +27,7 @@ export function ExploreDialog({ changeName, onSend, onClose }: Props) {
   const { rowElement, submit, sending } = useOpenSpecRunConfigRow();
 
   const handleSend = () => {
-    if (!text.trim()) return;
+    if (!text.trim() && pendingImages.length === 0) return;
     const images = pendingImages.length > 0 ? pendingImages : undefined;
     submit(() => {
       onSend(text.trim(), images);
@@ -77,7 +77,7 @@ export function ExploreDialog({ changeName, onSend, onClose }: Props) {
         {rowElement}
         <Dialog.Footer>
           <Dialog.Cancel onClick={onClose} testId="explore-cancel" />
-          <Dialog.Action onClick={handleSend} disabled={!text.trim() || sending} testId="explore-send">
+          <Dialog.Action onClick={handleSend} disabled={(!text.trim() && pendingImages.length === 0) || sending} testId="explore-send">
             <Icon path={mdiCompassOutline} size={0.5} className="inline mr-0.5" />{i18nT("common.explore", undefined, "Explore")}
           </Dialog.Action>
         </Dialog.Footer>

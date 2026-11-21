@@ -167,6 +167,7 @@ import {
   respawnForRuntimeSwap,
 } from "./browser-handlers/session-action-handler.js";
 import { runLifecycleAction } from "./browser-handlers/session-lifecycle.js";
+import { buildPluginSendPrompt } from "./build-plugin-send-prompt.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { readRawConfig, seedWindowsSourceSettings, writeConfigPartial } from "./config-api.js";
 import {
@@ -300,6 +301,7 @@ import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAcmeRoutes } from "./routes/acme-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
 import { registerAddonsRoutes } from "./routes/addons-routes.js";
+import { configureProjectSeed, resolveAutoSeedEnabled, sweepKnownProjects } from "./project-seed.js";
 import { registerAgentEventStreamRoutes } from "./routes/agent-event-stream-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
@@ -413,6 +415,7 @@ import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureR
 import { collectEndpoints } from "./tunnel/tunnel-endpoints.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 import { startDeviceExpirySweep } from "./vault/device-expiry-sweep.js";
+import { createSudoCredentialRelay } from "./sudo-credential/relay.js";
 import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
 import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
 import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
@@ -757,6 +760,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     ],
   });
   setCwdPolicyRegistry(cwdPolicyRegistry);
+  // Auto-seed pi project defaults (change: auto-seed-project-defaults). The
+  // boot sweep covers folders the dashboard ALREADY knows about — pinned dirs +
+  // workspace folders, the same set `recognizedRoots` spans; folders learned
+  // later are covered by the pin handler and bridge registration. Each dir is
+  // deferred onto its own tick, so a large pin list never stalls startup.
+  configureProjectSeed(resolveAutoSeedEnabled(loadConfig(), CONFIG_FILE));
+  sweepKnownProjects([
+    ...preferencesStore.getPinnedDirectories(),
+    ...preferencesStore.getWorkspaces().flatMap((w) => w.folders),
+  ]);
   // Server identity + device pairing (D2/D5/D6). Additive; independent of OAuth.
   const serverIdentity = ensureServerIdentity();
   const pairedDeviceRegistry = new PairedDeviceRegistry();
@@ -1964,6 +1977,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     isTlsBridgesLive: tlsBridgesLive,
     exposurePending: () => pairedDeviceRegistry.exposurePending(),
   });
+  // Sudo credential prompt: in-memory relay (never persists a password); the bridge must also pass the
+  // vault trust predicate. See change: add-sudo-credential-prompt.
+  const sudoCredential = createSudoCredentialRelay({
+    browsers: browserGateway.sudoSeam,
+    sendToBridge: (sessionId, msg) => piGateway.sendToSession(sessionId, msg),
+    isBridgeTrusted: (sessionId) => vaultDelivery.isBridgeTrusted(sessionId),
+  });
+  browserGateway.setSudoCredentialRelay(sudoCredential);
   onVaultRoutingChanged = (sessionId, declared) => vaultDelivery.handleRegister(sessionId, declared);
   // Revoke, rotation, add and a first plaintext exposure withdraw within the push debounce (~150 ms).
   pairedDeviceRegistry.onChange(() => vaultDelivery.schedulePush());
@@ -1976,6 +1997,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     replayState,
     inFlightToolCalls,
     vaultDelivery,
+    sudoCredential,
     // Lazy: `yolo` is constructed further down; a pre-init call throws and the
     // handler declines. See change: yolo-covers-agent-path-gate.
     decideAgentPath: (p) =>
@@ -4295,8 +4317,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 set.add(handler);
                 return () => set.delete(handler);
               },
-              sendToSession: (sessionId, text) =>
-                piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text }),
+              sendToSession: (sessionId, text, opts) =>
+                piGateway.sendToSession(sessionId, buildPluginSendPrompt(sessionId, text, opts)),
               // Session-spawn hook. Gated to first-party/trusted plugins
               // (priority <= 100 by convention). Untrusted plugins get a
               // hook that always rejects. See change: add-automation-plugin.
@@ -5672,6 +5694,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       pairingManager.dispose();
       stopDeviceExpirySweep();
       vaultDelivery.dispose();
+      sudoCredential.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).
       pendingPromptAcks.dispose();

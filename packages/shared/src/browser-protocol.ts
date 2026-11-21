@@ -553,6 +553,14 @@ export interface SpawnRegisterTimeoutMessage {
   /** The effective watchdog timeout in ms — so the UI can render e.g. "30s". See change: spawn-failure-diagnostics (fix W2). */
   timeoutMs?: number;
   /**
+   * The watchdog dispatched its SIGTERM → SIGKILL reclaim to at least one pid
+   * (dispatched, not verified exited). Absent — never `false` — when nothing was
+   * signalled. See change: fix-session-bridge-registration (D3).
+   */
+  terminated?: boolean;
+  /** Pids the reclaim was dispatched to; present iff `terminated`. */
+  terminatedPids?: number[];
+  /**
    * The browser `requestId` of the spawn that timed out, when known (looked up
    * from the server's `spawnToken → requestId` map). Lets the folder home
    * re-enable Start for exactly its own spawn. See change: redesign-directory-home-split.
@@ -1228,7 +1236,60 @@ export interface AutoNameOutcomeBrowserMessage {
   at: number;
 }
 
+/**
+ * Sudo credential prompt (server ↔ browser). See change: add-sudo-credential-prompt.
+ * The password rides only `SudoCredentialResponseBrowserMessage` (browser → server).
+ */
+export interface SudoCredentialRequestBrowserMessage {
+  type: "sudo_credential_request";
+  sessionId: string;
+  callId: string;
+  commands: string[];
+  prompt: string;
+  promptTruncated?: number;
+}
+
+export interface SudoCredentialDismissBrowserMessage {
+  type: "sudo_credential_dismiss";
+  sessionId: string;
+  callId: string;
+}
+
+export interface SudoCredentialCacheBrowserMessage {
+  type: "sudo_credential_cache";
+  sessionId: string;
+  expiresAt: number | null;
+}
+
+export interface SudoCredentialResponseBrowserMessage {
+  type: "sudo_credential_response";
+  sessionId: string;
+  callId: string;
+  password: string;
+}
+
+export interface SudoCredentialCancelBrowserMessage {
+  type: "sudo_credential_cancel";
+  sessionId: string;
+  callId: string;
+}
+
+export interface SudoCredentialForgetBrowserMessage {
+  type: "sudo_credential_forget";
+  sessionId: string;
+}
+
+/** Browser ack: the dialog rendered (counts the tab as able to answer). */
+export interface SudoCredentialShownBrowserMessage {
+  type: "sudo_credential_shown";
+  sessionId: string;
+  callId: string;
+}
+
 export type ServerToBrowserMessage =
+  | SudoCredentialRequestBrowserMessage
+  | SudoCredentialDismissBrowserMessage
+  | SudoCredentialCacheBrowserMessage
   | ServerRestartingMessage
   | AutoNameErrorBrowserMessage
   | AutoNameOutcomeBrowserMessage
@@ -2223,6 +2284,10 @@ export interface UiManagementBrowserMessage {
 }
 
 export type BrowserToServerMessage =
+  | SudoCredentialResponseBrowserMessage
+  | SudoCredentialCancelBrowserMessage
+  | SudoCredentialForgetBrowserMessage
+  | SudoCredentialShownBrowserMessage
   | SubscribeMessage
   | UnsubscribeMessage
   | HistoryBackfillRequestMessage

@@ -42,6 +42,9 @@ export default defineConfig({
 			// Bundle GO/NO-GO for @napi-rs/keyring (triple, worker entry, version skew,
 			// Linux licence). Pure fs on a temp dir. See change: encrypt-credentials-at-rest (E88, E89).
 			"src/__tests__/assert-keyring-bundle.test.ts",
+			// Built-bundle plugin gate incl. the kb reindex worker files (worker entry, core, kb exports, TS
+			// bootstrap). Fixture bundles on a temp dir. See change: throttle-kb-reindex (S79).
+			"src/__tests__/assert-bundled-plugins-complete.test.ts",
 			// macOS static gate for the bundled Node (DLV entitlement parser, paths, smoke policy).
 			// See change: encrypt-credentials-at-rest (E90).
 			"src/__tests__/assert-mac-bundled-node-keyring.test.ts",

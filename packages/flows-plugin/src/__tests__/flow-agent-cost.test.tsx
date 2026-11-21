@@ -15,14 +15,14 @@ import {
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FlowAgentState, FlowState } from "../types.js";
 import { cleanup, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { FlowAgentCard } from "../client/FlowAgentCard.js";
-import { formatCost } from "../client/format-cost.js";
 import { FlowAgentDetail } from "../client/FlowAgentDetail.js";
+import { formatCost } from "../client/format-cost.js";
 import { reduceFlowEvent } from "../reducer.js";
+import type { FlowAgentState, FlowState } from "../types.js";
 
 function ev(type: string, data: Record<string, unknown>): DashboardEvent {
   return { seq: 1, timestamp: 0, sessionId: "s1", eventType: type, data } as unknown as DashboardEvent;
@@ -189,6 +189,33 @@ describe("D2: both surfaces render identical cost after extraction", () => {
   });
 });
 
+// Token arrows: ↓ input / ↑ output on the card/grid card and the detail header.
+// See change: fix-ui-status-indicators (D1; test-plan #S19, #S20).
+describe("token arrows ↓in ↑out", () => {
+  afterEach(cleanup);
+
+  it("FlowAgentCard stats line: `↓12000 ↑3000 · $0.0142 · 4200ms`", () => {
+    const { getByTestId } = renderCard(makeAgent({ cost: 0.0142 }));
+    expect(getByTestId("stats").textContent).toBe("↓12000 ↑3000 · $0.0142 · 4200ms");
+  });
+
+  it("FlowAgentCard without cost: `↓12000 ↑3000 · 4200ms`, no leftover separator", () => {
+    for (const cost of [0, undefined]) {
+      const { getByTestId, unmount } = renderCard(makeAgent({ cost }));
+      expect(getByTestId("stats").textContent).toBe("↓12000 ↑3000 · 4200ms");
+      unmount();
+    }
+  });
+
+  it("FlowAgentDetail header shows ↓in ↑out, never ↑in", () => {
+    const { container } = renderDetail(makeAgent({ cost: undefined }));
+    const text = container.textContent ?? "";
+    expect(text).toContain("↓12000");
+    expect(text).toContain("↑3000");
+    expect(text).not.toContain("↑12000");
+  });
+});
+
 // L1 — the stats line is the single carrier (waiting moves onto it; cost stays).
 // See change: consolidate-flow-agent-cards (test-plan #E7, #E8).
 
@@ -212,7 +239,7 @@ describe("FlowAgentCard cost carrier boundary (#E8)", () => {
   it("tokens, cost and duration share one line in that order", () => {
     const { getByTestId } = renderCard(makeAgent({ cost: 0.0142 }));
     const text = getByTestId("stats").textContent ?? "";
-    const inOrder = ["↑12000", "↓3000", "$0.0142", "4200ms"].map((s) => text.indexOf(s));
+    const inOrder = ["↓12000", "↑3000", "$0.0142", "4200ms"].map((s) => text.indexOf(s));
     expect(inOrder, text).toEqual([...inOrder].sort((a, b) => a - b));
     expect(inOrder).not.toContain(-1);
   });
@@ -222,8 +249,7 @@ describe("FlowAgentCard cost carrier boundary (#E8)", () => {
       const { getByTestId, container, unmount } = renderCard(makeAgent({ cost }));
       const line = getByTestId("stats").textContent ?? "";
       expect(line).not.toContain("$");
-      expect(line).toContain("↑12000");
-      expect(line).toContain("↓3000");
+      expect(line).toContain("↓12000 ↑3000");
       expect(line).toContain("4200ms");
       expect(container.textContent ?? "").not.toContain("$");
       unmount();

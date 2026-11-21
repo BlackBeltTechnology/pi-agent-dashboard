@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { PROMPT_DRAFT_DEBOUNCE_MS, resetPromptDraftMemory, setPromptDraft } from "../../lib/state/prompt-draft-storage.js";
 import { SelectRenderer } from "../interactive-renderers/SelectRenderer.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
@@ -209,7 +210,7 @@ describe("SelectRenderer inline Other", () => {
     expect(onRespond).not.toHaveBeenCalled();
   });
 
-  it("F4: Other row appears only for an opted-in prompt without its own Other option", () => {
+  it("F4: Other row appears only for an opted-in prompt", () => {
     const mount = (params: Record<string, unknown>) => {
       const onRespond = vi.fn();
       const { unmount } = render(
@@ -224,7 +225,8 @@ describe("SelectRenderer inline Other", () => {
     m = mount({ title: "T", options: ["A", "B"], allowOther: false });
     expect(m.has).toBe(false);
     m.unmount();
-    m = mount({ title: "T", options: ["Approve", "Other (describe)"], allowOther: true });
+    // A non-opted-in prompt keeps its own Other as a normal option (S19, #1116).
+    m = mount({ title: "T", options: ["Approve", "Other (describe)"] });
     expect(m.has).toBe(false);
     fireEvent.click(screen.getByText("Other (describe)"));
     expect(m.onRespond).toHaveBeenCalledWith({ value: "Other (describe)" });
@@ -263,5 +265,103 @@ describe("SelectRenderer inline Other", () => {
         <SelectRenderer requestId="r" method="select" params={{ title: "T", options: [1, "A"] as unknown as string[], allowOther: true }} status="pending" onRespond={vi.fn()} onCancel={vi.fn()} />,
       ),
     ).not.toThrow();
+  });
+});
+
+// ── #1116 own Other collapses into the inline row. See change: fix-input-state-consistency ──
+describe("SelectRenderer own Other (#1116)", () => {
+  const mountWith = (params: Record<string, unknown>, onRespond = vi.fn()) => {
+    render(<SelectRenderer requestId="r" method="select" params={params} status="pending" onRespond={onRespond} onCancel={vi.fn()} />);
+    return onRespond;
+  };
+
+  it("S18: opted-in own Other is hidden; the inline row's typed text answers", () => {
+    const onRespond = mountWith({ title: "T", options: ["Approve", "Other (describe)"], allowOther: true });
+    expect(screen.queryByText("Other (describe)")).toBeNull();
+    // listed buttons: Approve + inline Other + (synthetic) Cancel
+    expect(screen.getByText("Approve")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Other answer" }), { target: { value: "later" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onRespond).toHaveBeenCalledTimes(1);
+    expect(onRespond).toHaveBeenCalledWith({ value: "later" });
+  });
+
+  it("S19: a non-opted-in prompt keeps its own Other as a normal option", () => {
+    const onRespond = mountWith({ title: "T", options: ["Approve", "Other (describe)"] });
+    expect(screen.queryByTestId("other-option")).toBeNull();
+    expect(screen.getByText("Approve")).toBeTruthy();
+    fireEvent.click(screen.getByText("Other (describe)"));
+    expect(onRespond).toHaveBeenCalledWith({ value: "Other (describe)" });
+  });
+
+  it("S22: only an own Other listed -> only the inline row renders", () => {
+    mountWith({ title: "T", options: ["Other"], allowOther: true });
+    expect(screen.getByTestId("other-option")).toBeTruthy();
+    // No listed option button besides the inline row's own button and Cancel.
+    const names = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(names.filter((n) => n === "Other")).toHaveLength(1);
+  });
+
+  it("S23: non-string options never count as an own Other", () => {
+    mountWith({ title: "T", options: ["A", 42, null] as unknown as string[], allowOther: true });
+    expect(screen.getByText("A")).toBeTruthy();
+    expect(screen.getByTestId("other-option")).toBeTruthy();
+  });
+});
+
+// ── #1117 prompt draft persistence. See change: fix-input-state-consistency ──
+describe("SelectRenderer draft persistence (#1117)", () => {
+  const props = (params: Record<string, unknown> = { title: "Pick", options: ["A", "B"], allowOther: true }) => ({
+    requestId: "p1",
+    sessionId: "A",
+    method: "select",
+    params,
+    status: "pending" as const,
+    onRespond: vi.fn(),
+    onCancel: vi.fn(),
+  });
+  afterEach(() => {
+    sessionStorage.clear();
+    resetPromptDraftMemory();
+  });
+
+  it("S41: Other text survives an unmount/remount with the same ids", () => {
+    const first = render(<SelectRenderer {...props()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Other answer" }), { target: { value: "foo" } });
+    first.unmount();
+    render(<SelectRenderer {...props()} />);
+    expect((screen.getByRole("textbox", { name: "Other answer" }) as HTMLInputElement).value).toBe("foo");
+  });
+
+  it("S33: a restored Other row is ignored when the prompt no longer opts in", () => {
+    setPromptDraft("A", "p1", { otherActive: true, otherText: "x" });
+    const onRespond = vi.fn();
+    render(<SelectRenderer {...props({ title: "Pick", options: ["A", "B"] })} onRespond={onRespond} />);
+    expect(screen.queryByTestId("other-option")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Other answer" })).toBeNull();
+    fireEvent.click(screen.getByText("A"));
+    expect(onRespond).toHaveBeenCalledWith({ value: "A" });
+  });
+
+  it("a corrupt draft shape is discarded and the renderer starts empty", () => {
+    setPromptDraft("A", "p1", { otherActive: "yes" });
+    render(<SelectRenderer {...props()} />);
+    expect(screen.queryByRole("textbox", { name: "Other answer" })).toBeNull();
+    expect(sessionStorage.getItem("ask-draft:A:p1")).toBeNull();
+  });
+
+  it("the draft is mirrored only after the debounce", () => {
+    vi.useFakeTimers();
+    try {
+      render(<SelectRenderer {...props()} />);
+      fireEvent.click(screen.getByRole("button", { name: "Other" }));
+      expect(sessionStorage.getItem("ask-draft:A:p1")).toBeNull();
+      vi.advanceTimersByTime(PROMPT_DRAFT_DEBOUNCE_MS);
+      expect(sessionStorage.getItem("ask-draft:A:p1")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
