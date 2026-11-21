@@ -4,7 +4,8 @@ import { useEffect, type RefObject } from "react";
  * Focus management for modal dialogs.
  *
  * On `open` transition to true: stores the previously-focused element,
- * moves focus to the first focusable child inside `ref` (or the container
+ * moves focus to the first focusable child inside `ref` — preferring one
+ * marked `data-autofocus` — (or the container
  * itself if none), and traps `Tab` / `Shift+Tab` within the container.
  * On close (or unmount): restores focus to the previously-focused element
  * if it is still in the document.
@@ -41,6 +42,16 @@ function isHiddenWithin(el: HTMLElement, container: HTMLElement): boolean {
   return false;
 }
 
+/**
+ * Initial focus target: the first visible `[data-autofocus]` control when one
+ * is present (an opt-in, e.g. `Dialog.Cancel autoFocus`), else the first
+ * focusable. Tab containment still walks the full focusable list.
+ * See change: sidebar-folder-ux.
+ */
+function pickInitialFocus(focusable: HTMLElement[]): HTMLElement | undefined {
+  return focusable.find((el) => el.hasAttribute("data-autofocus")) ?? focusable[0];
+}
+
 export function useFocusTrap(
   ref: RefObject<HTMLElement | null>,
   open: boolean,
@@ -64,7 +75,7 @@ export function useFocusTrap(
     // See change: fix-flush-dialog-scroll-and-close-collision.
     let observer: MutationObserver | undefined;
     if (focusable.length > 0) {
-      focusable[0].focus();
+      pickInitialFocus(focusable)?.focus();
     } else {
       container.focus();
       if (typeof MutationObserver !== "undefined") {
@@ -76,7 +87,7 @@ export function useFocusTrap(
           const late = getFocusable(container);
           if (late.length === 0) return;
           observer?.disconnect();
-          late[0].focus();
+          pickInitialFocus(late)?.focus();
         });
         // Attributes matter as much as insertion: `getFocusable` keys on
         // `:not([disabled])`, `[hidden]` and `aria-hidden`, so a button that is

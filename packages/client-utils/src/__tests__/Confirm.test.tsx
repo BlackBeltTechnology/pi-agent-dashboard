@@ -114,3 +114,45 @@ describe("Confirm", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── defaultFocus="cancel" ── See change: sidebar-folder-ux (test-plan #S19, #S23).
+describe("Confirm — defaultFocus", () => {
+  const props = { open: true, onClose: () => {}, onConfirm: () => {}, title: "t", message: "m" };
+
+  it('defaultFocus="cancel" focuses Cancel and Enter cancels, not confirms', () => {
+    const onClose = vi.fn();
+    const onConfirm = vi.fn();
+    const { getByText } = render(
+      <Confirm {...props} onClose={onClose} onConfirm={onConfirm} intent="danger" defaultFocus="cancel" />,
+    );
+    const cancel = getByText("Cancel");
+    expect(document.activeElement).toBe(cancel);
+    // A focused <button> activates on Enter/Space via click; emulate that.
+    fireEvent.click(document.activeElement as HTMLElement);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("without defaultFocus focus is unchanged (first focusable, not Cancel)", () => {
+    const { getByText } = render(<Confirm {...props} intent="danger" />);
+    expect(document.activeElement).not.toBe(getByText("Cancel"));
+  });
+
+  it("Tab wraps within the dialog with focus starting on Cancel", () => {
+    const { baseElement, getByText } = render(
+      <Confirm {...props} intent="danger" defaultFocus="cancel" testId="c" />,
+    );
+    const dialog = baseElement.querySelector("[data-testid='c']")!;
+    const focusables = Array.from(dialog.querySelectorAll<HTMLElement>("button"));
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    expect(document.activeElement).toBe(getByText("Cancel"));
+    last.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(first);
+    first.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+});

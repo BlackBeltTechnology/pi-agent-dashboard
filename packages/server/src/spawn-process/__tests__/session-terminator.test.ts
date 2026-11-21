@@ -360,4 +360,34 @@ describe("session terminator — grace window", () => {
     expect(r.outcome).toBe("confirmed-dead");
     expect(killProcess).not.toHaveBeenCalled();
   });
+
+  // X4 (sidebar-folder-ux, D2): "Remove from sidebar" ends live sessions through
+  // the shutdown verb. A pi that ignores the polite shutdown must wait out the
+  // full grace window, THEN be signalled exactly once, and its death confirmed.
+  it("an unresponsive pid waits the whole grace window before it is signalled (shutdown ladder)", async () => {
+    let t = 0;
+    const alive = new Set([100]);
+    let slept = 0;
+    let killedAt = -1;
+    const killProcess = vi.fn(async () => {
+      killedAt = slept;
+      alive.delete(100);
+      return { ok: true, forced: false };
+    });
+    const { terminate } = createSessionTerminator({
+      sessionManager: { get: () => ({ id: "s1", pid: 100 }) as DashboardSession, update: vi.fn() },
+      headlessPidRegistry: { getPid: () => undefined, killBySessionId: async () => false },
+      signalZero: (pid) => (alive.has(pid) ? "alive" : "esrch"),
+      killProcess: killProcess as never,
+      now: () => t,
+      sleep: async (ms) => {
+        t += ms;
+        slept += ms;
+      },
+    });
+    const r = await terminate("s1", { graceMs: 1500, verifyIdentity: false });
+    expect(killProcess).toHaveBeenCalledTimes(1);
+    expect(killedAt).toBeGreaterThanOrEqual(1500);
+    expect(r.outcome).toBe("confirmed-dead");
+  });
 });

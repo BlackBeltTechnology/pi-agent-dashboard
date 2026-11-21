@@ -72,6 +72,22 @@ export function getUnifiedOrder(sessions: DashboardSession[], terminals: Termina
 }
 
 /**
+ * Every session (unfiltered — hidden ones included) that the folder card for
+ * `groupCwd` contains: same key derivation as `groupSessionsByDirectory`
+ * (pin > `gitWorktree.mainPath` > `cwd`, canonicalised by `pathKey`), never a
+ * raw `cwd` compare. See change: sidebar-folder-ux.
+ */
+export function sessionsInGroup(
+  sessions: ReadonlyArray<DashboardSession>,
+  groupCwd: string,
+  pinnedKeys: Set<string>,
+  platform: NodeJS.Platform,
+): DashboardSession[] {
+  const key = pathKey(groupCwd, platform);
+  return sessions.filter((s) => pathKey(resolveSessionGroupPath(s, pinnedKeys, platform), platform) === key);
+}
+
+/**
  * Group sessions by cwd, with pinned directories first (in pinned order),
  * then unpinned sorted by recency.
  *
