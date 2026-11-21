@@ -262,6 +262,7 @@ One row per file.
 | `skill-provenance.spec.ts` | → `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | → `smoke.spec.ts.AGENTS.md` |
 | `spawn-correlation-recovery.spec.ts` | → `spawn-correlation-recovery.spec.ts.AGENTS.md` |
+| `spawn-skill-follows-trust.spec.ts` | → `spawn-skill-follows-trust.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | → `split-composer-overflow.spec.ts.AGENTS.md` |
 | `split-divider-drag.spec.ts` | #F1-F4 divider drag |
 | `steer-cancel.spec.ts` | → `steer-cancel.spec.ts.AGENTS.md` |
