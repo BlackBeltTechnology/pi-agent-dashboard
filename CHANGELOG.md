@@ -10,6 +10,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CSP violation reports now reach the dashboard on plain-http installs.** Chromium and Firefox dropped every report while the policy carried `report-to` + `Reporting-Endpoints`, so the `/api/health` `cspReports` counters stayed at zero. Dashboard and live-preview policies now use `report-uri` only.
+
 ### Added
 
 - **Default model can follow a role.** Settings › Sessions › Default model has Models | Roles tabs; picking a role saves `@role` and new sessions start on whatever that role resolves to in the active preset, so loading another preset changes the next new session's model with no Settings edit. The thinking level adopts the role's level until you pick one. A hint names the active preset and resolved model; an unassigned role warns and new sessions fall back to pi's own default. pi's `settings.json` default is re-mirrored when the role's resolution changes. Rollback: re-pick a concrete default model before downgrading.

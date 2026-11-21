@@ -2268,6 +2268,28 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { toolName: "canvas" },
   },
 
+  // A mockup whose inline script fetches an origin outside the restricted egress allowance: the browser's CSP
+  // violation report must reach the preview's report-uri sink and surface as a "reported by this page" row.
+  // See change: fix-csp-report-delivery (F3).
+  "canvas-html-egress-report": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "mockups/egress-report/index.html",
+            content:
+              '<!doctype html><html><head><title>egress</title></head><body><h1>Egress report</h1>' +
+              '<script>fetch("https://example.invalid/x").catch(function () {});</script></body></html>\n',
+          }),
+          fauxToolCall("canvas", { target: { kind: "file", path: "mockups/egress-report/index.html" }, title: "Egress report" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("egress report mockup declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
   // A two-screen static mockup: the address bar navigates index.html → screens/b.html (F17).
   "canvas-html-screens": {
     script: [
