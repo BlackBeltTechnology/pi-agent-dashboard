@@ -4832,7 +4832,7 @@ PW_E2E_USE_RUNNING=1 npx playwright test csp-strict-enforce
 Report delivery — `report-uri` only, no header rewrite:
 - `tests/e2e/csp-strict-report.spec.ts` has NO `page.route` rewrite. Counter moves on the unmodified document.
 - `tests/e2e/csp-report-delivery.spec.ts` asserts `/` carries no `report-to` token and no `Reporting-Endpoints` header, then moves the strict `script-src-elem` counter.
-- Delivery is `report-uri /__pi/csp-report/<label>` only. `report-to` suppressed it in Chromium; neither browser delivered it on plain http.
+- Delivery is `report-uri /__pi/csp-report/<label>` only. `report-to` suppressed `report-uri` in Chromium; neither Chromium nor Firefox delivered `report-to` reports on plain http.
 
 OAuth real-gate lane — WF5, report sink public to OAuth gate:
 ```bash
