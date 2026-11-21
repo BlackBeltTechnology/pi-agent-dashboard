@@ -71,6 +71,17 @@ describe("pendingPromptAcks", () => {
     acks.dispose();
   });
 
+  // #F5 — a long-held REST steer can ack after its record expired: the late
+  // ack is a harmless no-op (event-wiring forwards `prompt_received` to
+  // browsers regardless of the return value).
+  // See change: add-rest-prompt-delivery-mode.
+  it("a late ack for an expired held-steer record returns false (no throw)", () => {
+    const acks = createPendingPromptAcks();
+    acks.record("steer-1", "S1", deriveSpawnCorrelationTtlMs(30_000));
+    vi.advanceTimersByTime(deriveSpawnCorrelationTtlMs(30_000) + 1);
+    expect(acks.acknowledge("steer-1", "S1")).toBe(false);
+    acks.dispose();
+  });
   it("records nothing on a non-positive TTL", () => {
     const acks = createPendingPromptAcks();
     acks.record("p1", "S1", 0);

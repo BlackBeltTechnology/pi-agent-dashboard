@@ -73,6 +73,27 @@ describe("engine record in the gate", () => {
   }, 120_000);
 });
 
+// change: throttle-kb-reindex (D1, test-plan #S11): the seed gate compares the `rowsHash` engine value;
+// a legacy `srcHash` record is a different engine, and an unreadable fingerprint (null) accepts no seed.
+describe("seed engine gate with rowsHash (S11)", () => {
+  const ROWS = "rows-hash-A";
+  it.each([
+    ["equal rowsHash", ROWS, ROWS, "2/2"],
+    ["different rowsHash", ROWS, "rows-hash-B", "0/2"],
+    ["legacy srcHash record", "legacy-src-hash", ROWS, "0/2"],
+    ["null running engine", ROWS, null, "0/2"],
+  ])("seed source engine: %s", async (_name, mainEngine, wtEngine, kept) => {
+    mkMain(t);
+    setRunningEngineForTest(mainEngine);
+    await indexAt(t.main);
+    setRunningEngineForTest(wtEngine);
+    const r = await indexAt(addWorktree(t));
+    expect(r.lines).toEqual([`[kb] seed=${t.main} sources=${kept}`]);
+    expect(r.stats.changed).toBe(kept === "2/2" ? 0 : 60);
+    setRunningEngineForTest(undefined);
+  });
+});
+
 describe("CLI writers seed", () => {
   const seedLine = (stderr: string) => stderr.split("\n").filter((l) => l.startsWith("[kb] seed"));
 

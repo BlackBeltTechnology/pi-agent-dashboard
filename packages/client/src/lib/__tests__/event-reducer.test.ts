@@ -1101,6 +1101,19 @@ describe("pendingPrompt", () => {
     expect(state.pendingPrompt).toBeUndefined();
   });
 
+  // #F4 — a REST steer's hand-off ack (`prompt_received{fresh:false,promptId}`)
+  // can land while a browser idle-send bubble is still `sending`: the bubble is
+  // dropped (accepted, transient); settled bubbles are untouched.
+  // See change: add-rest-prompt-delivery-mode.
+  it("hand-off ack drops a sending bubble (accepted transient) but never a settled one", () => {
+    const sending: SessionState = { ...createInitialState(), pendingPrompt: { status: "sending", text: "idle send" } };
+    expect(applyPromptReceived(sending, false).pendingPrompt).toBeUndefined();
+    for (const status of ["sent", "failed"] as const) {
+      const settled: SessionState = { ...createInitialState(), pendingPrompt: { status, text: "done" } };
+      expect(applyPromptReceived(settled, false)).toBe(settled);
+    }
+  });
+
   it("should store delivery field on pendingPrompt", () => {
     const pending: PendingPrompt = { status: "sending", text: "Focus", delivery: "steer" };
     let state = createInitialState();

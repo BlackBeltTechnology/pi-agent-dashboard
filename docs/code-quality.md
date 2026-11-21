@@ -607,7 +607,7 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
   - Triaged in baseline:
     - team-plugin `TeamPaths.confine` → `false-positive:`.
     - automation `run-store.ts` `isSafeRunId` → `false-positive:`.
-    - `automation-writer.ts` → `accepted-risk:` citing #1104, finding F1. Alerts stay open on GitHub.
+    - `automation-writer.ts` → `false-positive:` gate `admitRouteCwdParam` (`packages/automation-plugin/src/server/index.ts:238`). Was `accepted-risk:` #1104 / F1; fixed by #1104, reason re-typed (reason-only). Alerts stay open on GitHub (CodeQL cannot see custom gate).
   - Known gap: 2 `js/missing-rate-limiting` (blackhole `index.ts`, roles `roles-routes.ts`) not recovered, even with real blackhole deps shape.
   - Post-merge (dismiss new plugin alerts, `--mirror-dismissal`, local-vs-GitHub parity numbers) tracked on #1059. Stays open.
 - Evidence: change `harden-codeql-ratchet-followups` `evidence/local-vs-ci.md` (path moves under `openspec/changes/archive/<date>-…` on archive).

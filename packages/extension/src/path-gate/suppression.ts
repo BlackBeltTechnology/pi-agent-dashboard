@@ -3,6 +3,9 @@
  * gated call under the same lexical parent directory is blocked without a prompt
  * for 120 s. Keyed on the lexical parent, so a not-yet-existing `/w/newproj1/a`
  * keys `/w/newproj1`, never the shared ancestor `/w`.
+ * Consulted AFTER the YOLO ask (a live YOLO session overrides an unremembered
+ * Deny/timeout; a remembered refusal answers `refused`) and again inside the mutex.
+ * See change: harden-path-and-process-guards (#1115).
  * See change: ask-agent-file-access-in-chat.
  */
 const SUPPRESSION_MS = 120_000;

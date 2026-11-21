@@ -513,7 +513,8 @@
         "src/client/index.tsx",
         "src/server/index.ts",
         "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
+        "**/__tests__/**/*.test.{ts,tsx}",
+        "src/server/__tests__/helpers/*-worker.mjs"
       ],
       "project": [
         "src/**/*.{ts,tsx,mjs}"

@@ -2,7 +2,9 @@
 
 ## Purpose
 Scores KB search quality against a golden set of query→expected-path items. Runs each query through the store's search and reports aggregate retrieval metrics (P@1, P@5, Recall@K, MRR, nDCG@K) plus average per-query latency, so ranking changes can be gated on measured quality.
+
 ## Requirements
+
 ### Requirement: Golden-Set Evaluation Input
 The evaluator SHALL accept a store, an ordered list of golden items, and search options, and run each golden query through the store's search to produce a single aggregate metrics report.
 
@@ -168,7 +170,6 @@ An eval run that retrieves nothing for every query SHALL be treated as a harness
 The `kb` bin and the `kb-extension` tool SHALL run the same engine.
 
 #### Scenario: Stale dist is rejected
-- **WHEN** the committed `packages/kb/engine-fingerprint.json` is missing, malformed, or its `srcHash`/`tsconfigHash` no longer match the current source and tsconfig chain
+- **WHEN** the committed `packages/kb/engine-fingerprint.json` is missing, malformed, lacks `rowsHash`, or its `srcHash`/`tsconfigHash` no longer match the current source and tsconfig chain
 - **THEN** the build or CI check SHALL fail
 - **AND** the failure SHALL state that the `kb` bin and the extension would otherwise run different engines
-

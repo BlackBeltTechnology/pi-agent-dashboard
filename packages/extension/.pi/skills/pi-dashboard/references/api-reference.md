@@ -140,14 +140,17 @@ Send a text prompt to a session.
 
 **Body:**
 ```json
-{ "text": "your prompt message", "images": [] }
+{ "text": "your prompt message", "images": [], "delivery": "steer" }
 ```
 - `text` (required): Prompt text
 - `images` (optional): Array of `{ type: "image", data: "base64...", mimeType: "image/png" }`
+- `delivery` (optional): `"steer"` (while the agent streams: held by the bridge, handed to pi after the current step; cancellable from the browser until then; idle → straight to pi) or `"followUp"` (after the agent finishes). Absent behaves as `"followUp"`. Same modes as the browser composer. ACP sessions have no steering: `"steer"` queues as a follow-up until the current turn ends. Timing and cancellation apply to ordinary prompts only: slash commands (`/…`) are dispatched by the bridge immediately and are never held.
+
+Steer example: `pi-dashboard api POST /api/session/ID/prompt --data '{"text":"focus on X","delivery":"steer"}'`
 
 **Responses:**
 - `200`: `{ "success": true }`
-- `400`: Missing `text`
+- `400`: Missing `text`, invalid `images`, or `delivery` not `"steer"`/`"followUp"` (`delivery must be "steer" or "followUp"`; checked before the session lookup)
 - `404`: Session not found
 - `502`: No bridge connection (session not connected to dashboard)
 
