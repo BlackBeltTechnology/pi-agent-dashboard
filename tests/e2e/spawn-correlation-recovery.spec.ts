@@ -1,6 +1,7 @@
 import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
 import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
+import { ensureFixtureGitGroup, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -42,6 +43,8 @@ interface SpawnFailureEntry {
   spawnToken?: string;
   message: string;
   ts: string;
+  terminated?: boolean;
+  terminatedPids?: number[];
 }
 
 async function health(request: APIRequestContext): Promise<HealthBody> {
@@ -292,5 +295,69 @@ test.describe("late spawn register converges (L3)", () => {
       .toBe(body.promptId);
 
     ws.close();
+  });
+});
+
+/**
+ * test-plan #F2 (L3) — change: fix-session-bridge-registration (#1128).
+ *
+ * The watchdog reclaims the unregistered pi, so the failure record and the
+ * banner must SAY it was terminated. Drives only the FIRE path; the
+ * late-register banner recovery above stays `test.fixme` (#683).
+ *
+ * Two spawn routes, because they reach different surfaces: `POST
+ * /api/session/spawn` arms the watchdog with no browser socket (record only),
+ * while the UI's "new session" button spawns over the page's own socket, which
+ * is the one the `spawn_register_timeout` banner message is sent to.
+ */
+test.describe("register timeout reports the reclaim (L3)", () => {
+  test.beforeEach(async ({ request }) => {
+    // Lowest legal timeout so a watchdog fire is seconds away, not minutes.
+    const res = await request.put("/api/config", { data: { spawnRegisterTimeoutMs: 5_000 } });
+    expect(res.ok()).toBeTruthy();
+  });
+
+  test("the REGISTER_TIMEOUT record carries terminated:true and the signalled pids", async ({ request }) => {
+    test.setTimeout(90_000);
+    const cwd = WORKSPACE;
+    const before = new Set((await spawnFailures(request)).map((e) => e.ts + e.spawnToken));
+    const res = await request.post("/api/session/spawn", { data: { cwd } });
+    expect(res.ok()).toBeTruthy();
+
+    let fired: SpawnFailureEntry | undefined;
+    await expect
+      .poll(
+        async () => {
+          fired = (await spawnFailures(request))
+            .filter((e) => e.code === "REGISTER_TIMEOUT" && e.cwd === cwd && !before.has(e.ts + e.spawnToken))
+            .at(-1);
+          return fired !== undefined;
+        },
+        { timeout: 60_000, message: "watchdog never fired" },
+      )
+      .toBe(true);
+
+    expect(fired!.terminated).toBe(true);
+    expect(fired!.terminatedPids?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  test("the timeout banner on the page says the process was terminated", async ({ page, request }) => {
+    test.setTimeout(90_000);
+    await gotoDashboard(page);
+    const body = await ensureFixtureGitGroup(page);
+    const before = new Set((await spawnFailures(request)).map((e) => e.ts + e.spawnToken));
+
+    await body.getByTestId("folder-spawn-session-btn").click();
+
+    const banner = page.getByTestId("spawn-timeout-banner");
+    await expect(banner).toBeVisible({ timeout: 60_000 });
+    // toContainText, not an end anchor: a collapsible "Pi stderr" block may follow the title.
+    await expect(banner).toContainText("never connected to the dashboard within 5s and was terminated.");
+
+    const fired = (await spawnFailures(request))
+      .filter((e) => e.code === "REGISTER_TIMEOUT" && e.cwd === FIXTURE_GIT && !before.has(e.ts + e.spawnToken))
+      .at(-1);
+    expect(fired?.terminated).toBe(true);
+    expect(fired?.terminatedPids?.length ?? 0).toBeGreaterThan(0);
   });
 });

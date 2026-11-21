@@ -176,9 +176,9 @@ function initBridge(pi: ExtensionAPI) {
   // If bridge is already active for a different pi instance (e.g. a subagent
   // loading extensions in the same process), skip initialization to avoid
   // invalidating the parent session's bridge connection and event forwarding.
-  // `session_shutdown{reason:"reload"}` releases `prev.pi`, so the reloaded
-  // main session (a fresh ExtensionAPI) is not mistaken for a subagent.
-  // See change: fix-terminal-session-dashboard-reload (D4).
+  // `session_shutdown{reason: reload|new|resume|fork}` releases `prev.pi`, so the
+  // replacement main session (a fresh ExtensionAPI) is not mistaken for a subagent.
+  // See change: fix-terminal-session-dashboard-reload (D4), fix-session-bridge-registration (D1).
   // Re-init teardown (cleanup, connections, timers, disposables) runs only for a
   // genuine re-init; a subagent re-entry returns here untouched. Seam:
   // `bridge-polling.ts`. See change: optimize-polling-hot-paths (D11).
@@ -2149,7 +2149,8 @@ function initBridge(pi: ExtensionAPI) {
     drainDisposables(s);
 
     // Dev build & restart: rebuild client and stop server before reload
-    if (config.devBuildOnReload) {
+    // `/reload` only: a new/resume/fork session switch tears down too but must not rebuild or stop the server.
+    if (config.devBuildOnReload && s.shutdownReason === "reload") {
       const __filename = fileURLToPath(import.meta.url);
       const __dirname = path.dirname(__filename);
       const packageRoot = path.resolve(__dirname, "..", "..");

@@ -277,6 +277,8 @@ export function reloadCompletedFeedback(sessionId: string) {
 export interface BridgeOwner {
   generation?: number;
   pi?: unknown;
+  /** The `session_shutdown` reason that released ownership; read by the re-init teardown. */
+  shutdownReason?: string;
 }
 
 /**
@@ -288,11 +290,23 @@ export function isBridgeReentry(prev: BridgeOwner, pi: unknown): boolean {
 }
 
 /**
- * On `session_shutdown{reason:"reload"}`, release ownership so the reloaded
- * instance (a fresh `ExtensionAPI`) re-initialises instead of being mistaken
- * for a subagent load. A subagent never receives the parent's shutdown.
- * Spike: without this, every in-process reload orphaned the dashboard session.
+ * `session_shutdown` reasons after which pi loads a FRESH `ExtensionAPI` for the
+ * replacement runtime (`reload`, and session replacement `new|resume|fork`).
+ * Allow-list on purpose: `quit` and any unknown reason keep ownership. Every
+ * pi reason is classified in `terminal-reload.test.ts` (X7), so a new one is reviewed.
+ */
+export const BRIDGE_RELEASE_REASONS: readonly string[] = ["reload", "new", "resume", "fork"];
+
+/**
+ * On `session_shutdown` with a replacement reason, release ownership so the
+ * replacement instance (a fresh `ExtensionAPI`) re-initialises instead of being
+ * mistaken for a subagent load. A subagent never receives the parent's shutdown.
+ * Without this, every in-process reload / new / resume / fork orphaned the
+ * dashboard session (#1175). See change: fix-session-bridge-registration (D1).
  */
 export function releaseBridgeOwnerOnShutdown(prev: BridgeOwner, reason: string | undefined): void {
-  if (reason === "reload") prev.pi = undefined;
+  if (reason !== undefined && BRIDGE_RELEASE_REASONS.includes(reason)) {
+    prev.pi = undefined;
+    prev.shutdownReason = reason;
+  }
 }
