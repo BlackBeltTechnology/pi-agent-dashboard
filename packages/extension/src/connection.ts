@@ -406,7 +406,17 @@ export class ConnectionManager {
    * including `send_prompt` — never dispatches.
    * See change: fix-optimistic-prompt-stuck-sending.
    */
-  private static readonly IMMEDIATE_TYPES = new Set(["prompt_response", "server_restarting", "kill_process", "request_models"]);
+  private static readonly IMMEDIATE_TYPES = new Set([
+    "prompt_response",
+    "server_restarting",
+    "kill_process",
+    "request_models",
+    // A password / Cancel must never wait behind (or be dropped by) a full inbound pump.
+    // See change: add-sudo-credential-prompt.
+    "sudo_credential_response",
+    "sudo_credential_cancel",
+    "sudo_credential_forget",
+  ]);
 
   private static readonly INITIAL_BACKOFF = 1000;
   private static readonly MAX_BACKOFF = 30000;

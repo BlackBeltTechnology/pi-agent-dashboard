@@ -17,6 +17,7 @@ import {
   setWindowsBashSourceSetting,
   setWindowsGitSourceSetting,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import { parseSudoCredentialPrompt } from "@blackbelt-technology/pi-dashboard-shared/sudo-credential.js";
 import { getPiTrustMirror } from "./access/pi-trust-mirror-service.js";
 import { refreshModelRegistry } from "./model-proxy/registry-singleton.js";
 
@@ -455,6 +456,12 @@ export function writeConfigPartial(
     // See change: ask-agent-file-access-in-chat.
     if (partial.agentPathGate) {
       partial.agentPathGate = { ...existing.agentPathGate, ...partial.agentPathGate };
+    }
+
+    // Merge sudoCredentialPrompt sub-object, clamp-and-default (a write is never rejected).
+    // See change: add-sudo-credential-prompt.
+    if (partial.sudoCredentialPrompt) {
+      partial.sudoCredentialPrompt = parseSudoCredentialPrompt({ ...existing.sudoCredentialPrompt, ...partial.sudoCredentialPrompt });
     }
 
     // Merge sessionList sub-object: the Settings panel sends only the CHANGED

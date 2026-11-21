@@ -37,6 +37,7 @@ import {
   type TunnelMode,
   type TunnelProviderId,
 } from "./tunnel-provider.js";
+import { DEFAULT_SUDO_CREDENTIAL_PROMPT, parseSudoCredentialPrompt, type SudoCredentialPromptConfig } from "./sudo-credential.js";
 import { clampVaultGraceHours, VAULT_GRACE_DEFAULT_HOURS } from "./vault-delivery.js";
 
 export type { WindowsBashSourceSetting, WindowsGitSourceSetting } from "./platform/select-git-source.js";
@@ -1262,6 +1263,8 @@ export interface DashboardConfig {
   /** Dashboard trust → pi project_trust mirror. See change: mirror-dashboard-trust-to-pi. */
   piTrustMirror: PiTrustMirrorConfig;
   agentPathGate: AgentPathGateConfig;
+  /** Sudo credential prompt (default on). See change: add-sudo-credential-prompt. */
+  sudoCredentialPrompt: SudoCredentialPromptConfig;
   /** Per-process bridge activation (see `BridgeActivationConfig`). */
   bridge: BridgeActivationConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
@@ -1768,6 +1771,7 @@ const DEFAULTS: DashboardConfig = {
   accessGrants: { promptEnabled: true },
   piTrustMirror: { ...DEFAULT_PI_TRUST_MIRROR, sources: { ...DEFAULT_PI_TRUST_MIRROR.sources } },
   agentPathGate: { ...DEFAULT_AGENT_PATH_GATE },
+  sudoCredentialPrompt: { ...DEFAULT_SUDO_CREDENTIAL_PROMPT },
   bridge: { ...DEFAULT_BRIDGE_ACTIVATION },
   defaultModel: "",
   defaultThinkingLevel: "",
@@ -2798,6 +2802,7 @@ export function loadConfig(): DashboardConfig {
       },
       piTrustMirror: parsePiTrustMirror(parsed.piTrustMirror),
       agentPathGate: parseAgentPathGate(parsed.agentPathGate),
+      sudoCredentialPrompt: parseSudoCredentialPrompt(parsed.sudoCredentialPrompt),
       bridge: parseBridgeActivation(parsed.bridge),
       knownServers: parseKnownServers(parsed.knownServers),
       reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),

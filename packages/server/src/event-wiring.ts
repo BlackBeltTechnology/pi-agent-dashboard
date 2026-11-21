@@ -4,6 +4,7 @@
  */
 
 import { buildPreferencesUpdate } from "./preferences-relay.js";
+import { SUDO_CREDENTIAL_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/sudo-credential.js";
 import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -323,6 +324,12 @@ export interface EventWiringDeps {
    * See change: add-credential-vault.
    */
   vaultDelivery?: import("./vault/vault-delivery-hub.js").VaultDeliveryHub;
+  /**
+   * In-memory sudo credential relay. Absent in minimal wirings: a helper
+   * request is then refused at once (never left to wait out its timeout).
+   * See change: add-sudo-credential-prompt.
+   */
+  sudoCredential?: import("./sudo-credential/relay.js").SudoCredentialRelay;
 }
 
 /** A bridge-supplied notify `ts` is kept only when finite and > 0. See change: collapse-and-order-notify-rows. */
@@ -501,6 +508,9 @@ export function wireEvents(deps: EventWiringDeps): void {
     // A gate prompt cannot be answered through a closed bridge: drop the derived
     // flag now; the replay exit re-derives it from the replayed prompts.
     // See change: ask-agent-file-access-in-chat (D7).
+    // The prompt cannot be answered through a closed bridge: dismiss it on every
+    // browser and clear the cache metadata. See change: add-sudo-credential-prompt (D9).
+    if (disconnectedSessionId) deps.sudoCredential?.onBridgeDisconnect(disconnectedSessionId);
     if (disconnectedSessionId && sessionManager.get(disconnectedSessionId)?.awaitingFileAccess) {
       sessionManager.update(disconnectedSessionId, { awaitingFileAccess: false });
       browserGateway.broadcastSessionUpdated(disconnectedSessionId, { awaitingFileAccess: false });
@@ -617,7 +627,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       piGateway.sendToSession(sessionId, {
         type: "dashboard_identity",
         ...(grantStoreId ? { grantStoreId } : {}),
-        features: deps.vaultDelivery ? ["path-yolo", VAULT_DELIVERY_FEATURE] : ["path-yolo"],
+        features: deps.vaultDelivery ? ["path-yolo", VAULT_DELIVERY_FEATURE, SUDO_CREDENTIAL_FEATURE] : ["path-yolo", SUDO_CREDENTIAL_FEATURE],
       });
     }
 
@@ -712,6 +722,7 @@ export function wireEvents(deps: EventWiringDeps): void {
   sessionManager.onUnregister = (sessionId) => {
     // A dead session has no env to withdraw from and must not receive pushes.
     deps.vaultDelivery?.forget(sessionId);
+    deps.sudoCredential?.forgetSession(sessionId);
     // Turn-boundary reset (change: auto-canvas): a terminated session must not
     // leave stale candidates behind. No settle broadcast on termination.
     canvasAccumulator.resetTurn(sessionId);
@@ -1138,6 +1149,27 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
     if (msg.type === "vault_report") {
       deps.vaultDelivery?.handleReport(sessionId, msg);
+      return;
+    }
+
+    // Sudo credential prompt: explicit branches for a dedicated in-memory road.
+    // Never the event store, `QuestionStore` or `prompt_*` replay; keyed by the
+    // gateway's socket key, never by a `sessionId` the frame claims. A relay-less
+    // wiring refuses the request so the helper exits 1 at once.
+    // See change: add-sudo-credential-prompt (D6, D9).
+    if (msg.type === "sudo_credential_request") {
+      if (deps.sudoCredential) deps.sudoCredential.handleRequest(sessionId, msg);
+      else if (typeof msg.callId === "string") {
+        piGateway.sendToSession(sessionId, { type: "sudo_credential_cancel", sessionId, callId: msg.callId, reason: "unanswerable" });
+      }
+      return;
+    }
+    if (msg.type === "sudo_credential_cache") {
+      deps.sudoCredential?.handleCache(sessionId, msg);
+      return;
+    }
+    if (msg.type === "sudo_credential_dismiss") {
+      deps.sudoCredential?.handleDismiss(sessionId, msg);
       return;
     }
 

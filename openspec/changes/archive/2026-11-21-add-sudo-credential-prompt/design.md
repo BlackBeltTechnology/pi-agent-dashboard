@@ -121,3 +121,10 @@ The owner chose the following explicitly (2026-11-20). **No mitigations are adde
 3. **The in-memory cache lets later commands in the window get sudo with no prompt.** For `cacheMinutes` after one entry, any verified `sudo` in a bash call of that session (including one an injected agent chose) is answered without a modal.
 
 Residual (D7): a same-user process can obtain the plaintext password (owner accepted); mitigation is masking of verbatim echoes into the LLM/transcript/JSONL, a transformed echo is not masked; not a sandbox. Residual (D7 C): the masker holds the password as a non-zeroable string for the process lifetime. Residual (D3): transient immutable-string copies of the password cannot be zeroed.
+
+## Review record (ship-it, 2026-11-21)
+
+- Local review (`@review`, isolated `CodeReviewer`, round 1): `BLOCKING_COUNT: 0`, `VERDICT: pass`. Reviewed the whole diff against D1–D10 and Accepted risks: one pending slot per session, relay never stores, bridge-held `Buffer` cache zeroed on clear, register-before-deliver ordering, fail-closed paths (`user_bash` with no local operations, refused helper, unanswerable/timeout non-sticky). One non-blocking note (Settings copy said "server memory"; the cache lives in the bridge) was fixed.
+- D7 as shipped: the gate is anti-accident only; peer verification stays dropped; a verbatim echo of the entered password is masked as `[REDACTED:SUDO_PASSWORD]` (tool_result, message_end, `user_bash` stream, forwarded frames), a transformed echo is not; the masker copy is a non-zeroable string for process life; a same-user process can still obtain the plaintext password. Matches `## Accepted risks (owner decision)`.
+- D1 platform status: macOS 1.9.17p2 verified earlier; Linux sudo / sudo-rs unverified until QA task 6.5 runs `qa/tests/59-sudo-askpass-fallback.sh` on a provisioned VM (`qa-sudo` user).
+- Not run in this environment: CodeQL ratchet (local `codeql` pack resolution times out, identical on `develop`; owner chose skip, GitHub PR analysis is the backstop).
