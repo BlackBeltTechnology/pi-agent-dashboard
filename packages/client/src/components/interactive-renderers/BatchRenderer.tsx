@@ -135,10 +135,12 @@ function BatchRendererBody({ params, status, result, onRespond, onCancel, sessio
   const imageSession = restoreImages && requestId ? draftSession : undefined;
 
   const [answers, setAnswers] = useState<Array<Answer | undefined>>(() => {
-    if (!saved) return questions.map(initialAnswer);
-    return saved.answers.map((a, i) => {
-      if (a === null) return undefined;
-      const imgs = imageSession && "value" in a ? getPromptDraftImages(imageSession, requestId, i) : [];
+    // Images ride a separate memory-only map, so they are re-joined even when there is no text draft
+    // (an image pasted into a fresh step never changes the serialised answers).
+    const base: Array<Answer | undefined> = saved ? saved.answers.map((a) => a ?? undefined) : questions.map(initialAnswer);
+    return base.map((a, i) => {
+      if (!a || !("value" in a) || !imageSession) return a;
+      const imgs = getPromptDraftImages(imageSession, requestId, i);
       return imgs.length > 0 ? { ...a, images: imgs } : a;
     });
   });

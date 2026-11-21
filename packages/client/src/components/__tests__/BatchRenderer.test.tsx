@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PROMPT_DRAFT_KEY_PREFIX, resetPromptDraftMemory } from "../../lib/state/prompt-draft-storage.js";
@@ -281,6 +281,34 @@ describe("BatchRenderer draft persistence (#1117)", () => {
     mount(qs.slice(0, 2));
     expect(screen.getByText("Question 1 of 2")).toBeTruthy();
     expect(sessionStorage.getItem(key)).toBeNull();
+  });
+
+  it("a pasted image survives a remount even when the step text never changed (no text draft exists)", async () => {
+    let pendingOnload: (() => void) | null = null;
+    vi.stubGlobal(
+      "FileReader",
+      class {
+        result = "data:image/png;base64,iVBORw0KGgo=";
+        onload: (() => void) | null = null;
+        readAsDataURL() {
+          pendingOnload = () => this.onload?.();
+        }
+      },
+    );
+    try {
+      const first = mount();
+      const file = new File([new Uint8Array([137, 80, 78, 71])], "t.png", { type: "image/png" });
+      fireEvent.paste(screen.getByRole("textbox"), { clipboardData: { items: [{ type: "image/png", getAsFile: () => file, kind: "file" }] } });
+      await act(async () => {
+        pendingOnload?.();
+      });
+      expect(first.container.querySelectorAll("img.h-16")).toHaveLength(1);
+      first.unmount();
+      const second = mount();
+      expect(second.container.querySelectorAll("img.h-16")).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("the mirror holds answers without an images field", () => {

@@ -146,7 +146,12 @@ export function getPromptDraft(sessionId: string, promptId: string): unknown {
   ensureHydrated();
   const key = promptDraftKey(sessionId, promptId);
   const hit = memory.get(key);
-  if (hit) return hit.state;
+  if (hit) {
+    // A tab left open past the TTL must not hand back a stale answer (hydrate only sweeps once).
+    if (Date.now() - hit.savedAt <= PROMPT_DRAFT_TTL_MS) return hit.state;
+    deletePromptDraft(sessionId, promptId);
+    return undefined;
+  }
   const store = storage();
   if (!store) return undefined;
   try {

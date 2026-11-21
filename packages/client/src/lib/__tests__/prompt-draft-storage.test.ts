@@ -145,6 +145,18 @@ describe("TTL sweep at hydrate (S31)", () => {
   });
 });
 
+describe("expiry of an in-memory draft", () => {
+  it("a draft held in memory past 24 h is dropped on read (tab left open), mirror included", () => {
+    setPromptDraft("s1", "p1", { text: "stale" });
+    vi.advanceTimersByTime(PROMPT_DRAFT_DEBOUNCE_MS);
+    expect(sessionStorage.getItem(KEY)).not.toBeNull();
+    vi.setSystemTime(Date.now() + PROMPT_DRAFT_TTL_MS + 1);
+    expect(getPromptDraft("s1", "p1")).toBeUndefined();
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+    expect(promptDraftStats().drafts).toBe(0);
+  });
+});
+
 describe("corrupt storage (S16/S70)", () => {
   it.each([
     ["not json", "{not json"],
