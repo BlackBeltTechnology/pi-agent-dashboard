@@ -559,7 +559,8 @@ describe("GET /api/file — real-path anchors (close-local-listener-and-egress-g
     expect(render.json().error).toBe("path outside working directory");
 
     const { resolveFileMention } = await import("../lib/resolve-file-mention.js");
-    expect(await resolveFileMention(md, { cwd })).toBeNull();
+    // D1: containment failure is reported as `outside:true` (no stat); the read gate refuses the bytes.
+    expect(await resolveFileMention(md, { cwd })).toMatchObject({ outside: true });
     // The same file through the `~/.pi` anchor spelling is still admitted (anchor pairing is per anchor).
     expect(await resolveFileMention(path.join(real, "SKILL.md"), { cwd })).toMatchObject({ kind: "abs" });
   });

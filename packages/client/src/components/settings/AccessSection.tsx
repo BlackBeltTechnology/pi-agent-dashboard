@@ -247,6 +247,14 @@ export function AccessSection({ configTrustMode }: { configTrustMode?: "pair" | 
                     <span className="font-mono text-sm text-[var(--text-primary)] break-all">
                       {entry.subject}
                     </span>
+                    {entry.mode === "write" && (
+                      <span
+                        data-testid="access-entry-mode-write"
+                        className="shrink-0 rounded border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] px-1.5 text-xs font-semibold text-[var(--severity-warning-fg)]"
+                      >
+                        {i18nT("access.modeWrite", undefined, "Write")}
+                      </span>
+                    )}
                     {entry.legacyHashOnly && (
                       <span
                         data-testid="access-legacy-hash"

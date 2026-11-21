@@ -236,6 +236,32 @@ describe("FileLink — lazy resolve-on-click", () => {
     fetchSpy.mockRestore();
   });
 
+  // fix-file-link-editor-routing S67: an absolute / `~/` link keeps the offline fallback on a resolve failure.
+  it.each([
+    { name: "network rejection", path: "/Users/other/app.ts", fail: "reject" },
+    { name: "5xx", path: "~/notes/todo.md", fail: "500" },
+  ])("absolute/tilde link: resolve $name → client-side open runs, NOT not-found (S67)", async ({ path, fail }) => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
+      if (String(input).includes("/api/file/resolve-mention")) {
+        if (fail === "reject") throw new TypeError("network down");
+        return new Response("gateway boom", { status: 500, headers: { "Content-Type": "text/html" } }) as any;
+      }
+      return jsonResponse({ success: true, data: { type: "file", content: "" } });
+    });
+    const ctx: ToolContext = { cwd: "/Users/me/repo" };
+    const { getByRole, findByTestId } = renderFL(
+      <FileLink path={path} absolute context={ctx}>
+        {path}
+      </FileLink>,
+    );
+    const button = getByRole("button");
+    fireEvent.click(button);
+    const overlay = await findByTestId("file-preview-overlay");
+    expect(overlay.textContent).toContain(path);
+    expect(button.getAttribute("data-not-found")).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
   it("opens the server path exactly — no double resolveLinkOrigin re-root (S16)", async () => {
     const serverPath = "/repo/.worktrees/x/vitest.config.ts";
     const fetchSpy = mockFetchRouting(() =>

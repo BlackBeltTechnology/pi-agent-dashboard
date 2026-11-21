@@ -6,6 +6,7 @@
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback } from "react";
+import { confirmLeave, unsavedStore } from "../components/editor-pane/unsaved-store.js";
 import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/chat/event-reducer.js";
 import { encodePromptAnswer } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
 import { randomUuid } from "../lib/util/random-uuid.js";
@@ -275,9 +276,15 @@ export function useSessionActions(deps: SessionActionDeps) {
   }, [selectedId, send, setSessionStates, sessions, getResumePick]);
 
   const handleSelect = useCallback((id: string) => {
-    navigate(`/session/${id}`);
-    setMobileOpen(false);
-  }, [navigate, setMobileOpen]);
+    const go = () => {
+      navigate(`/session/${id}`);
+      setMobileOpen(false);
+    };
+    // Unsaved built-in editor buffers (session OR folder pane) ask Save / Discard / Cancel first.
+    // See change: fix-file-link-editor-routing (D3).
+    if (id === selectedId || !unsavedStore.hasUnsaved()) return go();
+    void confirmLeave().then((ok) => ok && go());
+  }, [navigate, setMobileOpen, selectedId]);
 
   const handleRenameSession = useCallback((sessionId: string, name: string) => {
     send({ type: "rename_session", sessionId, name });

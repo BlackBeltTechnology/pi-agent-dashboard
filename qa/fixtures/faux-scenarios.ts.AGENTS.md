@@ -24,6 +24,8 @@ See change: add-browser-editor-pane-tab — scenario `browser-show-in-pane` (`[[
 
 `text-realfile-applyfix`: assistant text linking `/fixtures/sample-git/apply-fix.md` so the FilePreviewOverlay opens on a broken diagram (apply-fix e2e F11). See change: add-preview-apply-fix-to-file.
 
+`text-worktree-links`: assistant text linking `/fixtures/sample-git/hello.txt` (tracked) + `/fixtures/sample-git/parent-only-link.md` (untracked, parent-only) by parent-absolute path — worktree link re-root e2e. See change: fix-file-link-editor-routing (#S65).
+
 Adds `chat-motion-stream` (≥ 4000 chars of prose + list + fenced code at default `FAUX_TPS`, exported `CHAT_MOTION_STREAM_TAIL`) and `chat-motion-glide` (viewport-overflowing prelude, then a ~3 s bash call, then a closing message; exported `CHAT_MOTION_GLIDE_TAIL` / `CHAT_MOTION_GLIDE_TOOL_OUTPUT`). Drive `tests/e2e/chat-motion.spec.ts` + `chat-motion-perf.spec.ts`. See change: add-fluid-chat-motion. Adds `canvas-declare-url-loopback` (canvas url `http://127.0.0.1:5188/app`), `canvas-html-cdn` (write `mockups/cdn/index.html` with Tailwind CDN + canvas file) and `canvas-html-screens` (write index + `screens/b.html` + canvas file) for L3 F5/F15-F18. See change: improve-canvas-html-and-url-ux.
 
 Adds `gmail-filter-create` (`gmail_filter_create` a@fake.test, from `newsletter@dest.test`, remove `INBOX`; raises the tool's own confirm; then `gmail filter done`) for gmail-plugin L3 F3. See change: improve-gmail-plugin-setup-ux.
@@ -33,3 +35,5 @@ Adds `subagent-long-stream-hold` (one `Agent` call → `subagent-long-stream-hol
 See change: fix-chat-transcript-layout — adds `burst-large` (40 distinct quick bash calls in one step, then two `sleep 3` calls joining the burst; tail `large burst complete`), `canvas-write-md-and-server` (report.md write + server declare in ONE turn → file chip + server chip together), `canvas-declare-server-longpath` (loopback URL declare with a 120-char path → server chip with long `:port/path`).
 
 `slow-tool-steer`: slow `tool-chunk-N` text + `bash` tool call turn, then `SLOW_TOOL_FINAL` text turn (steer hand-off at a real completed `turn_end`, e2e #F4). See change: bridge-owned-cancellable-steer.
+
+Adds `text-outside-links`: assistant text linking five absolute text docs under `/fixtures/__grant-e2e__/lk-{deny,missing,write,readonly,revoke}/` (one dir each: grant subject = dir, D9 backoff); drives the outside-link read/write grant L3 specs. See change: fix-file-link-editor-routing.

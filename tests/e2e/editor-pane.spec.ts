@@ -1,5 +1,7 @@
-import { expect, test } from "./fixtures.js";
+import { execFileSync } from "node:child_process";
+import { expect, narrowTrust, test } from "./fixtures.js";
 import { robustClick, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
 
 // Browser E2E — internal Monaco editor pane (change: add-internal-monaco-editor-pane).
 //
@@ -367,3 +369,62 @@ test.describe("split layout controls redesign", () => {
 // the feature. F12's `full` stacked render (editor + chat peek, chat kept
 // mounted) is covered at L1 by SplitWorkspace.test.tsx; its exact grabber pixel
 // placement is manual-only (test-plan #M2).
+
+// test-plan #S55 (fix-file-link-editor-routing) — a link to an OUTSIDE file that is not on disk: the tab opens,
+// the read prompt is raised by the gate BEFORE any stat, and once allowed the load fails with a load error
+// (404) instead of a struck-through link. Nothing is created.
+test.describe("outside + missing link", () => {
+  const ROOT = "/fixtures/__grant-e2e__";
+  const MISSING = `${ROOT}/lk-missing/missing.md`;
+  const cfg = "/home/pi/.pi/dashboard/config.json";
+  let container = "";
+  let savedCfg = "";
+  const sh = (cmd: string) => execFileSync("docker", ["exec", container, "sh", "-c", cmd], { encoding: "utf8" });
+
+  test.beforeAll(async ({ request }) => {
+    container = execFileSync("docker", ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"], {
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")[0];
+    savedCfg = sh(`cat ${cfg}`);
+    // The prompt needs hostGate=enforce + promptEnabled (same setup as access-grant-dialog.spec.ts).
+    await narrowTrust(request, { hostGate: { mode: "enforce" } });
+    sh(
+      `node -e 'const fs=require("fs");const c=JSON.parse(fs.readFileSync("${cfg}","utf8"));c.accessGrants={...(c.accessGrants??{}),promptEnabled:true};fs.writeFileSync("${cfg}.e2e.tmp",JSON.stringify(c,null,2));fs.renameSync("${cfg}.e2e.tmp","${cfg}")'`,
+    );
+    sh(`mkdir -p ${ROOT} && rm -rf ${ROOT}/lk-missing`);
+  });
+
+  test.afterAll(() => {
+    sh(`rm -rf ${ROOT}`);
+    execFileSync("docker", ["exec", "-i", container, "sh", "-c", `cat > ${cfg}.restore && mv ${cfg}.restore ${cfg}`], {
+      input: savedCfg,
+      encoding: "utf8",
+    });
+  });
+
+  test("S55: tab opens, read prompt raised, then a load error; link not struck through; nothing created", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:text-outside-links]] go");
+    const link = page.getByText(MISSING, { exact: true }).first();
+    await expect(link).toBeVisible({ timeout: 30_000 });
+    await link.click();
+
+    await expect(page.getByTestId("split-editor-pane").first()).toBeVisible({ timeout: 20_000 });
+    const dialog = page.getByTestId("grant-dialog");
+    const notice = page.getByTestId("denial-notice");
+    await expect(notice.or(dialog).first()).toBeVisible({ timeout: 20_000 });
+    if (!(await dialog.isVisible())) await notice.getByRole("button", { name: /ask/i }).click();
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await dialog.getByTestId("grant-allow-once").click();
+
+    // Gate passed, then the file is genuinely absent: a load error in the tab, never a struck-through link.
+    await expect(page.getByTestId("denial-notice").or(page.getByText(/not found|failed to load/i)).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(link).not.toHaveAttribute("data-not-found", "true");
+    expect(sh(`ls -A ${ROOT} | grep -c lk-missing || true`).trim()).toBe("0");
+  });
+});

@@ -493,3 +493,80 @@ describe("#E5 promptOutcome: every reason emitted today has an explicit row", ()
     expect(promptOutcomeRow("toString")).toBeUndefined();
   });
 });
+
+// fix-file-link-editor-routing 3b: the action rides from the denial to the plane's grant()
+// and is NEVER taken from the browser's answer. test-plan #S36, #S77 (coordinator half).
+describe("write denials (#S36, #S77)", () => {
+  const writeDenial = (over: Partial<DenialContext> = {}) => fsDenial({ action: "write", ...over });
+
+  it("S36: the broadcast prompt names the write action; a read prompt carries no action", () => {
+    const c = make();
+    c.onDenial(writeDenial(), true);
+    expect(promptOf()).toMatchObject({ action: "write" });
+    sent = [];
+    c.onDenial(fsDenial({ rawSubject: "/work/other", channel: "sock-B" }), true);
+    expect("action" in promptOf()).toBe(false);
+  });
+
+  it("S36: allow-always on a write entry hands action:'write' to the plane; a read entry hands 'read'", async () => {
+    const c = make();
+    const hw = c.onDenial(writeDenial(), true);
+    await c.onResponse(answer("allow-always"));
+    await hw.result;
+    expect(grant).toHaveBeenCalledTimes(1);
+    expect(grant.mock.calls[0][0]).toMatchObject({ action: "write" });
+
+    sent = [];
+    const hr = c.onDenial(fsDenial({ rawSubject: "/work/other" }), true);
+    await c.onResponse(answer("allow-always"));
+    await hr.result;
+    expect(grant.mock.calls[1][0].action ?? "read").toBe("read");
+  });
+
+  it("S36: forged mode/action fields on the grant_response are ignored", async () => {
+    const c = make();
+    const hr = c.onDenial(fsDenial(), true); // a READ entry
+    await c.onResponse({ ...answer("allow-always"), mode: "write", action: "write" });
+    await hr.result;
+    expect(grant.mock.calls[0][0].action ?? "read").toBe("read");
+
+    sent = [];
+    const hw = c.onDenial(writeDenial({ rawSubject: "/work/w" }), true); // a WRITE entry
+    await c.onResponse({ ...answer("allow-always"), mode: "read", action: "read" });
+    await hw.result;
+    expect(grant.mock.calls[1][0]).toMatchObject({ action: "write" });
+  });
+
+  it("S35: a read verdict's backoff does not swallow a later write prompt for the same directory", async () => {
+    const c = make();
+    const hr = c.onDenial(fsDenial(), true);
+    await c.onResponse(answer("deny"));
+    expect((await hr.result).kind).toBe("deny");
+    sent = [];
+    const hw = c.onDenial(writeDenial(), true);
+    expect(hw.held).toBe(true);
+    expect(promptOf()).toMatchObject({ action: "write" });
+  });
+
+  it("S77: allow-once admits only the request that raised the prompt; the joined write is refused", async () => {
+    const c = make();
+    const first = c.onDenial(writeDenial(), true);
+    const joiner = c.onDenial(writeDenial(), true);
+    expect(first.held && joiner.held).toBe(true);
+    await c.onResponse(answer("allow-once"));
+    expect(await first.result).toEqual({ kind: "allow", verdict: "allow-once", subject: "/work/repo" });
+    expect(await joiner.result).toEqual({ kind: "deny", reason: "allow-once-not-shared" });
+    expect(grant).not.toHaveBeenCalled();
+    // A later write prompts again (nothing persisted, no backoff for allow-once... the entry settled).
+  });
+
+  it("S77: allow-always releases every held write request", async () => {
+    const c = make();
+    const first = c.onDenial(writeDenial(), true);
+    const joiner = c.onDenial(writeDenial(), true);
+    await c.onResponse(answer("allow-always"));
+    expect((await first.result).kind).toBe("allow");
+    expect((await joiner.result).kind).toBe("allow");
+    expect(grant).toHaveBeenCalledTimes(1);
+  });
+});

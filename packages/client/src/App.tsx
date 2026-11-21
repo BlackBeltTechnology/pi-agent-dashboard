@@ -193,6 +193,11 @@ const PairingApprovalHost = lazy(() =>
 const FileHandlerLayer = lazy(() =>
   import("./components/editor-pane/file-handler/FileHandlerLayer.js").then((m) => ({ default: m.FileHandlerLayer })),
 );
+// Page-level unsaved-buffer dialog (Save / Discard / Cancel): lazy, off the entry gzip cap.
+// See change: fix-file-link-editor-routing (D3).
+const UnsavedChangesHost = lazy(() =>
+  import("./components/editor-pane/UnsavedChangesHost.js").then((m) => ({ default: m.UnsavedChangesHost })),
+);
 const FileDiffView = lazy(() =>
   import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
 );
@@ -3291,6 +3296,12 @@ export default function App() {
                   add-editor-pane-file-handlers (D5). */}
               <Suspense fallback={null}>
                 <FileHandlerLayer />
+              </Suspense>
+              {/* ONE page-level unsaved-edits dialog for every leave point (session switch,
+                  pane close, tab close): outside every provider so folder panes are covered.
+                  See change: fix-file-link-editor-routing (D3). */}
+              <Suspense fallback={null}>
+                <UnsavedChangesHost />
               </Suspense>
               {/* D22 sign-in dialog: ONE instance for every layout branch (it is
                   `fixed inset-0`, so it need not sit inside the banner slots,

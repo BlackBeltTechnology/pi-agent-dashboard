@@ -121,7 +121,7 @@ export function sendGateFailure(reply: import("fastify").FastifyReply, gate: Gat
 
 import { serializeWrite } from "../lib/file-write-lock.js";
 import { resolveFileMention } from "../lib/resolve-file-mention.js";
-import { isWritableMdTarget } from "../lib/writable-md-target.js";
+import { isTextDocWriteTarget, isWritableMdTarget } from "../lib/writable-md-target.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import {
@@ -226,14 +226,29 @@ type MdWriteOutcome =
   | { code: 404 | 409 | 413 | 500; error: string };
 
 /** Parsed + authorized write request, or a {code,error} reply mapping. */
-type MdWritePrep = { resolved: string; content: string; mtime: number } | GateFailure;
+type MdWritePrep =
+  | {
+      resolved: string;
+      content: string;
+      mtime: number;
+      /** Set when a write-mode GRANT admitted an outside-cwd target: the real path the gate decided. */
+      gatedReal?: string;
+    }
+  | GateFailure;
 
 // Parse, scope-validate, and authorize a `POST /api/file/write` body. Keeps the
 // route handler trivial. Authorization is the `isWritableMdTarget` security
 // boundary. See change: directory-settings-page-and-scoped-md-editing.
+//
+// A text doc OUTSIDE the admitted cwd (directory scope only) is not a flat 403 any more: it goes to the
+// write-mode containment gate (`evaluateContainment(..., {action:"write"})`), which admits it only through
+// a WRITE grant or a fresh operator write prompt (allow once / always / deny). A read grant and the
+// bound-checkout-root widening never admit a write. Global scope (no cwd) is unchanged.
+// See change: fix-file-link-editor-routing (D2).
 async function prepareMdWrite(
   body: { cwd?: unknown; path?: unknown; content?: unknown; mtime?: unknown },
   routeAdmission: RouteAdmissionDeps,
+  req: { request: import("fastify").FastifyRequest; reply: import("fastify").FastifyReply },
 ): Promise<MdWritePrep> {
   const rawPath = typeof body.path === "string" ? body.path : "";
   const content = typeof body.content === "string" ? body.content : undefined;
@@ -243,10 +258,30 @@ async function prepareMdWrite(
   }
   const target = await resolveScopedMdPath(body.cwd, rawPath, routeAdmission);
   if ("code" in target) return target;
-  if (!(await isWritableMdTarget(target.resolved, { cwd: target.cwd }))) {
+  if (await isWritableMdTarget(target.resolved, { cwd: target.cwd })) {
+    return { resolved: target.resolved, content, mtime };
+  }
+  // Only the outside-cwd text-doc case reaches the gate: global scope, a non-text extension, a Mermaid
+  // source and a dashboard-state path all stay a plain 403 with no prompt.
+  if (target.cwd === undefined || !(await isTextDocWriteTarget(target.resolved))) {
     return { code: 403, error: "target is not a writable markdown file in scope" };
   }
-  return { resolved: target.resolved, content, mtime };
+  // The gate runs BEFORE any stat (`performAtomicMdWrite`): a stat-first route would be an existence
+  // oracle for arbitrary outside paths.
+  const decision = await evaluateContainment(target.resolved, [target.cwd], {
+    site: "file-routes:write",
+    subjectKind: "file",
+    session: target.cwd,
+    hold: { request: req.request, reply: req.reply },
+    disclosure: canDiscloseAccessPosture(req.request),
+    action: "write",
+  });
+  // Only a GRANT-admitted decision proceeds: layer ① admitting a path `isWritableMdTarget` just refused
+  // would be a contradiction, so it fails closed.
+  if (!containmentAllows(decision, target.resolved) || !decision.viaGrant) {
+    return { code: 403, error: "path outside working directory — write not granted", ...decision.remedy };
+  }
+  return { resolved: target.resolved, content, mtime, gatedReal: decision.real };
 }
 
 // Atomic markdown write with optimistic-concurrency. Caller MUST run this inside
@@ -258,6 +293,7 @@ async function performAtomicMdWrite(
   resolved: string,
   content: string,
   mtime: number,
+  gatedReal?: string,
 ): Promise<MdWriteOutcome> {
   // Canonicalize to the realpath target: an in-scope symlink to an allowed
   // markdown file is authorized by `isWritableMdTarget` on its realpath, so we
@@ -270,6 +306,11 @@ async function performAtomicMdWrite(
     current = await fs.stat(real);
   } catch {
     return { code: 404, error: "file not found" };
+  }
+  // Re-bind: a target admitted by a write grant must still resolve to the path the gate decided. A symlink
+  // repointed during the operator hold (or after the gate) is refused with nothing written.
+  if (gatedReal !== undefined && real !== gatedReal) {
+    return { code: 409, error: "target changed while access was being decided" };
   }
   // Full-precision mtime token: rounding could collapse two fast saves into one
   // token and let a stale write pass the 409 check.
@@ -1025,7 +1066,7 @@ export function registerFileRoutes(
     // the handler still refuses content above the 256 MiB ceiling.
     { preHandler: networkGuard, bodyLimit: 600 * 1024 * 1024 },
     async (request, reply) => {
-      const prep = await prepareMdWrite(request.body ?? {}, routeAdmission);
+      const prep = await prepareMdWrite(request.body ?? {}, routeAdmission, { request, reply });
       if ("code" in prep) {
         return sendGateFailure(reply, prep);
       }
@@ -1035,7 +1076,7 @@ export function registerFileRoutes(
       // cannot run two writes to one file at once. See change: add-editor-pane-file-handlers (D4).
       const lockKey = await safeRealpath(prep.resolved);
       const outcome = await serializeWrite(lockKey, () =>
-        performAtomicMdWrite(prep.resolved, prep.content, prep.mtime),
+        performAtomicMdWrite(prep.resolved, prep.content, prep.mtime, prep.gatedReal),
       );
       if (outcome.code !== 200) {
         reply.code(outcome.code);
@@ -1212,7 +1253,9 @@ export function registerFileRoutes(
 
   // Lazy file-mention resolver (change: server-side-file-mention-resolution).
   //
-  // Body `{ cwd, mention }` → `{ resolved, kind }` or `{ resolved: null }`.
+  // Body `{ cwd, mention }` → `{ resolved, kind }`, `{ resolved, kind, outside: true }` (containment
+  // failed: never statted, so the payload is independent of existence — change fix-file-link-editor-routing
+  // D1) or `{ resolved: null }`.
   // `cwd` is UNTRUSTED request input and is gated against the known-session set
   // (mirrors `/api/file`, NOT the wider exists-only pinned set — design D2/F6/F7,
   // so a resolve never succeeds on a path the open route would 403) BEFORE any
@@ -1235,7 +1278,9 @@ export function registerFileRoutes(
       const result = await resolveFileMention(mention, { cwd: admitted.cwd, canonCwd: admitted.canonCwd });
       return {
         success: true,
-        data: result ? { resolved: result.resolved, kind: result.kind } : { resolved: null },
+        data: result
+          ? { resolved: result.resolved, kind: result.kind, ...(result.outside ? { outside: true } : {}) }
+          : { resolved: null },
       } satisfies ApiResponse;
     },
   );

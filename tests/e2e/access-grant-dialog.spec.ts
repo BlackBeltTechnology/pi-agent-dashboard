@@ -23,11 +23,15 @@
  * post-settle backoff would otherwise swallow the next prompt.
  *
  * See change: add-access-grant-dialog.
+ *
+ * The final `outside text docs` describe (tests #S54, #S56, #S58) drives the chat-link → editor-pane
+ * round trip for text docs OUTSIDE the session cwd: read denial flow, write prompt on save, and a read
+ * grant never admitting a write. See change: fix-file-link-editor-routing.
  */
 import { execSync } from "node:child_process";
 import type { Browser, Page, WebSocketRoute } from "@playwright/test";
 import { expect, narrowTrust, test } from "./fixtures.js";
-import { ensureGitSession, FIXTURE_GIT } from "./helpers/index.js";
+import { ensureGitSession, FIXTURE_GIT, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 const ROOT = "/fixtures/__grant-e2e__";
@@ -538,6 +542,163 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
     await ensureGitSession(page);
     await page.goto("/settings/access");
     await expect(page.getByTestId("access-prompts-banner-no-channel")).toBeVisible({ timeout: 15_000 });
+  });
+});
+
+// ── outside text docs: link → editor pane → read denial / write prompt (fix-file-link-editor-routing) ──
+const outsideDir = (name: string) => `${ROOT}/${name}`;
+const outsideLink = (page: Page, name: string) =>
+  page.getByText(`${outsideDir(name)}/${name === "lk-missing" ? "missing" : "doc"}.md`, { exact: true }).first();
+
+/** Create `<ROOT>/<name>/doc.md` inside the container with a marker line. */
+function seedOutsideDoc(name: string, marker: string): string {
+  const file = `${outsideDir(name)}/doc.md`;
+  inContainer(`
+    const fs = require("node:fs");
+    fs.mkdirSync(${JSON.stringify(outsideDir(name))}, { recursive: true });
+    fs.writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(`# outside\n${marker}\n`)});
+  `);
+  return file;
+}
+
+function readInContainer(file: string): string {
+  return inContainer(`process.stdout.write(require("node:fs").readFileSync(${JSON.stringify(file)}, "utf8"));`);
+}
+
+/** A fresh git session whose chat carries the five outside links. */
+async function openOutsideLinks(page: Page): Promise<void> {
+  const card = await spawnFreshGitSession(page);
+  await card.click();
+  await sendPrompt(page, "[[faux:text-outside-links]] go");
+  await expect(outsideLink(page, "lk-deny")).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * Get to the grant dialog for the open tab's refused read. The dialog is either already up (the load
+ * carried the capability) or the tab shows `DenialNotice` with an "Ask for access" control that re-runs
+ * the load eligibly - never both a stale notice and no way forward.
+ */
+async function reachReadDialog(page: Page): Promise<void> {
+  const notice = page.getByTestId("denial-notice");
+  await expect(notice.or(dialog(page)).first()).toBeVisible({ timeout: 20_000 });
+  if (!(await dialog(page).isVisible())) await notice.getByRole("button", { name: /ask/i }).click();
+  await expect(dialog(page)).toBeVisible({ timeout: 15_000 });
+}
+
+async function typeIntoEditor(page: Page, text: string): Promise<void> {
+  await page.getByTestId("md-edit-toggle").click();
+  await page.locator(".monaco-editor").first().click();
+  await page.keyboard.type(text);
+}
+
+test.describe.serial("outside text docs (fix-file-link-editor-routing L3)", () => {
+  test.skip(process.env.PI_DASHBOARD_DISABLE_GRANT_PROMPT === "1", "prompting force-disabled by the kill switch");
+
+  test.beforeAll(async ({ request }) => {
+    saved = JSON.parse(
+      inContainer(`
+        const fs = require("node:fs");
+        const out = {};
+        for (const p of ${JSON.stringify(STORES)}) out[p] = fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
+        process.stdout.write(JSON.stringify(out));
+      `),
+    );
+    execSync(`docker exec ${containerName()} sh -c 'rm -rf ${ROOT} && mkdir -p ${ROOT}'`);
+    await narrowTrust(request, { hostGate: { mode: "enforce" } });
+    patchConfig({ accessGrants: { promptEnabled: true } });
+  });
+
+  test.afterAll(() => {
+    inContainer(`
+      const fs = require("node:fs");
+      const saved = ${JSON.stringify(saved)};
+      for (const [p, body] of Object.entries(saved)) {
+        if (body === null) { try { fs.unlinkSync(p); } catch {} }
+        else { fs.writeFileSync(p + ".e2e.tmp", body); fs.renameSync(p + ".e2e.tmp", p); }
+      }
+    `);
+    execSync(`docker exec ${containerName()} rm -rf ${ROOT}`);
+  });
+
+  // #S54 — an ungranted outside link opens a tab that shows the denial flow, never the bytes, never "not found".
+  test("S54: ungranted outside link -> denial flow, no bytes before the grant; Deny keeps it; Allow once renders", async ({
+    page,
+  }) => {
+    seedOutsideDoc("lk-deny", "OUTSIDE-DENY-MARKER");
+    await openDashboard(page);
+    await openOutsideLinks(page);
+
+    const link = outsideLink(page, "lk-deny");
+    await link.click();
+    await expect(page.getByTestId("split-editor-pane").first()).toBeVisible({ timeout: 20_000 });
+    await reachReadDialog(page);
+    await expect(page.getByText("OUTSIDE-DENY-MARKER")).toHaveCount(0);
+    await expect(link).not.toHaveAttribute("data-not-found", "true");
+
+    await dialog(page).getByTestId("grant-deny").click();
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(page.getByTestId("denial-notice")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("OUTSIDE-DENY-MARKER")).toHaveCount(0);
+
+    // Re-click (same tab) and allow once: the content renders.
+    await link.click();
+    await reachReadDialog(page);
+    await dialog(page).getByTestId("grant-allow-once").click();
+    await expect(page.getByText("OUTSIDE-DENY-MARKER")).toBeVisible({ timeout: 30_000 });
+    await expect(link).not.toHaveAttribute("data-not-found", "true");
+  });
+
+  // #S56 — edit + save an outside file: a WRITE prompt, allow-once saves, a later save prompts again and Deny keeps the buffer.
+  test("S56: edit+save an outside .md raises a write prompt; allow once saves; deny keeps the dirty buffer", async ({
+    page,
+  }) => {
+    const file = seedOutsideDoc("lk-write", "OUTSIDE-WRITE-MARKER");
+    await openDashboard(page);
+    await openOutsideLinks(page);
+    await outsideLink(page, "lk-write").click();
+    await reachReadDialog(page);
+    await dialog(page).getByTestId("grant-allow-always").click(); // read grant for the folder
+    await expect(page.getByText("OUTSIDE-WRITE-MARKER")).toBeVisible({ timeout: 30_000 });
+
+    // The Edit toggle is offered on the outside tab (no editable-gating on the cwd).
+    await expect(page.getByTestId("md-edit-toggle")).toBeVisible();
+    await typeIntoEditor(page, "FIRST-EDIT");
+    await page.getByTestId("md-save-btn").click();
+    await expect(dialog(page)).toBeVisible({ timeout: 20_000 });
+    await expect(dialog(page)).toContainText("A write was blocked");
+    expect(readInContainer(file)).not.toContain("FIRST-EDIT");
+    await dialog(page).getByTestId("grant-allow-once").click();
+    await expect(page.getByTestId("md-dirty-dot")).toHaveCount(0, { timeout: 20_000 });
+    expect(readInContainer(file)).toContain("FIRST-EDIT");
+
+    // Allow once persisted nothing: the next save asks again; Deny leaves disk alone and the buffer dirty.
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.type("SECOND-EDIT");
+    await page.getByTestId("md-save-btn").click();
+    await expect(dialog(page)).toBeVisible({ timeout: 20_000 });
+    await dialog(page).getByTestId("grant-deny").click();
+    await expect(page.getByTestId("md-save-error")).toContainText(/write not granted/i, { timeout: 15_000 });
+    await expect(page.getByTestId("md-dirty-dot")).toBeVisible();
+    await expect(page.locator(".monaco-editor").first()).toContainText("SECOND-EDIT");
+    expect(readInContainer(file)).not.toContain("SECOND-EDIT");
+  });
+
+  // #S58 — a read grant never admits a write.
+  test("S58: an existing read grant does not admit a save - the write prompt still appears", async ({ page }) => {
+    const file = seedOutsideDoc("lk-readonly", "OUTSIDE-READONLY-MARKER");
+    await openDashboard(page);
+    await openOutsideLinks(page);
+    await outsideLink(page, "lk-readonly").click();
+    await reachReadDialog(page);
+    await dialog(page).getByTestId("grant-allow-always").click();
+    await expect(page.getByText("OUTSIDE-READONLY-MARKER")).toBeVisible({ timeout: 30_000 });
+
+    await typeIntoEditor(page, "SNEAKY-EDIT");
+    await page.getByTestId("md-save-btn").click();
+    await expect(dialog(page)).toBeVisible({ timeout: 20_000 });
+    await expect(dialog(page)).toContainText("A write was blocked");
+    expect(readInContainer(file), "file unchanged until the write is allowed").not.toContain("SNEAKY-EDIT");
+    await dialog(page).getByTestId("grant-deny").click();
   });
 });
 

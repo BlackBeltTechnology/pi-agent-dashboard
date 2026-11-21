@@ -35,6 +35,7 @@ One row per file.
 | `csp-report-sink-oauth.spec.ts` | WF5: report sink POST public to armed OAuth gate; GET / unknown label gated. → see `csp-report-sink-oauth.spec.ts.AGENTS.md` |
 | `csp-strict-enforce.spec.ts` | WF2/WF3/WF6/WF7 under `PI_DASHBOARD_CSP=enforce`: no `unsafe-*`, nonce == import-map nonce, inline-script… → see `csp-strict-enforce.spec.ts.AGENTS.md` |
 | `csp-strict-report.spec.ts` | WF1/WF4 in default `report` harness: zero strict `script-src*` violations on core + plugin routes; TT/inline-script report delivery. See change: harden-cors-and-csp-reporting. |
+| `editor-pane-chrome.spec.ts` | Editor-pane chrome L3 (pane bar, document bar, rail Search, bulk close, Search tabs: scope-anchor-editor-pane-controls F12–F17). `unsaved built-in buffer guard` describe: dirty tab ✕, sidebar session switch, pane ✕ / Chat segment / Close all, dialog keyboard + focus (#S59 #S60 #S62 #S79); scratch `guard-*.md` seeded via `docker exec`. Written, NOT run by the author. See change: fix-file-link-editor-routing. |
 | `editor-pane-file-handler.spec.ts` | → `editor-pane-file-handler.spec.ts.AGENTS.md` |
 | `electron-pages-trusted-types.spec.ts` | F6: Electron bundled pages (`file://`, stubbed preload bridges) render hostile data as text under the… → see `electron-pages-trusted-types.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | → `first-run-create-project.spec.ts.AGENTS.md` |

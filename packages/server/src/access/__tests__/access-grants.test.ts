@@ -44,6 +44,7 @@ import {
   accessGrantsStorePath,
   GRANT_CAP_PER_SCOPE,
   grantedSubjects,
+  grantedWriteSubjects,
   listGrants,
   normalizeGrantSubject,
   recordGrant,
@@ -567,5 +568,173 @@ describe("add-access-provisioning: provisioned grants and `evict:false`", () => 
     const subjects = seedFull(() => false);
     const res = recordGrant({ subject: subjects[3], via: "provision", evict: false });
     expect(res.ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix-file-link-editor-routing 3a: grants carry an optional access `mode`.
+// Absent = read; only the exact string "write" is a write grant (fail closed).
+// test-plan #S17-#S22.
+// ---------------------------------------------------------------------------
+describe("write-mode grants (fix-file-link-editor-routing 3a)", () => {
+  function seedStore(grants: unknown[]): void {
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(storePath, JSON.stringify({ version: 1, grants }), "utf8");
+    __resetAccessGrants();
+  }
+  const entry = (subject: string, extra: Record<string, unknown> = {}) => ({
+    subject: fs.realpathSync(subject),
+    scope: "project",
+    grantedAt: 1,
+    origin: "s",
+    ...extra,
+  });
+  const readStore = (): { version: number; grants: Array<{ subject: string; mode?: string }> } =>
+    JSON.parse(fs.readFileSync(storePath, "utf8"));
+
+  it("S17 only the exact string 'write' loads as a write entry; every other value is read", () => {
+    const values: Array<[string, unknown, boolean]> = [
+      ["absent", undefined, false],
+      ["write", "write", true],
+      ["read", "read", false],
+      ["banana", "banana", false],
+      ["WRITE", "WRITE", false],
+      ["write-space", "write ", false],
+      ["number", 1, false],
+      ["null", null, false],
+      ["object", {}, false],
+    ];
+    for (const [label, value, isWrite] of values) {
+      const dir = mkdir("s17", label);
+      seedStore([entry(dir, value === undefined ? {} : { mode: value })]);
+      expect(grantedSubjects(), label).toEqual([fs.realpathSync(dir)]);
+      expect(grantedWriteSubjects(), label).toEqual(isWrite ? [fs.realpathSync(dir)] : []);
+      expect(listGrants()[0].mode === "write", label).toBe(isWrite);
+    }
+  });
+
+  it("S18 a pre-change version:1 store loads as read grants and is not rewritten", () => {
+    const dirs = [mkdir("s18", "a"), mkdir("s18", "b"), mkdir("s18", "c")];
+    seedStore(dirs.map((d) => entry(d)));
+    const before = fs.statSync(storePath);
+    const bytes = fs.readFileSync(storePath, "utf8");
+
+    expect(listGrants()).toHaveLength(3);
+    expect(grantedSubjects().sort()).toEqual(dirs.map((d) => fs.realpathSync(d)).sort());
+    expect(grantedWriteSubjects()).toEqual([]);
+
+    const after = fs.statSync(storePath);
+    expect(fs.readFileSync(storePath, "utf8")).toBe(bytes);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it("S19 recordGrant is idempotent per (subject, scope, mode); version stays 1", () => {
+    const dir = mkdir("s19");
+    expect(recordGrant({ subject: dir, now: 1 }).ok).toBe(true);
+    expect(recordGrant({ subject: dir, mode: "write", now: 2 }).ok).toBe(true);
+    const again = recordGrant({ subject: dir, mode: "write", now: 3 });
+    expect(again.ok).toBe(true);
+    if (again.ok) expect(again.grant.grantedAt).toBe(2); // the existing entry, not a new one
+    expect(recordGrant({ subject: dir, now: 4 }).ok).toBe(true);
+
+    const store = readStore();
+    expect(store.version).toBe(1);
+    expect(store.grants).toHaveLength(2);
+    expect(store.grants.map((g) => g.mode ?? "read").sort()).toEqual(["read", "write"]);
+    // An explicit read request stores no `mode` key.
+    expect(store.grants.find((g) => g.mode === undefined)).toBeDefined();
+  });
+
+  it("S20 the per-scope cap counts entries, not subjects", () => {
+    const base = fs.realpathSync(mkdir("s20"));
+    const seed = (n: number) =>
+      seedStore(Array.from({ length: n }, (_, i) => ({ subject: path.join(base, `d${i}`), scope: "project", grantedAt: 1000 + i, origin: "s" })));
+
+    // 199 entries + a write grant for a directory that already has a read entry → 200, nothing evicted.
+    seed(GRANT_CAP_PER_SCOPE - 1);
+    expect(recordGrant({ subject: path.join(base, "d5"), mode: "write", now: 9_000 }).ok).toBe(true);
+    expect(listGrants()).toHaveLength(GRANT_CAP_PER_SCOPE);
+    expect(listGrants().some((g) => g.subject === path.join(base, "d0"))).toBe(true);
+
+    // 200 entries + the same shape → still 200, oldest-by-grantedAt evicted, new write grant present.
+    seed(GRANT_CAP_PER_SCOPE);
+    const res = recordGrant({ subject: path.join(base, "d5"), mode: "write", now: 9_000 });
+    expect(res.ok).toBe(true);
+    expect(listGrants()).toHaveLength(GRANT_CAP_PER_SCOPE);
+    expect(listGrants().some((g) => g.subject === path.join(base, "d0"))).toBe(false);
+    expect(grantedWriteSubjects()).toEqual([path.join(base, "d5")]);
+  });
+
+  describe("S21 per-mode revoke matrix", () => {
+    const setups: Array<[string, Array<"read" | "write">]> = [
+      ["read only", ["read"]],
+      ["write only", ["write"]],
+      ["both", ["read", "write"]],
+    ];
+    function setup(modes: Array<"read" | "write">, name: string): string {
+      const dir = mkdir("s21", name);
+      for (const m of modes) recordGrant({ subject: dir, mode: m, now: 1 });
+      return dir;
+    }
+    const modesLeft = (): string[] => listGrants().map((g) => g.mode ?? "read").sort();
+
+    it("undefined removes every entry for the subject", () => {
+      for (const [name, modes] of setups) {
+        const dir = setup(modes, `all-${name}`);
+        expect(revokeGrant(dir), name).toBe(true);
+        expect(listGrants().filter((g) => g.subject === fs.realpathSync(dir)), name).toEqual([]);
+      }
+    });
+
+    it("'write' on both leaves the read entry (reads admitted, writes not)", () => {
+      const dir = setup(["read", "write"], "w-both");
+      expect(revokeGrant(dir, undefined, "write")).toBe(true);
+      expect(modesLeft()).toEqual(["read"]);
+      expect(grantedSubjects()).toEqual([fs.realpathSync(dir)]);
+      expect(grantedWriteSubjects()).toEqual([]);
+    });
+
+    it("'read' on both leaves the write entry", () => {
+      const dir = setup(["read", "write"], "r-both");
+      expect(revokeGrant(dir, undefined, "read")).toBe(true);
+      expect(modesLeft()).toEqual(["write"]);
+      expect(grantedWriteSubjects()).toEqual([fs.realpathSync(dir)]);
+    });
+
+    it("'write' on read-only and 'read' on write-only touch nothing", () => {
+      const ro = setup(["read"], "ro");
+      const wo = setup(["write"], "wo");
+      const bytes = fs.readFileSync(storePath, "utf8");
+      expect(revokeGrant(ro, undefined, "write")).toBe(false);
+      expect(revokeGrant(wo, undefined, "read")).toBe(false);
+      expect(fs.readFileSync(storePath, "utf8")).toBe(bytes);
+    });
+
+    it("an unknown mode removes nothing and leaves the store unchanged", () => {
+      const dir = setup(["read", "write"], "bad");
+      const bytes = fs.readFileSync(storePath, "utf8");
+      for (const bad of ["banana", "", 1, null, {}, "WRITE"]) {
+        expect(revokeGrant(dir, undefined, bad as never), String(bad)).toBe(false);
+      }
+      expect(fs.readFileSync(storePath, "utf8")).toBe(bytes);
+      expect(modesLeft()).toEqual(["read", "write"]);
+    });
+
+    it("a mode-scoped revoke applies to session grants too", () => {
+      const dir = mkdir("s21", "session");
+      recordGrant({ subject: dir, scope: "session", now: 1 });
+      recordGrant({ subject: dir, scope: "session", mode: "write", now: 2 });
+      expect(revokeGrant(dir, "session", "write")).toBe(true);
+      expect(listGrants().map((g) => g.mode ?? "read")).toEqual(["read"]);
+    });
+  });
+
+  it("S22 grantedSubjects() is the read predicate (write ⊃ read); grantedWriteSubjects() only write", () => {
+    const d = mkdir("s22", "d");
+    const d2 = mkdir("s22", "d2");
+    recordGrant({ subject: d, now: 1 });
+    recordGrant({ subject: d2, mode: "write", now: 2 });
+    expect(grantedSubjects().sort()).toEqual([fs.realpathSync(d), fs.realpathSync(d2)].sort());
+    expect(grantedWriteSubjects()).toEqual([fs.realpathSync(d2)]);
   });
 });

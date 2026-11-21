@@ -21,6 +21,8 @@ import { __resetPathDenials, getPathDenial, recordPathDenial } from "../access/a
 import {
   __resetAccessGrants,
   grantedSubjects,
+  grantedWriteSubjects,
+  listGrants,
   recordGrant,
   grantedSubjects as subjects,
 } from "../access/access-grants.js";
@@ -658,5 +660,89 @@ describe("7b.4 a successful grant is audited", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// fix-file-link-editor-routing 3b/3d (server half): grant `mode` over HTTP.
+describe("write-mode grants over HTTP (#S36 route half, #S41, #S82)", () => {
+  const fsReal = require("node:fs") as typeof import("node:fs");
+
+  it("S36: the grant's mode comes from the recorded denial, never from the body", async () => {
+    const readDir = mkdir("s36-read");
+    const writeDir = mkdir("s36-write");
+    const readDenial = recordPathDenial({ subject: readDir, site: "file-routes:read" });
+    const writeDenial = recordPathDenial({ subject: writeDir, site: "file-routes:write", action: "write" });
+
+    // A read denial + a forged body mode:"write" → a READ grant.
+    let res = await app.inject({
+      method: "POST",
+      url: "/api/access/grants",
+      payload: { denialId: readDenial.denialId, subject: readDir, mode: "write", action: "write" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.mode).toBeUndefined();
+    expect(grantedWriteSubjects()).toEqual([]);
+
+    // A write denial + a body mode:"read" → a WRITE grant.
+    res = await app.inject({
+      method: "POST",
+      url: "/api/access/grants",
+      payload: { denialId: writeDenial.denialId, subject: writeDir, mode: "read", action: "read" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.mode).toBe("write");
+    expect(grantedWriteSubjects()).toEqual([fsReal.realpathSync(writeDir)]);
+  });
+
+  it("S41: GET lists a write row with mode:'write' and a read row with no mode key", async () => {
+    recordGrant({ subject: mkdir("s41-read"), now: 1 });
+    recordGrant({ subject: mkdir("s41-write"), mode: "write", now: 2 });
+    const rows = (await app.inject({ method: "GET", url: "/api/access/grants" })).json().data.pathGrants as Array<Record<string, unknown>>;
+    const read = rows.find((r) => String(r.subject).endsWith("s41-read"));
+    const write = rows.find((r) => String(r.subject).endsWith("s41-write"));
+    expect(write?.mode).toBe("write");
+    expect(read).toBeDefined();
+    expect("mode" in (read ?? {})).toBe(false);
+  });
+
+  describe("S82 DELETE mode validation", () => {
+    const modesLeft = () => listGrants().map((g) => g.mode ?? "read").sort();
+    async function fresh(): Promise<string> {
+      __resetAccessGrants();
+      const dir = mkdir("s82");
+      recordGrant({ subject: dir, now: 1 });
+      recordGrant({ subject: dir, mode: "write", now: 2 });
+      return dir;
+    }
+    const del = (subject: string, mode?: unknown) =>
+      app.inject({ method: "DELETE", url: "/api/access/grants", payload: mode === undefined ? { subject } : { subject, mode } });
+
+    it("omitted → 200, both entries removed", async () => {
+      const dir = await fresh();
+      expect((await del(dir)).statusCode).toBe(200);
+      expect(modesLeft()).toEqual([]);
+    });
+    it("'write' → only the write entry; 'read' → only the read entry", async () => {
+      let dir = await fresh();
+      expect((await del(dir, "write")).statusCode).toBe(200);
+      expect(modesLeft()).toEqual(["read"]);
+      dir = await fresh();
+      expect((await del(dir, "read")).statusCode).toBe(200);
+      expect(modesLeft()).toEqual(["write"]);
+    });
+    it.each([["banana"], [""], [1], [null], [{}]])("%j → 400, store unchanged", async (bad) => {
+      const dir = await fresh();
+      const bytes = fsReal.readFileSync(storePath, "utf8");
+      const res = await app.inject({ method: "DELETE", url: "/api/access/grants", payload: { subject: dir, mode: bad } });
+      expect(res.statusCode).toBe(400);
+      expect(fsReal.readFileSync(storePath, "utf8")).toBe(bytes);
+      expect(modesLeft()).toEqual(["read", "write"]);
+    });
+    it("a mode with no matching entry is a 404 and removes nothing", async () => {
+      const dir = mkdir("s82-ro");
+      recordGrant({ subject: dir });
+      expect((await del(dir, "write")).statusCode).toBe(404);
+      expect(modesLeft()).toEqual(["read"]);
+    });
   });
 });

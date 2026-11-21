@@ -497,7 +497,8 @@ describe("E25 — an access grant never admits a credential file", () => {
         expect(sf.statusCode, `session-file ${p}`).toBe(403);
         expect(sf.body).not.toContain(MARK);
         const mention = await post(app, "/api/file/resolve-mention", { cwd: proj, mention: p }, "proofed");
-        expect(mention.json().data).toEqual({ resolved: null });
+        // D1: no existence/credential disclosure beyond an echo; the read gate refuses the bytes.
+        expect(mention.json().data).toMatchObject({ outside: true });
       }
       for (const p of [agent("settings.json"), agent("skills", "x", "SKILL.md")]) {
         const res = await get(app, "proofed", fileUrl(proj, p));

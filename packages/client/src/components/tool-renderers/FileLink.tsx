@@ -1,7 +1,10 @@
 import type React from "react";
 import { useState } from "react";
+import { useLocation } from "wouter";
+import { type ResolveMentionResult, resolveFileMention } from "../../lib/api/resolve-mention-api.js";
+import { buildEditorUrl } from "../../lib/nav/route-builders.js";
 import { resolveLinkOrigin } from "../../lib/util/link-origin.js";
-import { resolveFileMention } from "../../lib/api/resolve-mention-api.js";
+import { normalizeUnderCwd } from "../../lib/util/normalize-path.js";
 import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import type { ToolContext } from "./types.js";
@@ -19,33 +22,55 @@ interface Props {
 
 /**
  * Clickable file reference rendered inside tool output and prose. Opens the
- * internal editor split when live for this session; otherwise routes the click
- * to an inline read-only preview overlay via the shared
- * {@link useFileOpenRouting} hook.
+ * editor pane for the link's session; with no live split it deep-links to the
+ * session editor route, and only with no `sessionId` falls back to the inline
+ * read-only preview overlay (via the shared {@link useFileOpenRouting} hook).
  *
  * Resolution is LAZY: the link renders synchronously; on click the client asks
  * the server to resolve the mention against the real filesystem
- * ({@link resolveFileMention}) and opens the server-resolved absolute path
- * across ALL open paths — preview overlay AND the split-workspace pane (G2).
- * The server owns re-rooting, so a server-resolved path is opened DIRECTLY
- * (no client-side {@link resolveLinkOrigin} on top — no double re-root, D4).
+ * ({@link resolveFileMention}) and opens the server-resolved path.
+ *
+ * Worktree sessions (D4): an absolute link rooted in the parent checkout is
+ * first probed at its re-rooted worktree candidate ({@link resolveLinkOrigin});
+ * a non-null probe is the open target, `null` falls back to the ORIGINAL path
+ * (opened as the parent-checkout file), and a failed probe request takes the
+ * offline fallback (never read as "copy absent"). Otherwise the server-resolved
+ * path is opened as-is — no client re-root on top of it.
+ *
+ * Open target: `normalizeUnderCwd(resolved, cwd)` — a cwd-relative tab for an
+ * in-cwd file, an absolute-path tab for anything else (incl. `outside: true`,
+ * which was never statted: the pane's read gate shows the grant prompt / load
+ * error, so such a link is NOT marked not-found).
  *
  * Outcomes:
- *  - resolved  → open the resolved path.
+ *  - resolved (or `outside`) → open the pane / deep link / overlay as above.
  *  - null      → inline not-found affordance (strikethrough/disabled), NO open (G1).
  *  - request FAILS (network/5xx) → fall back to today's client-side open (D5) —
  *    a failure is NOT treated as absent.
  *
- * {@link resolveLinkOrigin} survives only for the render-time tooltip and the
- * D5 fallback open target.
+ * {@link resolveLinkOrigin} also feeds the render-time tooltip and the D5
+ * fallback open target.
  *
  * See change: unify-file-link-openability, fix-worktree-link-origin,
- * server-side-file-mention-resolution.
+ * server-side-file-mention-resolution, fix-file-link-editor-routing.
  */
+/**
+ * D4: resolve `path`, probing the re-rooted worktree `candidate` first when it differs. A non-null, contained
+ * probe wins; `null` falls through to the original path. A rejected request propagates (offline fallback).
+ */
+async function resolveWithWorktreeProbe(cwd: string, path: string, candidate: string): Promise<ResolveMentionResult> {
+  if (candidate !== path) {
+    const probe = await resolveFileMention(cwd, candidate);
+    if (probe.resolved !== null && !probe.outside) return probe;
+  }
+  return resolveFileMention(cwd, path);
+}
+
 export function FileLink({ path, line, col, absolute, context, children }: Props) {
   const { cwd, openFile, hostManaged, previewTarget, closePreview } =
     useFileOpenRouting(context);
   const [notFound, setNotFound] = useState(false);
+  const [, navigate] = useLocation();
 
   // Render-time client re-rooting: tooltip target + the D5 offline-fallback
   // open target ONLY. The authoritative open target is the server-resolved
@@ -53,15 +78,14 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
   const origin = resolveLinkOrigin(cwd, path, absolute);
   const openTarget = absolute ? origin : path;
 
-  // Prefer the in-dashboard editor split when it is available for this session
-  // and the token is a cwd-relative path (the pane is rooted at cwd). Falls
-  // back to the preview overlay everywhere else.
+  // The editor pane is live for this session (relative AND absolute links open in it).
   const ws = useOptionalSplitWorkspace();
-  const canSplitOpen = !!ws && !absolute && !!context.sessionId && ws.sessionId === context.sessionId;
+  const sessionId = context.sessionId;
+  const splitLive = !!ws && !!sessionId && ws.sessionId === sessionId;
 
-  // D5 offline fallback: today's client-side open (split pane or preview).
+  // D5 offline fallback: today's client-side open (cwd-relative split tab or preview).
   const openViaFallback = () => {
-    if (canSplitOpen && ws) {
+    if (splitLive && ws && !absolute) {
       ws.openInSplit(path, line);
       return;
     }
@@ -80,20 +104,20 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
     try {
       // Send the token's processed `path` (normalized: `file://` + diff prefix
       // already stripped), not the verbatim label text (D1).
-      const result = await resolveFileMention(cwd, path);
+      const result = await resolveWithWorktreeProbe(cwd, path, absolute ? origin : path);
       if (result.resolved === null) {
         setNotFound(true); // G1: inline not-found, make NO open call
         return;
       }
-      if (canSplitOpen && ws) {
-        // Relative token, existence-gated by the resolve round-trip (G2). The
-        // pane is cwd-rooted, so open the cwd-relative path (tab-key parity
-        // with tree clicks); the resolved abs path is the same file.
-        ws.openInSplit(path, line);
-        return;
+      // cwd-relative tab for an in-cwd file; absolute tab otherwise (incl. `outside`).
+      const target = normalizeUnderCwd(result.resolved, cwd);
+      if (splitLive && ws) {
+        ws.openInSplit(target, line);
+      } else if (sessionId) {
+        navigate(buildEditorUrl(sessionId, target, line)); // no live split: deep-link the pane route
+      } else {
+        void openFile(result.resolved, line); // no session context: preview overlay
       }
-      // Server-resolved absolute path opened DIRECTLY — no resolveLinkOrigin (D4).
-      void openFile(result.resolved, line);
     } catch {
       // D5: a transport failure (NOT a null result) → client-side fallback.
       openViaFallback();

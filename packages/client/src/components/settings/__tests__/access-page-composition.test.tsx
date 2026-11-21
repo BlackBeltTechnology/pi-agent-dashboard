@@ -28,7 +28,7 @@ let accessFixture: Record<string, unknown> | null = null;
 let postureFixture: Record<string, unknown> | null = null;
 
 /** Every fetch, recorded for the zero-writes assertion (task 7.7). */
-const fetchCalls: Array<{ url: string; method?: string }> = [];
+const fetchCalls: Array<{ url: string; method?: string; body?: Record<string, unknown> }> = [];
 
 function jsonOk(data: unknown) {
   return { ok: true, status: 200, json: () => Promise.resolve({ success: true, data }) };
@@ -36,16 +36,19 @@ function jsonOk(data: unknown) {
 
 function mockFetch() {
   return vi.fn().mockImplementation((url: string, options?: { method?: string; body?: string }) => {
-    fetchCalls.push({ url, method: options?.method });
+    fetchCalls.push({ url, method: options?.method, ...(options?.body ? { body: JSON.parse(options.body) } : {}) });
     const method = options?.method ?? "GET";
     if (url === "/api/access/grants" && method === "GET") {
       return Promise.resolve(jsonOk(accessFixture));
     }
     if (url === "/api/access/grants" && method === "DELETE") {
-      const body = JSON.parse(options!.body!) as { subject: string; scope: string };
-      const grants = accessFixture as { pathGrants: Array<{ subject: string; scope: string }> };
+      const body = JSON.parse(options!.body!) as { subject: string; scope: string; mode?: "read" | "write" };
+      const grants = accessFixture as { pathGrants: Array<{ subject: string; scope: string; mode?: "write" }> };
+      // Mirrors the server: `mode` omitted removes every entry; "write"/"read" only that mode's.
       grants.pathGrants = grants.pathGrants.filter(
-        (g) => !(g.subject === body.subject && g.scope === body.scope),
+        (g) =>
+          !(g.subject === body.subject && g.scope === body.scope &&
+            (body.mode === undefined || (g.mode === "write" ? "write" : "read") === body.mode)),
       );
       return Promise.resolve(jsonOk(accessFixture));
     }
@@ -192,6 +195,43 @@ describe("settings access page", () => {
     // The delete went to the path-grant store's own route.
     const revoke = fetchCalls.find((c) => c.method === "DELETE" && c.url === "/api/access/grants");
     expect(revoke).toBeDefined();
+  });
+
+  // fix-file-link-editor-routing S39 — write grants carry a "Write" badge and are revoked on their own.
+  it("shows a Write badge on write rows only and revokes the write row without touching the read row", async () => {
+    accessFixture = {
+      ...grantsFixture(),
+      pathGrants: [
+        { subject: "/repo/D", scope: "project", grantedAt: "2026-01-01T00:00:00Z", origin: "sess-a" },
+        { subject: "/repo/D", scope: "project", grantedAt: "2026-01-02T00:00:00Z", origin: "sess-a", mode: "write" },
+        { subject: "/repo/E", scope: "project", grantedAt: "2026-01-03T00:00:00Z", origin: "sess-a", mode: "write" },
+      ],
+    };
+    setPath("/settings/access");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("access-section"));
+
+    const pathRows = () =>
+      screen.getAllByTestId("access-entry").filter((r) => r.getAttribute("data-store") === "pathGrants");
+    await waitFor(() => expect(pathRows()).toHaveLength(3));
+    const dRows = pathRows().filter((r) => r.textContent?.includes("/repo/D"));
+    expect(dRows).toHaveLength(2);
+    const writeD = dRows.find((r) => within(r).queryByTestId("access-entry-mode-write"))!;
+    const readD = dRows.find((r) => !within(r).queryByTestId("access-entry-mode-write"))!;
+    expect(writeD).toBeDefined();
+    expect(readD).toBeDefined();
+    expect(within(writeD).getByTestId("access-entry-mode-write").textContent).toBe("Write");
+    // Write-only E carries the badge too.
+    expect(pathRows().filter((r) => within(r).queryByTestId("access-entry-mode-write"))).toHaveLength(2);
+
+    fireEvent.click(within(writeD).getByTestId("access-revoke"));
+    await waitFor(() => expect(pathRows()).toHaveLength(2));
+    const revoke = fetchCalls.find((c) => c.method === "DELETE" && c.url === "/api/access/grants");
+    expect(revoke?.body).toEqual({ subject: "/repo/D", scope: "project", mode: "write" });
+    // The read D row remains listed, still without a badge.
+    const remainingD = pathRows().filter((r) => r.textContent?.includes("/repo/D"));
+    expect(remainingD).toHaveLength(1);
+    expect(within(remainingD[0]).queryByTestId("access-entry-mode-write")).toBeNull();
   });
 
   // 7.6 — legacy hash-only KB entry renders as an opaque hash with a working

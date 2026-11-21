@@ -78,7 +78,12 @@ interface RevokeResult {
 export async function revokeAccessEntry(entry: AccessEntry): Promise<RevokeResult> {
   switch (entry.store) {
     case "pathGrants":
-      return send("DELETE", "/api/access/grants", { subject: entry.subject, scope: entry.scope });
+      // A write row revokes only its own entry (`mode:"write"`); a read row omits `mode` (today's behaviour).
+      return send("DELETE", "/api/access/grants", {
+        subject: entry.subject,
+        scope: entry.scope,
+        ...(entry.mode === "write" ? { mode: "write" } : {}),
+      });
     case "worktreeTrust":
       return send("DELETE", "/api/access/worktree-trust", { subject: entry.subject });
     case "kbTrust":

@@ -149,3 +149,26 @@ describe("preview-egress rows (improve-canvas-html-and-url-ux)", () => {
     expect(aggregateAccessEntries(legacy)).toEqual([]);
   });
 });
+
+// fix-file-link-editor-routing S39 — a write grant is its own row (key includes mode).
+describe("write-mode path grants (fix-file-link-editor-routing)", () => {
+  const snap = (): AccessGrantSnapshot => ({
+    ...emptyAccessGrantSnapshot(),
+    pathGrants: [
+      { subject: "/d", scope: "project", grantedAt: "2026-01-01T00:00:00Z", origin: "a" },
+      { subject: "/d", scope: "project", grantedAt: "2026-01-02T00:00:00Z", origin: "a", mode: "write" },
+      { subject: "/e", scope: "project", grantedAt: "2026-01-03T00:00:00Z", origin: "a", mode: "write" },
+    ],
+  });
+
+  it("keeps the read and write rows for the same subject distinct and carries `mode` only on write rows", () => {
+    const rows = aggregateAccessEntries(snap()).filter((e) => e.store === "pathGrants");
+    expect(rows).toHaveLength(3);
+    expect(new Set(rows.map((r) => r.id)).size).toBe(3);
+    expect(rows.filter((r) => r.subject === "/d").map((r) => r.mode ?? "read").sort()).toEqual(["read", "write"]);
+    expect(rows.find((r) => r.subject === "/e")?.mode).toBe("write");
+    const read = rows.find((r) => r.subject === "/d" && !r.mode)!;
+    expect("mode" in read).toBe(false);
+  });
+});
+

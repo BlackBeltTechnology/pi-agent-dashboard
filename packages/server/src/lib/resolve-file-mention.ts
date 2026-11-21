@@ -16,22 +16,32 @@
  *    `$HOME`; the `~/.pi` anchor can never be widened by request input.
  *
  * A leading `~/` expands to the home directory; `~user/` is NOT expanded. A
- * mention that does not resolve to an existing in-scope path returns null
- * (never an error).
+ * contained mention that does not exist returns null (never an error). A mention that FAILS
+ * containment is never statted and returns `{ resolved, kind, outside: true }` (the normalized
+ * candidate): that discloses nothing about existence, and lets the client open the editor pane
+ * where the read gate decides (design D1).
  *
- * See change: server-side-file-mention-resolution, spec `tool-output-linkification`.
+ * See change: server-side-file-mention-resolution, fix-file-link-editor-routing, spec `tool-output-linkification`.
  */
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { containmentAllows } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
+import { grantedSubjects } from "../access/access-grants.js";
 import { decidePassive } from "../access/containment-gate.js";
+import { dashboardStateRefuses } from "./dashboard-state-guard.js";
+import { safeRealpath, within } from "./path-containment.js";
 
-export type MentionKind = "abs" | "tilde" | "relative";
+type MentionKind = "abs" | "tilde" | "relative";
 
 export interface ResolvedMention {
   resolved: string;
   kind: MentionKind;
+  /**
+   * True iff the candidate FAILED containment (never statted, so independent of existence). The open route's
+   * own gate (grant / prompt / 403 / 404) stays the sole authority for reading it.
+   */
+  outside?: true;
 }
 
 /** Server-derived `~/.pi` containment anchor. Read at call time (fake-HOME safe). */
@@ -40,7 +50,7 @@ function homePiAnchor(): string {
 }
 
 /**
- * Resolve `mention` to an existing in-scope absolute path, or null. `canonCwd` (the admitted
+ * Resolve `mention` to an existing in-scope absolute path, an `outside` candidate (containment failed, no stat), or null. `canonCwd` (the admitted
  * canonical cwd, when it differs from `cwd`) is an additional containment anchor.
  *
  * Candidate + kind:
@@ -80,7 +90,16 @@ export async function resolveFileMention(
   // The canonical cwd joins the request spelling when it differs (core-file-cwd-admission D2), so a
   // mention resolved here opens through the same anchor set as `/api/file`.
   const anchors = canonCwd !== undefined && canonCwd !== cwd ? [cwd, canonCwd, homePiAnchor()] : [cwd, homePiAnchor()];
-  if (!containmentAllows(await decidePassive(candidate, anchors, { allowGrant: true }), candidate)) return null;
+  if (!containmentAllows(await decidePassive(candidate, anchors, { allowGrant: true }), candidate)) {
+    // A path under a grant that does not exist is "contained-missing" (null), like a missing in-cwd file: the
+    // grant layer needs a real file, so judge the nearest existing ancestor. Only already-granted subjects can
+    // answer null here, so an ungranted path stays existence-independent.
+    if (!(await dashboardStateRefuses(candidate))) {
+      const real = await safeRealpath(candidate);
+      if (grantedSubjects().some((subject) => within(real, subject))) return null;
+    }
+    return { resolved: candidate, kind, outside: true };
+  }
   try {
     await fs.stat(candidate);
   } catch {

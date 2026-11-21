@@ -33,6 +33,12 @@ export interface PathDenial {
   at: number;
   /** Offered-ancestor ladder, already filtered (task 7b.1a). */
   ancestors?: string[];
+  /**
+   * `"write"` when the refused operation was a text-document write; ABSENT for a read.
+   * A grant minted from this denial takes its mode from here, never from the request.
+   * See change: fix-file-link-editor-routing (D2).
+   */
+  action?: "write";
 }
 
 /** Entries older than this are treated as absent. */
@@ -60,6 +66,7 @@ export function recordPathDenial(input: {
   site: string;
   session?: string;
   ancestors?: string[];
+  action?: "read" | "write";
   now?: number;
 }): PathDenial {
   const now = input.now ?? Date.now();
@@ -72,6 +79,7 @@ export function recordPathDenial(input: {
     at: now,
   };
   if (input.ancestors && input.ancestors.length > 0) entry.ancestors = input.ancestors;
+  if (input.action === "write") entry.action = "write";
   entries.push(entry);
   if (entries.length > CAP) entries.splice(0, entries.length - CAP);
   return entry;
