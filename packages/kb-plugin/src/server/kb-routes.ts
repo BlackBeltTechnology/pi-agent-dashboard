@@ -4,9 +4,11 @@
  * session), so a cold worktree with no live session is both indexable and
  * configurable (design §2).
  *
- *   GET  /api/kb/stats?cwd=<abs>    → { files, chunks, indexed, staleCount, indexing, jobStatus, lastError?, folderMissing, sourceCount }  (side-effect free)
+ *   GET  /api/kb/stats?cwd=<abs>    → { files, chunks, indexed, staleCount, indexing, jobStatus, lastError?, folderMissing, sourceCount, progress? }  (side-effect free; `progress {root,done,total}` only while a job runs)
  *   POST /api/kb/reindex?cwd=<abs>  → 202 { status:"running", jobId }  (non-blocking; poll /stats for completion + jobStatus:error). See change: fix-kb-index-feedback.
  *                                     | 409 { error: "folder missing" | "no sources configured" }. See change: kb-denied-folder-pin-state.
+
+ *   POST /api/kb/reindex/cancel?cwd=<abs> → 200 { cancelled: boolean }  (operator tier; idempotent). See change: throttle-kb-reindex.
  *   GET  /api/kb/config?cwd=<abs>   → { config, origin, projectPath }
  *   PUT  /api/kb/config?cwd=<abs>   → 200 { config, origin, projectPath, reindexSkipped? } | 400 { error } | 409 { error: "folder missing" }
  *
