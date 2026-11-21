@@ -9,6 +9,9 @@ interface Props {
   pluginId: string;
   slotId: string;
   children: ReactNode;
+  /** Rendered instead of `null` when the claim throws (default `null`: every other slot stays silent).
+   *  See change: fix-ui-status-indicators (design D3). */
+  fallback?: ReactNode;
 }
 
 interface State {
@@ -33,7 +36,7 @@ export class SlotErrorBoundary extends Component<Props, State> {
   }
 
   render() {
-    if (this.state.hasError) return null;
+    if (this.state.hasError) return this.props.fallback ?? null;
     return this.props.children;
   }
 }

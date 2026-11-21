@@ -15,8 +15,9 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { useMobile } from "../../../hooks/useMobile.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
-import { SessionCard } from "../SessionCard.js";
+import { ActivityIndicator, SessionCard, TokenStats } from "../SessionCard.js";
 
 vi.mock("../../../hooks/useMobile.js", () => ({
   useMobile: vi.fn(() => false),
@@ -35,7 +36,10 @@ beforeAll(() => {
   });
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.mocked(useMobile).mockReturnValue(false);
+});
 
 function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSession {
   return {
@@ -118,5 +122,65 @@ describe("SessionCard activity slot — status colour on shape, not text (E4)", 
     const meta = renderMeta(makeSession({ status: "idle" }));
     expect(screen.getByText("Idle").className).toContain("text-[var(--text-secondary)]");
     expect(meta.innerHTML).not.toMatch(/text-\[var\(--status-/);
+  });
+});
+
+/**
+ * Failed label on both render paths. See change: fix-ui-status-indicators (test-plan S3, S4).
+ */
+describe("SessionCard activity slot — Failed label (hasError)", () => {
+  it("desktop status row shows Failed (not Idle) for an errored idle session", () => {
+    render(
+      <ThemeProvider>
+        <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} hasError />
+      </ThemeProvider>,
+    );
+    const meta = screen.getByTestId("session-card-meta");
+    expect(meta.textContent).toContain("Failed");
+    expect(meta.textContent).not.toContain("Idle");
+  });
+
+  it("mobile line 2 shows Failed + glyph (not Idle) for an errored idle session", () => {
+    vi.mocked(useMobile).mockReturnValue(true);
+    const { container } = render(
+      <ThemeProvider>
+        <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} hasError />
+      </ThemeProvider>,
+    );
+    expect(container.textContent).toContain("Failed");
+    expect(container.textContent).not.toContain("Idle");
+    expect(container.querySelector('[data-status-dot="error"]')).not.toBeNull();
+  });
+
+  it("exported ActivityIndicator renders Failed with hasError", () => {
+    const { container } = render(<ActivityIndicator session={makeSession({ status: "idle" })} hasWidgetBarPrompt={false} hasError />);
+    expect(container.textContent).toContain("Failed");
+  });
+});
+
+/**
+ * Token arrows: `↓ in` / `↑ out` (matches TokenStatsBar).
+ * See change: fix-ui-status-indicators (D1; test-plan S14-S16).
+ */
+describe("TokenStats arrows", () => {
+  const stats = (over: Partial<DashboardSession>) => render(<TokenStats session={makeSession(over)} />).container;
+
+  it("renders input with ↓ and output with ↑", () => {
+    const c = stats({ tokensIn: 12000, tokensOut: 3000 });
+    expect(c.textContent).toContain("12k↓ 3k↑");
+    expect(c.textContent).not.toContain("↑ 3k");
+  });
+
+  it("keeps zero formatting when only one side is nonzero; renders nothing when both are 0", () => {
+    expect(stats({ tokensIn: 0, tokensOut: 500 }).textContent).toContain("0↓ 500↑");
+    cleanup();
+    expect(stats({ tokensIn: 0, tokensOut: 0 }).textContent).toBe("");
+  });
+
+  it("cache-read stays a separate R chip; no cache arrow", () => {
+    const c = stats({ tokensIn: 1000, cacheRead: 5000 });
+    expect(c.textContent).toContain("R5k");
+    expect(c.textContent).toContain("1k↓");
+    expect(c.textContent?.match(/[↑↓]/g)).toEqual(["↓", "↑"]);
   });
 });

@@ -38,7 +38,7 @@ const runs: RunRecord[] = [
 const { deleteAutomation } = vi.hoisted(() => ({ deleteAutomation: vi.fn(async () => true) }));
 
 vi.mock("../client/api.js", () => ({
-  listAutomations: vi.fn(async () => automations),
+  fetchAutomations: vi.fn(async () => ({ ok: true, automations })),
   listRuns: vi.fn(async (scope: string) => (scope === "folder" ? runs : [])),
   getRunResult: vi.fn(async () => "findings here"),
   createAutomation: vi.fn(async () => ({ ok: true })),
@@ -53,7 +53,7 @@ vi.mock("../client/api.js", () => ({
 }));
 
 import { AutomationBoard } from "../client/AutomationBoard.js";
-import { listAutomations, listRuns as listRunsMock } from "../client/api.js";
+import { fetchAutomations, listRuns as listRunsMock } from "../client/api.js";
 
 // Result / Log render as markdown inside `ui:dialog` (polish-automation-board D7).
 function MockMarkdown({ content }: { content: string }) {
@@ -94,13 +94,13 @@ describe("AutomationBoard", () => {
   it("mounts via the shell-overlay route and scopes to the decoded cwd", async () => {
     const { getByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("automation-board")).toBeTruthy());
-    expect(vi.mocked(listAutomations)).toHaveBeenCalledWith("/r");
+    expect(vi.mocked(fetchAutomations)).toHaveBeenCalledWith("/r");
   });
 
   it("rejects an undecodable encodedCwd instead of running unscoped queries", async () => {
     const { getByTestId } = renderBoard({ params: { encodedCwd: "!!!not-base64!!!" }, cwd: undefined });
     await waitFor(() => expect(getByTestId("automation-board-invalid")).toBeTruthy());
-    expect(vi.mocked(listAutomations)).not.toHaveBeenCalled();
+    expect(vi.mocked(fetchAutomations)).not.toHaveBeenCalled();
   });
 
   it("renders a Back action wired to onBack", async () => {
@@ -339,7 +339,7 @@ describe("AutomationBoard run history + navigation", () => {
       { name: "x", scope: "folder", dir: "/r/.pi/automation/x", valid: true, config: nightlyConfig },
       { name: "x", scope: "global", dir: "/h/.pi/automation/x", valid: true, config: nightlyConfig },
     ];
-    vi.mocked(listAutomations).mockResolvedValueOnce(both);
+    vi.mocked(fetchAutomations).mockResolvedValueOnce({ ok: true, automations: both });
     vi.mocked(listRunsMock).mockImplementation(async (scope: string) =>
       scope === "folder"
         ? [run("f1", { name: "x", scope: "folder" }), run("f2", { name: "x", scope: "folder", startedAt: base - 2 * H })]
@@ -454,7 +454,7 @@ describe("AutomationBoard run history + navigation", () => {
 
   // test-plan #E22
   it("E22: an empty folder explains automations and offers + Create Automation", async () => {
-    vi.mocked(listAutomations).mockResolvedValueOnce([]);
+    vi.mocked(fetchAutomations).mockResolvedValueOnce({ ok: true, automations: [] });
     const { getByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("automation-empty")).toBeTruthy());
     expect(getByTestId("automation-empty").textContent).toContain("runs a prompt, skill or flow");
@@ -608,7 +608,7 @@ describe("AutomationBoard selection style", () => {
   const SOFT = '[class*="bg-[var(--accent-soft)]"]';
 
   async function mountBoard(list: DiscoveredAutomation[], runRows: RunRecord[] = []) {
-    vi.mocked(listAutomations).mockResolvedValueOnce(list);
+    vi.mocked(fetchAutomations).mockResolvedValueOnce({ ok: true, automations: list });
     vi.mocked(listRunsMock).mockImplementation(async (scope: string) => (scope === "folder" ? runRows : []));
     const view = renderBoard({ params });
     await waitFor(() => expect(view.getByTestId(`automation-def-${list[0]!.name}`)).toBeTruthy());
@@ -685,5 +685,138 @@ describe("AutomationBoard selection style", () => {
     fireEvent.click(getByTestId("automation-name-b"));
     expect(getByTestId("automation-def-a").getAttribute("aria-current")).toBe("true");
     expect(getByTestId("automation-def-b").hasAttribute("aria-current")).toBe(false);
+  });
+});
+
+
+// Loading / error / Retry states. See change: fix-ui-status-indicators (#1155, design D5;
+// test-plan #S21-S26, #S38-S40, #S47).
+describe("AutomationBoard load states", () => {
+  const nightly = automations;
+  const never = () => new Promise<never>(() => {});
+  const failed = { ok: false as const, error: "HTTP 503" };
+  const ok = (list: DiscoveredAutomation[] = nightly) => ({ ok: true as const, automations: list });
+
+  it("a pending fetch shows the loading state, board chrome, and no empty/error state", async () => {
+    vi.mocked(fetchAutomations).mockImplementationOnce(never);
+    const { getByTestId, queryByTestId } = renderBoard({ params, onBack: vi.fn() });
+    expect(getByTestId("automation-loading")).toBeTruthy();
+    expect(getByTestId("automation-board-back")).toBeTruthy();
+    expect(getByTestId("automation-create-btn")).toBeTruthy();
+    expect(queryByTestId("automation-empty")).toBeNull();
+    expect(queryByTestId("automation-error")).toBeNull();
+  });
+
+  it.each([
+    ["a failed result", () => vi.mocked(fetchAutomations).mockResolvedValueOnce(failed)],
+    ["a rejected fetch", () => vi.mocked(fetchAutomations).mockRejectedValueOnce(new Error("net"))],
+  ])("%s → error + Retry, never the empty state, runs not requested", async (_l, arrange) => {
+    arrange();
+    const { getByTestId, queryByTestId, queryByText } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-error")).toBeTruthy());
+    expect(getByTestId("automation-retry")).toBeTruthy();
+    expect(queryByTestId("automation-empty")).toBeNull();
+    expect(queryByText("No automations in this folder.")).toBeNull();
+    expect(vi.mocked(listRunsMock)).not.toHaveBeenCalled();
+  });
+
+  it("Retry shows loading until settle, then the cards; the error is gone", async () => {
+    let release!: (v: { ok: true; automations: DiscoveredAutomation[] }) => void;
+    vi.mocked(fetchAutomations).mockResolvedValueOnce(failed);
+    vi.mocked(fetchAutomations).mockImplementationOnce(() => new Promise((r) => (release = r)));
+    const { getByTestId, queryByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-retry")).toBeTruthy());
+    fireEvent.click(getByTestId("automation-retry"));
+    await waitFor(() => expect(getByTestId("automation-loading")).toBeTruthy());
+    release(ok());
+    await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
+    expect(getByTestId("automation-def-broken")).toBeTruthy();
+    expect(queryByTestId("automation-error")).toBeNull();
+    expect(queryByTestId("automation-loading")).toBeNull();
+  });
+
+  it("Retry failing again returns to the error state with Retry still enabled", async () => {
+    vi.mocked(fetchAutomations).mockResolvedValueOnce(failed).mockResolvedValueOnce(failed);
+    const { getByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-retry")).toBeTruthy());
+    fireEvent.click(getByTestId("automation-retry"));
+    await waitFor(() => expect(getByTestId("automation-error")).toBeTruthy());
+    expect((getByTestId("automation-retry") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("Retry double-click converges to one ready list, no duplicate rows", async () => {
+    vi.mocked(fetchAutomations).mockResolvedValueOnce(failed);
+    const { getByTestId, queryByTestId, getAllByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-retry")).toBeTruthy());
+    const btn = getByTestId("automation-retry");
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
+    expect(getAllByTestId("automation-def-nightly")).toHaveLength(1);
+    expect(queryByTestId("automation-loading")).toBeNull();
+  });
+
+  it("an empty success shows the empty state with Create, not the error", async () => {
+    vi.mocked(fetchAutomations).mockResolvedValueOnce(ok([]));
+    const { getByTestId, queryByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-empty")).toBeTruthy());
+    expect(getByTestId("automation-empty-create")).toBeTruthy();
+    expect(queryByTestId("automation-error")).toBeNull();
+  });
+
+  it("a mutation refresh revalidates in place: no loading flash", async () => {
+    vi.mocked(listRunsMock).mockImplementation(async (scope: string) =>
+      scope === "folder" ? [{ runId: "2026-06-21-nightly", name: "nightly", status: "running", dir: "/d3", startedAt: 3 } as RunRecord] : [],
+    );
+    const { getByTestId, queryByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("stop-nightly")).toBeTruthy());
+    const seenLoading: boolean[] = [];
+    const obs = new MutationObserver(() => seenLoading.push(!!document.querySelector('[data-testid="automation-loading"]')));
+    obs.observe(document.body, { childList: true, subtree: true });
+    const calls = vi.mocked(fetchAutomations).mock.calls.length;
+    fireEvent.click(getByTestId("stop-nightly"));
+    await waitFor(() => expect(vi.mocked(fetchAutomations).mock.calls.length).toBe(calls + 1));
+    await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
+    obs.disconnect();
+    expect(seenLoading.some(Boolean)).toBe(false);
+    expect(queryByTestId("automation-loading")).toBeNull();
+  });
+
+  it("a failed mutation reload clears the list, shows the error and skips runs", async () => {
+    const { getByTestId, queryByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("run-now-nightly")).toBeTruthy());
+    vi.mocked(fetchAutomations).mockResolvedValueOnce(failed);
+    const runsCalls = vi.mocked(listRunsMock).mock.calls.length;
+    fireEvent.click(getByTestId("run-now-nightly"));
+    await waitFor(() => expect(getByTestId("automation-error")).toBeTruthy());
+    expect(queryByTestId("automation-def-nightly")).toBeNull();
+    expect(vi.mocked(listRunsMock).mock.calls.length).toBe(runsCalls);
+  });
+
+  it("a cwd change clears the list, shows loading, and ignores a late stale response", async () => {
+    let resolveA!: (v: ReturnType<typeof ok>) => void;
+    const aList = [{ ...nightly[0]!, name: "only-in-a" }];
+    vi.mocked(fetchAutomations).mockImplementationOnce(() => new Promise((r) => (resolveA = r)));
+    const view = renderBoard({ params, cwd: "/a" });
+    expect(view.getByTestId("automation-loading")).toBeTruthy();
+    vi.mocked(fetchAutomations).mockImplementationOnce(async () => ok([{ ...nightly[0]!, name: "only-in-b" }]));
+    view.rerender(
+      withUiPrimitiveProvider(
+        {
+          [UI_PRIMITIVE_KEYS.popover]: Popover,
+          [UI_PRIMITIVE_KEYS.dialog]: Dialog as never,
+          [UI_PRIMITIVE_KEYS.markdownContent]: MockMarkdown as never,
+          [UI_PRIMITIVE_KEYS.modelSelector]: (() => null) as never,
+          [UI_PRIMITIVE_KEYS.thinkingLevelSelector]: (() => null) as never,
+        },
+        <AutomationBoard params={params} cwd="/b" />,
+      ),
+    );
+    await waitFor(() => expect(view.getByTestId("automation-def-only-in-b")).toBeTruthy());
+    resolveA(ok(aList)); // A settles late
+    await new Promise((r) => setTimeout(r, 20));
+    expect(view.queryByTestId("automation-def-only-in-a")).toBeNull();
+    expect(view.getByTestId("automation-def-only-in-b")).toBeTruthy();
+    expect(view.queryByTestId("automation-error")).toBeNull();
   });
 });

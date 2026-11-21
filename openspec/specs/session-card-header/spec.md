@@ -45,7 +45,7 @@ The mobile session card's rendered output SHALL NOT change. Shared components it
 - **AND** the mobile line-2 activity text and host-pressure indicator SHALL render the same text as before this change
 
 ### Requirement: Status row carries the activity indicator and host pressure
-The status row SHALL render the existing `ActivityIndicator` output (Resuming, ended reason, Needs you, Retry N, current tool, Thinking…, Idle) unchanged in content, plus `HostPressureIndicator` right-aligned. The activity container keeps its historic `data-testid="session-card-meta"`: it identifies the status row's activity container, not the meta row.
+The status row SHALL render the existing `ActivityIndicator` output (Resuming, ended reason, Needs you, Retry N, current tool, Thinking…, Failed, Idle) unchanged in content except that an idle/active session with an unresolved error reads `Failed` instead of `Idle` (`session-card-status`), plus `HostPressureIndicator` right-aligned. The activity container keeps its historic `data-testid="session-card-meta"`: it identifies the status row's activity container, not the meta row.
 
 The activity container SHALL be the shrinking element (`min-w-0`, clipped). The status row SHALL NOT wrap or overflow the card. Variants whose text can be long (current tool, Needs you, Retry) truncate with an ellipsis. The host-pressure indicator SHALL NOT shrink.
 
@@ -68,6 +68,9 @@ When both `ActivityIndicator` and `HostPressureIndicator` render nothing, the st
 #### Scenario: Host pressure appears without another update
 - **WHEN** a streaming session's last heartbeat ages past the host-pressure threshold and no session update arrives
 - **THEN** the status row SHALL show the host-pressure indicator within one clock tick (≤ 5 s)
+#### Scenario: Failed run shows in the status row
+- **WHEN** a desktop card renders a session with `status: "idle"`, no `currentTool` and `hasError` true
+- **THEN** the status row SHALL contain the text `Failed` and SHALL NOT contain `Idle`
 
 ### Requirement: Git row orders worktree first and truncates only the branch
 The git row SHALL render, in order: the `worktree` pill (when `session.gitWorktree` is set), the branch icon and branch text (link when `gitBranchUrl` is set), the PR status (when `gitPrNumber` is set), then the dirty / drift pill.

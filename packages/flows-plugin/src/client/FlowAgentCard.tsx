@@ -103,7 +103,7 @@ export function FlowAgentCard({
   const stats = waiting ? (
     <span>{waiting}</span>
   ) : isComplete && agent.tokens ? (
-    <span>↑{formatTokens(agent.tokens.input)} ↓{formatTokens(agent.tokens.output)}{agent.cost != null && agent.cost > 0 ? ` · ${formatCost(agent.cost)}` : ""} · {formatDuration(agent.duration ?? 0)}</span>
+    <span>↓{formatTokens(agent.tokens.input)} ↑{formatTokens(agent.tokens.output)}{agent.cost != null && agent.cost > 0 ? ` · ${formatCost(agent.cost)}` : ""} · {formatDuration(agent.duration ?? 0)}</span>
   ) : displayModel ? (
     <span>{displayModel}</span>
   ) : displayRole ? (
