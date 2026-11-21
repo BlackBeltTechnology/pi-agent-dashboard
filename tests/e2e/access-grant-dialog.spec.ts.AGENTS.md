@@ -7,3 +7,5 @@ Adds F11: an MCP server save for an unpinned existing dir raises the cwd dialog;
 Retargeted: YOLO pill/session-indicator assertions now check the tinted `header-app-bar` (`data-yolo`), absence of `yolo-pill`, and the composer strip on the mobile session view; adds #E15 untinted-by-default. See change: fix-yolo-indicator-overflow.
 
 add-composer-dock: #F5 also asserts the YOLO strip lives inside `composer-dock` (footer). See change: add-composer-dock.
+
+Adds serial describe `outside text docs`: S54 (ungranted outside link → denial flow, Deny, Allow once renders), S56 (edit+save → write prompt; allow once saves; deny keeps dirty buffer + `md-save-error`), S58 (read grant ≠ write). Uses faux `text-outside-links`, dirs `/fixtures/__grant-e2e__/lk-*`. Not yet run (docker harness). See change: fix-file-link-editor-routing.

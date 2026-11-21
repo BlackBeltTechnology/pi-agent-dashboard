@@ -1,8 +1,11 @@
 import { mdiFileDocumentOutline, mdiViewSplitHorizontal } from "@mdi/js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadSplitState } from "../../lib/layout/split-state.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EDITOR_PANE_KEY_PREFIX } from "../../lib/layout/editor-pane-state.js";
+import { loadSplitState, SPLIT_KEY_PREFIX } from "../../lib/layout/split-state.js";
+import { UnsavedChangesHost } from "../editor-pane/UnsavedChangesHost.js";
+import { unregisterUnsaved, unsavedKey, unsavedStore } from "../editor-pane/unsaved-store.js";
 import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
 import { SplitWorkspaceProvider } from "../split/SplitWorkspaceContext.js";
 
@@ -143,5 +146,58 @@ describe("LayoutModeSwitch menu variant (mobile, E15)", () => {
     fireEvent.click(screen.getByTestId("layout-mode-switch"));
     fireEvent.click(screen.getByTestId("layout-mode-split"));
     expect(screen.getByTestId("layout-mode-switch").querySelector("svg path")?.getAttribute("d")).toBe(mdiViewSplitHorizontal);
+  });
+});
+
+// fix-file-link-editor-routing 4.6 (S47): the Chat segment closes the pane — a dirty built-in buffer asks first.
+describe("LayoutModeSwitch — unsaved buffer guard (S47)", () => {
+  const SID = "sGuard";
+  const key = unsavedKey(SID, "a.md");
+  afterEach(() => unregisterUnsaved(key));
+
+  function setup(dirty: boolean) {
+    localStorage.setItem(`${SPLIT_KEY_PREFIX}${SID}`, JSON.stringify({ mode: "split", ratio: 0.5, orientation: "h" }));
+    localStorage.setItem(
+      `${EDITOR_PANE_KEY_PREFIX}${SID}`,
+      JSON.stringify({ openFiles: [{ path: "a.md", viewer: "monaco", addedAt: 1 }], activeIndex: 0, treeOpenRoots: [] }),
+    );
+    unsavedStore.registerUnsaved(key, { label: "a.md", dirty, save: vi.fn(async () => true), discard: vi.fn() });
+    return render(
+      <SplitWorkspaceProvider sessionId={SID} cwd="/proj" orientation="h">
+        <LayoutModeSwitch />
+        <UnsavedChangesHost />
+      </SplitWorkspaceProvider>,
+    );
+  }
+
+  it("dirty: Chat asks first; the mode changes only after Discard", async () => {
+    setup(true);
+    fireEvent.click(screen.getByTestId("layout-mode-closed"));
+    expect(await screen.findByTestId("unsaved-dialog")).toBeTruthy();
+    expect(loadSplitState(SID).mode).toBe("split");
+    fireEvent.click(screen.getByTestId("unsaved-discard"));
+    await vi.waitFor(() => expect(loadSplitState(SID).mode).toBe("closed"));
+  });
+
+  it("dirty: Cancel leaves the mode unchanged", async () => {
+    setup(true);
+    fireEvent.click(screen.getByTestId("layout-mode-closed"));
+    fireEvent.click(await screen.findByTestId("unsaved-cancel"));
+    await vi.waitFor(() => expect(screen.queryByTestId("unsaved-dialog")).toBeNull());
+    expect(loadSplitState(SID).mode).toBe("split");
+  });
+
+  it("dirty: Split ↔ Editor never asks (the pane stays mounted)", () => {
+    setup(true);
+    fireEvent.click(screen.getByTestId("layout-mode-full"));
+    expect(screen.queryByTestId("unsaved-dialog")).toBeNull();
+    expect(loadSplitState(SID).mode).toBe("full");
+  });
+
+  it("clean: Chat closes immediately with no dialog", () => {
+    setup(false);
+    fireEvent.click(screen.getByTestId("layout-mode-closed"));
+    expect(screen.queryByTestId("unsaved-dialog")).toBeNull();
+    expect(loadSplitState(SID).mode).toBe("closed");
   });
 });

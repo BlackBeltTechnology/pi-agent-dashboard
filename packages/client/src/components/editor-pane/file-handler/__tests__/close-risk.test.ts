@@ -72,3 +72,28 @@ describe("planBulkClose (#E4)", () => {
     expect(plan.keptCount).toBe(2);
   });
 });
+
+// fix-file-link-editor-routing 4.5 / 4.21 (S46): built-in unsaved buffers are listed once in a bulk close.
+describe("planBulkClose — built-in unsaved buffers (S46)", () => {
+  const tabs = [tab("a.ts"), tab("notes.md"), tab("term:t1", "terminal")];
+  const withBuffers = (...dirty: string[]): CloseRiskLookups => ({
+    ...lookups([], {}),
+    bufferDirty: (t) => dirty.includes(t.path),
+  });
+
+  it("lists a dirty built-in tab as an unsaved buffer entry; clean-only sets add nothing", () => {
+    const plan = planBulkClose(tabs, ["a.ts", "notes.md"], withBuffers("notes.md"));
+    expect(plan.risky).toEqual([{ kind: "buffer", path: "notes.md", reason: "unsaved", tabPaths: ["notes.md"] }]);
+    expect(plan.keptCount).toBe(1);
+    expect(planBulkClose(tabs, ["a.ts", "notes.md"], withBuffers()).risky).toEqual([]);
+  });
+
+  it("only tabs inside the closed set are at risk", () => {
+    expect(planBulkClose(tabs, ["a.ts"], withBuffers("notes.md")).risky).toEqual([]);
+  });
+
+  it("a terminal still takes the terminal reason, never also a buffer entry", () => {
+    const plan = planBulkClose(tabs, ["term:t1"], withBuffers("term:t1"));
+    expect(plan.risky.map((r) => r.kind)).toEqual(["terminal"]);
+  });
+});

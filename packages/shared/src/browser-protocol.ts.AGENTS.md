@@ -59,3 +59,5 @@ Server→browser: `TerminalErrorMessage` (`terminal_error {code: cwd_not_admitte
 See change: add-spawn-model-choice. `SpawnResultBrowserMessage.choiceWarning?` — set on success when a model / role / thinking choice was dropped.
 
 `RemoveSteeringEntryFromBrowserMessage{sessionId,id}`, `ClearSteeringEntriesFromBrowserMessage{sessionId}` in `BrowserToServerMessage`. `QueueUpdateToBrowserMessage.steering: (SteerEntryView|string)[]`. See change: bridge-owned-cancellable-steer.
+
+`GrantRequestMessage.action?:"read"|"write"` (write = text-doc write denial; display only, grant mode is server-held). See change: fix-file-link-editor-routing.

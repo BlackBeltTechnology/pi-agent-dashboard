@@ -834,6 +834,36 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "hello.txt" },
   },
 
+  // Assistant text linking TWO parent-checkout files by ABSOLUTE path: `hello.txt` (tracked, so it exists in a
+  // worktree too) and `parent-only-link.md` (created untracked in the parent by the spec, so no worktree copy).
+  // Drives the worktree link re-root e2e (D4): the first opens the worktree copy as a cwd-relative tab, the
+  // second falls back to the parent file as an absolute tab. See change: fix-file-link-editor-routing (#S65).
+  "text-worktree-links": {
+    script: [
+      fauxAssistantMessage([
+        fauxText("compare /fixtures/sample-git/hello.txt and /fixtures/sample-git/parent-only-link.md please"),
+      ]),
+    ],
+    expect: { text: "parent-only-link.md" },
+  },
+
+  // Assistant text linking five text docs OUTSIDE the session cwd, one directory each (a grant/denial subject is
+  // the directory, and the 120 s post-settle backoff would swallow a second prompt for the same one). The e2e
+  // specs create these under `/fixtures/__grant-e2e__/` (`lk-missing` is deliberately never created).
+  // See change: fix-file-link-editor-routing (#S54-#S58).
+  "text-outside-links": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "outside docs: /fixtures/__grant-e2e__/lk-deny/doc.md /fixtures/__grant-e2e__/lk-missing/missing.md " +
+            "/fixtures/__grant-e2e__/lk-write/doc.md /fixtures/__grant-e2e__/lk-readonly/doc.md " +
+            "/fixtures/__grant-e2e__/lk-revoke/doc.md end",
+        ),
+      ]),
+    ],
+    expect: { text: "lk-revoke" },
+  },
+
   // Same as `text-realfile`, but links the mermaid apply-fix markdown fixture so the
   // FilePreviewOverlay (md surface) opens on a broken diagram. See change:
   // add-preview-apply-fix-to-file.

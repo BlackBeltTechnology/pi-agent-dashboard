@@ -1,3 +1,5 @@
 # manage-worktrees.spec.ts — index
 
 L3 for the manage-worktrees surface (test-plan F4, F3, F7, X5, X11, X12, X13): menu gate is session-INdependent, session-less removal skips the `active_sessions` guard, list converges with no manual refresh, out-of-band-deleted dir reads as "already gone" (never a raw 400), prune is repo-global, escalation inherited from `CloseWorktreeDialog`, row text ≥ 4.5:1 in BOTH themes. Setup drives REST, assertions drive the DOM. See change: manage-worktrees-filter-cleanup.
+
+Also (change: fix-file-link-editor-routing, #S65): worktree-session link routing — `[[faux:text-worktree-links]]` links `/fixtures/sample-git/hello.txt` (copy in worktree with marker content) + untracked parent-only `parent-only-link.md`; asserts worktree copy opens as cwd-relative tab `hello.txt`, parent-only opens as absolute-path tab (not not-found), Save on the parent tab raises the write `grant-dialog` and writes nothing. Enables prompts via `narrowTrust(hostGate enforce)` + `accessGrants.promptEnabled`; restores `config.json` byte-for-byte in `finally`.

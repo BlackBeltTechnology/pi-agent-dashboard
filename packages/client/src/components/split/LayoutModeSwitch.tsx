@@ -10,7 +10,11 @@
  * `tabindex`, Arrow/Home/End navigation, and Enter/Space selection. The active
  * mode is the checked radio.
  *
+ * Switching to Chat closes the editor pane: a dirty built-in buffer asks
+ * Save / Discard / Cancel first (`guardPaneClose`).
+ *
  * See change: editor-layout-modes.
+ * See change: fix-file-link-editor-routing (D3).
  */
 
 import { mdiCheck, mdiFileDocumentOutline, mdiMenuDown, mdiMessageOutline, mdiViewSplitHorizontal, mdiViewSplitVertical } from "@mdi/js";
@@ -18,6 +22,7 @@ import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { SplitMode } from "../../lib/layout/split-state.js";
+import { guardPaneClose } from "../editor-pane/guard-pane-close.js";
 import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
 
 interface Segment {
@@ -37,6 +42,14 @@ interface Props {
   variant?: "segmented" | "menu";
 }
 
+type Ctx = NonNullable<ReturnType<typeof useOptionalSplitWorkspace>>;
+
+/** `ctx.setMode`, except that leaving for Chat (`closed`) from an open pane asks about unsaved buffers. */
+function setModeGuarded(ctx: Ctx, mode: SplitMode): void {
+  if (mode !== "closed" || ctx.split.mode === "closed") return ctx.setMode(mode);
+  guardPaneClose(ctx.sessionId, ctx.paneState.openFiles, () => ctx.setMode(mode));
+}
+
 export function LayoutModeSwitch({ variant = "segmented" }: Props = {}) {
   const ctx = useOptionalSplitWorkspace();
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -53,7 +66,7 @@ export function LayoutModeSwitch({ variant = "segmented" }: Props = {}) {
 
   const focusSegment = (index: number) => {
     const clamped = (index + segments.length) % segments.length;
-    ctx.setMode(segments[clamped].mode);
+    setModeGuarded(ctx, segments[clamped].mode);
     refs.current[clamped]?.focus();
   };
 
@@ -80,7 +93,7 @@ export function LayoutModeSwitch({ variant = "segmented" }: Props = {}) {
       case " ":
       case "Enter":
         e.preventDefault();
-        ctx.setMode(segments[index].mode);
+        setModeGuarded(ctx, segments[index].mode);
         break;
     }
   };
@@ -106,7 +119,7 @@ export function LayoutModeSwitch({ variant = "segmented" }: Props = {}) {
             aria-label={seg.label}
             tabIndex={i === (activeIndex < 0 ? 0 : activeIndex) ? 0 : -1}
             data-testid={`layout-mode-${seg.mode}`}
-            onClick={() => ctx.setMode(seg.mode)}
+            onClick={() => setModeGuarded(ctx, seg.mode)}
             onKeyDown={(e) => onKeyDown(e, i)}
             title={seg.label}
             className={`inline-flex items-center justify-center gap-1.5 min-h-8 px-3 text-xs font-semibold transition-colors @max-[760px]:px-0 @max-[760px]:min-w-9 ${
@@ -125,8 +138,6 @@ export function LayoutModeSwitch({ variant = "segmented" }: Props = {}) {
     </div>
   );
 }
-
-type Ctx = NonNullable<ReturnType<typeof useOptionalSplitWorkspace>>;
 
 /** Mobile layout-mode menu (APG menu button + `menuitemradio` items). */
 function LayoutModeMenu({ ctx }: { ctx: Ctx }) {
@@ -169,7 +180,7 @@ function LayoutModeMenu({ ctx }: { ctx: Ctx }) {
 
   const focusItem = (index: number) => itemRefs.current[(index + segments.length) % segments.length]?.focus();
   const choose = (mode: SplitMode) => {
-    ctx.setMode(mode);
+    setModeGuarded(ctx, mode);
     setOpen(false);
     triggerRef.current?.focus();
   };

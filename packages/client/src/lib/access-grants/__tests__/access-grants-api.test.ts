@@ -245,6 +245,25 @@ describe("revoke routes each store to its own write path (7.5)", () => {
   }
 });
 
+describe("write-mode path-grant revoke (fix-file-link-editor-routing S39)", () => {
+  it("a write row's revoke sends {subject, scope, mode:'write'}", async () => {
+    const state = seededState();
+    state.grants.pathGrants.push({
+      subject: "/repo/sub", scope: "project", grantedAt: "2026-01-02T00:00:00Z", origin: "sess-a", mode: "write",
+    });
+    const server = makeServer(state);
+    server.install();
+    const { snapshot } = await fetchAccessSnapshot();
+    const write = aggregateAccessEntries(snapshot!).find((e) => e.store === "pathGrants" && e.mode === "write")!;
+    expect(write).toBeDefined();
+    await revokeAccessEntry(write);
+    const call = server.calls[server.calls.length - 1];
+    expect(call.method).toBe("DELETE");
+    expect(call.url).toBe("/api/access/grants");
+    expect(call.body).toEqual({ subject: "/repo/sub", scope: "project", mode: "write" });
+  });
+});
+
 describe("project-trust revoke wraps persistTrustDecision server-side (7.12, D13)", () => {
   it("DELETEs /api/access/project-trust with the subject and never a decision", async () => {
     const state = seededState();

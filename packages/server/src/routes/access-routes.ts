@@ -41,6 +41,7 @@ import {
   __accessGrantsLoadCount,
   type GrantScope,
   listGrants,
+  normalizeGrantSubject,
   revokeGrant,
 } from "../access/access-grants.js";
 import { grantNamedPathSubject } from "../access/named-grant.js";
@@ -170,6 +171,8 @@ export function registerAccessRoutes(
           // subject it widened from when a ladder rung was chosen.
           ...(g.via ? { via: g.via } : {}),
           ...(g.widenedFrom ? { widenedFrom: g.widenedFrom } : {}),
+          // fix-file-link-editor-routing: only a write grant carries `mode`; a read row has no key.
+          ...(g.mode === "write" ? { mode: "write" as const } : {}),
         })),
         worktreeTrust: readWorktreeTrustSubjects(),
         kbTrust: readKbTrustEntries(),
@@ -185,21 +188,33 @@ export function registerAccessRoutes(
   });
 
   // ── REVOKE: path grants ─────────────────────────────────────────────
-  fastify.delete<{ Body: { subject?: string; scope?: GrantScope } }>(
+  fastify.delete<{ Body: { subject?: string; scope?: GrantScope; mode?: unknown } }>(
     "/api/access/grants",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const { subject, scope } = request.body ?? {};
+      const { subject, scope, mode } = request.body ?? {};
       if (!subject || typeof subject !== "string") {
         reply.code(400);
         return { success: false, error: "subject is required" } satisfies ApiResponse;
       }
-      // A persisted grant may be mirrored into pi trust: snapshot first, then the store.
-      const mirror = scope === "session" ? undefined : getPiTrustMirror();
+      // `mode`: omitted → every entry for the subject; "write" / "read" → only that mode's entry;
+      // anything else is refused before anything is removed. See change: fix-file-link-editor-routing (G3).
+      if (mode !== undefined && mode !== "write" && mode !== "read") {
+        reply.code(400);
+        return { success: false, error: 'mode must be "write", "read" or omitted' } satisfies ApiResponse;
+      }
+      // A persisted grant may be mirrored into pi trust: snapshot first, then the store. A mode-scoped
+      // revoke that leaves another entry for the same subject keeps the mirror (a still-present read grant
+      // must not be un-mirrored), so the mirror revoke fires only when the subject's LAST persisted entry goes.
+      const target = normalizeGrantSubject(subject);
+      const leavesEntry =
+        mode !== undefined &&
+        listGrants().some((g) => g.scope === "project" && g.subject === target && (g.mode === "write" ? "write" : "read") !== mode);
+      const mirror = scope === "session" || leavesEntry ? undefined : getPiTrustMirror();
       let removed = false;
       try {
-        if (mirror) mirror.revoke("accessGrants", subject, () => { removed = revokeGrant(subject, scope); });
-        else removed = revokeGrant(subject, scope);
+        if (mirror) mirror.revoke("accessGrants", subject, () => { removed = revokeGrant(subject, scope, mode); });
+        else removed = revokeGrant(subject, scope, mode);
       } catch (err) {
         reply.code(500);
         return { success: false, error: `failed to revoke: ${(err as Error)?.message ?? String(err)}` } satisfies ApiResponse;
@@ -450,6 +465,8 @@ export function registerAccessRoutes(
       scope: scope === "session" ? "session" : "project",
       origin: denial.session,
       widenedFrom,
+      // The mode comes from the SERVER-recorded denial; any `mode` the client sent is never read.
+      ...(denial.action === "write" ? { mode: "write" as const } : {}),
     });
     if (!outcome.ok) {
       // A write failure is reported IN THIS RESPONSE so the surface that asked

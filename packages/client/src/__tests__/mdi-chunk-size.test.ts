@@ -136,7 +136,12 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // dialog's device-key row + companion checkbox, and the new en-source rows. +2,327 B gz measured locally against
 // the same develop base (620,962 -> 623,289 B). 609 KiB would leave ~327 B (below the ~570 B judged too thin
 // above), so 610 KiB (624,640 B, ~1.35 KB headroom). Smallest step with headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 610 * 1024;
+// fix-file-link-editor-routing (2026-11-21): 610 -> 611 KiB. Unavoidably eager: the unsaved-edits store
+// (`unsaved-store.ts`, called synchronously by `handleSelect` / pane close / LayoutModeSwitch before any lazy chunk
+// can load), the FileLink routing rewrite, and the en/hu/zh-CN catalog rows (dialog, Write badge, write prompt copy).
+// The dialog host is a lazy chunk. 624,927 B on CI, 287 B over the old cap; 611 KiB (625,664 B) leaves ~740 B for
+// CI's compressor variance. Smallest KiB step that clears it; not a general raise.
+const INDEX_GZ_CAP_BYTES = 611 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

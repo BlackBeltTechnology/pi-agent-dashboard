@@ -18,8 +18,8 @@
  * Setup drives the REST API (deterministic); assertions drive the DOM.
  */
 import { execFileSync } from "node:child_process";
-import { expect, type Page, test } from "./fixtures.js";
-import { ensureGitSession, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { expect, narrowTrust, type Page, test } from "./fixtures.js";
+import { ensureGitSession, FIXTURE_GIT, gotoDashboard, pinDirectory, sendPrompt } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -360,4 +360,85 @@ test("F5: ordinary repo — exactly one isMain row; removal succeeds and the row
   await expect(dialog.locator(`[data-testid="worktree-row-${encodeURIComponent(path)}"]`)).toHaveCount(0, { timeout: 15_000 });
   // And still exactly one isMain row afterwards.
   await expect(dialog.locator('[data-testid="worktree-row-main"]')).toHaveCount(1);
+});
+
+// test-plan #S65 (fix-file-link-editor-routing, D4) — a link rooted in the PARENT checkout, clicked in a
+// WORKTREE session: the worktree copy opens when it exists (cwd-relative tab, the worktree's content); a
+// parent-only file opens as an absolute-path tab, and saving it raises the WRITE prompt (bound-checkout
+// roots no longer admit a write).
+test("worktree session: parent-absolute links open the worktree copy, else the parent file (write prompt on save)", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(240_000);
+  const container = resolveContainer();
+  const inContainer = (cmd: string) => execFileSync("docker", ["exec", container, "sh", "-c", cmd], { encoding: "utf8" });
+  const PARENT_ONLY = `${FIXTURE_GIT}/parent-only-link.md`;
+  const cfg = "/home/pi/.pi/dashboard/config.json";
+  const savedCfg = inContainer(`cat ${cfg}`);
+
+  // Write prompts need hostGate=enforce + promptEnabled (same as access-grant-dialog.spec.ts).
+  await narrowTrust(request, { hostGate: { mode: "enforce" } });
+  inContainer(
+    `node -e 'const fs=require("fs");const c=JSON.parse(fs.readFileSync("${cfg}","utf8"));c.accessGrants={...(c.accessGrants??{}),promptEnabled:true};fs.writeFileSync("${cfg}.e2e.tmp",JSON.stringify(c,null,2));fs.renameSync("${cfg}.e2e.tmp","${cfg}")'`,
+  );
+
+  const wt = await createWorktree(page, "e2e-link-routing");
+  try {
+    // A file present in BOTH trees (different content in the worktree) and one only in the parent.
+    inContainer(`printf 'WORKTREE-COPY-MARKER\\n' > '${wt}/hello.txt'`);
+    inContainer(`printf 'PARENT-ONLY-MARKER\\n' > '${PARENT_ONLY}'`);
+
+    // Spawn a real session in the worktree (same affordance as the escalation test above).
+    await pinDirectory(page, wt);
+    const body = page.locator(`[data-testid="folder-body-${wt}"]`);
+    await expect(body).toBeVisible({ timeout: 30_000 });
+    await body.locator('[data-testid="folder-spawn-session-btn"]').first().click();
+    let sessionId = "";
+    await expect
+      .poll(
+        async () => {
+          const res = await api(page, "/api/sessions");
+          const sessions = (res.data?.sessions ?? res.data ?? []) as Array<{ id?: string; cwd?: string; status?: string }>;
+          sessionId = sessions.find((x) => x.cwd === wt && x.status !== "ended")?.id ?? "";
+          return sessionId;
+        },
+        { timeout: 90_000 },
+      )
+      .not.toBe("");
+    await page.locator(`[data-testid="session-card-desktop"][data-session-id="${sessionId}"]`).click();
+
+    await sendPrompt(page, "[[faux:text-worktree-links]] go");
+
+    // (1) present in both → the WORKTREE copy opens as the cwd-relative tab `hello.txt`.
+    await page.getByText("/fixtures/sample-git/hello.txt", { exact: true }).first().click();
+    await expect(page.getByTestId("split-editor-pane").first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="editor-tab"][data-tab-path="hello.txt"]')).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.getByText("WORKTREE-COPY-MARKER")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(`[data-testid="editor-tab"][data-tab-path="${FIXTURE_GIT}/hello.txt"]`)).toHaveCount(0);
+
+    // (2) parent-only → the PARENT file opens as an absolute-path tab (no not-found).
+    const parentLink = page.getByText("/fixtures/sample-git/parent-only-link.md", { exact: true }).first();
+    await parentLink.click();
+    await expect(page.locator(`[data-testid="editor-tab"][data-tab-path="${PARENT_ONLY}"]`)).toHaveCount(1, { timeout: 15_000 });
+    await expect(parentLink).not.toHaveAttribute("data-not-found", "true");
+    await expect(page.getByText("PARENT-ONLY-MARKER")).toBeVisible({ timeout: 30_000 });
+
+    // (3) saving the parent file (outside the worktree cwd) raises the WRITE prompt; nothing is written yet.
+    await page.getByTestId("md-edit-toggle").click();
+    const editor = page.locator(".monaco-editor").first();
+    await editor.click();
+    await page.keyboard.type("EDITED-IN-PARENT");
+    await page.getByTestId("md-save-btn").click();
+    await expect(page.getByTestId("grant-dialog")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("grant-dialog-consequence")).toContainText(/write/i);
+    expect(inContainer(`cat '${PARENT_ONLY}'`)).not.toContain("EDITED-IN-PARENT");
+  } finally {
+    inContainer(`rm -f '${PARENT_ONLY}'`);
+    // Restore config.json byte-for-byte (stdin, so no shell quoting of the JSON).
+    execFileSync("docker", ["exec", "-i", container, "sh", "-c", `cat > ${cfg}.restore && mv ${cfg}.restore ${cfg}`], {
+      input: savedCfg,
+      encoding: "utf8",
+    });
+  }
 });

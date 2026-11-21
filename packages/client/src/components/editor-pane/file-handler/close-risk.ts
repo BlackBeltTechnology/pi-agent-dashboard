@@ -6,7 +6,12 @@
  * risky in a BULK close only (single terminal close stays silent), so the
  * terminal reason lives in `planBulkClose`.
  *
+ * Built-in editable tabs (`MarkdownViewer`, `EditablePreviewTab`) with an unsaved
+ * buffer are listed too, through the optional `bufferDirty` lookup (backed by
+ * `unsaved-store`).
+ *
  * See change: scope-anchor-editor-pane-controls (D6).
+ * See change: fix-file-link-editor-routing (D3, task 4.21).
  */
 import type { OpenFile } from "../../../lib/layout/editor-pane-state.js";
 import { stripTermId } from "../../../lib/layout/use-terminal-pane-tabs.js";
@@ -18,6 +23,8 @@ export interface CloseRiskLookups {
   keyOf: (tab: OpenFile) => string | null;
   /** Instance for `key`; `undefined` when never mounted or evicted (= clean). */
   getInstance: (key: string) => { dirty: HandlerDirtyState } | undefined;
+  /** `true` when `tab` is a built-in editable tab holding an unsaved buffer. Omitted = none. */
+  bufferDirty?: (tab: OpenFile) => boolean;
 }
 
 interface CloseRiskOptions {
@@ -47,7 +54,8 @@ export function handlerCloseRisk(
 
 export type BulkRiskEntry =
   | { kind: "terminal"; id: string; reason: "terminal"; tabPaths: string[] }
-  | { kind: "handler"; key: string; reason: "unsaved"; tabPaths: string[] };
+  | { kind: "handler"; key: string; reason: "unsaved"; tabPaths: string[] }
+  | { kind: "buffer"; path: string; reason: "unsaved"; tabPaths: string[] };
 
 export interface BulkClosePlan {
   /** Tab paths the operation closes (those present in `openFiles`). */
@@ -78,7 +86,10 @@ export function planBulkClose(
       risky.push({ kind: "terminal", id: termId, reason: "terminal", tabPaths: [tab.path] });
       continue;
     }
-    if (handlerCloseRisk(tab, remaining, lookups, { unknownIsRisky: false }) === null) continue;
+    if (handlerCloseRisk(tab, remaining, lookups, { unknownIsRisky: false }) === null) {
+      if (lookups.bufferDirty?.(tab)) risky.push({ kind: "buffer", path: tab.path, reason: "unsaved", tabPaths: [tab.path] });
+      continue;
+    }
     const key = lookups.keyOf(tab) as string;
     const entry = byKey.get(key);
     if (entry) entry.tabPaths.push(tab.path);

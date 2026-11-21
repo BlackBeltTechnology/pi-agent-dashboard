@@ -36,11 +36,13 @@ import { DocumentBar } from "./DocumentBar.js";
 import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel, type Mode as SearchMode } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
-import { type BulkClosePlan, type BulkRiskEntry, planBulkClose } from "./file-handler/close-risk.js";
+import { type BulkClosePlan, type BulkRiskEntry, type CloseRiskLookups, planBulkClose } from "./file-handler/close-risk.js";
 import { FileHandlerAnchor } from "./file-handler/FileHandlerAnchor.js";
 import { isUnderSessionCwd } from "./file-handler/file-handler-claims.js";
 import { type FileModeOffers, FileModeOffersContext } from "./file-handler/file-mode-offers.js";
 import { useFileHandlerPane } from "./file-handler/use-file-handler-pane.js";
+import { guardPaneClose } from "./guard-pane-close.js";
+import { confirmLeave, unsavedKey, unsavedStore } from "./unsaved-store.js";
 
 // D3 (change: add-lazy-terminal-diff-bootstrap): the keep-alive terminal layer
 // is a lazy boundary. `React.lazy` fires its import as soon as it is rendered,
@@ -92,7 +94,7 @@ function searchModeForKey(e: KeyboardEvent): SearchMode | null {
   return !e.shiftKey && (e.key === "p" || e.key === "P") ? "file" : null;
 }
 
-const riskKey = (e: BulkRiskEntry): string => (e.kind === "terminal" ? `t:${e.id}` : `h:${e.key}`);
+const riskKey = (e: BulkRiskEntry): string => (e.kind === "terminal" ? `t:${e.id}` : e.kind === "buffer" ? `b:${e.path}` : `h:${e.key}`);
 
 export function EditorPane() {
   const { t } = useI18n();
@@ -372,12 +374,26 @@ export function EditorPane() {
   const language = activeTab ? activeTab.path.slice(activeTab.path.lastIndexOf(".") + 1) : "";
 
   // ── Closing: single close (per tab) and the bulk runner (design D6) ────────
+  // Handler lookups + built-in unsaved buffers (read live from the unsaved store).
+  const closeLookups: CloseRiskLookups = {
+    ...fh.closeLookups,
+    bufferDirty: (tab) => tab.viewer !== "terminal" && !tab.handlerMode && unsavedStore.hasUnsaved([unsavedKey(sessionId, tab.path)]),
+  };
+  // Pane ✕: a dirty built-in buffer asks first; clean closes at once (D3).
+  const closePane = () => guardPaneClose(sessionId, stateRef.current.openFiles, () => updateSplit({ mode: "closed" }));
   const closeTabAt = (i: number) => {
     const f = stateRef.current.openFiles[i];
     const termId = f?.viewer === "terminal" ? stripTermId(f.path) : null;
     // D4 — closing a terminal tab kills its terminal (silent: no confirmation).
     if (termId) terminal.closeTerminalTab(termId);
-    else if (f?.handlerMode && changeDetection) {
+    else if (f && !f.handlerMode && unsavedStore.hasUnsaved([unsavedKey(sessionId, f.path)])) {
+      // A built-in tab with an unsaved buffer: Save / Discard / Cancel first (D3).
+      void confirmLeave([unsavedKey(sessionId, f.path)]).then((ok) => {
+        if (!ok) return;
+        const idx = stateRef.current.openFiles.findIndex((t) => t.path === f.path);
+        if (idx >= 0) dispatch({ type: "closeTab", index: idx });
+      });
+    } else if (f?.handlerMode && changeDetection) {
       // Closing the last tab of a handler instance with unsaved/unknown
       // edits asks first; re-resolve the index afterwards (async).
       void fh.guardTabClose(i).then((ok) => {
@@ -396,7 +412,7 @@ export function EditorPane() {
   const runBulkClose = (paths: string[]) => {
     setTabSearchOpen(false);
     setContextMenu(null);
-    const plan = planBulkClose(stateRef.current.openFiles, paths, fh.closeLookups);
+    const plan = planBulkClose(stateRef.current.openFiles, paths, closeLookups);
     if (plan.targets.length === 0) return;
     if (plan.risky.length === 0) dispatch({ type: "closeTabs", paths: plan.targets });
     else setBulk({ targets: plan.targets, plan });
@@ -405,7 +421,7 @@ export function EditorPane() {
   // re-shows the dialog instead of acting (design D6, "recompute on confirm").
   const confirmBulk = (mode: "keep" | "discard") => {
     if (!bulk) return;
-    const fresh = planBulkClose(stateRef.current.openFiles, bulk.targets, fh.closeLookups);
+    const fresh = planBulkClose(stateRef.current.openFiles, bulk.targets, closeLookups);
     const listed = new Set(bulk.plan.risky.map(riskKey));
     if (fresh.risky.some((e) => !listed.has(riskKey(e)))) {
       setBulk({ targets: bulk.targets, plan: fresh });
@@ -418,7 +434,8 @@ export function EditorPane() {
       for (const e of fresh.risky) {
         // Kill only (never `closeTerminalTab`, which would dispatch `closeByPath` first).
         if (e.kind === "terminal") terminal.killTerminal(e.id);
-        else fh.discardInstance(e.key);
+        else if (e.kind === "handler") fh.discardInstance(e.key);
+        // A built-in buffer needs no discard call: closing its tab unmounts the viewer.
       }
       dispatch({ type: "closeTabs", paths: fresh.targets });
     }
@@ -515,7 +532,7 @@ export function EditorPane() {
         <button
           type="button"
           data-testid="editor-pane-close"
-          onClick={() => updateSplit({ mode: "closed" })}
+          onClick={closePane}
           className={`${BAR_BTN} w-7`}
           aria-label={t("editor.closeEditor", undefined, "Close editor")}
           title={t("editor.closeEditor", undefined, "Close editor")}
@@ -558,7 +575,7 @@ export function EditorPane() {
               state.openFiles
                 .filter((f) => {
                   const k = fh.closeLookups.keyOf(f);
-                  return !!k && fh.closeLookups.getInstance(k)?.dirty === true;
+                  return (!!k && fh.closeLookups.getInstance(k)?.dirty === true) || !!closeLookups.bufferDirty?.(f);
                 })
                 .map((f) => f.path),
             )
