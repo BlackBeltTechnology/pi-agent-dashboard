@@ -19,7 +19,7 @@
  * a line appended to `inbound.jsonl` is a chat user's message, `outbound.jsonl` is what the bot posted.
  *
  * The gateway config is patched INSIDE the container (the seeded one has no allowlist / toolPolicy and
- * a team layer whose observe-tier principal would refuse the spawn before the guard matters), then the
+ * a team layer whose observe-tier principal would refuse the spawn before the guard matters (so the invoker is promoted to control and a channel is provisioned onto the seeded workspace)), then the
  * dashboard is restarted so the plugin re-reads it. The original config is restored afterwards.
  *
  * Authored WITHOUT a runnable docker harness: first run happens in CI.
@@ -29,6 +29,9 @@ import { expect, test } from "./fixtures.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 const CONFIG = "/home/pi/.pi/dashboard/config.json";
+/** The team layer's workspace-to-channel records (provisioning store): maps CHANNEL to the seeded workspace. */
+const CHANNELS = "/home/pi/.pi/dashboard/chat-gateway/channels.json";
+const WORKSPACE = "ws_e2e";
 const FAKE_DIR = "/tmp/chat-gateway-fake";
 const SESSIONS = "/home/pi/.pi/agent/sessions";
 const USER = "e2e_invoker";
@@ -71,7 +74,10 @@ async function configureGateway(guardExtension: string): Promise<void> {
       const fs = require("node:fs");
       const c = JSON.parse(fs.readFileSync(${JSON.stringify(CONFIG)}, "utf8"));
       const g = (c.plugins["chat-gateway"] ??= { enabled: true });
-      delete g.teamControls; // the seeded observe-tier principal would refuse the spawn before the guard matters
+      // A spawn needs the control tier on a binding whose channel is provisioned (else: "Refused: unbound_channel"
+      // / "insufficient_tier" before the guard matters). The seeded binding has a control ceiling; promote the invoker.
+      const b = c.plugins["chat-gateway"].teamControls.bindings[${JSON.stringify(WORKSPACE)}];
+      b.principals = { ...(b.principals ?? {}), [${JSON.stringify(USER)}]: "control" };
       Object.assign(g, {
         enabled: true,
         allowlist: [${JSON.stringify(USER)}],
@@ -83,6 +89,8 @@ async function configureGateway(guardExtension: string): Promise<void> {
         guardExtension: ${JSON.stringify(guardExtension)},
       });
       fs.writeFileSync(${JSON.stringify(CONFIG)}, JSON.stringify(c) + "\\n");
+      fs.mkdirSync(require("node:path").dirname(${JSON.stringify(CHANNELS)}), { recursive: true });
+      fs.writeFileSync(${JSON.stringify(CHANNELS)}, JSON.stringify({ bindings: [{ workspaceId: ${JSON.stringify(WORKSPACE)}, channelId: ${JSON.stringify(CHANNEL)}, channelName: "e2e-guard", active: true, accessSignature: "e2e" }] }));
       process.stdout.write(String(Math.floor(Date.now() / 1000)));
     `).trim(),
   );
@@ -179,12 +187,21 @@ test.describe("chat-gateway guard readiness (L3)", () => {
   test.describe.configure({ mode: "serial", timeout: 300_000 });
 
   let originalConfig = "";
+  let originalChannels: string | null = null;
   test.beforeAll(() => {
     originalConfig = inContainer(`process.stdout.write(require("node:fs").readFileSync(${JSON.stringify(CONFIG)}, "utf8"))`);
+    const raw = inContainer(`
+      try { process.stdout.write("1" + require("node:fs").readFileSync(${JSON.stringify(CHANNELS)}, "utf8")); } catch { process.stdout.write("0"); }
+    `);
+    originalChannels = raw.startsWith("1") ? raw.slice(1) : null;
   });
   test.afterAll(async () => {
     if (!originalConfig) return;
-    inContainer(`require("node:fs").writeFileSync(${JSON.stringify(CONFIG)}, ${JSON.stringify(originalConfig)})`);
+    inContainer(`
+      const fs = require("node:fs");
+      fs.writeFileSync(${JSON.stringify(CONFIG)}, ${JSON.stringify(originalConfig)});
+      ${originalChannels === null ? `fs.rmSync(${JSON.stringify(CHANNELS)}, { force: true });` : `fs.writeFileSync(${JSON.stringify(CHANNELS)}, ${JSON.stringify(originalChannels)});`}
+    `);
     await restartDashboard().catch(() => undefined);
   });
 
