@@ -12,6 +12,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { KbJobRegistry } from "../job-registry.js";
 import { mountKbRoutes, reindexAll } from "../kb-routes.js";
+import { createReindexRunner } from "../reindex-runner.js";
 
 const PAD = "Body text comfortably longer than the hundred character minimum so the chunk stays its own chunk in the index here.";
 const cleanup: string[] = [];
@@ -163,4 +164,35 @@ describe("reindex job robustness (review follow-ups)", () => {
     await expect(job).rejects.toThrow(/folder missing/);
     expect(existsSync(cwd)).toBe(false);
   });
+});
+
+describe("two hosts, one core (S63, R4 oracle)", () => {
+  const stripAt = (r: { changed: number; chunks: number; outcomes?: Array<{ at?: number }> }) => ({ ...r, outcomes: r.outcomes?.map(({ at: _at, ...o }) => o) });
+  const stateOf = (reg: KbJobRegistry, cwd: string) => {
+    const { startedAt: _s, finishedAt: _f, outcomes, ...rest } = reg.get(cwd) ?? ({} as Record<string, unknown>);
+    return { ...rest, outcomes: (outcomes as Array<{ at?: number }> | undefined)?.map(({ at: _at, ...o }) => o) };
+  };
+
+  it("worker and in-process runs of the same fixture end with equal rows, result and JobState", async () => {
+    const extra = { frontmatter: { searchableKeys: ["title"], facetKeys: [{ key: "team" }] } };
+    const viaWorker = folder([{ kind: "filesystem", ref: "docs" }], extra);
+    const inProc = folder([{ kind: "filesystem", ref: "docs" }], extra);
+    const results: Array<ReturnType<typeof stripAt>> = [];
+    const states: Array<ReturnType<typeof stateOf>> = [];
+    for (const [cwd, useWorker] of [[viaWorker, true], [inProc, false]] as const) {
+      const registry = new KbJobRegistry();
+      const runner = createReindexRunner({ useWorker: () => useWorker });
+      const r = await registry.start(cwd, (ctx) => reindexAll(cwd, undefined, { signal: ctx.signal, onProgress: ctx.progress, runner })).promise;
+      results.push(stripAt(r));
+      states.push(stateOf(registry, cwd));
+    }
+    expect(results[0].chunks).toBeGreaterThan(0);
+    expect(results[0]).toEqual(results[1]);
+    expect(states[0]).toEqual(states[1]);
+    for (const sel of [
+      "SELECT path, heading_path, body FROM chunks ORDER BY path, heading_path",
+      "SELECT path, key, value FROM properties ORDER BY path, key, value",
+      "SELECT k FROM kb_meta WHERE k LIKE 'gate:%' ORDER BY k",
+    ]) expect(rows(dbOf(viaWorker), sel)).toEqual(rows(dbOf(inProc), sel));
+  }, 60_000);
 });

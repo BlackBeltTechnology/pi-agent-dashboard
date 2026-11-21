@@ -4,12 +4,13 @@
 // environment refuses to bundle (`node:sqlite`). Same as kb-routes.test.ts.
 // The dashboard reindex job seeds a linked worktree's first index from the main checkout.
 // See change: add-kb-worktree-seed (test-plan E23 dashboard job, E11).
-import { execFileSync } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { KbJobRegistry } from "../job-registry.js";
 import { reindexAll } from "../kb-routes.js";
 
 const ENV = { GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@e.test", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@e.test", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
@@ -78,4 +79,32 @@ describe("dashboard reindex job seeds the first index", () => {
       w.close();
     }
   }, 60_000);
+});
+
+describe("cancel while waiting for another process's first index (S52, R5 fault-injection: delay)", () => {
+  let foreign: ChildProcess | undefined;
+  afterEach(() => foreign?.kill("SIGKILL"));
+
+  it("the wait ends at once — well inside one pollMs — and the job settles idle", async () => {
+    const cwd = join(tmp, "waiter");
+    put(cwd, ".pi/dashboard/knowledge_base.json", JSON.stringify({ sources: [{ kind: "filesystem", ref: "docs" }], dbPath: ".pi/dashboard/kb/index.db" }));
+    put(cwd, "docs/a.md", "# A\n\nBody of a, long enough to be indexed on its own as a chunk here.\n");
+    const db = join(cwd, ".pi/dashboard/kb/index.db");
+    foreign = spawn(process.execPath, ["-e", "setInterval(()=>{},1e6)"]);
+    while (!foreign.pid) await new Promise((r) => setTimeout(r, 2));
+    mkdirSync(dirname(db), { recursive: true });
+    writeFileSync(`${db}.tmp-${foreign.pid}`, "x"); // a live first index owned by another pid
+
+    const registry = new KbJobRegistry();
+    const POLL = 5000;
+    const job = registry.start(cwd, (ctx) => reindexAll(cwd, undefined, { pollMs: POLL, signal: ctx.signal })).promise.catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 150)); // inside the first sleep
+    expect(registry.statusFor(cwd)).toBe("running");
+    const t0 = Date.now();
+    registry.cancel(cwd);
+    await job;
+    expect(Date.now() - t0).toBeLessThan(POLL / 5);
+    expect(registry.statusFor(cwd)).toBe("idle");
+    expect(registry.get(cwd)).toBeUndefined();
+  });
 });

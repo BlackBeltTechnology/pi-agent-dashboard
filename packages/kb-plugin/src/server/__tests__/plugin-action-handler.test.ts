@@ -73,7 +73,7 @@ describe("kb plugin_action handler", () => {
     const { handler } = await setup();
     handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
     await tick();
-    expect(reindexAll).toHaveBeenCalledWith("/w/repo", expect.anything());
+    expect(reindexAll).toHaveBeenCalledWith("/w/repo", expect.anything(), expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
   it("config.set reaches the applyConfigPatchAndTrust core", async () => {

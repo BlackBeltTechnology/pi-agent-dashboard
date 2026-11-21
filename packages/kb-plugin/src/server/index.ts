@@ -69,7 +69,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       return;
     }
     registry
-      .start(cwd, async () => reindexAll(cwd, ctx.logger))
+      .start(cwd, (job) => reindexAll(cwd, ctx.logger, { signal: job.signal, onProgress: job.progress, onFolderGone: () => registry.cancel(cwd) }))
       .promise.catch((err) =>
         ctx.logger.error(`kb reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`),
       );

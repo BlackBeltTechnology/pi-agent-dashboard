@@ -15,7 +15,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -32,6 +32,27 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KbJobRegistry } from "../job-registry.js";
 import { isAllowedCwd, mountKbRoutes } from "../kb-routes.js";
+import { type ReindexCoreInput, runReindexCore } from "../reindex-core.js";
+import { createReindexRunner } from "../reindex-runner.js";
+import { fakeFactory } from "./helpers/fake-reindex-worker.js";
+
+// Passthrough spy on `resolverFor`: a test can park `resolveSpecs` on a deferred (S51, throttle-kb-reindex).
+const resolveGate = vi.hoisted(() => ({ block: null as Promise<void> | null }));
+vi.mock("@blackbelt-technology/pi-dashboard-kb", async (orig) => {
+  const real = await orig<typeof import("@blackbelt-technology/pi-dashboard-kb")>();
+  return {
+    ...real,
+    resolverFor: (...a: Parameters<typeof real.resolverFor>) => {
+      const r = real.resolverFor(...a);
+      return Object.assign(Object.create(r), {
+        resolve: async (...b: Parameters<typeof r.resolve>) => {
+          if (resolveGate.block) await resolveGate.block;
+          return r.resolve(...b);
+        },
+      });
+    },
+  };
+});
 
 const cleanup: string[] = [];
 afterEach(() => {
@@ -1369,5 +1390,192 @@ describe("KB read/write preconditions (kb-denied-folder-pin-state)", () => {
     expect(preflightWrite(join(dir, "docs", "a.md"), { needsSources: false })).toBe("folder missing");
     expect(preflightWrite(join(dir, "nope"), { needsSources: false })).toBe("folder missing");
     expect(preflightWrite(`${dir}/`, { needsSources: false })).toBeNull(); // trailing separator
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// throttle-kb-reindex — reindex-core abort handling (S30), kill-switch (S62),
+// cancel before spawn (S51), folder vanishes (S50)
+// ═══════════════════════════════════════════════════════════════════════════
+import { indexOptionsHash, KbIndexAborted } from "@blackbelt-technology/pi-dashboard-kb";
+
+const tick = () => new Promise<void>((r) => setImmediate(r));
+
+/** A folder with three filesystem sources `docs`, `d2`, `d3` (two small files each). */
+function threeSourceFolder(): string {
+  const cwd = makeFolder({ withConfig: false });
+  for (const d of ["d2", "d3"]) {
+    mkdirSync(join(cwd, d), { recursive: true });
+    for (const n of ["x", "y"]) writeFileSync(join(cwd, d, `${n}.md`), `# ${d}-${n}\n\nBody of ${d} ${n} with some words about the topic.\n`);
+  }
+  setSources(cwd, ["docs", "d2", "d3"].map((ref) => ({ kind: "filesystem", ref })));
+  return cwd;
+}
+function coreInput(cwd: string, mode: ReindexCoreInput["mode"]): ReindexCoreInput {
+  const cfg = loadConfig(cwd);
+  return {
+    cwd,
+    dbPath: cfg.dbAbsPath,
+    mode,
+    gate: indexOptionsHash(cfg),
+    sources: cfg.allSourceSpecs.map((s) => ({ ref: s.ref, kind: "filesystem", id: s.ref, dir: join(cwd, s.ref), started: Date.now() })),
+  };
+}
+
+describe("reindex-core abort handling (S30, R5/R3 illegal transition: abort is not an error)", () => {
+  it("in-place: abort while source 2 indexes rethrows — no error outcome, source 3 never starts, no stampSource(2) / stampPass", async () => {
+    const cwd = threeSourceFolder();
+    const dbp = dbPathOf(cwd);
+    const seed = new SqliteFtsStore(dbp);
+    seed.init();
+    seed.close();
+    const ac = new AbortController();
+    const logs: string[] = [];
+    const log = {
+      info: (m: string) => {
+        logs.push(m);
+        if (m.includes("source ok ref=docs")) ac.abort(); // source 2 starts already aborted
+      },
+      warn: (m: string) => logs.push(m),
+    };
+    await expect(runReindexCore(coreInput(cwd, "in-place"), { signal: ac.signal, log })).rejects.toBeInstanceOf(KbIndexAborted);
+    expect(logs.filter((l) => /source failed/.test(l))).toEqual([]);
+    expect(logs.some((l) => /ref=d2|ref=d3/.test(l))).toBe(false);
+    const st = new SqliteFtsStore(dbp);
+    try {
+      expect(st.getMeta("gate:docs") ?? null).not.toBeNull(); // completed + stamped before the abort keeps its stamp (G3)
+      expect(st.getMeta("gate:d2") ?? null).toBeNull();
+      expect(st.getMeta("gate:d3") ?? null).toBeNull();
+      expect(st.getMeta("facetConfigHash") ?? null).toBeNull(); // stampPass not called
+    } finally {
+      st.close();
+    }
+  });
+
+  it("first index: abort in the atomic path rethrows (no all-sources error outcomes), leaves no db and no temp", async () => {
+    const cwd = threeSourceFolder();
+    const dbp = dbPathOf(cwd);
+    const ac = new AbortController();
+    ac.abort();
+    const logs: string[] = [];
+    const log = { info: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) };
+    await expect(runReindexCore(coreInput(cwd, "first"), { signal: ac.signal, log })).rejects.toBeInstanceOf(KbIndexAborted);
+    expect(logs.filter((l) => /source failed/.test(l))).toEqual([]);
+    expect(existsSync(dbp)).toBe(false);
+    expect(readdirSync(dirname(dbp)).filter((f) => f.includes(".tmp-"))).toEqual([]);
+  });
+
+  it("a gate that differs from the core's own loadConfig fails with 'config changed during reindex' and touches nothing", async () => {
+    const cwd = threeSourceFolder();
+    const seed = new SqliteFtsStore(dbPathOf(cwd));
+    seed.init();
+    seed.close();
+    await expect(runReindexCore({ ...coreInput(cwd, "in-place"), gate: "stale-gate" })).rejects.toThrow(/config changed during reindex/);
+    const st = new SqliteFtsStore(dbPathOf(cwd));
+    try {
+      expect(st.counts().chunks).toBe(0);
+      expect(st.getMeta("facetConfigHash") ?? null).toBeNull();
+    } finally {
+      st.close();
+    }
+  });
+});
+
+describe("PI_DASHBOARD_KB_REINDEX_WORKER kill-switch (S62, R4 decision table)", () => {
+  const saved = process.env.PI_DASHBOARD_KB_REINDEX_WORKER;
+  afterEach(() => restoreEnv("PI_DASHBOARD_KB_REINDEX_WORKER", saved));
+
+  const run = async (value: string | undefined) => {
+    if (value === undefined) delete process.env.PI_DASHBOARD_KB_REINDEX_WORKER;
+    else process.env.PI_DASHBOARD_KB_REINDEX_WORKER = value;
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready().result({ changed: 0, chunks: 0, outcomes: [] }));
+    const app = Fastify();
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry: new KbJobRegistry(), reindexRunner: createReindexRunner({ workerFactory: factory }) });
+    const info = vi.spyOn(app.log, "info");
+    const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    const done = await settle(app, cwd);
+    const lines = info.mock.calls.map((c) => c.map(String).join(" "));
+    await app.close();
+    return { res, done, workers, lines };
+  };
+
+  it.each([
+    ["unset", undefined, "worker"],
+    ["1", "1", "worker"],
+    ["0", "0", "inprocess"],
+  ])("%s ⇒ mode=%s", async (_n, value, mode) => {
+    const r = await run(value);
+    expect(r.res.statusCode).toBe(202);
+    expect(r.workers.length).toBe(mode === "worker" ? 1 : 0);
+    expect(r.lines.some((l) => l.includes(`mode=${mode}`))).toBe(true);
+    expect(r.lines.some((l) => l.includes(`mode=${mode === "worker" ? "inprocess" : "worker"}`))).toBe(false);
+    expect(r.done.jobStatus).toBe("idle");
+  });
+
+  it("response and JobState/stats shape are identical in both hosts", async () => {
+    const w = await run(undefined);
+    const p = await run("0");
+    expect(Object.keys(p.res.json()).sort()).toEqual(Object.keys(w.res.json()).sort());
+    expect(Object.keys(p.done).sort()).toEqual(Object.keys(w.done).sort());
+  });
+});
+
+describe("cancel before spawn (S51, R5)", () => {
+  afterEach(() => {
+    resolveGate.block = null;
+  });
+
+  it("an abort while resolveSpecs is pending ends the job idle with no worker, no db", async () => {
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready());
+    const registry = new KbJobRegistry();
+    const app = Fastify();
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry, reindexRunner: createReindexRunner({ workerFactory: factory, useWorker: () => true }) });
+    let release!: () => void;
+    resolveGate.block = new Promise<void>((r) => (release = r));
+    await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    await tick();
+    expect(registry.cancel(cwd)).toBe(true);
+    release();
+    const done = await settle(app, cwd);
+    expect(done.jobStatus).toBe("idle");
+    expect(done.lastError).toBeUndefined();
+    expect(workers).toHaveLength(0);
+    expect(existsSync(dbPathOf(cwd))).toBe(false);
+    await app.close();
+  });
+
+  it("a signal that is already aborted when reindexAll starts spawns nothing", async () => {
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready());
+    const ac = new AbortController();
+    ac.abort();
+    await expect(reindexAll(cwd, undefined, { signal: ac.signal, runner: createReindexRunner({ workerFactory: factory, useWorker: () => true }) })).rejects.toMatchObject({ name: "AbortError" });
+    expect(workers).toHaveLength(0);
+    expect(existsSync(dbPathOf(cwd))).toBe(false);
+  });
+});
+
+describe("folder vanishes while a job runs (S50, R5)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("the job is cancelled and settles idle with no lastError", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready());
+    const registry = new KbJobRegistry();
+    const app = Fastify();
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry, reindexRunner: createReindexRunner({ workerFactory: factory, useWorker: () => true }) });
+    await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    await vi.waitFor(() => expect(workers).toHaveLength(1), { interval: 5 });
+    rmSync(cwd, { recursive: true, force: true });
+    await vi.advanceTimersByTimeAsync(2000); // the next folder-exists check
+    await vi.waitFor(() => expect(workers[0].gotCancel).toBe(true), { interval: 5 });
+    workers[0].cancelled();
+    const done = await settle(app, cwd);
+    expect(done.jobStatus).toBe("idle");
+    expect(done.lastError).toBeUndefined();
+    await app.close();
   });
 });

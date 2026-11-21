@@ -27,10 +27,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { CwdHoldOrigin, ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
-  beginForcedSource,
   classifyRef,
-  indexOptionsFromConfig,
-  indexSource,
+  indexOptionsHash,
   isFirstIndexLive,
   type KbConfig,
   KbUntrustedSourceError,
@@ -41,16 +39,11 @@ import {
   recordTrust,
   resolverFor,
   revokeTrustByHash,
-  runIndexAtomic,
   type SourceConfig,
   SqliteFtsStore,
   searchOptsFromConfig,
-  seedOptionsFromConfig,
-  sourceGateIsStale,
   sourceHash,
   sourceSubject,
-  stampPass,
-  stampSource,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
 import {
@@ -74,6 +67,8 @@ import type {
   KbStats,
 } from "../shared/kb-plugin-types.js";
 import type { KbJobRegistry } from "./job-registry.js";
+import { errMsg, type ReindexProgress } from "./reindex-core.js";
+import { abortError, defaultReindexRunner, type ReindexRunner } from "./reindex-runner.js";
 
 export interface KbRouteDeps {
   /** Live known-folder set for cwd validation (session cwds ∪ pinned dirs). */
@@ -86,6 +81,8 @@ export interface KbRouteDeps {
   holdCwdDenial?: ServerPluginContext["holdCwdDenial"];
   /** `admitCwd` options (the host's `onIndeterminate` logger; test seams). */
   admitOptions?: AdmitCwdOptions;
+  /** Reindex worker host. Default: the process-wide runner (`reindex-runner.ts`); tests inject a fake-worker one. */
+  reindexRunner?: ReindexRunner;
 }
 
 /** Absolute project config path for a folder (mirrors kb `projectConfigPath`). */
@@ -173,15 +170,6 @@ function readCounts(dbAbsPath: string): { files: number; chunks: number } {
   }
 }
 
-/** Open (and DDL-init) the folder's resolved KB store. Absent db → empty store.
- *  CREATING open — write paths only (reindex), never a read route. */
-function openStore(cwd: string): { store: SqliteFtsStore; cfg: ReturnType<typeof loadConfig> } {
-  const cfg = loadConfig(cwd);
-  const store = new SqliteFtsStore(cfg.dbAbsPath);
-  store.init();
-  return { store, cfg };
-}
-
 /** Count source files that drifted since their AGENTS.md row was acknowledged.
  *  Reads the extension-written `dox-staleness.json` via kb's tolerant
  *  `readStaleness` (v1 sha-only strings and v2 `{version, files}` records with
@@ -212,8 +200,6 @@ function kindOf(spec: SourceConfig): SourceKind {
   return (spec.kind ?? classifyRef(spec.ref)) as SourceKind;
 }
 
-const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
 type ResolvedSpec = { spec: SourceConfig; src: ResolvedSource & { revision?: string }; started: number };
 type JobLog = { info(m: string): void; warn(m: string): void };
 
@@ -236,53 +222,33 @@ async function resolveSpecs(cwd: string, cfg: ReturnType<typeof loadConfig>, out
   return resolved;
 }
 
-const okOutcome = (r: ResolvedSpec): KbSourceOutcome => ({ ref: r.spec.ref, status: "ok", ...(r.src.revision ? { revision: r.src.revision } : {}), at: Date.now() });
+/** Interval of the "folder still exists" check while a reindex runs (a vanished folder cancels the job). */
+const FOLDER_WATCH_MS = 2000;
 
-/** First index: all-or-nothing through the atomic path. Nothing on disk → nothing to build, no file. */
-async function firstIndex(cfg: ReturnType<typeof loadConfig>, resolved: ResolvedSpec[], outcomes: KbSourceOutcome[], log?: JobLog): Promise<KbReindexResult> {
-  if (!resolved.some((r) => existsSync(r.src.dir))) return { changed: 0, chunks: 0, outcomes };
-  let r: Awaited<ReturnType<typeof runIndexAtomic>>;
-  try {
-    r = await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources: resolved.map((x) => ({ id: x.src.id, dir: x.src.dir })), indexOpts: indexOptionsFromConfig(cfg), gate: cfg, seed: seedOptionsFromConfig(cfg) });
-  } catch (e) {
-    // All-or-nothing: record every resolved source as failed so the per-source outcomes (and the
-    // job's error summary) reflect THIS run rather than a stale earlier one.
-    for (const x of resolved) {
-      outcomes.push({ ref: x.spec.ref, status: "error", error: errMsg(e), at: Date.now() });
-      log?.warn(`[kb-plugin] source failed ref=${x.spec.ref} ms=${Date.now() - x.started}: ${errMsg(e)}`);
+/** Resolve after `ms`, or as soon as `signal` aborts (the abortable `pollMs` wait of `reindexAll`). */
+function abortableSleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const t = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+    function done(): void {
+      clearTimeout(t);
+      signal?.removeEventListener("abort", done);
+      resolve();
     }
-    return { changed: 0, chunks: 0, outcomes };
-  }
-  for (const x of resolved) {
-    outcomes.push(okOutcome(x));
-    log?.info(`[kb-plugin] source ok ref=${x.spec.ref} kind=${kindOf(x.spec)} ms=${Date.now() - x.started}`);
-  }
-  return { changed: r.changed, chunks: r.counts.chunks, outcomes };
+  });
 }
 
-/** Existing database: per-source gate (force exactly the stale sources), stamp only ok non-missing ones. */
-async function indexInPlace(cwd: string, resolved: ResolvedSpec[], outcomes: KbSourceOutcome[], log?: JobLog): Promise<KbReindexResult> {
-  const { store, cfg } = openStore(cwd);
-  try {
-    let changed = 0;
-    for (const x of resolved) {
-      try {
-        const force = sourceGateIsStale(store, cfg, x.src.id);
-        const stats = await indexSource(store, { root: x.src.id, dir: x.src.dir }, indexOptionsFromConfig(cfg, { force, onFirstBatch: force ? beginForcedSource(store, x.src.id) : undefined }));
-        if (!stats.missing) stampSource(store, cfg, x.src.id);
-        changed += stats.changed;
-        outcomes.push(okOutcome(x));
-        log?.info(`[kb-plugin] source ok ref=${x.spec.ref} kind=${kindOf(x.spec)} ms=${Date.now() - x.started}`);
-      } catch (e) {
-        outcomes.push({ ref: x.spec.ref, status: "error", error: errMsg(e), at: Date.now() });
-        log?.warn(`[kb-plugin] source failed ref=${x.spec.ref} ms=${Date.now() - x.started}: ${errMsg(e)}`);
-      }
-    }
-    stampPass(store, cfg);
-    return { changed, chunks: store.counts().chunks, outcomes };
-  } finally {
-    store.close();
-  }
+export interface ReindexAllOptions {
+  /** Sleep between checks while another process builds the first index (default 1000 ms). */
+  pollMs?: number;
+  /** Cancels the job: checked around `resolveSpecs`, ends the first-index wait at once, stops the worker. */
+  signal?: AbortSignal;
+  /** Receives a batch-commit progress report (coalesced by the worker). */
+  onProgress?: (p: ReindexProgress) => void;
+  /** Worker host (default: the process-wide runner). */
+  runner?: ReindexRunner;
+  /** Called when the folder vanishes mid-run; the registry caller cancels the job (settles idle, no `lastError`). */
+  onFolderGone?: () => void;
 }
 
 /**
@@ -298,19 +264,58 @@ async function indexInPlace(cwd: string, resolved: ResolvedSpec[], outcomes: KbS
  * `running`); otherwise it builds through the atomic first-index path (temp file → no-clobber
  * install). An existing database is indexed in place, force-reindexing exactly the sources
  * whose gate record is absent or stale.
+ *
+ * The resolve and the first-index wait stay on the main thread; the indexing itself
+ * (`reindex-core.ts`) runs in the reindex worker via the runner. See change: throttle-kb-reindex.
  */
-export async function reindexAll(cwd: string, log?: JobLog, opts: { pollMs?: number } = {}): Promise<KbReindexResult> {
+export async function reindexAll(cwd: string, log?: JobLog, opts: ReindexAllOptions = {}): Promise<KbReindexResult> {
+  const { signal } = opts;
+  const throwIfAborted = (): void => {
+    if (signal?.aborted) throw abortError();
+  };
   // TOCTOU re-check: the folder may vanish between preflight and the walk; the
   // creating open below would resurrect it (design D9).
   if (!folderExists(cwd)) throw new Error("folder missing");
+  throwIfAborted();
   const cfg = loadConfig(cwd);
   const outcomes: KbSourceOutcome[] = [];
   const resolved = await resolveSpecs(cwd, cfg, outcomes, log);
+  throwIfAborted();
   // Another process is building the first index: wait for it rather than create the database.
-  while (!existsSync(cfg.dbAbsPath) && isFirstIndexLive(cfg.dbAbsPath)) await new Promise<void>((r) => setTimeout(r, opts.pollMs ?? 1000));
+  while (!existsSync(cfg.dbAbsPath) && isFirstIndexLive(cfg.dbAbsPath)) {
+    await abortableSleep(opts.pollMs ?? 1000, signal);
+    throwIfAborted();
+  }
   // The wait can be long: re-check so a folder removed meanwhile is not resurrected by the build (design D9).
   if (!folderExists(cwd)) throw new Error("folder missing");
-  return existsSync(cfg.dbAbsPath) ? indexInPlace(cwd, resolved, outcomes, log) : firstIndex(cfg, resolved, outcomes, log);
+  throwIfAborted();
+  const watch = opts.onFolderGone
+    ? setInterval(() => {
+        if (!folderExists(cwd)) opts.onFolderGone?.();
+      }, FOLDER_WATCH_MS)
+    : undefined;
+  watch?.unref();
+  try {
+    const result = await (opts.runner ?? defaultReindexRunner()).run(
+      {
+        cwd,
+        dbPath: cfg.dbAbsPath,
+        mode: existsSync(cfg.dbAbsPath) ? "in-place" : "first",
+        gate: indexOptionsHash(cfg),
+        sources: resolved.map((x) => ({ ref: x.spec.ref, kind: kindOf(x.spec), id: x.src.id, dir: x.src.dir, ...(x.src.revision ? { revision: x.src.revision } : {}), started: x.started })),
+      },
+      { log, signal, onProgress: opts.onProgress },
+    );
+    return { ...result, outcomes: [...outcomes, ...(result.outcomes ?? [])] };
+  } finally {
+    if (watch) clearInterval(watch);
+  }
+}
+
+/** Start (or coalesce onto) the registry job that reindexes `cwd`: wires the registry's cancel signal and progress sink,
+ *  and a vanished folder cancels the job. The single start path for the REST route, the config-save chain and `plugin_action`. */
+export function startReindexJob(registry: KbJobRegistry, cwd: string, log: JobLog, runner?: ReindexRunner) {
+  return registry.start(cwd, (ctx) => reindexAll(cwd, log, { signal: ctx.signal, onProgress: ctx.progress, runner, onFolderGone: () => registry.cancel(cwd) }));
 }
 
 /** Atomic project-config write (tmp + rename), creating parent dirs. */
@@ -464,6 +469,10 @@ function endWithRequest<A extends Admission | { kind: "refuse" }>(reply: Fastify
 
 export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void {
   const { registry } = deps;
+  // Server shutdown: terminate a running reindex worker at once — no grace wait (kb-plugin-index-jobs spec).
+  fastify.addHook("onClose", async () => {
+    await (deps.reindexRunner ?? defaultReindexRunner()).shutdown();
+  });
 
   // ── GET stats ──────────────────────────────────────────────────
   fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/stats", async (req, reply) => {
@@ -516,7 +525,7 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
         reply.code(409);
         return { error: refused };
       }
-      const { promise } = registry.start(cwd, async () => reindexAll(cwd, fastify.log));
+      const { promise } = startReindexJob(registry, cwd, fastify.log, deps.reindexRunner);
       // Attach the catch SYNCHRONOUSLY so the detached tail promise is never an
       // unhandled rejection. Use `fastify.log` (not `req.log`): the request is
       // already finalized by the time the walk settles.
@@ -697,7 +706,7 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
       reindexSkipped = preflightWrite(cwd, { needsSources: true });
       // Fire-and-forget: the row polls `/stats` for completion.
       if (!reindexSkipped && !registry.isRunning(cwd)) {
-        registry.start(cwd, async () => reindexAll(cwd, fastify.log)).promise.catch(() => {});
+        startReindexJob(registry, cwd, fastify.log, deps.reindexRunner).promise.catch(() => {});
       }
     }
     const cfg = loadConfig(cwd);
