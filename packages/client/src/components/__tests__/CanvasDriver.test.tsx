@@ -332,6 +332,11 @@ describe("CanvasServerChip — label cap, address, accessible name", () => {
     expect(screen.getByTestId("canvas-server-chip-label").className).toContain("truncate");
   });
 
+  it("the address box reserves the host's width so a narrow slot never clips it", () => {
+    renderTray(chipOf("Dev", 4321));
+    expect(screen.getByTestId("canvas-server-chip-address").style.minWidth).toBe(`${"127.0.0.1:4321".length}ch`);
+  });
+
   it("the host is the fixed probe host, never chip data", () => {
     renderTray({
       ...EMPTY_CANVAS_STATE,

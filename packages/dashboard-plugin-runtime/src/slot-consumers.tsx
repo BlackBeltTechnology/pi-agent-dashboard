@@ -1350,7 +1350,7 @@ function OverlayClaimError({ pluginId, onBack }: { pluginId: string; onBack: () 
         </button>
       </div>
       <div className="p-4 text-sm text-[var(--text-secondary)]">
-        {t("overlayClaim.failed", { plugin: pluginId }, "This panel could not be loaded ({plugin}). Go back and try again.")}
+        {t("overlayClaim.failed", { plugin: pluginId }, "This panel could not be loaded ({plugin}). Reload the page to try again.")}
       </div>
     </div>
   );

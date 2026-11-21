@@ -477,6 +477,7 @@ export const zhCNCatalog: Record<string, string> = {
   "common.available": "可用",
   "common.back2": "返回",
   "common.back22": "← 返回",
+  "overlayClaim.failed": "无法加载此面板（{plugin}）。请刷新页面重试。",
   "common.backgroundProcesses": "后台进程",
   "common.batch": "批量",
   "common.binaryPathLeaveEmptyForAuto": "二进制路径(留空则自动检测)",

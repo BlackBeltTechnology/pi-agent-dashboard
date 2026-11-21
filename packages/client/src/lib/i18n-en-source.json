@@ -69,6 +69,7 @@
   "common.available": "Available",
   "common.back2": "Back",
   "common.back22": "← Back",
+  "overlayClaim.failed": "This panel could not be loaded ({plugin}). Reload the page to try again.",
   "session.backToChat": "Back to chat",
   "common.backgroundProcesses": "Background processes",
   "providers.baseUrl": "Base URL",

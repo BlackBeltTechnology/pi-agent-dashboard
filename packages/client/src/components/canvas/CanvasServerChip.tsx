@@ -61,7 +61,12 @@ export function CanvasServerChip({ chip }: Props) {
         <span data-testid="canvas-server-chip-label" className="min-w-0 max-w-[32ch] truncate font-medium">
           {label}
         </span>
-        <span data-testid="canvas-server-chip-address" className="flex min-w-0 font-mono text-[var(--text-tertiary)]">
+        {/* Reserve the host's width (monospace: 1ch per char) so a narrow slot truncates the path/label, never the host. */}
+        <span
+          data-testid="canvas-server-chip-address"
+          className="flex min-w-0 font-mono text-[var(--text-tertiary)]"
+          style={{ minWidth: `${host.length}ch` }}
+        >
           <span className="shrink-0">{host}</span>
           {path && <span className="min-w-0 truncate">{path}</span>}
         </span>
