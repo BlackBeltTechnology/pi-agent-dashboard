@@ -17,3 +17,7 @@ Routes-aware list/add/remove/probe via one serialized write queue; add attaches 
 ## harden-peer-address-identity
 
 Dep `ownFingerprint`. Add: after the operator guard, an address proving the own fp ⇒ `409 self_address` (precedes `identity_changed`; nothing pinned). `backfill` never pins the own fp. See change: harden-peer-address-identity.
+
+## enforce-strict-csp-default
+
+Probe of a `.local` name: lookup timeout or `EAI_AGAIN` → `name-not-resolved` (mDNS silence = not found; resolver without mDNS, e.g. container `hosts: files dns`, answers EAI_AGAIN after ~10 s). Unicast names keep `timeout`. Fixes `known-server-stale-name` E2E reading "Unreachable". See change: enforce-strict-csp-default.

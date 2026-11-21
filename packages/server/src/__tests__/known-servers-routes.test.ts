@@ -456,8 +456,27 @@ describe("known-servers routes (identity pinning)", () => {
         throw Object.assign(new Error("x"), { code: "ENOTFOUND" });
       });
       expect(await status()).toBe("name-not-resolved");
-      ctx.lookup.mockImplementationOnce(() => new Promise(() => {}));
-      expect(await status()).toBe("timeout");
+      expect(ctx.fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it("a `.local` name nobody answers for is not found; a unicast name's resolver failure stays a timeout", async () => {
+      // mDNS has no upstream server: silence IS the not-found answer. A resolver without mDNS
+      // (a container's `hosts: files dns`) answers EAI_AGAIN after its own timeout, or runs past ours.
+      seed([
+        { host: "a.local", port: 8000, addedAt: T0 },
+        { host: "lab.example.org", port: 8000, addedAt: T0 },
+      ]);
+      await mkCtx();
+      const eaiAgain = () => Promise.reject(Object.assign(new Error("x"), { code: "EAI_AGAIN" }));
+      const hang = () => new Promise(() => {});
+      ctx.lookup.mockImplementationOnce(eaiAgain);
+      expect(await status("a.local")).toBe("name-not-resolved");
+      ctx.lookup.mockImplementationOnce(hang);
+      expect(await status("a.local")).toBe("name-not-resolved");
+      ctx.lookup.mockImplementationOnce(eaiAgain);
+      expect(await status("lab.example.org")).toBe("timeout");
+      ctx.lookup.mockImplementationOnce(hang);
+      expect(await status("lab.example.org")).toBe("timeout");
       expect(ctx.fetchImpl).not.toHaveBeenCalled();
     });
 

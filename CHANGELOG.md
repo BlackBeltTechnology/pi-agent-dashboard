@@ -52,6 +52,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **A known server whose `.local` name no longer answers reads "Name not found", not "Unreachable".** Where nothing resolves mDNS (Docker, `hosts: files dns`) the lookup ran past the probe's budget or failed with `EAI_AGAIN`. The server probe now treats either as not found for a `.local` name; other names keep reporting a timeout.
 - **`!`, `!!` and slash-exec commands report their real exit status.** The bridge read a field pi's `exec` result does not have, so every failed command (and, on pi 1.5, a run cut off at the output cap) was reported with exit code `0`.
 - **pi-flows agent steps on Anthropic models no longer bill as extra usage with the Claude subscription compat switch on.** pi-flows builds agents without loading your installed packages, so the flows plugin again hands the compat rewrite to every flow agent through pi-flows' agent-extension hook.
 - **Claude subscription compat now covers sessions that were already open.** pi 1.4 sends a session's first system prompt as Anthropic's `system` field for the whole session, so turning the switch on did not fix sessions started before it, and their requests kept failing with "You're out of extra usage". The rewrite now also applies to each outgoing Anthropic request.

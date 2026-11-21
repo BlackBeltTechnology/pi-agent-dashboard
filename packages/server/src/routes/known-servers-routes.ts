@@ -393,13 +393,16 @@ export function registerKnownServersRoutes(fastify: FastifyInstance, deps: Known
   async function probeOnce(host: string, port: number, scheme: RouteScheme): Promise<KnownServerProbeResult> {
     const key = normalizeHostKey(host);
     if (!net.isIP(key)) {
+      // mDNS has no upstream server: no answer for a `.local` name IS "not found". A resolver without
+      // mDNS (a container's `hosts: files dns`) reports it as EAI_AGAIN after its own timeout, or outlasts ours.
+      const silence = key.endsWith(".local") ? "name-not-resolved" : "timeout";
       try {
         const outcome = await withTimeout(lookup(key).then(() => "ok" as const), dnsMs, () => "timeout" as const);
-        if (outcome === "timeout") return { status: "timeout" };
+        if (outcome === "timeout") return { status: silence };
       } catch (err) {
         const code = (err as { code?: string })?.code;
         if (code === "ENOTFOUND" || code === "EAI_NONAME") return { status: "name-not-resolved" };
-        if (code === "EAI_AGAIN") return { status: "timeout" };
+        if (code === "EAI_AGAIN") return { status: silence };
         return { status: "error" };
       }
     }
