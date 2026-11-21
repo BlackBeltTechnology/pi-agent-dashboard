@@ -24,11 +24,17 @@ async function main(argv: string[]): Promise<number> {
     return 1;
   }
   let runner: Runner | undefined;
-  const dispose = installSignalHandlers(() => runner);
+  const signals = installSignalHandlers(() => runner);
   try {
-    return await runMain(parsed.args, createDeps(), { onRunner: (r) => (runner = r) });
+    return await runMain(parsed.args, createDeps(), {
+      onRunner: (r) => {
+        runner = r;
+        const early = signals.pending();
+        if (early !== null) r.requestStop(early);
+      },
+    });
   } finally {
-    dispose();
+    signals.dispose();
   }
 }
 

@@ -142,9 +142,35 @@ describe("#X12 no decision without a live view (pure half)", () => {
 });
 
 describe("start halting", () => {
-  it("halted scheduling starts nothing", () => {
-    const s = mkState({ a: "queued" });
+  it("halted scheduling starts nothing while another item is still live", () => {
+    const s = mkState({ a: "queued", b: running("b") });
     s.halted = "init hook untrusted";
-    expect(nextActions(s, mkObs(), T0)).toEqual([]);
+    expect(nextActions(s, mkObs({ sessions: { b: {} } }), T0)).toEqual([]);
+    expect(item(s, "a").state).toBe("queued");
+  });
+
+  it("a halted run with nothing live ends its unstarted items so the runner can exit", () => {
+    const s = mkState({ a: "queued", b: "waiting_dep", c: "shipped" });
+    s.halted = "init hook untrusted";
+    const actions = nextActions(s, mkObs(), T0);
+    expect(actions.map((x) => x.kind)).toEqual(["skip", "skip"]);
+    expect([item(s, "a").state, item(s, "b").state]).toEqual(["skipped", "skipped"]);
+    expect(item(s, "a").reason).toMatch(/halted/);
+    expect(isDone(s)).toBe(true);
+  });
+});
+
+describe("a question arriving after classification", () => {
+  it("returns a settled item to question and drops its stale outcome (no nudge, no teardown)", () => {
+    const s = mkState({ a: { state: "settled", sessionId: "a", outcome: "incomplete", nudgesUsed: 0 } });
+    const actions = nextActions(s, mkObs({ sessions: { a: { status: "idle" } }, questions: new Set(["a"]) }), T0);
+    expect(actions).toEqual([]);
+    expect(item(s, "a")).toMatchObject({ state: "question" });
+    expect(item(s, "a").outcome).toBeUndefined();
+  });
+
+  it("a teardown item with a pending question waits", () => {
+    const s = mkState({ a: { state: "teardown", sessionId: "a", outcome: "shipped" } });
+    expect(nextActions(s, mkObs({ sessions: { a: { status: "idle" } }, questions: new Set(["a"]) }), T0)).toEqual([]);
   });
 });

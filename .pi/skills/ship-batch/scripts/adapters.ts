@@ -41,14 +41,27 @@ export function createRest(): Deps["rest"] {
   };
 }
 
+/** A socket that opens but never sends `sessions_snapshot` must not hang the runner. */
+const BUS_CONNECT_TIMEOUT_MS = 30_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
+
 /** `BusClient` wrapped so a dropped socket is observable (`connected()`), one client per connection. */
 export function createBus(): BusPort {
   let client: BusClient | null = null;
+  let pending: BusClient | null = null;
   let open = false;
   let generation = 0;
   return {
     async connect() {
       client?.close();
+      pending?.close();
       const mine = ++generation;
       class TrackedWebSocket extends WebSocket {
         constructor(url: string) {
@@ -64,10 +77,22 @@ export function createBus(): BusPort {
         // biome-ignore lint/suspicious/noExplicitAny: the bus client types its own socket shape
         WebSocketCtor: TrackedWebSocket as any,
       });
+      pending = c;
       open = false;
-      await c.connect();
+      try {
+        await withTimeout(c.connect(), BUS_CONNECT_TIMEOUT_MS, "bus connect");
+      } catch (e) {
+        c.close(); // never leave a half-open socket behind
+        if (pending === c) pending = null;
+        throw e;
+      }
+      if (mine !== generation) {
+        c.close();
+        throw new Error("bus connect superseded");
+      }
+      pending = null;
       client = c;
-      open = true;
+      open = true; // published as connected only after the snapshot arrived
     },
     connected: () => open,
     sessions: () =>
@@ -82,6 +107,9 @@ export function createBus(): BusPort {
     },
     close: () => {
       open = false;
+      generation++;
+      pending?.close();
+      pending = null;
       client?.close();
       client = null;
     },

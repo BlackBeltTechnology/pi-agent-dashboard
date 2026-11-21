@@ -78,7 +78,7 @@ export interface Call {
   seq: number;
 }
 
-type Handler = (body: Record<string, unknown>, path: string) => RestResponse | Promise<RestResponse> | undefined;
+type Handler = (body: Record<string, unknown>, path: string) => RestResponse | Promise<RestResponse | undefined> | undefined;
 
 export class FakeDashboard {
   t = 1_700_000_000_000;

@@ -79,6 +79,11 @@ export interface WorktreeFacts {
   midOperation: boolean;
   /** Local branch `os/<change>` exists. */
   branchExists: boolean;
+  /**
+   * The worktree state cannot be trusted (`git status` failed, or HEAD is not
+   * `os/<change>`): nothing may be committed, pushed or removed.
+   */
+  unsafe?: string;
 }
 
 export type TeardownVerdict = "shipped" | "incomplete" | "failed" | "kept";
@@ -107,6 +112,7 @@ function shippedPlan(facts: WorktreeFacts): TeardownPlan {
   const deleteBranch = facts.branchExists ? [BRANCH_DELETE] : [];
   if (!facts.registered) return { steps: [{ op: "prune" }, ...deleteBranch], result: "shipped" };
   if (facts.midOperation) return kept("shipped but the worktree has a merge/rebase in progress or a detached HEAD");
+  if (facts.unsafe) return kept(`shipped but ${facts.unsafe}`);
   if (workDirt(facts.dirt).length > 0) return kept("shipped but the worktree has unpushable local changes");
   return { steps: [REMOVE, ...deleteBranch], result: "shipped" };
 }
@@ -117,6 +123,7 @@ function unshippedPlan(outcome: "blocked" | "incomplete" | "failed", facts: Work
     return kept(facts.branchExists ? "worktree is not registered; local branch left as-is" : "worktree is not registered");
   }
   if (facts.midOperation) return kept("merge/rebase in progress or detached HEAD; nothing committed or removed");
+  if (facts.unsafe) return kept(`${facts.unsafe}; nothing committed or removed`);
 
   const dirty = workDirt(facts.dirt).length > 0;
   const hasWork = dirty || facts.aheadOfDevelop > 0;

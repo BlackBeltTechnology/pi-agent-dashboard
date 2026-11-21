@@ -332,19 +332,26 @@ function stepSettled(item: Item, t: Tick, session: SessionObs | undefined): void
   t.actions.push({ kind: "teardown", change: item.change });
 }
 
+/** Items with no session yet: a restart's pending spawn, or a failed start the runner put into teardown. */
+function stepSessionless(item: Item, t: Tick): void {
+  if (item.state === "starting" && item.spawnRequestedAt !== undefined) t.actions.push({ kind: "adopt", change: item.change });
+  else if (item.state === "teardown" && t.settleOk) t.actions.push({ kind: "teardown", change: item.change });
+}
+
 function stepItem(item: Item, t: Tick): void {
   const id = item.sessionId;
-  if (!id) {
-    if (item.state === "starting" && item.spawnRequestedAt !== undefined) t.actions.push({ kind: "adopt", change: item.change });
-    // Put into `teardown` by the runner without a session (failed start).
-    else if (item.state === "teardown" && t.settleOk) t.actions.push({ kind: "teardown", change: item.change });
-    return;
-  }
+  if (!id) return stepSessionless(item, t);
   const session = t.obs.sessions[id];
   if (session) track(item, session, t.now);
   if (item.state === "running" || item.state === "question") stepWatched(item, t, session);
-  else if (item.state === "settled" && t.settleOk) stepSettled(item, t, session);
-  else if (item.state === "teardown" && t.settleOk) t.actions.push({ kind: "teardown", change: item.change });
+  else if (item.state === "settled" && t.obs.questions.has(id)) {
+    // A question arrived after classification: the outcome is stale; re-settle after the answer.
+    item.outcome = undefined;
+    setState(item, "question", t.now);
+  } else if (item.state === "settled" && t.settleOk) stepSettled(item, t, session);
+  else if (item.state === "teardown" && t.settleOk && !t.obs.questions.has(id)) {
+    t.actions.push({ kind: "teardown", change: item.change });
+  }
 }
 
 /** Start queued items while `active < N` and `live < --max-live` (queue order). */
@@ -378,5 +385,22 @@ export function nextActions(state: BatchState, obs: Observations, now: number): 
   for (const item of state.items) stepItem(item, tick);
   gateDependencies(state, now, actions);
   startQueued(state, now, actions);
+  skipRemainingWhenHalted(state, now, actions);
   return actions;
+}
+
+/**
+ * A halted run (untrusted init hook) starts nothing more. Once no item is still
+ * live, the not-yet-started ones can never run in this process: end them so the
+ * runner exits (code 2) instead of ticking forever.
+ */
+function skipRemainingWhenHalted(state: BatchState, now: number, actions: Action[]): void {
+  if (!state.halted) return;
+  if (state.items.some((i) => ACTIVE_STATES.has(i.state) || i.state === "question")) return;
+  for (const item of state.items) {
+    if (item.state !== "queued" && item.state !== "waiting_dep") continue;
+    const reason = `scheduling halted: ${state.halted}`;
+    setState(item, "skipped", now, reason);
+    actions.push({ kind: "skip", change: item.change, reason });
+  }
 }

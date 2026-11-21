@@ -11,8 +11,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { CliArgs } from "./args.ts";
-import { type LockInfo, lockDecision } from "./lock.ts";
-import { classify, type TeardownStep, teardownPlan, type WorktreeFacts } from "./outcome.ts";
+import { LockFile, LockRefused } from "./lockfile.ts";
+import { classify, LOCAL_ONLY_PATHS, type TeardownStep, teardownPlan, type WorktreeFacts } from "./outcome.ts";
 import {
   adopt,
   batchMembers,
@@ -31,6 +31,7 @@ import {
   isTerminal,
   type Observations,
   type Outcome,
+  type Params,
   type SessionObs,
 } from "./types.ts";
 
@@ -40,6 +41,12 @@ export interface RestResponse {
   status: number;
   // biome-ignore lint/suspicious/noExplicitAny: REST envelopes are loosely typed JSON
   json: any;
+}
+
+interface GroupsFile {
+  groups: { id: string; name: string }[];
+  assignments: Record<string, string>;
+  changeOrder?: Record<string, string[]>;
 }
 
 export interface BusPort {
@@ -195,7 +202,8 @@ export class Runner {
   private archivedCache = new Set<string>();
   private stopCode: number | null = null;
   private stopWake: (() => void) | null = null;
-  private lockHeld = false;
+  private lock: LockFile | null = null;
+  private lost = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -234,72 +242,47 @@ export class Runner {
   }
 
   private persist(): void {
+    if (this.lost) return; // never write shared state after another runner took over
     this.state.updatedAt = this.deps.now();
     const tmp = `${this.stateFile}.tmp`;
     fs.writeFileSync(tmp, `${JSON.stringify(this.state, null, 2)}\n`);
     fs.renameSync(tmp, this.stateFile);
   }
 
-  /** Is the lock file ours? A missing / unreadable file counts as ours to re-create. */
-  private lockIsOurs(): boolean {
-    try {
-      const cur = JSON.parse(fs.readFileSync(this.lockFile, "utf8")) as LockInfo;
-      return cur.pid === this.deps.pid && cur.hostname === this.deps.hostname;
-    } catch {
-      return true;
-    }
-  }
-
-  /** Refresh `heartbeatAt`, never overwriting a lock a successor now holds. */
-  private writeLock(): void {
-    if (!this.lockIsOurs()) {
-      if (this.lockHeld) this.event("error", { what: "lock_lost", message: "another runner took over the lock" });
-      this.lockHeld = false;
-      return;
-    }
-    const groupId = this.state?.groupId ?? this.args.group ?? "";
-    const info: LockInfo = { pid: this.deps.pid, hostname: this.deps.hostname, groupId, heartbeatAt: this.deps.now() };
-    const tmp = `${this.lockFile}.${this.deps.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(info));
-    fs.renameSync(tmp, this.lockFile);
-  }
-
   private acquireLock(groupId: string): void {
     fs.mkdirSync(stateDir(this.repo), { recursive: true });
     ensureExcluded(this.repo);
-    const info: LockInfo = { pid: this.deps.pid, hostname: this.deps.hostname, groupId, heartbeatAt: this.deps.now() };
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const fd = fs.openSync(this.lockFile, "wx");
-        fs.writeSync(fd, JSON.stringify(info));
-        fs.closeSync(fd);
-        this.lockHeld = true;
-        return;
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      }
-      let existing: LockInfo | null = null;
-      try {
-        existing = JSON.parse(fs.readFileSync(this.lockFile, "utf8")) as LockInfo;
-      } catch {
-        existing = null; // unreadable / vanished → treat as stale
-      }
-      const decision = existing
-        ? lockDecision(existing, { hostname: this.deps.hostname, pid: this.deps.pid }, this.deps.now(), this.deps.isAlive)
-        : ({ action: "takeover" } as const);
-      if (decision.action === "refuse") throw new ExitError(decision.reason, 1);
-      fs.rmSync(this.lockFile, { force: true });
+    this.lock = new LockFile(this.lockFile, { pid: this.deps.pid, hostname: this.deps.hostname }, this.deps.now, this.deps.isAlive);
+    try {
+      this.lock.acquire(groupId);
+    } catch (e) {
+      if (e instanceof LockRefused) throw new ExitError(e.message, 1);
+      throw e;
     }
-    throw new ExitError("could not acquire the ship-batch lock (lost a race)", 1);
+  }
+
+  /**
+   * Refresh the heartbeat. When the lock is no longer ours another runner has
+   * taken over: stand down — stop dispatching and stop writing shared state.
+   */
+  private writeLockHeartbeat(): void {
+    if (!this.lock || this.lost) return;
+    try {
+      if (this.lock.heartbeat(this.state?.groupId ?? this.args.group ?? "") === "lost") {
+        this.lost = true;
+        this.event("error", { what: "lock_lost", message: "another runner took over the lock; standing down" });
+        this.requestStop(1);
+      }
+    } catch {
+      /* heartbeat is best effort; the next one retries */
+    }
   }
 
   /** Stop the heartbeat and remove the lock if (and only if) it is still ours. Idempotent. */
   releaseLock(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
-    if (!this.lockHeld) return;
-    if (this.lockIsOurs()) fs.rmSync(this.lockFile, { force: true });
-    this.lockHeld = false;
+    this.lock?.release();
   }
 
   // ── REST helpers ──────────────────────────────────────────────────
@@ -331,14 +314,23 @@ export class Runner {
       .filter(Boolean);
   }
 
-  /** Plan the queue. Throws `ExitError(1)` before any side effect on a planning failure. */
-  async plan(groupQuery: string): Promise<{ state: BatchState; willAsk: Record<string, string[]> }> {
+  private async readGroups(groupQuery: string): Promise<{ file: GroupsFile; group: { id: string; name: string } }> {
     const gres = await this.get(`/api/openspec/groups?${this.q({ cwd: this.repo })}`);
     if (gres.status !== 200 || !gres.json?.data) throw new ExitError(`cannot read the OpenSpec groups (HTTP ${gres.status})`, 1);
-    const file = gres.json.data as { groups: { id: string; name: string }[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> };
+    const file = gres.json.data as GroupsFile;
     const resolved = resolveGroup(file.groups, groupQuery);
     if (!resolved.ok) throw new ExitError(resolved.error, 1);
-    const group = resolved.group;
+    return { file, group: resolved.group };
+  }
+
+  private paramsFromArgs(): Params {
+    const { parallel, maxLive, nudges, settleMs, startTimeoutMs, model } = this.args;
+    return { parallel, maxLive, nudges, settleMs, startTimeoutMs, model };
+  }
+
+  /** Plan the queue. Throws `ExitError(1)` before any side effect on a planning failure. */
+  async plan(groupQuery: string): Promise<{ state: BatchState; willAsk: Record<string, string[]> }> {
+    const { file, group } = await this.readGroups(groupQuery);
 
     const archiveDirs = this.fetchArchiveDirs();
     if (archiveDirs === null) throw new ExitError("cannot fetch origin/develop (needed to detect already-shipped changes)", 1);
@@ -356,14 +348,7 @@ export class Runner {
       groupId: group.id,
       groupName: group.name,
       repo: this.repo,
-      params: {
-        parallel: this.args.parallel,
-        maxLive: this.args.maxLive,
-        nudges: this.args.nudges,
-        settleMs: this.args.settleMs,
-        startTimeoutMs: this.args.startTimeoutMs,
-        model: this.args.model,
-      },
+      params: this.paramsFromArgs(),
       planArchive: archiveDirs,
       items: planned.items,
       alreadyShipped: planned.alreadyShipped,
@@ -423,8 +408,8 @@ export class Runner {
   }
 
   /** Re-attach an unfinished run: the CLI's params win, scheduling is un-halted. */
-  private resumeFrom(existing: BatchState, fresh: BatchState): BatchState {
-    existing.params = fresh.params;
+  private resumeFrom(existing: BatchState): BatchState {
+    existing.params = this.paramsFromArgs();
     existing.halted = undefined;
     for (const i of existing.items) {
       if (i.state !== "starting") continue;
@@ -436,22 +421,34 @@ export class Runner {
     return existing;
   }
 
-  /** Load a resumable state, or rotate a finished one and plan fresh. */
+  /**
+   * Load a resumable state, or rotate a finished one and plan fresh. A resumable
+   * run is re-attached without re-planning, so a dependency-lookup hiccup for a
+   * newly eligible member cannot strand the sessions already running.
+   */
   async prepare(groupQuery: string): Promise<void> {
-    const { state: fresh } = await this.plan(groupQuery);
-    this.paths(fresh.groupId);
-    this.acquireLock(fresh.groupId);
-    const prior = this.readExisting();
-    const resumed = prior?.items.some((i) => !isTerminal(i.state)) === true;
+    const { group } = await this.readGroups(groupQuery);
+    this.paths(group.id);
+    const unfinished = (st: BatchState | null): st is BatchState => st?.items.some((i) => !isTerminal(i.state)) === true;
+    // Plan first (read-only; aborts before any side effect), but only when a fresh plan can be needed.
+    let fresh = unfinished(this.readExisting()) ? null : (await this.plan(groupQuery)).state;
+    this.acquireLock(group.id);
+    const prior = this.readExisting(); // re-read under the lock
+    const resumed = unfinished(prior);
     if (prior && !resumed) {
-      fs.renameSync(this.stateFile, path.join(stateDir(this.repo), `${safeId(fresh.groupId)}.${this.deps.now()}.json`));
+      fs.renameSync(this.stateFile, path.join(stateDir(this.repo), `${safeId(group.id)}.${this.deps.now()}.json`));
     }
-    this.state = resumed ? this.resumeFrom(prior as BatchState, fresh) : fresh;
+    fresh ??= resumed ? null : (await this.plan(groupQuery)).state;
+    this.state = resumed ? this.resumeFrom(prior) : (fresh as BatchState);
     // A resumed run already logged its history; a fresh plan logs from the start.
     for (const i of this.state.items) this.seen.set(i.change, resumed ? i.history.length : 0);
     this.flushTransitions();
     this.busUpSince = this.deps.now(); // `runMain` connected the bus just before
     this.persist();
+  }
+
+  stopRequested(): number | null {
+    return this.stopCode;
   }
 
   requestStop(code: number): void {
@@ -582,39 +579,66 @@ export class Runner {
       return;
     }
     const obs = await this.observe(now);
-    if (!obs) {
+    // The bus may have dropped while the questions / archive lookups were pending: that
+    // snapshot is stale, so decide nothing on it.
+    if (!obs || !this.deps.bus.connected()) {
       this.persist();
       return;
     }
     const actions = nextActions(this.state, obs, now);
     this.flushTransitions();
     this.persist();
+    await this.dispatch(actions);
+    this.writeLockHeartbeat();
+  }
+
+  /** Why an action must not run right now (revalidated before each one: earlier actions can block for minutes). */
+  private skipReason(a: Action): string | null {
+    if (this.lost) return "lock lost";
+    if (!this.deps.bus.connected()) return "bus disconnected";
+    if (a.kind === "start" && (this.stopCode !== null || this.state.halted)) return "scheduling stopped";
+    return null;
+  }
+
+  /** Put an action's pre-applied transition back so the item is re-decided on a later tick. */
+  private undo(a: Action): void {
+    const item = this.item(a.change);
+    if (!item) return;
+    if (a.kind === "start" && item.state === "starting" && !item.sessionId) {
+      item.spawnRequestedAt = undefined;
+      setState(item, "queued", this.deps.now(), "not started");
+    } else if (a.kind === "nudge" && item.state === "running") {
+      item.nudgesUsed = Math.max(0, item.nudgesUsed - 1);
+      item.outcome = "incomplete";
+      setState(item, "settled", this.deps.now(), "nudge not sent");
+    }
+  }
+
+  private async dispatch(actions: Action[]): Promise<void> {
     for (const action of actions) {
-      if (this.stopCode !== null && action.kind === "start") continue;
+      if (this.skipReason(action)) {
+        this.undo(action);
+        continue;
+      }
       this.event("action", { ...action });
       this.actionsExecuted++;
       try {
         await this.exec(action);
       } catch (e) {
-        const item = this.item(action.change);
         this.event("error", { what: action.kind, change: action.change, message: String((e as Error)?.message ?? e) });
-        if (item && !isTerminal(item.state)) {
-          item.outcome = item.outcome ?? "unknown";
-          setState(item, "kept", this.deps.now(), `error during ${action.kind}: ${String((e as Error)?.message ?? e)}`);
-        }
+        if (action.kind === "nudge") this.undo(action);
+        else this.keepOnError(action, e);
       }
       this.flushTransitions();
       this.persist();
     }
-    this.writeLockHeartbeat();
   }
 
-  private writeLockHeartbeat(): void {
-    try {
-      this.writeLock();
-    } catch {
-      /* heartbeat is best effort */
-    }
+  private keepOnError(action: Action, e: unknown): void {
+    const item = this.item(action.change);
+    if (!item || isTerminal(item.state)) return;
+    item.outcome = item.outcome ?? "unknown";
+    setState(item, "kept", this.deps.now(), `error during ${action.kind}: ${String((e as Error)?.message ?? e)}`);
   }
 
   private item(change: string): Item | undefined {
@@ -667,8 +691,15 @@ export class Runner {
 
   /** The worktree for `item`: reuse a registered one, else check out / fork per D4 (retrying a husk once). */
   private async ensureWorktree(item: Item, wt: string): Promise<Step<string>> {
-    if (this.worktreeRegistered(wt)) return { ok: true, value: wt };
     const branch = `os/${item.change}`;
+    if (this.worktreeRegistered(wt)) {
+      // Reuse only a worktree that is on the expected branch (teardown pushes `os/<change>`).
+      const head = git(wt, ["symbolic-ref", "--short", "-q", "HEAD"]);
+      if (head.ok && head.stdout.trim() !== branch) {
+        return { ok: false, reason: `worktree ${wt} has ${head.stdout.trim()} checked out, expected ${branch}` };
+      }
+      return { ok: true, value: wt };
+    }
     let body: Record<string, string>;
     if (this.refExists(`refs/heads/${branch}`)) body = { cwd: this.repo, base: branch };
     else {
@@ -807,7 +838,14 @@ export class Runner {
     if (!mayPost) return "wait";
 
     a.lastAttemptAt = now;
-    const res = await this.deps.rest("POST", `/api/session/${encodeURIComponent(id)}/archive`, {});
+    let res: RestResponse;
+    try {
+      res = await this.deps.rest("POST", `/api/session/${encodeURIComponent(id)}/archive`, {});
+    } catch (e) {
+      // A transport error is inconclusive (the server may have accepted it): retry within the bound.
+      this.event("error", { what: "archive", change: item.change, message: String((e as Error)?.message ?? e) });
+      return "wait";
+    }
     if (res.status === 200 && res.json?.success !== false) {
       if (res.json?.pending) {
         a.pending = true;
@@ -849,7 +887,16 @@ export class Runner {
     const midOperation =
       ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"].some((p) => fs.existsSync(gitPath(p))) ||
       !git(wt, ["symbolic-ref", "-q", "HEAD"]).ok;
-    return { registered, dirt, aheadOfDevelop, midOperation, branchExists };
+    return { registered, dirt, aheadOfDevelop, midOperation, branchExists, unsafe: this.unsafeReason(item, wt, st.ok) };
+  }
+
+  /** Why the worktree must not be touched: unreadable status, or HEAD is not `os/<change>`. */
+  private unsafeReason(item: Item, wt: string, statusOk: boolean): string | undefined {
+    if (!statusOk) return "the worktree state could not be read (git status failed)";
+    const head = git(wt, ["symbolic-ref", "--short", "-q", "HEAD"]);
+    const expected = `os/${item.change}`;
+    if (head.ok && head.stdout.trim() !== expected) return `HEAD is on ${head.stdout.trim()}, not ${expected}`;
+    return undefined;
   }
 
   private keep(item: Item, reason: string): void {
@@ -900,6 +947,17 @@ export class Runner {
     setState(item, plan.result, this.deps.now(), plan.result === "shipped" ? undefined : (item.reason ?? `outcome ${outcome}`));
   }
 
+  /** Commit the pushable work (never worktree-local config, even when staged); `null` = ok / nothing to commit. */
+  private wipCommit(item: Item, wt: string, outcome: Outcome): string | null {
+    const add = git(wt, ["add", "-A", "--", ".", ":!.pi/settings.json"]);
+    if (!add.ok) return `git add failed: ${add.stderr.trim()}`;
+    const staged = git(wt, ["diff", "--cached", "--name-only", "-z"]).stdout.split("\0");
+    if (staged.some((f) => LOCAL_ONLY_PATHS.has(f))) git(wt, ["restore", "--staged", "--", ...LOCAL_ONLY_PATHS]);
+    if (git(wt, ["diff", "--cached", "--quiet"]).ok) return null; // nothing staged
+    const c = git(wt, ["commit", "--no-verify", "-m", `wip(ship-batch): ${item.change} ${outcome}`]);
+    return c.ok ? null : `WIP commit failed: ${c.stderr.trim()}`;
+  }
+
   /** Execute one teardown step; returns a failure reason when the worktree must be kept. */
   private async runStep(item: Item, wt: string, step: TeardownStep, outcome: Outcome): Promise<string | null> {
     const branch = `os/${item.change}`;
@@ -915,13 +973,8 @@ export class Runner {
         }
         return null;
       }
-      case "wip-commit": {
-        const add = git(wt, ["add", "-A", "--", ".", ":!.pi/settings.json"]);
-        if (!add.ok) return `git add failed: ${add.stderr.trim()}`;
-        if (git(wt, ["diff", "--cached", "--quiet"]).ok) return null; // nothing staged
-        const c = git(wt, ["commit", "--no-verify", "-m", `wip(ship-batch): ${item.change} ${outcome}`]);
-        return c.ok ? null : `WIP commit failed: ${c.stderr.trim()}`;
-      }
+      case "wip-commit":
+        return this.wipCommit(item, wt, outcome);
       case "push": {
         const p = git(wt, ["push", "-u", "origin", branch]);
         return p.ok ? null : `push failed: ${p.stderr.trim().split("\n").pop()}`;
@@ -984,7 +1037,7 @@ async function runMainInner(args: CliArgs, deps: Deps, opts: { onRunner?: (r: Ru
   if (args.status) return statusMain(args, deps, repo);
 
   const runner = new Runner(deps, args, repo);
-  opts.onRunner?.(runner);
+  opts.onRunner?.(runner); // may deliver a signal that arrived during preflight
 
   if (args.dryRun) {
     const { state, willAsk } = await runner.plan(args.group as string);
@@ -992,12 +1045,14 @@ async function runMainInner(args: CliArgs, deps: Deps, opts: { onRunner?: (r: Ru
     return 0;
   }
 
+  if (runner.stopRequested() !== null) return runner.stopRequested() as number;
   // Connect before any side effect; an unreachable bus is a preflight failure.
   try {
     await deps.bus.connect();
   } catch (e) {
     throw new ExitError(`preflight: cannot connect to the dashboard bus (${String((e as Error)?.message ?? e)})`, 1);
   }
+  if (runner.stopRequested() !== null) return runner.stopRequested() as number;
   try {
     await runner.prepare(args.group as string);
     const code = await runner.runLoop();
@@ -1008,15 +1063,30 @@ async function runMainInner(args: CliArgs, deps: Deps, opts: { onRunner?: (r: Ru
   }
 }
 
+export interface SignalHandle {
+  dispose(): void;
+  /** The first signal's exit code when it arrived before a `Runner` existed. */
+  pending(): number | null;
+}
+
 /** SIGINT/SIGTERM → stop new starts, persist, release the lock, exit 130/143 (live sessions untouched). */
-export function installSignalHandlers(getRunner: () => Runner | undefined, proc: NodeJS.Process = process): () => void {
-  const sigint = (): void => getRunner()?.requestStop(130);
-  const sigterm = (): void => getRunner()?.requestStop(143);
+export function installSignalHandlers(getRunner: () => Runner | undefined, proc: NodeJS.Process = process): SignalHandle {
+  let early: number | null = null;
+  const stop = (code: number): void => {
+    const runner = getRunner();
+    if (runner) runner.requestStop(code);
+    else early ??= code; // preflight still running: remember it for the runner
+  };
+  const sigint = (): void => stop(130);
+  const sigterm = (): void => stop(143);
   proc.on("SIGINT", sigint);
   proc.on("SIGTERM", sigterm);
-  return () => {
-    proc.off("SIGINT", sigint);
-    proc.off("SIGTERM", sigterm);
+  return {
+    dispose: () => {
+      proc.off("SIGINT", sigint);
+      proc.off("SIGTERM", sigterm);
+    },
+    pending: () => early,
   };
 }
 
