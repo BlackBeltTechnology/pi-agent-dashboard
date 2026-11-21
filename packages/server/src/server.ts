@@ -167,6 +167,7 @@ import {
   respawnForRuntimeSwap,
 } from "./browser-handlers/session-action-handler.js";
 import { runLifecycleAction } from "./browser-handlers/session-lifecycle.js";
+import { buildPluginSendPrompt } from "./build-plugin-send-prompt.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { readRawConfig, seedWindowsSourceSettings, writeConfigPartial } from "./config-api.js";
 import {
@@ -4306,8 +4307,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 set.add(handler);
                 return () => set.delete(handler);
               },
-              sendToSession: (sessionId, text) =>
-                piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text }),
+              sendToSession: (sessionId, text, opts) =>
+                piGateway.sendToSession(sessionId, buildPluginSendPrompt(sessionId, text, opts)),
               // Session-spawn hook. Gated to first-party/trusted plugins
               // (priority <= 100 by convention). Untrusted plugins get a
               // hook that always rejects. See change: add-automation-plugin.

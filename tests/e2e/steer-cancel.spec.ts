@@ -32,12 +32,14 @@ const cards = (page: Page) => byTestId(page, "pendingSteerCard");
  * Spawn a session, select it, and drive it into a streaming turn. Gated on the
  * Stop button, which the composer shows once the run is live server-side.
  */
-async function streamingSession(page: Page, prompt = SLOW_STREAM): Promise<void> {
+async function streamingSession(page: Page, prompt = SLOW_STREAM): Promise<string> {
   const card = await spawnFreshGitSession(page);
+  const sessionId = (await card.getAttribute("data-session-id")) ?? "";
   await card.click();
   await page.keyboard.press("Escape").catch(() => {});
   await sendPrompt(page, prompt);
   await expect(page.getByTestId("stop-button")).toBeVisible({ timeout: 30_000 });
+  return sessionId;
 }
 
 /**
@@ -199,6 +201,54 @@ test.describe("held steers — cancellable bubbles", () => {
   });
 });
 
+/**
+ * REST steers (change: add-rest-prompt-delivery-mode). `POST /api/session/:id/prompt`
+ * with `delivery:"steer"` must behave exactly like a composer steer: held and
+ * cancellable mid-turn, straight to pi when idle.
+ */
+test.describe("REST steer — same as a browser steer", () => {
+  const restSteer = (page: Page, sessionId: string, text: string) =>
+    page.request.post(`/api/session/${sessionId}/prompt`, { data: { text, delivery: "steer" } });
+
+  test("REST-F1: a REST steer mid-stream shows a held, cancellable bubble and no user message yet", async ({ page }) => {
+    test.setTimeout(180_000);
+    const sessionId = await streamingSession(page);
+    const res = await restSteer(page, sessionId, "rest-steer-held");
+    expect(res.ok()).toBeTruthy();
+    await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
+    await expect(cards(page).first()).toContainText("rest-steer-held");
+    await expect(cards(page).first().locator("[data-testid^='pending-steer-cancel-']")).toHaveCount(1);
+    // Only the held bubble carries the text: no user message before hand-off.
+    await expect(page.getByText("rest-steer-held", { exact: true })).toHaveCount(1);
+  });
+
+  test("REST-F2: a REST steer is cancellable until hand-off and never reaches the transcript", async ({ page }) => {
+    test.setTimeout(240_000);
+    const sessionId = await streamingSession(page);
+    expect((await restSteer(page, sessionId, "rest-steer-cancel")).ok()).toBeTruthy();
+    await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
+    await cards(page).first().locator("[data-testid^='pending-steer-cancel-']").click();
+    await expect(cards(page)).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.getByTestId("stop-button")).toHaveCount(0, { timeout: 120_000 });
+    await expect(page.getByText(SLOW_STREAM_LAST).first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText("rest-steer-cancel", { exact: true })).toHaveCount(0);
+  });
+
+  test("REST-F3: a REST steer on an idle session goes straight to pi — user message, reply, no lingering bubble", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const card = await spawnFreshGitSession(page);
+    const sessionId = (await card.getAttribute("data-session-id")) ?? "";
+    await card.click();
+    expect((await restSteer(page, sessionId, "[[faux:plain-text]] rest-idle-steer")).ok()).toBeTruthy();
+    await expect(page.getByText("The quick brown faux jumps over the lazy dog.").first()).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.getByText("rest-idle-steer").first()).toBeVisible();
+    await expect(cards(page)).toHaveCount(0);
+  });
+});
 interface RawBridge {
   sessionId: string;
   send: (payload: Record<string, unknown>) => void;
