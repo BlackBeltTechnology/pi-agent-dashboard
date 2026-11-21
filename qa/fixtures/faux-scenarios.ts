@@ -239,6 +239,18 @@ export function summarizeDashboardCall(context: FauxContext): string {
 }
 
 /** Build a single-tool-call scenario for the client renderer matrix. */
+
+/** Scripted `read` calls (one per path) followed by a closing text, so the run ends. */
+function readsThenText(paths: string[], closing: string) {
+  return {
+    script: [
+      ...paths.map((path) => fauxAssistantMessage([fauxToolCall("read", { path })], { stopReason: "toolUse" })),
+      fauxAssistantMessage([fauxText(closing)]),
+    ],
+    expect: { toolName: "read" },
+  };
+}
+
 function toolScenario(
   name: string,
   args: Record<string, unknown>,
@@ -1167,6 +1179,24 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "read" },
   },
+  // Agent secret guards (change: harden-agent-tool-guards, tests/e2e/agent-secret-guards.spec.ts).
+  // Each scenario reads fixed `~/` paths (the paths need not exist: guard and gate decide on the
+  // path before any read) then a closing text so the script stays finite.
+  "tool-read-agent-models": readsThenText(["~/.pi/agent/models.json", "~/.pi/agent/models.json"], "agent models read done"),
+  "tool-read-agent-auth": readsThenText(["~/.pi/agent/auth.json"], "agent auth read done"),
+  "tool-read-credential-dirs": readsThenText(
+    ["~/.aws/credentials", "~/.netrc", "~/.config/google-chrome/Default/Cookies"],
+    "credential dirs read done",
+  ),
+  // The same other-project session file twice: `Allow once` must not carry to the repeat.
+  "tool-read-other-session-twice": readsThenText(
+    ["~/.pi/agent/sessions/--w-other--/a.jsonl", "~/.pi/agent/sessions/--w-other--/a.jsonl"],
+    "other session reads done",
+  ),
+  "tool-read-aws-then-outside": readsThenText(
+    ["~/.aws/credentials", "/srv/fixtures-outside/a.txt"],
+    "aws then outside done",
+  ),
   "tool-edit": toolScenario("edit", {
     // A file that REALLY exists in the sample-git fixture. The editor-pane
     // Changes rail renders its per-file rows inline in the DISK-backed file

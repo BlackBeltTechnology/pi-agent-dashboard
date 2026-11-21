@@ -8,7 +8,11 @@
 # Needs a repo checkout with deps installed (the shipped package excludes tests).
 # Exit 77 = precondition not met (no checkout / no vitest) - loud SKIP, not FAIL.
 #
-# See change: ask-agent-file-access-in-chat.
+# harden-agent-tool-guards (T.131, test-plan #X23): `src/path-gate` now includes the read
+# carve-out suites (`decide-carveout.test.ts`), whose win32 rows assert that
+# `C:\Users\u\.pi\agent\mcp.json` / `models.json` / `sessions\**` ASK, marked sensitive.
+#
+# See change: ask-agent-file-access-in-chat; harden-agent-tool-guards.
 $ErrorActionPreference = "Stop"
 
 Write-Host "=== Test: agent path gate suites on win32 ==="

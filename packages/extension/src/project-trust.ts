@@ -2,16 +2,23 @@
  * `project_trust` auto-decision — the bridge's snapshot decision plus a bounded live step.
  *
  * A dashboard-spawned headless RPC session has no human at pi's TUI to answer
- * `project_trust`, so pi leaves the no-UI decision un-trusted and the session can
- * stall. The bridge answers "yes" (this run only, never remembered) in two cases:
+ * `project_trust`. The bridge answers "yes" (this run only, never remembered) only
+ * where DASHBOARD TRUST covers the folder (there is no unconditional "the dashboard
+ * spawned here" yes: a spawn into an unpinned clone must not auto-trust it, whichever
+ * road spawned it):
  *
- *   1. ACTIVATION rule — the event cwd is (canonically) the exact dir the
- *      dashboard spawned into, for a dashboard-spawned headless session;
- *   2. MIRROR rule — a durable dashboard-trust entry from the server-written
- *      snapshot covers the cwd, for dashboard-spawned headless sessions, or for
- *      every session when `piTrustMirror.coverInteractive` is on.
+ *   1. MIRROR rule — a durable dashboard-trust entry from the server-written
+ *      snapshot (pinned folder, workspace folder, worktree-init, workflow, covered
+ *      grant) covers the cwd, for dashboard-spawned headless sessions, or for
+ *      every session when `piTrustMirror.coverInteractive` is on;
+ *   2. LIVE rule — a bounded server query for server-lifetime entries (YOLO roots,
+ *      session-scoped grants).
  *
- * Neither contacts the server: config, pi's `trust.json` (lockless, pi's own
+ * When neither covers the folder the bridge stays undecided and pi decides
+ * (`trust.json`, then `defaultProjectTrust`; RPC has no prompt). The only activation-cwd
+ * special case is the forbidden/temporary-folder log line.
+ *
+ * The mirror rule does not contact the server: config, pi's `trust.json` (lockless, pi's own
  * reading rules) and the snapshot are read per event, never cached. Only when the
  * snapshot does not cover the cwd — and the snapshot reports live (server-lifetime)
  * entries, or this is a REMOTE bridge — does a third rule ask the server, once, over
@@ -25,7 +32,7 @@
  * so the activation cwd is captured at bridge module scope.
  *
  * See change: adopt-pi-074-080-features (A.3), mirror-dashboard-trust-to-pi,
- * mirror-dashboard-trust-live-remote.
+ * mirror-dashboard-trust-live-remote, harden-agent-tool-guards (D3).
  */
 import os from "node:os";
 import type { PiTrustMirrorConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -94,7 +101,7 @@ export interface ProjectTrustResult {
   /** Why trust was withheld (undecided only). */
   reason?: MirrorWithheldReason;
   /** Which rule granted "yes". */
-  via?: "activation" | "mirror" | "live";
+  via?: "mirror" | "live";
 }
 
 const UNDECIDED: ProjectTrustResult = { trusted: "undecided" };
@@ -118,8 +125,8 @@ function defaultDeps(): ProjectTrustDeps {
 
 /**
  * Decide `project_trust` for one event. Never throws: any error → undecided.
- * Order: unreadable store → recorded pi entry → activation rule → snapshot rule →
- * live query (only on a snapshot miss, under its conditions). The live step is the
+ * Order: unreadable store → recorded pi entry → forbidden activation folder (log) →
+ * snapshot rule → live query (only on a snapshot miss, under its conditions). The live step is the
  * only part that awaits, and it is bounded by `liveQueryTimeoutMs`.
  */
 export async function decideBridgeProjectTrust(
@@ -140,8 +147,10 @@ export async function decideBridgeProjectTrust(
     const stop = piStoreBlocks(deps, cwdKey);
     if (stop) return withheld(stop);
 
-    if (spawnedHeadless && safePiTrustKey(input.activationCwd, deps.home) === cwdKey) {
-      return isMirrorDenied(cwdKey, deps.denyRules()) ? withheld("forbidden-folder") : { trusted: "yes", via: "activation" };
+    // Activation cwd: no unconditional yes. A forbidden/temporary folder is logged here (never
+    // trusted, even when pinned); everything else is decided by dashboard trust like any cwd.
+    if (spawnedHeadless && safePiTrustKey(input.activationCwd, deps.home) === cwdKey && isMirrorDenied(cwdKey, deps.denyRules())) {
+      return withheld("forbidden-folder");
     }
     return await decideFromMirror(input, deps, cwdKey, withheld);
   } catch {
@@ -183,7 +192,7 @@ async function decideFromMirror(
     const live = await runLiveQuery(deps, cfg, cwdKey, remote);
     return live.ok ? { trusted: "yes", via: "live" } : withheld(live.reason);
   }
-  return coverage.reason ? withheld(coverage.reason) : UNDECIDED;
+  return withheld(coverage.reason ?? "not-covered");
 }
 
 /** The live-query conditions: switches on, allowed session, not a denied folder, and something to learn. */

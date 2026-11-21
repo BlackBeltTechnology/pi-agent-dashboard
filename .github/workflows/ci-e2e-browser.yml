@@ -276,6 +276,91 @@ jobs:
           fi
           (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
 
+  # ── e2e-chat-gateway: the chat-gateway guard-readiness VARIANT-harness leg ──
+  # `tests/e2e/chat-gateway-guard-readiness.spec.ts` needs a harness booted with
+  # PI_CHAT_GATEWAY_FAKE=1 (the socket-less fake platform + the seeded plugin), and
+  # that faucet cannot be a shared-harness default. The spec skips in every other
+  # harness; without this leg it would never run in CI (change: harden-agent-tool-guards).
+  e2e-chat-gateway:
+    name: e2e (chat gateway guard, variant harness)
+    # Same label gate as the shard matrix: dispatch/nightly always, PRs opt-in.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e-browser')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Same managed-mode contract as the shards (globalSetup boots + tears down,
+      # cold-build timeout, copy mode), plus the chat-gateway fake-platform faucet.
+      # PI_E2E_SEED is mandatory: the faucet seeds plugins["chat-gateway"] only under it.
+      - name: Run chat-gateway guard-readiness E2E (variant harness)
+        run: pnpm exec playwright test tests/e2e/chat-gateway-guard-readiness.spec.ts
+        env:
+          CI: "1"
+          PI_E2E_SEED: "1"
+          PI_CHAT_GATEWAY_FAKE: "1"
+          PW_E2E_BOOT_TIMEOUT_MS: "1200000"
+          TEST_COPY_MODE: "1"
+
+      - name: Upload blob report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-chat-gateway
+          path: blob-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload harness boot log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-up-log-chat-gateway
+          path: test-results/test-up.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload harness failure bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-failure-chat-gateway
+          path: test-results/harness-failure.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Tear down harness
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="test-results/.e2e-managed"
+          if [ ! -f "$marker" ]; then
+            echo "no managed-run marker — globalTeardown (or attach mode) already handled teardown"
+            exit 0
+          fi
+          ws="$(node -p "JSON.parse(require('node:fs').readFileSync('test-results/.e2e-managed','utf8')).workspace" 2>/dev/null || true)"
+          if [ -z "$ws" ] || [ ! -d "$ws" ]; then
+            echo "marker has no usable workspace — nothing to tear down"
+            exit 0
+          fi
+          (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
+
   # ── e2e-pair-mode: the pair-mode VARIANT-harness leg ─────────────────────
   # `tests/e2e/pair-mode-request-access.spec.ts` needs a harness booted with
   # PI_E2E_TRUST_MODE=pair + PI_E2E_OAUTH=0 (change: surface-network-denial-on-health).

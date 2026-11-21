@@ -2,11 +2,21 @@
  * Pure decision for the agent path gate (D2/D4/D5): given a tool call's raw path
  * and the session's roots, say whether it is in-root or must be asked about, and
  * which options the card may offer. No I/O beyond the injected resolve env.
- * See change: ask-agent-file-access-in-chat.
+ *
+ * Read carve-out: an agent `read` of another project's `<agentDir>/sessions/**`
+ * or `<agentDir>/{models,mcp}.json[.*]` is decided BEFORE any root, so no root class
+ * (read-only agent dir, workspace/checkout above it, grant) admits it; it always asks,
+ * marked sensitive, never `Always allow`.
+ * See change: ask-agent-file-access-in-chat; harden-agent-tool-guards (D2).
  */
+import {
+  PI_AGENT_ASK_READ_DIRS,
+  PI_AGENT_ASK_READ_FILES,
+} from "@blackbelt-technology/pi-dashboard-shared/agent-credential-files.js";
 import {
   canonicalizeTarget,
   defaultResolveEnv,
+  defaultVolumeProbe,
   isPathWithinRoots,
   isWithinRoot,
   type ResolveEnv,
@@ -25,6 +35,12 @@ export interface GateRoots {
   readWrite: readonly string[];
   /** Persisted project-scope grant subjects (read+write). */
   grants: readonly string[];
+  /**
+   * Read carve-out inputs (independent of `readOnly`): every agent dir (`~/.pi/agent`,
+   * `PI_CODING_AGENT_DIR`, pi's own) and the session's own session dir (exempt).
+   * Absent → no carve-out (legacy callers/tests).
+   */
+  askRead?: { agentDirs: readonly string[]; ownSessionDir?: string };
 }
 
 export interface DecideInput {
@@ -57,6 +73,42 @@ export type Decision =
       suppressionKey: string;
     };
 
+/** `<dir>/sessions/**` of another project (the session's own session dir is exempt). */
+function inOtherSessions(canonical: string, dir: string, own: string | undefined, env: ResolveEnv, ci: boolean): boolean {
+  return PI_AGENT_ASK_READ_DIRS.some(
+    (sub) => isWithinRoot(canonical, env.path.join(dir, sub), env, ci) && !(own && isWithinRoot(canonical, own, env, ci)),
+  );
+}
+
+/** `<dir>/{models,mcp}.json` and its `<name>.*` siblings (directly in the agent dir). */
+function isAskReadFile(canonical: string, dir: string, env: ResolveEnv, ci: boolean): boolean {
+  const f = (s: string): string => (ci ? s.normalize("NFC").toLowerCase() : s);
+  if (f(env.path.dirname(canonical)) !== f(dir)) return false;
+  const base = f(env.path.basename(canonical));
+  return PI_AGENT_ASK_READ_FILES.some((name) => base === f(name) || base.startsWith(`${f(name)}.`));
+}
+
+/** Is `canonical` an ask-on-read agent-dir target under the carve-out dirs (case-folded when `ci`)? */
+function carveOutMatch(canonical: string, askRead: NonNullable<GateRoots["askRead"]>, env: ResolveEnv, ci: boolean): boolean {
+  return askRead.agentDirs.some(
+    (dir) => inOtherSessions(canonical, dir, askRead.ownSessionDir, env, ci) || isAskReadFile(canonical, dir, env, ci),
+  );
+}
+
+/**
+ * Carve-out test for a `read`. The case-fold probe runs only when the target lies (folded)
+ * under an agent dir at all, so ordinary in-root reads never probe.
+ */
+function isAskOnRead(canonical: string, input: DecideInput, env: ResolveEnv): boolean {
+  const askRead = input.roots.askRead;
+  if (!askRead || askRead.agentDirs.length === 0) return false;
+  if (!askRead.agentDirs.some((d) => isWithinRoot(canonical, d, env, true))) return false;
+  if (carveOutMatch(canonical, askRead, env, false)) return true;
+  const ci =
+    input.caseInsensitive ?? (input.volumeCaseProbe ? input.volumeCaseProbe(canonical) : defaultVolumeProbe(canonical, env));
+  return ci ? carveOutMatch(canonical, askRead, env, true) : false;
+}
+
 export function decidePathAccess(input: DecideInput): Decision {
   const env = input.env ?? defaultResolveEnv();
   const lexical = resolveToolPath(input.rawPath, input.cwd, env);
@@ -64,30 +116,41 @@ export function decidePathAccess(input: DecideInput): Decision {
   const abs = input.access === "read" ? resolveReadTarget(lexical, env) : lexical;
   const canonical = canonicalizeTarget(abs, env);
   const r = input.roots;
+  // The carve-out also matches the LEXICAL path: a symlink-managed `~/.pi/agent/models.json` (dotfiles
+  // manager) resolves to a file elsewhere, possibly inside a workspace root, and must still ask.
+  const carved = input.access === "read" && (isAskOnRead(canonical, input, env) || isAskOnRead(abs, input, env));
   const rooted: readonly string[][] = [
     [...r.workspace],
     [...r.readWrite],
     [...r.grants],
     ...(input.access === "read" ? [[...r.readOnly]] : []),
   ];
-  const inRoot = isPathWithinRoots(canonical, rooted.flat(), {
+  const inRoot = !carved && isPathWithinRoots(canonical, rooted.flat(), {
     env,
     caseInsensitive: input.caseInsensitive,
     volumeCaseProbe: input.volumeCaseProbe,
   });
   if (inRoot) return { verdict: "in-root", canonical };
+  return askDecision(input, env, canonical, carved);
+}
+
+/** The `ask` verdict for a target that is not in-root (or is a carve-out target). */
+function askDecision(input: DecideInput, env: ResolveEnv, canonical: string, carved: boolean): Extract<Decision, { verdict: "ask" }> {
   const p = env.path;
   const suppressionKey = p.dirname(canonical);
   // A grant names the exact directory: the target itself when it IS a directory,
   // else its containing directory — never an ancestor.
   const subject = env.isDirectory(canonical) ? canonical : suppressionKey;
+  // Flagging errs toward flagging (case-folded): a false flag only adds a warning. A flagged target
+  // is never grantable either, so a case-variant spelling (`~/.AWS` on a case-sensitive volume) never
+  // offers `Always allow` even though the exact-case grant check would not recognise it.
+  const sensitive = carved || input.sensitiveDirs.some((d) => isWithinRoot(canonical, d, env, true));
   return {
     verdict: "ask",
     canonical,
-    // Flagging errs toward flagging (case-folded): a false flag only adds a warning.
-    sensitive: input.sensitiveDirs.some((d) => isWithinRoot(canonical, d, env, true)),
+    sensitive,
     subject,
-    grantable: !input.isUngrantable(subject),
+    grantable: !sensitive && !input.isUngrantable(subject),
     suppressionKey,
   };
 }

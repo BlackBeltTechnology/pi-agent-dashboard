@@ -984,7 +984,7 @@ See who trusts a folder:
 - Folder page banner: pi / dashboard (source + folder) / neither.
 - `GET /api/access/pi-trust`.
 
-Reason codes for withheld trust (server + bridge log): `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`.
+Reason codes for withheld trust (server + bridge log): `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`, `not-covered`.
 
 Trust from the dashboard:
 - Pin the folder, Add Folder, or worktree-init "Always trust" with "Also trust this folder in pi" checked.
@@ -996,7 +996,9 @@ Why still ignored:
 - Terminal `pi` ignores dashboard trust by default. Set `piTrustMirror.coverInteractive: true` to include it.
 - Folder moved, re-created, or synced from another machine → identity (`dev`, `ino`, `birthtimeMs`) mismatch → fails closed. Re-trust the folder.
 - `pi --no-extensions` → bridge never decides. `pi mcp list` reads only `trust.json`, so dashboard-trusted servers show `not-checked-by-pi`.
-- Activation-cwd auto-trust does not apply in forbidden/temporary folders (`/tmp`, `~/Downloads`, `~/.ssh`, `$HOME`, …).
+- Activation-cwd auto-trust removed. A dashboard spawn in a folder dashboard trust does not cover → `not-covered`, pi decides (`trust.json`, then `defaultProjectTrust`; RPC has no prompt, `ask` = untrusted). Road-independent: UI, MCP `spawn_session`, REST, WS, automation, goal, `/new`, worktree. Remedy: pin folder / add to workspace / `/trust` in terminal pi.
+- Forbidden/temporary folders (`/private/tmp`, `~/Downloads`, `~/.cache`, `$HOME`, system dirs) never trusted by the dashboard mirror. Bridge logs `forbidden-folder`, returns `undecided` unless pi recorded an entry there. pi decides — `defaultProjectTrust: "always"` still applies.
+- `piTrustMirror.enabled: false` also disables the activation path.
 
 Config `~/.pi/dashboard/config.json`:
 
@@ -1006,7 +1008,7 @@ Config `~/.pi/dashboard/config.json`:
 
 Source ids: `worktreeInit`, `workflow`, `pinned`, `folderWorkspaces`, `accessGrants` (default OFF).
 
-Rollback: `"enabled": false`. Bridge reads config live. Works with server down. Does NOT revert the bridge behaviour changes (recorded pi entry beats activation-cwd auto-trust; forbidden-folder auto-trust removed; spawn token removed from env).
+Rollback: `"enabled": false`. Bridge reads config live. Works with server down. Does NOT revert the bridge behaviour changes (recorded pi entry beats dashboard trust; no activation auto-trust outside dashboard trust; forbidden-folder auto-trust stays removed; spawn token removed from env).
 
 See change: mirror-dashboard-trust-to-pi.
 

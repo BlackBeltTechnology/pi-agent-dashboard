@@ -8,12 +8,12 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `acme-dns01-certs.md` | ACME DNS-01 domain cert guide. See change: add-acme-dns01-certs. |
 | `acp-sessions.md` | ACP agent sessions: `acpAgents`/`acp.*` config, pi-vs-ACP matrix, hosts A/B, replay. → see `acp-sessions.md.AGENTS.md` |
 | `architecture-notes/worker-offload-roadmap.md` | Worker offload roadmap. Main-loop CPU + sync-fs work → worker_threads. → see `architecture-notes/worker-offload-roadmap.md.AGENTS.md` |
-| `architecture.md` | Full architecture reference (bridge + server + client, data flow, protocols). → see `architecture.md.AGENTS.md` |
+| `architecture.md` | Full architecture reference (bridge + server + client, data flow, protocols). → see `architecture.md.AGENTS.md`. See change: harden-agent-tool-guards (Pi trust mirror section: no activation auto-trust outside dashboard trust, `not-covered` reason code). |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. → see `biome.json.AGENTS.md` |
 | `blender-wasm.md` | Headless Blender via WASM. `packages/blender`, bin `pi-blender`, MCP `blender-wasm`. Node 24 JSPI. 5 tools. MEMFS sandbox. sha512 pin. See change: add-blender-wasm-mcp. |
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
-| `chat-gateway.agent.md` | Pull-only condensed map/companion for `chat-gateway.md`. Setup, boundaries, team controls, config keys, dashboard-session `!sessions`/`!attach`/`!close` + auto-mirror. → see `chat-gateway.md` |
-| `chat-gateway.md` | Operator setup guide for `@blackbelt-technology/pi-dashboard-chat-gateway-plugin`. → see `chat-gateway.md.AGENTS.md` |
+| `chat-gateway.agent.md` | Pull-only condensed map/companion for `chat-gateway.md`. Setup, boundaries, team controls, config keys, dashboard-session `!sessions`/`!attach`/`!close` + auto-mirror. → see `chat-gateway.md`. See change: harden-agent-tool-guards (guard contract/readiness line). |
+| `chat-gateway.md` | Operator setup guide for `@blackbelt-technology/pi-dashboard-chat-gateway-plugin`. → see `chat-gateway.md.AGENTS.md`. See change: harden-agent-tool-guards (Guard contract: readiness handshake, held message, 30 s refusal, fail-closed host). |
 | `chat-motion.md` | Fluid chat motion. `chatMotion` pref (rollback PATCH). Arrival entry, paced reveal, trailing edge, glide follow-scroll attributed as `pin-bottom`, idle/energy bound. See change: add-fluid-chat-motion. |
 | `ci.md` | Affected-test CI. ci.yml parallel jobs (`select`, `ci`, `unit` ×4, `real-process`, `ci-scenarios`, `docker-plugin-load`, `music-pytest`, `ci-result`); `decide()` selection layers; fail-safes; nightly full-suite net. See change: speed-up-ci-affected-tests. |
 | `code-quality.md` | Biome ratchet. Rules graduate one-way off→warn→error; cleanup lands first, severity flip second. CodeQL ratchet section. → see `code-quality.md.AGENTS.md` |
@@ -32,7 +32,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `electron-session.md` | Implementation session log. 21 phases. Branding/icons, packaging (NSIS/AppImage), `__dirname`/tsx saga, dead… → see `electron-session.md.AGENTS.md` |
 | `embedding-chat-view.md` | Subpath export `@blackbelt-technology/pi-dashboard-web/chat-embed` mounts live chat in sibling workspace. → see `embedding-chat-view.md.AGENTS.md` |
 | `examples/c4-example.md` | C4-model diagram example. Mermaid fenced blocks: `C4Context`, `C4Container`. → see `examples/c4-example.md.AGENTS.md` |
-| `faq.md` | Recurring how-to + troubleshooting Q&A. Caveman style. See change: harden-bridge-inbound-and-discovery, encrypt-credentials-at-rest. → see `faq.md.AGENTS.md` |
+| `faq.md` | Recurring how-to + troubleshooting Q&A. Caveman style. See change: harden-bridge-inbound-and-discovery, encrypt-credentials-at-rest, harden-agent-tool-guards (pi-trust entry: activation auto-trust removed, `not-covered` code). → see `faq.md.AGENTS.md` |
 | `features.md` | Full feature catalog. 562 capabilities. Derived from README.md + openspec/specs/. Categorized by surface. Source for end-user subset → docs/user-features.md. See change: scope-anchor-editor-pane-controls. |
 | `heap-limits.md` | V8 heap reference. Config keys `sessionHeap` (`maxOldSpaceMb` 512, `initialOldSpaceMb`, `maxSemiSpaceMb`) +… → see `heap-limits.md.AGENTS.md` |
 | `grammar-checker.md` | User + dev feature doc. LLM grammar + spelling + style check for composer + OpenSpec Explore/New Change… Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. → see `grammar-checker.md.AGENTS.md` |
@@ -131,7 +131,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `research/video-upscaling-dossier.md` | Research dossier, verified 2026-10-04 (§12 log). Low-res draft → one-step refine for video-production: SoL-Refiner (refiner, LTX-2 licence gate) + Cosmos 3 / Wan 2.2 / MiniMax-H3 / hosted Wan / Veo (draft generators). Plan only, no impl. → see `research/video-upscaling-dossier.md.AGENTS.md` |
 | `research/webgl-field-and-glass-bands.md` | Implementation record. pi-dashboard.dev visual system: `site/field.js` WebGL slab field + `site/index.html`… → see `research/webgl-field-and-glass-bands.md.AGENTS.md` |
 | `runtime-plugin-clients.md` | Runtime-delivered plugin clients: import map, `/host/*` shims, trustedPlugins pin. → see `runtime-plugin-clients.md.AGENTS.md` |
-| `security-map.md` | Security audit entry: trust boundaries, ports/protocols, gate chain, tool-call guards, findings glance. Chapters + register in `security/` → see `security/AGENTS.md`. See change: security-map-audit. Updated: HTTP-01, DEP-01, TOOL-01 marked closed. See change: close-security-map-high-findings. |
+| `security-map.md` | Security audit entry: trust boundaries, ports/protocols, gate chain, tool-call guards, findings glance. Chapters + register in `security/` → see `security/AGENTS.md`. See change: security-map-audit. Updated: HTTP-01, DEP-01, TOOL-01 marked closed. See change: close-security-map-high-findings. Updated: agent credential guard row + Trust mirror row; TOOL-04/05/07/08 closed, TOOL-09 open with narrowed residuals. See change: harden-agent-tool-guards. |
 | `service-bootstrap.md` | 3 starters (Electron/Bridge/Standalone) × 2 surfaces (GUI/shell). Tool resolution (pi, openspec, node, tsx, bridge). `DASHBOARD_STARTER` env, `launchSource` on `/api/health`. |
 | `session-actions-menu.md` | Desktop session card `⋯` menu. `deriveSessionMenu` → `SessionActionsMenu`; groups… → see `session-actions-menu.md.AGENTS.md` |
 | `skill-atlas.md` | Skill Atlas plugin graph doc. → see `skill-atlas.md.AGENTS.md` |
