@@ -3599,7 +3599,7 @@ Source: `packages/server/src/live-server/` (`live-static.ts`, `live-csp.ts`, `li
 | scripts off | empty | `sandbox` (+ egress directives if restricted) |
 - Applies to port AND static targets on every capability response (`buildLiveCsp`).
 - Our CSP appended to upstream CSP. Upstream never stripped. Browser enforces intersection.
-- Restricted: `default-src 'none'`; `script-src` / `style-src` = `<P> 'unsafe-inline'` (+ `'unsafe-eval'` with scripts) + `<G>`; `connect-src <P> <G>`; `form-action 'none'`; `base-uri 'none'`; `frame-src 'none'`; `object-src 'none'`; `worker-src <P> blob:`; `manifest-src 'none'`; `frame-ancestors 'self'`; `report-uri` / `report-to`.
+- Restricted: `default-src 'none'`; `script-src` / `style-src` = `<P> 'unsafe-inline'` (+ `'unsafe-eval'` with scripts) + `<G>`; `connect-src <P> <G>`; `form-action 'none'`; `base-uri 'none'`; `frame-src 'none'`; `object-src 'none'`; `worker-src <P> blob:`; `manifest-src 'none'`; `frame-ancestors 'self'`; `report-uri` only (no `report-to`, no `Reporting-Endpoints`).
 - `<P>` = prefix from validated `Host`. Never `'self'`. Never dashboard origin.
 - `<G>` = project grants ∪ viewer allow-once set.
 
@@ -9177,7 +9177,11 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 | any, Vite `--dev` (per proxied response) | baseline only (legacy `script-src`), enforcing under `enforce`. No strict header. No report destination. Dev never feeds strict counter. |
 
 - Strict = baseline with `script-src 'self' 'nonce-<n>'`. No `'unsafe-inline'`, no `'unsafe-eval'`. Enforced only under explicit `enforce`.
-- Every emitted policy carries `report-uri /__pi/csp-report/<label>` + `report-to csp-<label>`; `Reporting-Endpoints` header declares them.
+- Every emitted policy carries `report-uri /__pi/csp-report/<label>` ONLY.
+- No `report-to` directive. No `Reporting-Endpoints` header. `cspReportEndpointName` removed from `csp-report-paths.ts`.
+- Live preview same (`buildLiveCsp`): `report-uri /live/<id>/~c/<token>/__pi/csp-report` only.
+- Why: Chromium 157 / Firefox 153 never delivered `report-to` + `Reporting-Endpoints` reports on plain http. `report-to` suppresses `report-uri` in Chromium. Prod counters stayed 0.
+- Residual: `report-uri` deprecated in CSP3. Tripwire = Chromium-only `tests/e2e/csp-report-delivery.spec.ts`. Safari / Firefox need a manual canary.
 - Route-level per-response policies (`/api/file/raw` sandbox, `ctx.serveApp` mounts, `/live/`) untouched by mode.
 - Release note: explicit `enforce` now enforces the STRICT policy (before: baseline). Existing `enforce` deployments see it.
 
@@ -9271,4 +9275,4 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 - Follow-up `enforce-strict-csp-default` owns soak + default flip. Exit gate: ≥ 14 d window, zero strict `script-src*` violations, `dropped == 0`, ≥ 1 release shipped, enforce-lane E2E green. Inspect directive / document breakdown before flip.
 - E2E lanes: see `docs/faq.md` § "CSP enforce + OAuth real-gate E2E lanes".
 
-See change: harden-cors-and-csp-reporting (D8, D9, D10).
+See change: harden-cors-and-csp-reporting (D8, D9, D10), fix-csp-report-delivery.

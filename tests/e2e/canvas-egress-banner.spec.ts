@@ -54,8 +54,11 @@ test.describe("fix-csp-report-delivery — F3 runtime report reaches the preview
     await card.click();
     await sendPrompt(page, "[[faux:canvas-html-egress-report]] go");
 
+    // The harness dashboard is network-exposed, so the preview starts with scripts off: the operator runs them.
+    await page.getByTestId("live-run-scripts").click({ timeout: 40_000 });
+
     const row = page.getByTestId("egress-banner").getByTestId("egress-row").filter({ hasText: "https://example.invalid" });
-    await expect(row).toBeVisible({ timeout: 40_000 });
+    await expect(row).toBeVisible({ timeout: 30_000 });
     await expect(row.getByTestId("egress-source")).toHaveText("reported by this page", { timeout: 15_000 });
   });
 });

@@ -4829,6 +4829,11 @@ PW_E2E_USE_RUNNING=1 npx playwright test csp-strict-enforce
 - Default-lane sibling: `tests/e2e/csp-strict-report.spec.ts` (dual Report-Only, sink labels).
 - Green enforce lane = exit-gate item of follow-up `enforce-strict-csp-default`.
 
+Report delivery — `report-uri` only, no header rewrite:
+- `tests/e2e/csp-strict-report.spec.ts` has NO `page.route` rewrite. Counter moves on the unmodified document.
+- `tests/e2e/csp-report-delivery.spec.ts` asserts `/` carries no `report-to` token and no `Reporting-Endpoints` header, then moves the strict `script-src-elem` counter.
+- Delivery is `report-uri /__pi/csp-report/<label>` only. `report-to` suppressed it in Chromium; neither browser delivered it on plain http.
+
 OAuth real-gate lane — WF5, report sink public to OAuth gate:
 ```bash
 PI_E2E_TRUSTED_NETWORKS=203.0.113.0/24 PI_E2E_OAUTH_NO_BYPASS=1 npx playwright test csp-report-sink-oauth
@@ -4842,7 +4847,7 @@ PI_E2E_TRUSTED_NETWORKS=203.0.113.0/24 PI_E2E_OAUTH_NO_BYPASS=1 npx playwright t
 - Control request: `GET /api/sessions` (gated). `/api/health` public to OAuth gate, cannot show "gated".
 - Tear down lane harness before normal runs: `docker/test-down.sh`.
 
-See change: harden-cors-and-csp-reporting.
+See change: harden-cors-and-csp-reporting, fix-csp-report-delivery.
 
 ### Bus client denial
 
