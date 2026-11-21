@@ -78,7 +78,6 @@ export function SudoCredentialDialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const settledRef = useRef(false);
-  const ackedRef = useRef<string | null>(null);
   const titleId = useId();
   const promptLabelId = useId();
 
@@ -88,14 +87,6 @@ export function SudoCredentialDialog({
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-
-  // Ack once per callId (idempotent across StrictMode double effects/re-renders):
-  // tells the server this tab rendered the prompt and can answer.
-  useEffect(() => {
-    if (ackedRef.current === callId) return;
-    ackedRef.current = callId;
-    send({ type: "sudo_credential_shown", sessionId, callId });
-  }, [send, sessionId, callId]);
 
   const submit = () => {
     if (settledRef.current) return;
@@ -234,15 +225,37 @@ const EMPTY_SNAPSHOT: SudoCredentialSnapshot = { requests: [], cache: {} };
 /** Mounted once near the app root: oldest pending prompt as a modal + one Forget chip per cached session. */
 export function SudoCredentialHost({
   send,
+  connected,
   sessionLabel,
 }: {
   send: Send;
+  /** Socket-open flag; a false→true flip re-sends acks the closed socket rejected. */
+  connected?: boolean;
   /** Resolves a session id to a display name (optional). */
   sessionLabel?: (sessionId: string) => string | undefined;
 }) {
   const { t } = useI18n();
   const [snap, setSnap] = useState<SudoCredentialSnapshot>(EMPTY_SNAPSHOT);
   useEffect(() => subscribeSudoCredential(setSnap), []);
+
+  // Ack EVERY pending request (not just the one rendered): the ack means "this
+  // client can render it", and the server's ack timer otherwise refuses a queued
+  // second-session request as unanswerable. One ack per callId once handed off;
+  // a rejected send (socket not OPEN — never queued) is retried when `send` or
+  // `connected` changes. Refs persist across StrictMode's double effect.
+  const ackedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (connected === false) return; // known-closed socket: wait for the flip
+    const acked = ackedRef.current;
+    const live = new Set<string>();
+    for (const { sessionId, callId } of snap.requests) {
+      const key = `${sessionId}:${callId}`;
+      live.add(key);
+      if (acked.has(key)) continue;
+      if (send({ type: "sudo_credential_shown", sessionId, callId }).status === "handed") acked.add(key);
+    }
+    for (const key of acked) if (!live.has(key)) acked.delete(key);
+  }, [snap.requests, send, connected]);
 
   const active = snap.requests[0];
   const cachedSessions = Object.keys(snap.cache);

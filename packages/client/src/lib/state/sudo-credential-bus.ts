@@ -54,6 +54,15 @@ export function subscribeSudoCredential(listener: Listener): () => void {
   return () => { listeners.delete(listener); };
 }
 
+/**
+ * Production reset for a committed server switch: drops pending requests and
+ * cache metadata (both belong to the previous server) but KEEPS subscribers so
+ * the mounted host keeps listening. NOT for a same-server connection outage.
+ */
+export function resetSudoCredentialBusForServerSwitch(): void {
+  emit(EMPTY);
+}
+
 /** Test-only reset. */
 export function __resetSudoCredentialBus(): void {
   current = EMPTY;

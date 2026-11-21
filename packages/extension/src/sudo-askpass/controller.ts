@@ -268,10 +268,16 @@ export function createSudoAskpass(deps: SudoAskpassDeps): SudoAskpass {
     });
   }
 
+  /** Caching turned off live: nothing cached may be served. */
+  const clearCacheIfDisabled = (cfg: SudoCredentialPromptConfig): void => {
+    if (cfg.cacheMinutes === 0) cache.clear();
+  };
+
   function handleHelperRequest(sock: net.Socket, promptText: string, ppid: unknown): void {
     reconcile(); // a live disable must beat a request that raced it
     if (!gateOpen()) return refuse(sock);
     const cfg = config();
+    clearCacheIfDisabled(cfg);
     const windowMs = (cfg.cacheMinutes > 0 ? cfg.cacheMinutes : COUNTER_WINDOW_FALLBACK_MINUTES) * 60_000;
     const invocation = counters.bump(ppid, windowMs);
     // A repeat helper call for the same sudo pid means sudo rejected the previous password.
@@ -308,6 +314,7 @@ export function createSudoAskpass(deps: SudoAskpassDeps): SudoAskpass {
   // ---- operator answers ------------------------------------------------
 
   const onResponse = (m: { sessionId?: unknown; callId?: unknown; password?: unknown }): void => {
+    reconcile(); // a live disable must beat an answer that raced it: withdraws (dismissing the pending prompt) before anything is accepted
     const p = pending;
     if (!p || m.callId !== p.callId || m.sessionId !== deps.sessionId()) return; // late / stray / replayed: dropped
     if (!sockAlive(p.sock)) {

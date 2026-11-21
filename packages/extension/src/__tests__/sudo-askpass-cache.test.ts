@@ -117,6 +117,34 @@ describe("TTL window (#S21)", () => {
   });
 });
 
+describe("live config changes (review findings)", () => {
+  it("cacheMinutes live-changed to 0 zeroes the cache before the read: a new pid prompts", async () => {
+    await entry(111, "ok");
+    const buf = h.ctl.debug.cacheBuffer() as Buffer;
+    h.cfg.cacheMinutes = 0;
+    const reply = h.ask("[sudo] password: ", 222);
+    await pollUntil(() => h.requests().length === 2, "modal request after cache disabled");
+    expect([...buf].every((b) => b === 0)).toBe(true);
+    expect(h.ctl.debug.cacheBuffer()).toBeUndefined();
+    h.respond(h.requests()[1].callId, "next");
+    expect(await reply).toEqual({ ok: true, password: "next" });
+  });
+
+  it("enabled=false live with a prompt pending: a matching response is never registered, cached or delivered", async () => {
+    const before = h.registered.length;
+    const reply = h.ask("[sudo] password: ", 111);
+    await pollUntil(() => h.requests().length === 1, "pending prompt");
+    h.cfg.enabled = false; // no reconcile() before the answer arrives
+    h.respond(h.requests()[0].callId, "late-pw");
+    expect(await reply).toEqual({ ok: false });
+    expect(h.registered.length).toBe(before);
+    expect(h.ctl.debug.cacheBuffer()).toBeUndefined();
+    expect(h.ctl.debug.pendingCallId()).toBeUndefined();
+    expect(h.frames.some((f) => f.type === "sudo_credential_dismiss")).toBe(true);
+    expect(h.ctl.featureInstalled()).toBe(false);
+  });
+});
+
 describe("clear matrix (#S22)", () => {
   const withCache = async (): Promise<Buffer> => {
     await entry(111, "canary-pw");

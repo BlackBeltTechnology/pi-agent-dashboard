@@ -11,15 +11,21 @@ import { loadConfig } from "../config.js";
 
 let dir: string;
 let origHome: string;
+let origUserProfile: string | undefined;
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-cfg-sudo-"));
   origHome = process.env.HOME!;
+  origUserProfile = process.env.USERPROFILE;
   process.env.HOME = dir;
+  // `os.homedir()` reads USERPROFILE on Windows.
+  if (process.platform === "win32") process.env.USERPROFILE = dir;
 });
 
 afterEach(() => {
   process.env.HOME = origHome;
+  if (origUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = origUserProfile;
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

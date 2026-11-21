@@ -210,7 +210,9 @@ describe("sudo credential non-persistence and log hygiene", () => {
 
       const fresh = await rig.browser("s-np");
       fresh.send({ type: "subscribe", sessionId: "s-np", lastSeq: 0 });
-      await new Promise((r) => setTimeout(r, 150));
+      // Replay is complete once the cache frame arrives: `replayTo` emits it (cache then any
+      // pending request) in one synchronous call at the end of the subscribe handler.
+      await fresh.waitFor((f) => f.type === "sudo_credential_cache");
       rig.server.flush();
 
       const store = JSON.stringify([rig.server.eventStore.getEvents("s-np", 1), rig.server.sessionManager.listAll()]);

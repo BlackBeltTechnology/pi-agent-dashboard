@@ -54,6 +54,23 @@ describe("sudo credential pending slot lifecycle", () => {
     });
   }
 
+  it("bridge loses trust while the prompt is pending: the answer is dropped, never forwarded; prompt dismissed and refused", async () => {
+    h.trusted.value = false; // e.g. bearer-exposed; the bridge socket stays open
+    await deliver(b1, { type: "sudo_credential_response", sessionId: "s1", callId: "C1", password: "secret-pw" });
+    const toBridge = h.bridgeFrames.map((f) => f.msg);
+    expect(toBridge.some((m) => m.type === "sudo_credential_response")).toBe(false);
+    expect(JSON.stringify(toBridge)).not.toContain("secret-pw");
+    expect(toBridge.filter((m) => m.type === "sudo_credential_cancel")).toEqual([
+      { type: "sudo_credential_cancel", sessionId: "s1", callId: "C1", reason: "unanswerable" },
+    ]);
+    expect(dismissedIds(b1)).toEqual(["C1"]);
+    expect(dismissedIds(b2)).toEqual(["C1"]);
+    const logged = JSON.stringify((console.log as unknown as { mock: { calls: unknown[] } }).mock.calls);
+    expect(logged).not.toContain("secret-pw");
+    // Slot freed: a later answer for the same call is dropped too.
+    await lateResponse();
+  });
+
   it("a dismiss for another callId does not free the slot", async () => {
     h.relay.handleDismiss("s1", { type: "sudo_credential_dismiss", sessionId: "s1", callId: "C-other" });
     expect(dismissedIds(b1)).toEqual([]);

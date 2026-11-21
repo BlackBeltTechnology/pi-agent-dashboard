@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetSudoCredentialBus,
   dismissSudoCredentialRequest,
+  resetSudoCredentialBusForServerSwitch,
   setSudoCredentialCache,
   setSudoCredentialRequest,
 } from "../../lib/state/sudo-credential-bus.js";
@@ -66,19 +67,87 @@ describe("SudoCredentialDialog — masked field (S50)", () => {
   });
 });
 
-describe("SudoCredentialDialog — ack on render (S51)", () => {
+describe("SudoCredentialHost — ack on render (S51)", () => {
   it("sends exactly one sudo_credential_shown per callId under StrictMode and re-renders", () => {
     const { send, sent } = makeSend();
-    const ui = (rq: ReturnType<typeof req>) => (
+    const ui = () => (
       <StrictMode>
-        <SudoCredentialDialog request={rq} send={send as never} onDone={() => {}} />
+        <SudoCredentialHost send={send as never} />
       </StrictMode>
     );
-    const { rerender } = render(ui(req("C1")));
-    for (let i = 0; i < 5; i++) rerender(ui(req("C1")));
+    const { rerender } = render(ui());
+    act(() => setSudoCredentialRequest(req("C1")));
+    for (let i = 0; i < 5; i++) rerender(ui());
     const shown = sent.filter((m) => m.type === "sudo_credential_shown");
     expect(shown).toEqual([{ type: "sudo_credential_shown", sessionId: "s1", callId: "C1" }]);
     expect(shown.some((m) => m.callId === "OTHER")).toBe(false);
+  });
+
+  it("a rejected ack (socket not open) is re-sent once the socket is open again, then only once", () => {
+    const sent: Sent[] = [];
+    let open = false;
+    const send = vi.fn((m: Sent) => {
+      if (!open) return { status: "rejected", reason: "no_socket" } as const;
+      sent.push(m);
+      return { status: "handed" } as const;
+    });
+    const ui = (connected: boolean) => (
+      <StrictMode>
+        <SudoCredentialHost send={send as never} connected={connected} />
+      </StrictMode>
+    );
+    const { rerender } = render(ui(false));
+    act(() => setSudoCredentialRequest(req("C1")));
+    expect(sent).toEqual([]);
+    open = true;
+    rerender(ui(true));
+    rerender(ui(true));
+    act(() => setSudoCredentialCache("s1", Date.now() + 60_000));
+    expect(sent).toEqual([{ type: "sudo_credential_shown", sessionId: "s1", callId: "C1" }]);
+  });
+
+  it("acks a queued request from a SECOND session while only the first renders", () => {
+    const { send, sent } = makeSend();
+    render(<SudoCredentialHost send={send as never} />);
+    act(() => {
+      setSudoCredentialRequest(req("C1"));
+      setSudoCredentialRequest({ ...req("C2"), sessionId: "s2" });
+    });
+    expect(screen.getAllByTestId("sudo-credential-password")).toHaveLength(1);
+    expect(sent.filter((m) => m.type === "sudo_credential_shown")).toEqual([
+      { type: "sudo_credential_shown", sessionId: "s1", callId: "C1" },
+      { type: "sudo_credential_shown", sessionId: "s2", callId: "C2" },
+    ]);
+    // Reaching the head later does not re-ack.
+    act(() => dismissSudoCredentialRequest("s1", "C1"));
+    expect(sent.filter((m) => m.type === "sudo_credential_shown")).toHaveLength(2);
+  });
+});
+
+describe("sudo bus — server-switch reset", () => {
+  it("clears pending requests and cache but keeps the mounted host subscribed", () => {
+    const { send } = makeSend();
+    render(<SudoCredentialHost send={send as never} />);
+    act(() => {
+      setSudoCredentialRequest(req("C1"));
+      setSudoCredentialCache("s1", Date.now() + 60_000);
+    });
+    expect(screen.getByTestId("sudo-credential-password")).toBeTruthy();
+    act(() => resetSudoCredentialBusForServerSwitch());
+    expect(screen.queryByTestId("sudo-credential-password")).toBeNull();
+    expect(screen.queryByTestId("sudo-credential-forget")).toBeNull();
+    // Still subscribed: a server-B request renders and is acked afresh.
+    act(() => setSudoCredentialRequest(req("C1")));
+    expect(screen.getByTestId("sudo-credential-password")).toBeTruthy();
+    expect(send.mock.calls.filter(([m]) => m.type === "sudo_credential_shown")).toHaveLength(2);
+  });
+
+  it("a same-server outage (connected false) keeps the dialog mounted", () => {
+    const { send } = makeSend();
+    const { rerender } = render(<SudoCredentialHost send={send as never} connected />);
+    act(() => setSudoCredentialRequest(req("C1")));
+    rerender(<SudoCredentialHost send={send as never} connected={false} />);
+    expect(screen.getByTestId("sudo-credential-password")).toBeTruthy();
   });
 });
 

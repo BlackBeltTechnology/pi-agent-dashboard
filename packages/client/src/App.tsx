@@ -155,6 +155,7 @@ import { siblingSpawnOpts } from "./lib/spawn/spawn-opts.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
+import { resetSudoCredentialBusForServerSwitch } from "./lib/state/sudo-credential-bus.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
 
 // Stable tracker facade for the depth-aware back action
@@ -1079,6 +1080,9 @@ export default function App() {
           // stale offer from server A can't reopen IDs on server B.
           // See change: reopen-sessions-after-shutdown.
           clearRecoveryOffer();
+          // Pending sudo prompts / cache metadata belong to server A; they must
+          // not render (or answer) through server B's socket. Subscribers stay.
+          resetSudoCredentialBusForServerSwitch();
         },
         setWsUrl,
         persistLastServer: (h, p) => {
@@ -3372,7 +3376,7 @@ export default function App() {
         <WorktreeInitStack />
         <SpawnErrorToastHost />
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
-        <SudoCredentialHost send={send} sessionLabel={(id) => sessions.get(id)?.name} />
+        <SudoCredentialHost send={send} connected={status === "connected"} sessionLabel={(id) => sessions.get(id)?.name} />
         {firstLaunchModal}
         {grantPromptHost}
         {provisionPromptHost}
@@ -3481,7 +3485,7 @@ export default function App() {
         )}
         {connectionBanner}
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
-        <SudoCredentialHost send={send} sessionLabel={(id) => sessions.get(id)?.name} />
+        <SudoCredentialHost send={send} connected={status === "connected"} sessionLabel={(id) => sessions.get(id)?.name} />
         {/* Folder-scoped editor pane (hosts terminal tabs via the keep-alive
             TerminalPaneLayer — single <TerminalView> mount per id). See change:
             terminals-in-tabbed-panes, fix-terminal-half-height-dual-mount. */}

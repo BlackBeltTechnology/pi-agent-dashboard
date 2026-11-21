@@ -250,6 +250,14 @@ export function createSudoCredentialRelay(deps: SudoCredentialRelayDeps): SudoCr
           ) {
             return;
           }
+          // Trust may have been lost since the prompt started (e.g. bearer-exposed) while the
+          // socket stayed open: re-check right before the password would be forwarded.
+          if (!deps.isBridgeTrusted(msg.sessionId)) {
+            take(msg.sessionId);
+            dismissRecipients(msg.sessionId, slot);
+            refuse(msg.sessionId, slot.callId, "untrusted");
+            return;
+          }
           take(msg.sessionId);
           toBridge(msg.sessionId, {
             type: "sudo_credential_response",
