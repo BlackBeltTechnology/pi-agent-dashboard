@@ -232,7 +232,7 @@ Optional in-session execution boundary. Protects host from unreviewed tool execu
 
 Bounds the spawn to a guard that PROVES it loaded. Blocks a typo'd `guardExtension` from running ungated (pi treats unresolvable `-e <ref>` as non-fatal).
 
-- Guard announces at `session_start`: `dashboard:plugin-message` `{pluginId:"chat-gateway", messageType:"chat_gateway_guard_ready", payload:{token}}` (`packages/chat-gateway/src/guard/index.ts`).
+- Guard announces at `session_start`: `dashboard:plugin-message` `{pluginId:"chat-gateway", messageType:"chat_gateway_guard_ready", payload:{token}}` (`packages/chat-gateway/src/guard/index.ts`). Repeats at 250 ms, 1 s, 3 s, 8 s, 15 s after `session_start` (`READY_REANNOUNCE_MS`): pi runs `-e` extension `session_start` BEFORE bridge `session_start`; bridge listens for `dashboard:plugin-message` only inside its own `session_start`; one emit is lost. Gateway ignores duplicates.
 - `token` = env `PI_EXT_CHAT_GATEWAY_GUARD_TOKEN` = the spawn token the gateway writes to `extensionConfig["chat-gateway-guard"].token` (`packages/chat-gateway/src/shared/guard-ready.ts`). No token in env → no announcement.
 - Gateway holds the triggering message while a guard is configured: `spawnCorrelated` omits `initialPrompt`; delivery goes through `send_prompt` after readiness (`packages/chat-gateway/src/server/gateway.ts`).
 - Release needs BOTH: own spawn token AND sender sessionId == the session the spawn resolved to (`onSessionResolved`, via `registerPiHandler`). Token alone never enough — it travels in the spawned process's env.
