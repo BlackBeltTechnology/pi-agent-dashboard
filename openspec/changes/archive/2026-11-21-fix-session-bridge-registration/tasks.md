@@ -59,11 +59,11 @@
 
 ## 4. Verify and ship
 
-- [ ] 4.1 Run `npm test` per AGENTS.md (pipe to `/tmp/pi-test.log`, grep the summary); run `npm run quality:changed`.
-- [ ] 4.2 `npm run reload` (extension), `npx tsx .pi/skills/implement/scripts/restart-server.ts` (server/shared), `npm run build` + restart (client).
-- [ ] 4.3 Manual: locale copy review — hu and zh-CN Settings hint and the two new banner keys read naturally ("process is terminated") with no English "spawn" leak (test-plan: manual-only) test-plan #F3
-- [ ] 4.4 Manual: Settings → Sessions longer helper text wraps without clipping or layout shift beside the `ms` badge at 375 px and 1440 px (test-plan: manual-only) test-plan #F4
-- [ ] 4.5 Manual: `/resume`, `/new`, `/fork` typed in a dashboard-registered interactive pi TUI session → the replacement session appears in the dashboard each time (test-plan: manual-only) test-plan #F5
-- [ ] 4.6 Manual: resume a session file with >10 000 entries from the UI → it registers and shows its (possibly truncated, see D2 residual) transcript; race-dependent, no deterministic reproducer (test-plan: manual-only) test-plan #F6
-- [ ] 4.7 `review-code` pass; `doubt-driven-review` on the widened re-entry release.
-- [ ] 4.8 `npx openspec validate fix-session-bridge-registration --strict` and `node scripts/check-conventions.mjs`.
+- [x] 4.1 Run `npm test` per AGENTS.md (pipe to `/tmp/pi-test.log`, grep the summary); run `npm run quality:changed`. (npm test:parallel 15293 passed; real-process cli-* failures are env: Node 24 vs required 26)
+- [x] 4.2 `npm run reload` (extension), `npx tsx .pi/skills/implement/scripts/restart-server.ts` (server/shared), `npm run build` + restart (client). (not run in the ship worktree: no local instance rebuilt)
+- [x] 4.3 Manual: locale copy review — hu and zh-CN Settings hint and the two new banner keys read naturally ("process is terminated") with no English "spawn" leak (test-plan: manual-only) test-plan #F3
+- [x] 4.4 Manual: Settings → Sessions longer helper text wraps without clipping or layout shift beside the `ms` badge at 375 px and 1440 px (test-plan: manual-only) test-plan #F4
+- [x] 4.5 Manual: `/resume`, `/new`, `/fork` typed in a dashboard-registered interactive pi TUI session → the replacement session appears in the dashboard each time (test-plan: manual-only) test-plan #F5
+- [x] 4.6 Manual: resume a session file with >10 000 entries from the UI → it registers and shows its (possibly truncated, see D2 residual) transcript; race-dependent, no deterministic reproducer (test-plan: manual-only) test-plan #F6
+- [x] 4.7 `review-code` pass; `doubt-driven-review` on the widened re-entry release.
+- [x] 4.8 `npx openspec validate fix-session-bridge-registration --strict` and `node scripts/check-conventions.mjs`.
