@@ -3,7 +3,9 @@
 ## Purpose
 
 Defines the lifecycle and persistence rules for the chat input's typed-but-unsent text ("drafts") and for navigating previously sent user prompts ("history recall") inside `CommandInput`. Drafts are scoped per-session and survive navigation and page reload; history recall is derived from the session's in-memory user messages and navigated bash-style with `ArrowUp` / `ArrowDown`.
+
 ## Requirements
+
 ### Requirement: Per-session draft text persistence
 
 The chat input SHALL preserve typed-but-unsent text on a per-session basis. The draft for session `S` SHALL be retained when the user navigates to any view that unmounts the chat area (Settings, OpenSpec preview, file diff view, pi resources view, readme preview, archive browser, or any other `detailPanel` branch) and SHALL be re-displayed when the user returns to the chat view with session `S` selected. The draft for session `S` SHALL NOT appear in any other session's input.
@@ -227,3 +229,92 @@ The chat input SHALL support an explicit force-history shortcut that activates h
 - **WHEN** the input has empty text but a pasted image attached, and the user presses `Ctrl+ArrowUp`
 - **THEN** the input text SHALL be replaced with the most recent history entry AND the pending images SHALL remain attached to the input
 
+### Requirement: Per-prompt answer draft persistence
+The partial answer of an unanswered ask-user prompt (`select`/`multiselect` checks and Other, `input` text, `batch` step and answers) SHALL be restored after switching session and back and after a page reload. Every surface mounting the same prompt SHALL share its text and selections, including the latest edit; no other session or prompt SHALL show it.
+
+#### Scenario: Other text survives session switch
+- **WHEN** the user activates "Other" on a pending `select` in session A, types `"foo"`, switches to session B and back
+- **THEN** the "Other" row SHALL be active with text `"foo"`
+
+#### Scenario: Multiselect and input restored
+- **WHEN** the user checks options on a pending `multiselect`, or types in a pending `input`, and navigates away and back
+- **THEN** the same options SHALL be checked, or the same text SHALL be shown
+
+#### Scenario: Batch step and answers restored
+- **WHEN** the user answers steps 1–2 of a pending `batch` and is on step 3, then reloads the page
+- **THEN** the wizard SHALL open on step 3 with steps 1–2 answered
+
+#### Scenario: Shared across surfaces
+- **WHEN** the user types an Other text on the chat card and opens the same question in the question dialog
+- **THEN** the dialog SHALL show the same text
+
+#### Scenario: Switch inside the write delay
+- **WHEN** the user types in a pending `input` and switches session within 300 ms of the last keystroke, then reloads
+- **THEN** the full typed text SHALL be restored
+
+#### Scenario: Images are not restored in the question dialog
+- **WHEN** the user pastes an image into a pending `input` on the chat card and opens the same question in the question dialog
+- **THEN** the dialog SHALL show the text but SHALL NOT show the image, because the dialog's answer road is text-only
+
+#### Scenario: Prompt change re-initialises
+- **WHEN** one mounted renderer element receives a different prompt id
+- **THEN** it SHALL show that prompt's draft (or empty), not the previous prompt's
+
+#### Scenario: Prompt without id is not persisted
+- **WHEN** a prompt reaches a surface without a prompt id (e.g. a question row from an older server)
+- **THEN** no draft SHALL be stored or restored for it, and two such prompts SHALL NOT share a draft
+
+#### Scenario: Renderer without a session id is not persisted
+- **WHEN** an interactive renderer is mounted with a prompt id but no session id
+- **THEN** no draft SHALL be stored or restored for it, and no `ask-draft` key SHALL be written for it, while typing still works within the mounted card
+
+#### Scenario: No leak
+- **WHEN** session B has its own pending prompt while session A has a draft
+- **THEN** B's prompt SHALL show no content from A's draft
+
+### Requirement: Prompt draft storage and lifecycle
+Prompt drafts SHALL live in an in-memory store, mirrored debounced and size-capped (serialised entry at most 16 384 UTF-16 code units) to `sessionStorage` (per tab) under `ask-draft:<sessionId>:<promptId>` and flushed on unmount and page hide. Invalid entries SHALL be ignored. Pasted images SHALL stay in memory, scoped per session, prompt and step, never serialised. A draft SHALL be deleted when its prompt is no longer pending (from session state, mounted or not) or is older than 24 hours.
+
+#### Scenario: Key naming
+- **WHEN** a draft exists for session `s1`, prompt `p1`
+- **THEN** it SHALL be stored under `ask-draft:s1:p1`
+
+#### Scenario: Cleared when answered or cancelled
+- **WHEN** the user submits or cancels the prompt and its request leaves `pending`
+- **THEN** its `ask-draft:` entry, memory copy and in-memory images SHALL be removed and a later unmount SHALL NOT re-create it
+
+#### Scenario: Kept when delivery fails
+- **WHEN** a submit from the question dialog fails and the prompt stays pending
+- **THEN** its draft SHALL remain
+
+#### Scenario: Cleared when no longer pending, renderer unmounted
+- **WHEN** the prompt becomes resolved, cancelled or dismissed (including answered in the terminal) while its session is not the selected one
+- **THEN** its entry SHALL be removed without the renderer being mounted
+
+#### Scenario: Old entry swept
+- **WHEN** the store hydrates and an entry is older than 24 hours
+- **THEN** that entry SHALL be removed
+
+#### Scenario: Per-tab storage
+- **WHEN** a draft is written and the page is reloaded in the same tab, or a second tab opens the same session
+- **THEN** the reloaded tab SHALL restore it, the second tab SHALL NOT see it, and nothing SHALL be written to `localStorage`
+
+#### Scenario: Per-entry size cap
+- **WHEN** a draft's serialised entry is 16 384 UTF-16 code units or fewer
+- **THEN** it SHALL be mirrored to `sessionStorage`; when it is 16 385 or more the mirror write SHALL be skipped while the in-memory draft is kept and still restorable within the tab
+
+#### Scenario: Storage failure is non-fatal
+- **WHEN** `sessionStorage` throws on read or write (quota exceeded, storage disabled, `SecurityError`)
+- **THEN** the store SHALL stay memory-only without crashing or showing any user-visible notice, and the renderer SHALL still restore the in-memory draft within the tab
+
+#### Scenario: Corrupt or stale entry
+- **WHEN** an entry is invalid JSON, or a batch draft's step exceeds the question count
+- **THEN** the renderer SHALL start empty and the entry SHALL be discarded
+
+#### Scenario: Images are memory-only
+- **WHEN** the user pastes an image into a pending `input` on the chat card and navigates away and back without reloading
+- **THEN** the image SHALL still show; after a reload it SHALL NOT, while the text SHALL
+
+#### Scenario: Images do not cross sessions
+- **WHEN** sessions A and B each have a pending prompt with the same prompt id and A has a pasted image
+- **THEN** B's prompt SHALL NOT show A's image

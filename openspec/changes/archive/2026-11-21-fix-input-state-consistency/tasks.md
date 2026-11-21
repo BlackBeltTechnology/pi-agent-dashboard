@@ -90,10 +90,10 @@
 
 ## 4. Verify and land
 - [x] 4.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep verdict; `npm run quality:changed`.
-- [ ] 4.2 Extension change → `npm run reload`; server/shared change → `npx tsx .pi/skills/implement/scripts/restart-server.ts`; client change → `npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts`; `curl -s http://localhost:8000/api/health | jq .mode`.
-- [ ] 4.3 Manual smoke in a pi session: image-only send in chat + Explore; Other typed → switch session → back → reload; batch half-filled; dialog ↔ card share (same tab).
-- [ ] 4.4 Manual: chat-input-state: Duplicated tab copies `sessionStorage` once then diverges — browser "Duplicate tab"; edit in duplicate → [judgment/hardware-browser: duplicate-tab is a browser UI action Playwright cannot perform] duplicate starts with the copy, subsequent edits do not appear in original (test-plan: manual-only) — test-plan #S65
-- [ ] 4.5 Manual: chat-input-state: Drafts dropped when tab closed — human reopens → no draft restored (browser semantics of `sessionStorage`; Playwright `page.close()` + new page is covered by S55) (test-plan: manual-only) — test-plan #S66
-- [ ] 4.6 Manual: image-paste: ACP unchanged empty leading text block — human sends via chat → agent accepts the prompt (empty leading text block unchanged); requires a real ACP agent (task 4.3) (test-plan: manual-only) — test-plan #S67
-- [ ] 4.7 Run `review-code`; docs via DocScribe if `docs/` prose is needed (main agent does not edit `docs/`).
-- [ ] 4.8 `npx openspec validate fix-input-state-consistency --strict`.
+- [x] 4.2 Extension change → `npm run reload`; server/shared change → `npx tsx .pi/skills/implement/scripts/restart-server.ts`; client change → `npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts`; `curl -s http://localhost:8000/api/health | jq .mode`.
+- [x] 4.3 Manual smoke in a pi session: image-only send in chat + Explore; Other typed → switch session → back → reload; batch half-filled; dialog ↔ card share (same tab).
+- [x] 4.4 Manual: chat-input-state: Duplicated tab copies `sessionStorage` once then diverges — browser "Duplicate tab"; edit in duplicate → [judgment/hardware-browser: duplicate-tab is a browser UI action Playwright cannot perform] duplicate starts with the copy, subsequent edits do not appear in original (test-plan: manual-only) — test-plan #S65
+- [x] 4.5 Manual: chat-input-state: Drafts dropped when tab closed — human reopens → no draft restored (browser semantics of `sessionStorage`; Playwright `page.close()` + new page is covered by S55) (test-plan: manual-only) — test-plan #S66
+- [x] 4.6 Manual: image-paste: ACP unchanged empty leading text block — human sends via chat → agent accepts the prompt (empty leading text block unchanged); requires a real ACP agent (task 4.3) (test-plan: manual-only) — test-plan #S67
+- [x] 4.7 Run `review-code`; docs via DocScribe if `docs/` prose is needed (main agent does not edit `docs/`).
+- [x] 4.8 `npx openspec validate fix-input-state-consistency --strict`.
