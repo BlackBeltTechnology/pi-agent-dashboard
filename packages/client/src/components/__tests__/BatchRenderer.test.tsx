@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { PROMPT_DRAFT_KEY_PREFIX, resetPromptDraftMemory } from "../../lib/state/prompt-draft-storage.js";
 import { BatchRenderer } from "../interactive-renderers/BatchRenderer.js";
 
 afterEach(cleanup);
@@ -184,5 +185,110 @@ describe("BatchRenderer inline Other", () => {
     fireEvent.click(screen.getByText("B"));
     expect(screen.queryByRole("textbox", { name: "Other answer" })).toBeNull();
     expect(next().disabled).toBe(false);
+  });
+});
+
+// ── #1116 own Other collapses into the inline row. See change: fix-input-state-consistency ──
+describe("BatchRenderer own Other (#1116)", () => {
+  const qs = [
+    { method: "select", title: "S0", options: ["X", "Other"], allowOther: true },
+    { method: "multiselect", title: "M1", options: ["A", "B", "Other: specify"], allowOther: true },
+  ];
+  const next = () => screen.getByText("Next →") as HTMLButtonElement;
+
+  it("S24: own Other is hidden on select and multiselect sub-questions; typed text answers", () => {
+    const onRespond = vi.fn();
+    render(<BatchRenderer requestId="r" method="batch" params={{ title: "T", questions: qs }} status="pending" onRespond={onRespond} onCancel={vi.fn()} />);
+    // Step 0: only X + the inline Other (the caller's own "Other" is not a second button).
+    expect(screen.getAllByRole("button", { name: "Other" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Other answer" }), { target: { value: "C" } });
+    fireEvent.click(next());
+    // Step 1: A, B listed; "Other: specify" hidden; inline row present.
+    expect(screen.queryByRole("checkbox", { name: "Other: specify" })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "A" }));
+    fireEvent.click(next());
+    fireEvent.click(screen.getByText(/Submit all/));
+    expect(onRespond).toHaveBeenCalledWith({ answers: [{ value: "C" }, { values: ["A"] }] });
+  });
+});
+
+// ── #1117 prompt draft persistence. See change: fix-input-state-consistency ──
+describe("BatchRenderer draft persistence (#1117)", () => {
+  afterEach(() => {
+    sessionStorage.clear();
+    resetPromptDraftMemory();
+  });
+  const qs = [
+    { method: "input", title: "One" },
+    { method: "select", title: "Two", options: ["red", "blue"], allowOther: true },
+    { method: "input", title: "Three" },
+  ];
+  const mount = (questions: unknown[] = qs, onRespond = vi.fn()) =>
+    render(<BatchRenderer requestId="p1" sessionId="A" method="batch" params={{ title: "T", questions }} status="pending" onRespond={onRespond} onCancel={vi.fn()} />);
+  const next = () => screen.getByText("Next →") as HTMLButtonElement;
+  const key = `${PROMPT_DRAFT_KEY_PREFIX}A:p1`;
+
+  function fillToStepThree() {
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "alpha" } });
+    fireEvent.click(next());
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Other answer" }), { target: { value: "teal" } });
+    fireEvent.click(next());
+  }
+
+  it("S44: step, answers 1-2 and the Other draft are restored after unmount and after a reload", () => {
+    const first = mount();
+    fillToStepThree();
+    expect(screen.getByText("Question 3 of 3")).toBeTruthy();
+    first.unmount();
+    // (a) remount: memory is current
+    const second = mount();
+    expect(screen.getByText("Question 3 of 3")).toBeTruthy();
+    fireEvent.click(screen.getByText("← Back"));
+    expect((screen.getByRole("textbox", { name: "Other answer" }) as HTMLInputElement).value).toBe("teal");
+    fireEvent.click(screen.getByText("← Back"));
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("alpha");
+    fireEvent.click(next());
+    fireEvent.click(next()); // back on step 3 before the reload
+    second.unmount();
+    // (b) reload: module memory gone, sessionStorage kept
+    resetPromptDraftMemory();
+    mount();
+    expect(screen.getByText("Question 3 of 3")).toBeTruthy();
+    fireEvent.click(screen.getByText("← Back"));
+    expect((screen.getByRole("textbox", { name: "Other answer" }) as HTMLInputElement).value).toBe("teal");
+  });
+
+  it.each([
+    ["invalid json", "{nope"],
+    ["wrong version", JSON.stringify({ v: 2, savedAt: Date.now(), state: {} })],
+    ["null", "null"],
+    ["state not an object", JSON.stringify({ v: 1, savedAt: Date.now(), state: 7 })],
+    ["step out of range", JSON.stringify({ v: 1, savedAt: Date.now(), state: { step: 9, answers: [null, null, null], otherDraft: [] } })],
+    ["expired", JSON.stringify({ v: 1, savedAt: 1, state: { step: 1, answers: [null, null, null], otherDraft: [] } })],
+  ])("S32: a corrupt or stale entry (%s) is discarded and the wizard starts empty", (_n, raw) => {
+    sessionStorage.setItem(key, raw);
+    expect(() => mount()).not.toThrow();
+    expect(screen.getByText("Question 1 of 3")).toBeTruthy();
+    expect(sessionStorage.getItem(key)).toBeNull();
+  });
+
+  it("S34: a draft for a prompt whose shape changed (3 answers → 2 questions) is discarded; wizard on step 1", () => {
+    const first = mount();
+    fillToStepThree();
+    first.unmount();
+    mount(qs.slice(0, 2));
+    expect(screen.getByText("Question 1 of 2")).toBeTruthy();
+    expect(sessionStorage.getItem(key)).toBeNull();
+  });
+
+  it("the mirror holds answers without an images field", () => {
+    const first = mount();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "with img" } });
+    first.unmount();
+    const stored = sessionStorage.getItem(key) ?? "";
+    expect(stored).toContain("with img");
+    expect(stored).not.toContain("images");
   });
 });

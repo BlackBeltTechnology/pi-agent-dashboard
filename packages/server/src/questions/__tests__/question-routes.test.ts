@@ -6,20 +6,20 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { ROUTE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
+import { WS_MESSAGE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../../auth/bearer-auth.js";
 import { createNetworkGuard } from "../../auth/localhost-guard.js";
-import { ROUTE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
-import { WS_MESSAGE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import { createRouteTierGate } from "../../auth/route-tier-gate.js";
-import { createMemoryEventStore } from "../../persistence/memory-event-store.js";
 import { PairedDeviceRegistry } from "../../pairing/paired-devices.js";
+import { createMemoryEventStore } from "../../persistence/memory-event-store.js";
 import type { BriefOutcome } from "../brief-generator.js";
 import { createQuestionFileStore } from "../question-files.js";
 import { registerQuestionRoutes } from "../question-routes.js";
-import { createQuestionStore, TRANSMITTED_WINDOW_MS, type QuestionStore } from "../question-store.js";
+import { createQuestionStore, type QuestionStore, TRANSMITTED_WINDOW_MS } from "../question-store.js";
 
 const anna = { iss: "kc", sub: "anna" };
 const bela = { iss: "kc", sub: "bela" };
@@ -226,11 +226,16 @@ describe("question REST roads", () => {
       expect(store.listRows()).toHaveLength(1);
     });
 
-    it("opted-in prompt with its own Other option rejects custom text", async () => {
+    // #1116 (fix-input-state-consistency, S25): the inline row replaces the own Other,
+    // so the road accepts both the literal option and custom text.
+    it("opted-in prompt with its own Other option accepts the literal and custom text", async () => {
       const { store } = makeStore();
       store.onTracked("s1", promptMsg("s1", "p1", { options: ["A", "Other (describe)"], metadata: { allowOther: true } }));
       const { app } = await makeApp(store);
-      expect((await post(app, idOf(store), { answer: "C" })).statusCode).toBe(400);
+      const id = idOf(store);
+      expect((await post(app, id, { answer: "C" })).statusCode).toBe(200);
+      store.onTracked("s1", promptMsg("s1", "p2", { options: ["A", "Other (describe)"], metadata: { allowOther: true } }));
+      expect((await post(app, idOf(store), { answer: "Other (describe)" })).statusCode).toBe(200);
     });
 
     it("opted-in batch sub-question accepts custom text; others do not", async () => {

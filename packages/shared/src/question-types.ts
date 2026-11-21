@@ -20,6 +20,12 @@ export const QUESTION_PREVIEW_MAX = 140;
 export interface QuestionRow {
   /** Opaque, URL-safe, unguessable id (stable across bridge re-sends). */
   id: string;
+  /**
+   * The PromptBus prompt id (the chat card's `requestId`). Optional + additive:
+   * an old server omits it. Lets the dialog share a prompt draft with the chat
+   * card, keyed by (sessionId, promptId). See change: fix-input-state-consistency.
+   */
+  promptId?: string;
   sessionId: string;
   sessionLabel: string;
   changeName?: string;

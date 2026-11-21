@@ -1289,6 +1289,18 @@ describe("parseSendPrompt", () => {
   });
 });
 
+// See change: fix-input-state-consistency (#1136) — an image-only Explore sends
+// the skill prefix + newline; the newline keeps it off the bare-slash route.
+describe("parseSendPrompt — image-only Explore prefix", () => {
+  it("S13: `/skill:openspec-explore\\n` is a passthrough, not a bare slash command", () => {
+    expect(parseSendPrompt("/skill:openspec-explore\n")).toEqual({ type: "passthrough", text: "/skill:openspec-explore\n" });
+    expect(parseSendPrompt("/skill:openspec-explore add-auth\n")).toEqual({
+      type: "passthrough",
+      text: "/skill:openspec-explore add-auth\n",
+    });
+  });
+});
+
 describe("CommandHandler delivery routing (pi-native queues)", () => {
   // After change: honest-mid-turn-queue-surface, the bridge appends to pi's
   // queues via pi.sendUserMessage{deliverAs} only. clear*Queue stubs remain

@@ -534,3 +534,25 @@ test.describe("pending-question stack (add-pending-question-stack)", () => {
     expect(p95, `p95 removal propagation ${p95} ms`).toBeLessThanOrEqual(P95_BUDGET_MS);
   });
 });
+
+// #1116 (change: fix-input-state-consistency, S64): the caller's own "Other (describe)"
+// option collapses into the single inline Other row; its typed text is the answer.
+test.describe("faux round-trip — own Other collapses (#1116)", () => {
+  test("S64: only one Other control in the card; the literal option is absent; typed text resolves", async ({ page }) => {
+    test.setTimeout(240_000);
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:ask-select-own-other]] go");
+
+    const ask = page.locator("[data-pending-ask]").first();
+    await expect(ask).toBeVisible({ timeout: 30_000 });
+    await expect(ask.getByRole("button", { name: /Other \(describe\)/ })).toHaveCount(0);
+    await expect(ask.getByRole("button", { name: "Other", exact: true })).toHaveCount(1);
+
+    await ask.getByRole("button", { name: "Other", exact: true }).click();
+    await ask.getByRole("textbox", { name: "Other answer" }).fill("zeta");
+    await ask.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(page.locator("[data-pending-ask]")).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByTestId("answered-other-text").last()).toHaveText("zeta", { timeout: 30_000 });
+  });
+});

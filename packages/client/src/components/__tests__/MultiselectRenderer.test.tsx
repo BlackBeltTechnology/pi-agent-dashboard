@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { PROMPT_DRAFT_DEBOUNCE_MS, resetPromptDraftMemory, setPromptDraft } from "../../lib/state/prompt-draft-storage.js";
 import { MultiselectRenderer } from "../interactive-renderers/MultiselectRenderer.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
@@ -359,5 +360,85 @@ describe("MultiselectRenderer inline Other", () => {
       <MultiselectRenderer requestId="r" method="multiselect" params={{ title: "T", options: ["A", "B"] }} status="pending" onRespond={vi.fn()} onCancel={vi.fn()} />,
     );
     expect(screen.queryByTestId("other-option")).toBeNull();
+  });
+});
+
+// ── #1116 own Other collapses into the inline row. See change: fix-input-state-consistency ──
+describe("MultiselectRenderer own Other (#1116)", () => {
+  const mountWith = (options: string[], onRespond = vi.fn()) => {
+    render(<MultiselectRenderer requestId="r" method="multiselect" params={{ title: "T", options, allowOther: true }} status="pending" onRespond={onRespond} onCancel={vi.fn()} />);
+    return onRespond;
+  };
+  const checkbox = (name: string) => screen.getByRole("checkbox", { name }) as HTMLInputElement;
+
+  it("S20: own Other hidden — one listed checkbox plus the inline row", () => {
+    mountWith(["A", "Other: specify"]);
+    expect(screen.queryByRole("checkbox", { name: "Other: specify" })).toBeNull();
+    expect(checkbox("A")).toBeTruthy();
+    expect(screen.getByTestId("other-option")).toBeTruthy();
+    // "Select all" + A + inline Other
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+  });
+
+  it("S21: Select all does not select the hidden Other; count is over listed options", () => {
+    const onRespond = mountWith(["A", "B", "Other: specify"]);
+    fireEvent.click(screen.getByText("Select all"));
+    expect(checkbox("A").checked && checkbox("B").checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /^Submit/ }));
+    expect(onRespond).toHaveBeenCalledWith({ values: ["A", "B"] });
+    cleanup();
+    render(
+      <MultiselectRenderer requestId="r" method="multiselect" params={{ title: "T", options: ["A", "B", "Other: specify"], allowOther: true }} status="resolved" result={{ values: ["A", "B"] }} onRespond={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.getByText(/2 of 2/)).toBeTruthy();
+  });
+
+  it("S22: only an own Other listed — no listed checkbox, no select-all, count is 0 of 0", () => {
+    mountWith(["Other"]);
+    expect(screen.queryByTestId("select-all-row")).toBeNull();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1); // the inline Other row only
+    cleanup();
+    render(
+      <MultiselectRenderer requestId="r" method="multiselect" params={{ title: "T", options: ["Other"], allowOther: true }} status="resolved" result={{ values: [] }} onRespond={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.getByText(/0 of 0/)).toBeTruthy();
+  });
+});
+
+// ── #1117 prompt draft persistence + crafted-state guard. See change: fix-input-state-consistency ──
+describe("MultiselectRenderer draft persistence (#1117)", () => {
+  afterEach(() => {
+    sessionStorage.clear();
+    resetPromptDraftMemory();
+  });
+  const props = (params: Record<string, unknown>, onRespond = vi.fn()) => ({
+    requestId: "p1",
+    sessionId: "A",
+    method: "multiselect",
+    params,
+    status: "pending" as const,
+    onRespond,
+    onCancel: vi.fn(),
+  });
+
+  it("S42a: the same two options are checked after a remount (and the third stays unchecked)", () => {
+    const params = { title: "T", options: ["A", "B", "C"] };
+    const first = render(<MultiselectRenderer {...props(params)} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "A" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "C" }));
+    first.unmount();
+    render(<MultiselectRenderer {...props(params)} />);
+    expect((screen.getByRole("checkbox", { name: "A" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "B" }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole("checkbox", { name: "C" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("S27c: a hidden own-Other cannot be submitted from a crafted (restored) draft", () => {
+    setPromptDraft("A", "p1", { checked: ["A", "Other: specify"], otherActive: false, otherText: "" });
+    const onRespond = vi.fn();
+    render(<MultiselectRenderer {...props({ title: "T", options: ["A", "Other: specify"], allowOther: true }, onRespond)} />);
+    expect((screen.getByRole("checkbox", { name: "A" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /^Submit/ }));
+    expect(onRespond).toHaveBeenCalledWith({ values: ["A"] });
   });
 });
