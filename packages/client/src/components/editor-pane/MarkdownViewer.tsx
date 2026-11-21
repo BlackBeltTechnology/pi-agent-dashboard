@@ -186,7 +186,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
         <div
           data-testid="md-save-error"
           role="alert"
-          className="shrink-0 border-b border-[var(--border-primary)] px-3 py-1.5 text-xs text-[var(--accent-red)]"
+          className="shrink-0 border-b border-[var(--border-primary)] px-3 py-1.5 text-xs text-[var(--accent-red-text)]"
         >
           {saveError}
         </div>
