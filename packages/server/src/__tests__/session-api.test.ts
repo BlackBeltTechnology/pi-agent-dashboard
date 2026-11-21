@@ -9,12 +9,12 @@ import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-
 import { metaPath, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import Fastify from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
 import { createMetaPersistence } from "../persistence/meta-persistence.js";
 import { registerSessionRoutes } from "../routes/session-routes.js";
 import { createServer, type DashboardServer } from "../server.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createSessionArchive } from "../session/session-archive.js";
-import { WebSocket } from "ws";
 import { proofFetch, proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 let httpPort: number;
