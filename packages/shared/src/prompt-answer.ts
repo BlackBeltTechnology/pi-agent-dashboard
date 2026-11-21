@@ -64,14 +64,18 @@ export interface ValidatablePrompt {
 // renderers and the REST validator so the UI shows Other exactly when the
 // server accepts a custom answer.
 
-/** True when the caller already offers its own "Other…" option (English-only heuristic). */
-export function hasOwnOtherOption(options: readonly unknown[]): boolean {
-  return options.some((o) => typeof o === "string" && /^other(?![\p{L}\p{N}])/iu.test(o.trim()));
+/**
+ * True when this ONE option is the caller's own "Other…" (English-only heuristic).
+ * Under an opted-in prompt the inline Other row replaces it. Non-strings never match.
+ * See change: fix-input-state-consistency (#1116).
+ */
+export function isOwnOtherOption(option: unknown): boolean {
+  return typeof option === "string" && /^other(?![\p{L}\p{N}])/iu.test(option.trim());
 }
 
-/** Inline Other is shown/accepted only for opted-in prompts with options and no own "Other". */
+/** Inline Other is shown/accepted only for opted-in prompts that list at least one option. */
 export function isOtherAllowed(p: { allowOther?: boolean; options?: readonly unknown[] }): boolean {
-  return p.allowOther === true && Array.isArray(p.options) && p.options.length > 0 && !hasOwnOtherOption(p.options);
+  return p.allowOther === true && Array.isArray(p.options) && p.options.length > 0;
 }
 
 /** A custom answer is the shape the UI produces: non-empty and already trimmed. */

@@ -20,17 +20,17 @@
  * See change: add-pending-question-stack (D1, D2, D4, D6, D8).
  */
 import { randomBytes } from "node:crypto";
+import type { QuestionsConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { BatchQuestion } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import {
-  QUESTION_PREVIEW_MAX,
   type BriefLabel,
   type BriefStatus,
+  QUESTION_PREVIEW_MAX,
   type QuestionDetail,
   type QuestionOrigin,
   type QuestionRow,
   type QuestionSnapshot,
 } from "@blackbelt-technology/pi-dashboard-shared/question-types.js";
-import type { QuestionsConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { BriefGenerator, BriefOutcome } from "./brief-generator.js";
 import { contextMessageOf, decideBriefPolicy } from "./brief-policy.js";
@@ -256,6 +256,7 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
     const session = deps.describeSession(rec.sessionId);
     return {
       id: rec.id,
+      promptId: rec.promptId,
       sessionId: rec.sessionId,
       sessionLabel: session?.label ?? rec.sessionId,
       ...(session?.changeName ? { changeName: session.changeName } : {}),

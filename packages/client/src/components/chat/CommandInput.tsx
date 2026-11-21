@@ -69,6 +69,12 @@ export function parseViewCommand(
 
 interface Props {
   commands: CommandInfo[];
+  /**
+   * Allow sending with pasted images and no text (default true). The
+   * directory-home composer passes false: spawning a session takes text only.
+   * See change: fix-input-state-consistency.
+   */
+  allowImageOnlySend?: boolean;
   onSend: (text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => void;
   onListFiles?: (query: string) => void;
   fileResults?: { query: string; files: FileEntry[] } | null;
@@ -290,7 +296,7 @@ function isBelowDeliveryFold(card: HTMLElement | null): boolean {
   return width > 0 && width < DELIVERY_FOLD_REM * (Number.isFinite(root) && root > 0 ? root : 16);
 }
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, currentTool, streamingText, contextUsage, commandsOrigin, sendLabel, modelTag, thinkingTag, unsetLabel, toolbarExtra }: Props) {
+export function CommandInput({ commands: externalCommands, allowImageOnlySend = true, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, currentTool, streamingText, contextUsage, commandsOrigin, sendLabel, modelTag, thinkingTag, unsetLabel, toolbarExtra }: Props) {
   const { t } = useI18n();
   // One-shot `@role` pick for the model chip (resolves once; never follows later
   // role changes). See change: add-role-aware-model-refs.
@@ -604,7 +610,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
   const handleSend = useCallback((delivery?: "steer" | "followUp") => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed && !(allowImageOnlySend && pendingImages.length > 0)) return;
     // Dashboard-local `/view` interception. Parse the arg and dispatch to
     // `onViewLocal`; NEVER call `onSend`. Empty/malformed `/view` is a no-op
     // (draft preserved). See change: render-file-previews.
@@ -625,7 +631,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     if (inputRef.current) {
       inputRef.current.style.height = "38px";
     }
-  }, [text, pendingImages, onSend, clearImages, currentCwd, onViewLocal, setText]);
+  }, [text, pendingImages, allowImageOnlySend, onSend, clearImages, currentCwd, onViewLocal, setText]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -880,7 +886,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     actionButton = (
       <button
         onClick={() => handleSend(deliveryMode === "queue" ? "followUp" : "steer")}
-        disabled={disabled || pendingIdle || !text.trim()}
+        disabled={disabled || pendingIdle || (!text.trim() && !(allowImageOnlySend && pendingImages.length > 0))}
         className="focus-ring flex-none flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90 disabled:bg-[var(--bg-surface)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed"
         title={sendLabel ?? t("command.send", undefined, "Send")}
         aria-label={sendLabel ?? t("command.send", undefined, "Send")}

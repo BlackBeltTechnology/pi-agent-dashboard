@@ -251,12 +251,14 @@ function FollowupCycler({
       ) : (
         <div className="flex items-start gap-1.5">
           <div className="flex-1 min-w-0 flex flex-col gap-1">
-            <div
-              data-testid="queue-chip-followup"
-              className="min-w-0 max-h-80 overflow-auto text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words leading-relaxed"
-            >
-              {text}
-            </div>
+            {text && (
+              <div
+                data-testid="queue-chip-followup"
+                className="min-w-0 max-h-80 overflow-auto text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words leading-relaxed"
+              >
+                {text}
+              </div>
+            )}
             {imageCount > 0 && (
               <span
                 data-testid="queue-followup-attachments"

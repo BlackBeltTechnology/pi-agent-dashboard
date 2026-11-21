@@ -11,8 +11,8 @@
  *
  * See change: fix-multiselect-auto-cancel-on-dashboard.
  */
-import { describe, it, expect } from "vitest";
-import { encodePromptAnswer, hasOwnOtherOption, isOtherAllowed, validateQuestionAnswer } from "../prompt-answer.js";
+import { describe, expect, it } from "vitest";
+import { encodePromptAnswer, isOtherAllowed, isOwnOtherOption, validateQuestionAnswer } from "../prompt-answer.js";
 
 describe("encodePromptAnswer", () => {
   // ── multiselect arm ────────────────────────────────────────────────
@@ -199,7 +199,7 @@ describe("isOtherAllowed (test-plan E1)", () => {
   const optionSets: string[][] = [[], ["A", "B"], ["A", "Other (describe)"]];
   for (const allowOther of allows) {
     for (const options of optionSets) {
-      const expected = allowOther === true && options.length === 2 && options[1] === "B";
+      const expected = allowOther === true && options.length > 0;
       it(`allowOther=${JSON.stringify(allowOther)} options=${JSON.stringify(options)} → ${expected}`, () => {
         expect(isOtherAllowed({ allowOther: allowOther as boolean | undefined, options })).toBe(expected);
       });
@@ -210,15 +210,43 @@ describe("isOtherAllowed (test-plan E1)", () => {
   });
 });
 
-describe("hasOwnOtherOption (test-plan E2)", () => {
-  for (const o of ["Other (describe)", "other", " Other: x", "Other — describe", "Other-wise"]) {
-    it(`suppresses for ${JSON.stringify(o)}`, () => expect(hasOwnOtherOption([o])).toBe(true));
+// See change: fix-input-state-consistency (#1116) — S16 match rule, S17 enablement.
+describe("isOwnOtherOption (S16)", () => {
+  for (const o of ["Other (describe)", "other", " Other: specify", "Other — describe", "Other-wise", "Other"]) {
+    it(`matches ${JSON.stringify(o)}`, () => expect(isOwnOtherOption(o)).toBe(true));
   }
-  for (const o of ["Others", "Otherwise", "Others will decide", "Other1", "Otheré"]) {
-    it(`does not suppress for ${JSON.stringify(o)}`, () => expect(hasOwnOtherOption([o])).toBe(false));
+  for (const o of ["Others", "Otherwise", "Others will decide", "Other1", "Othér", "OtherΩ", ""]) {
+    it(`does not match ${JSON.stringify(o)}`, () => expect(isOwnOtherOption(o)).toBe(false));
   }
-  it("never throws on non-strings", () => {
-    expect(hasOwnOtherOption([42 as unknown as string, null as unknown as string])).toBe(false);
+  it("never throws and never matches non-strings", () => {
+    for (const o of [42, null, undefined, {}, ["Other"]]) expect(isOwnOtherOption(o)).toBe(false);
+  });
+});
+
+describe("isOtherAllowed with a caller-supplied own Other (S17)", () => {
+  it("is now true for an opted-in prompt listing its own Other (was false)", () => {
+    expect(isOtherAllowed({ allowOther: true, options: ["Approve", "Reject", "Other (describe)"] })).toBe(true);
+  });
+  it("is false for empty options, allowOther:false and absent allowOther", () => {
+    expect(isOtherAllowed({ allowOther: true, options: [] })).toBe(false);
+    expect(isOtherAllowed({ allowOther: false, options: ["A"] })).toBe(false);
+    expect(isOtherAllowed({ options: ["A"] })).toBe(false);
+  });
+  it("is true when the options only look similar to Other", () => {
+    expect(isOtherAllowed({ allowOther: true, options: ["Others will decide", "Otherwise skip", "Other1"] })).toBe(true);
+  });
+  it("hasOwnOtherOption is no longer exported", async () => {
+    const mod = (await import("../prompt-answer.js")) as Record<string, unknown>;
+    expect(mod.hasOwnOtherOption).toBeUndefined();
+  });
+});
+
+describe("REST answer road with a listed own Other (S25)", () => {
+  const sel = { type: "select", options: ["Approve", "Other (describe)"], allowOther: true };
+  it("accepts the literal option and any trimmed custom text", () => {
+    expect(validateQuestionAnswer(sel, "Other (describe)")).toEqual({ ok: true });
+    expect(validateQuestionAnswer(sel, "later")).toEqual({ ok: true });
+    expect(validateQuestionAnswer(sel, "  later ").ok).toBe(false);
   });
 });
 
@@ -262,9 +290,8 @@ describe("validateQuestionAnswer with allowOther", () => {
     const r1 = validateQuestionAnswer(prompt, withAt(1, { value: "C" }));
     expect(r1.ok).toBe(false);
     expect(!r1.ok && r1.reason).toContain("batch[1]");
-    const r2 = validateQuestionAnswer(prompt, withAt(2, { value: "C" }));
-    expect(r2.ok).toBe(false);
-    expect(!r2.ok && r2.reason).toContain("batch[2]");
+    // Sub-question 2 lists its own Other and is opted in: custom text is accepted (#1116).
+    expect(validateQuestionAnswer(prompt, withAt(2, { value: "C" }))).toEqual({ ok: true });
     expect(validateQuestionAnswer(prompt, JSON.stringify(base))).toEqual({ ok: true });
     expect(validateQuestionAnswer(prompt, withAt(3, { confirmed: "x" })).ok).toBe(false);
     expect(validateQuestionAnswer(prompt, withAt(4, { value: 1 })).ok).toBe(false);

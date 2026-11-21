@@ -2375,6 +2375,28 @@ export const SCENARIOS: Record<string, Scenario> = {
     title: "Choose one",
     options: ["alpha", "beta"],
   }),
+  // Opted-in select whose caller also lists its own "Other (describe)" option: the
+  // inline Other row replaces it (#1116, fix-input-state-consistency).
+  "ask-select-own-other": askScenario("select", {
+    title: "Choose one",
+    options: ["alpha", "beta", "Other (describe)"],
+    allowOther: true,
+  }),
+  // ≥3 steps with a select that opts in to Other: batch-draft restore (#1117).
+  "ask-batch-steps": askScenario("batch", {
+    title: "Draft steps",
+    questions: [
+      { method: "input", title: "Step one" },
+      { method: "select", title: "Step two", options: ["red", "blue"], allowOther: true },
+      { method: "input", title: "Step three" },
+    ],
+  }),
+  // Opted-in select with ≥2 options: Other-text draft survives a session switch (#1117).
+  "ask-select-other": askScenario("select", {
+    title: "Pick or type",
+    options: ["alpha", "beta"],
+    allowOther: true,
+  }),
   "ask-multiselect": askScenario("multiselect", {
     title: "Choose many",
     options: ["one", "two", "three"],

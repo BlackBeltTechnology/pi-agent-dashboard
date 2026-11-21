@@ -628,6 +628,64 @@ describe("SessionOpenSpecActions", () => {
     );
   });
 
+  // See change: fix-input-state-consistency (#1136) — image-only Explore.
+  async function pasteImageIntoExplore() {
+    let pendingOnload: (() => void) | null = null;
+    vi.stubGlobal(
+      "FileReader",
+      class {
+        result = "data:image/png;base64,iVBORw0KGgo=";
+        onload: (() => void) | null = null;
+        readAsDataURL() {
+          pendingOnload = () => this.onload?.();
+        }
+      },
+    );
+    const file = new File([new Uint8Array([137, 80, 78, 71])], "test.png", { type: "image/png" });
+    fireEvent.paste(screen.getByTestId("explore-textarea"), {
+      clipboardData: { items: [{ type: "image/png", getAsFile: () => file, kind: "file" }] },
+    });
+    await act(async () => {
+      pendingOnload?.();
+    });
+  }
+  const pastedImage = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" };
+
+  it("S12a: image-only Explore on an attached session composes `/skill:openspec-explore <name>\n`", async () => {
+    const onSendPrompt = vi.fn();
+    render(
+      <SessionOpenSpecActions
+        session={makeSession({ attachedProposal: "add-auth", status: "idle" })}
+        changes={[impl1239]}
+        {...defaultProps}
+        onSendPrompt={onSendPrompt}
+      />,
+    );
+    openMenu();
+    fireEvent.click(screen.getByTestId("explore-menu-item"));
+    await pasteImageIntoExplore();
+    fireEvent.click(screen.getByTestId("explore-send"));
+    await waitFor(() => expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-explore add-auth\n", [pastedImage]));
+    vi.unstubAllGlobals();
+  });
+
+  it("S12b: image-only Explore on an unattached session composes `/skill:openspec-explore\n`", async () => {
+    const onSendPrompt = vi.fn();
+    render(
+      <SessionOpenSpecActions
+        session={makeSession({ status: "idle" })}
+        changes={[]}
+        {...defaultProps}
+        onSendPrompt={onSendPrompt}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("explore-unattached-btn"));
+    await pasteImageIntoExplore();
+    fireEvent.click(screen.getByTestId("explore-send"));
+    await waitFor(() => expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-explore\n", [pastedImage]));
+    vi.unstubAllGlobals();
+  });
+
   // --- Detach via ⋯ (F7) ---
 
   it.each(["idle", "ended"] as const)("Detach via ⋯ (%s) → onDetach, then unattached combo (F7)", (status) => {

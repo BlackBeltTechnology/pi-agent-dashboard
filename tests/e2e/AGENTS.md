@@ -94,6 +94,7 @@ One row per file.
 | `browser-relay.spec.ts` | → `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | → `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | → `chat-attachment-two-phase.spec.ts.AGENTS.md` |
+| `chat-image-only-send.spec.ts` | #1136: directory home still needs text (image only → send disabled, no spawn, S63); chat image-only send via click and Enter (enabled, optimistic bubble shows the image, no empty text row, S17). See change: fix-input-state-consistency. |
 | `chat-pane-below-floor-allocation.spec.ts` | → `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | → `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | → `chat-render-perf.spec.ts.AGENTS.md` |
@@ -314,3 +315,4 @@ One row per file.
 | `card-visual-effects.spec.ts` | → `card-visual-effects.spec.ts.AGENTS.md` |
 | `focus-mode.spec.ts` | → `focus-mode.spec.ts.AGENTS.md` |
 | `folder-accordion.spec.ts` | → `folder-accordion.spec.ts.AGENTS.md` |
+| `prompt-draft-persistence.spec.ts` | #1117 prompt-answer drafts: Other text survives a session switch (S40), batch step+answers survive a reload (S43), card↔dialog share one draft (S49), second tab starts empty and localStorage stays clean (S55). Faux scenarios `ask-select-other`, `ask-batch-steps`. See change: fix-input-state-consistency. |

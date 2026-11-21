@@ -1800,3 +1800,71 @@ describe("CommandInput — invalid border (team-app composer, task 8.4)", () => 
     expect(getByTestId("composer-settings-row").lastElementChild).toBe(getByTestId("send-button"));
   });
 });
+
+// See change: fix-input-state-consistency (#1136) — image-only send.
+describe("image-only send (fix-input-state-consistency)", () => {
+  const img = { type: "image" as const, data: "AAA", mimeType: "image/png" };
+  const imageOnly = (extra: Partial<React.ComponentProps<typeof CommandInput>> = {}) =>
+    renderInput({ draft: "", onDraftChange: vi.fn(), images: [img], onImagesChange: vi.fn(), ...extra });
+
+  it("S1 click send with an image and no text calls onSend('', [image], delivery)", () => {
+    const { container, onSend } = imageOnly();
+    const btn = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("", [img], "steer");
+  });
+
+  it("S2 Enter with an image and no text sends", () => {
+    const { textarea, onSend } = imageOnly();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("", [img], "steer");
+  });
+
+  it("S3 Alt+Enter while streaming sends the image with the alternate delivery", () => {
+    const { textarea, onSend } = imageOnly({ sessionStatus: "streaming" });
+    fireEvent.keyDown(textarea, { key: "Enter", altKey: true });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("", [img], "followUp");
+  });
+
+  it("S4 send is enabled with an image only and disabled again once the image is removed", () => {
+    const { container, rerender } = imageOnly();
+    const btn = () => container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(btn().disabled).toBe(false);
+    rerender(<CommandInput commands={commands} onSend={vi.fn()} draft="" onDraftChange={vi.fn()} images={[]} onImagesChange={vi.fn()} />);
+    expect(btn().disabled).toBe(true);
+  });
+
+  it("S5 empty and no images stays blocked", () => {
+    const { container, textarea, onSend } = renderInput({ draft: "", onDraftChange: vi.fn() });
+    const btn = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("S6 whitespace-only text: blocked without images, sends '' with an image (text trimmed)", () => {
+    const a = renderInput({ draft: "   \n", onDraftChange: vi.fn() });
+    const btnA = a.container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(btnA.disabled).toBe(true);
+    fireEvent.click(btnA);
+    expect(a.onSend).not.toHaveBeenCalled();
+    a.unmount();
+    const b = imageOnly({ draft: "   \n" });
+    fireEvent.click(b.container.querySelector('[data-testid="send-button"]') as HTMLButtonElement);
+    expect(b.onSend).toHaveBeenCalledWith("", [img], "steer");
+  });
+
+  it("S7 allowImageOnlySend={false} keeps requiring text", () => {
+    const { container, textarea, onSend } = imageOnly({ allowImageOnlySend: false });
+    const btn = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+});

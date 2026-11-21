@@ -5,6 +5,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ChatMessage, createInitialState, type PendingPrompt, type SessionState } from "../../lib/chat/event-reducer.js";
 import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
 import { ChatView } from "../chat/ChatView.js";
+import { PendingSteerCard } from "../chat/PendingSteerCard.js";
+import { QueuePanel } from "../session/QueuePanel.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
@@ -241,6 +243,58 @@ describe("ChatView", () => {
     const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
     const card = container.querySelector('[data-testid="pending-prompt-card"]');
     expect(card).toBeNull();
+  });
+
+  // See change: fix-input-state-consistency (#1136) — image-only send.
+  it("S14: image-only optimistic bubble shows the image, no empty text row, keeps the status column", () => {
+    const state = createInitialState();
+    state.pendingPrompt = { text: "", status: "sending", images: [{ data: "abc123", mimeType: "image/png" }] };
+    const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+    const card = container.querySelector('[data-testid="pending-prompt-card"]') as HTMLElement;
+    expect(card.querySelector("img")).not.toBeNull();
+    // The text column is empty (no Markdown row) and the spinner/status column remains.
+    expect(card.querySelector(".flex-1")?.children.length).toBe(0);
+    expect(card.querySelector(".animate-spin")).not.toBeNull();
+    expect(card.textContent).toContain("sending");
+  });
+
+  it("S14 control: non-empty text still renders its text row", () => {
+    const state = createInitialState();
+    state.pendingPrompt = { text: "Look", status: "sending", images: [{ data: "abc123", mimeType: "image/png" }] };
+    const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+    const card = container.querySelector('[data-testid="pending-prompt-card"]') as HTMLElement;
+    expect(card.querySelector(".flex-1")?.children.length).toBeGreaterThan(0);
+    expect(card.textContent).toContain("Look");
+  });
+
+  it("S15a: committed image-only user bubble shows the image and no blank text row", () => {
+    const state = createInitialState();
+    state.messages.push({
+      id: "u1",
+      role: "user",
+      content: "",
+      timestamp: Date.now(),
+      images: [{ data: "abc123", mimeType: "image/png" }],
+    } as ChatMessage);
+    const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+    expect(container.querySelector("img")).not.toBeNull();
+    // The bubble holds only the image block — no second (text) child.
+    expect(container.querySelector(".border-l-blue-400")?.children.length).toBe(1);
+  });
+
+  it("S15b: image-only queued follow-up chip shows the attachment marker and no blank text row", () => {
+    const { queryByTestId, getByTestId } = render(<QueuePanel followUp={[{ text: "", imageCount: 1 }]} />);
+    expect(getByTestId("queue-followup-attachments").textContent).toContain("1");
+    expect(queryByTestId("queue-chip-followup")).toBeNull();
+  });
+
+  it("S15c: image-only pending steer bubble shows the attachment marker and no Markdown row", () => {
+    const { getByTestId } = render(
+      <PendingSteerCard steer={{ key: "k", id: "s1", text: "", imageCount: 2 }} maxWidthClass="max-w-[80%]" />,
+    );
+    expect(getByTestId("pending-steer-attachments").textContent).toContain("2");
+    // The text column holds only the attachment marker — no Markdown row.
+    expect(getByTestId("pending-steer-bubble").querySelector(".flex-1")?.children.length).toBe(1);
   });
 
   it("renders pending prompt card with images", () => {

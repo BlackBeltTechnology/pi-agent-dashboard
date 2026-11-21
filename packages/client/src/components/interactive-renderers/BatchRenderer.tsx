@@ -1,10 +1,12 @@
-import { isOtherAllowed } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
+import { isOtherAllowed, isOwnOtherOption } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCheck, mdiCheckCircle, mdiImageMultiple, mdiViewListOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePromptDraft, usePromptDraftSync } from "../../hooks/usePromptDraft.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { getPromptDraftImages, setPromptDraftImages } from "../../lib/state/prompt-draft-storage.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { InputComposer } from "./InputComposer.js";
 import { OtherOption } from "./OtherOption.js";
@@ -76,17 +78,90 @@ function answerToText(q: SubQuestion, a: Answer | undefined): React.ReactNode {
   return null;
 }
 
-export function BatchRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
+/**
+ * Persisted wizard state. `answers` are stored WITHOUT `images` (base64 would
+ * blow the per-entry cap); pasted images are re-joined from the in-memory image
+ * map (per step) on restore. `null` stands for "unanswered" / "no Other draft".
+ */
+interface BatchDraft {
+  step: number;
+  answers: Array<Answer | null>;
+  otherDraft: Array<OtherDraft | null>;
+}
+
+function isAnswerShape(a: unknown): a is Answer {
+  if (typeof a !== "object" || a === null) return false;
+  const r = a as Record<string, unknown>;
+  return (
+    typeof r.confirmed === "boolean" ||
+    typeof r.value === "string" ||
+    (Array.isArray(r.values) && r.values.every((v) => typeof v === "string"))
+  );
+}
+
+/** A draft only restores into the SAME shape (answer count, step bounds); anything else is discarded. */
+function parseBatchDraft(raw: unknown, questionCount: number): BatchDraft | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.step !== "number" || !Number.isInteger(r.step) || r.step < 0 || r.step > questionCount) return undefined;
+  if (!Array.isArray(r.answers) || r.answers.length !== questionCount) return undefined;
+  if (!r.answers.every((a) => a === null || isAnswerShape(a))) return undefined;
+  if (!Array.isArray(r.otherDraft) || r.otherDraft.length > questionCount) return undefined;
+  const okOther = (d: unknown) =>
+    d === null || (typeof d === "object" && d !== null && typeof (d as OtherDraft).active === "boolean" && typeof (d as OtherDraft).text === "string");
+  if (!r.otherDraft.every(okOther)) return undefined;
+  return { step: r.step, answers: r.answers as Array<Answer | null>, otherDraft: r.otherDraft as Array<OtherDraft | null> };
+}
+
+/** Drop `images` from an answer (they are persisted in the memory-only image map, never in the mirror). */
+function stripImages(a: Answer | undefined): Answer | null {
+  if (a === undefined) return null;
+  if ("value" in a) return { value: a.value };
+  return a;
+}
+
+/** Re-keyed per (session, prompt) so a reused element re-initialises from that prompt's draft. */
+export function BatchRenderer(props: InteractiveRendererProps) {
+  return <BatchRendererBody key={`${props.sessionId ?? ""}\u0000${props.requestId}`} {...props} />;
+}
+
+function BatchRendererBody({ params, status, result, onRespond, onCancel, sessionId, requestId, restoreImages = true }: InteractiveRendererProps) {
   const title = (params.title as string) ?? "Questions";
   const questions = ((params.questions as SubQuestion[]) ?? []).filter(Boolean);
   const resolvedAnswers = (result as any)?.answers as Answer[] | undefined;
 
-  const [answers, setAnswers] = useState<Array<Answer | undefined>>(() =>
-    questions.map(initialAnswer),
-  );
+  const draftSession = status === "pending" ? sessionId : undefined;
+  const saved = usePromptDraft(draftSession, requestId, (raw) => parseBatchDraft(raw, questions.length));
+  const imageSession = restoreImages && requestId ? draftSession : undefined;
+
+  const [answers, setAnswers] = useState<Array<Answer | undefined>>(() => {
+    // Images ride a separate memory-only map, so they are re-joined even when there is no text draft
+    // (an image pasted into a fresh step never changes the serialised answers).
+    const base: Array<Answer | undefined> = saved ? saved.answers.map((a) => a ?? undefined) : questions.map(initialAnswer);
+    return base.map((a, i) => {
+      if (!a || !("value" in a) || !imageSession) return a;
+      const imgs = getPromptDraftImages(imageSession, requestId, i);
+      return imgs.length > 0 ? { ...a, images: imgs } : a;
+    });
+  });
   // step in 0..questions.length-1 are questions; questions.length is Review.
-  const [step, setStep] = useState(0);
-  const [otherDraft, setOtherDraft] = useState<Array<OtherDraft | undefined>>([]);
+  const [step, setStep] = useState(saved?.step ?? 0);
+  const [otherDraft, setOtherDraft] = useState<Array<OtherDraft | undefined>>(() => (saved?.otherDraft ?? []).map((d) => d ?? undefined));
+  const draftState = useMemo<BatchDraft>(
+    () => ({ step, answers: answers.map(stripImages), otherDraft: Array.from(otherDraft, (d) => d ?? null) }),
+    [step, answers, otherDraft],
+  );
+  usePromptDraftSync(draftSession, requestId, draftState);
+  // Images ride the memory-only map (per step): they survive a session switch, not a reload.
+  useEffect(() => {
+    if (!imageSession) return;
+    answers.forEach((a, i) => {
+      const imgs = a && "value" in a ? (a.images ?? []) : [];
+      if (imgs.length > 0 || getPromptDraftImages(imageSession, requestId, i).length > 0) {
+        setPromptDraftImages(imageSession, requestId, i, imgs);
+      }
+    });
+  }, [answers, imageSession, requestId]);
 
   // ── Resolved / cancelled / dismissed: read-only summary ──────────
   if (status !== "pending") {
@@ -302,8 +377,10 @@ function StepBody({
   other: OtherDraft | undefined;
   onOtherChange: (d: OtherDraft | undefined) => void;
 }) {
-  const options = question.options ?? [];
-  const otherAllowed = isOtherAllowed({ allowOther: question.allowOther, options });
+  const rawOptions = question.options ?? [];
+  const otherAllowed = isOtherAllowed({ allowOther: question.allowOther, options: rawOptions });
+  // The inline row replaces the caller's own "Other…" option (#1116, fix-input-state-consistency).
+  const options = otherAllowed ? rawOptions.filter((o) => !isOwnOtherOption(o)) : rawOptions;
   const draft: OtherDraft = other ?? { active: false, text: "" };
   return (
     <div>
@@ -346,7 +423,7 @@ function StepBody({
       )}
       {question.method === "select" && (
         <div className="flex flex-col gap-1.5">
-          {(question.options ?? []).filter((o) => !isCancelOption(o)).map((option) => {
+          {options.filter((o) => !isCancelOption(o)).map((option) => {
             const { title: oTitle, description } = parseOption(option);
             const picked = (answer as { value: string } | undefined)?.value === option;
             return (
