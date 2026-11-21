@@ -2,85 +2,91 @@
   "schemaVersion": 1,
   "groups": [
     {
+      "id": "queue",
+      "name": "Queue",
+      "color": "#ef4444",
+      "order": 0
+    },
+    {
       "id": "ui",
       "name": "Current",
       "color": "#22c55e",
-      "order": 0
+      "order": 1
     },
     {
       "id": "harden-security",
       "name": "Harden Security",
       "color": "#3b82f6",
-      "order": 1
+      "order": 2
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 2
+      "order": 3
     },
     {
       "id": "artcraft-craft-apps",
       "name": "ArtCraft Craft Apps",
-      "order": 3
+      "order": 4
     },
     {
       "id": "project-workflows",
       "name": "Project Workflows",
       "color": "#14b8a6",
-      "order": 4
+      "order": 5
     },
     {
       "id": "vault",
       "name": "Vault",
       "color": "#f97316",
-      "order": 5
+      "order": 6
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 6
+      "order": 7
     },
     {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 7
+      "order": 8
     },
     {
       "id": "customer-web-chat",
       "name": "Customer Web Chat",
-      "order": 8
+      "order": 9
     },
     {
       "id": "unify-context-manager",
       "name": "Unify Context Manager",
       "color": "#06b6d4",
-      "order": 9
+      "order": 10
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 10
+      "order": 11
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 11
+      "order": 12
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 12
+      "order": 13
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 13
+      "order": 14
     }
   ],
   "assignments": {
@@ -427,6 +433,55 @@
     "add-microservice-pattern-selection-skill": "future",
     "add-ntfy-push-transport": "future",
     "add-social-login-broker": "future",
-    "add-srt-translation-pass": "future"
+    "add-srt-translation-pass": "future",
+    "add-rest-prompt-delivery-mode": "queue",
+    "add-skill-atlas-forest-aura": "queue",
+    "add-sudo-credential-prompt": "queue",
+    "bridge-owned-cancellable-steer": "queue",
+    "default-model-follows-role": "queue",
+    "electron-menu-submenus": "queue",
+    "fix-automation-board-scroll": "queue",
+    "fix-background-subagent-ghost-rows": "queue",
+    "fix-file-link-editor-routing": "queue",
+    "fix-flow-graph-engine-order": "queue",
+    "fix-input-state-consistency": "queue",
+    "fix-openspec-readiness-shared-skills": "queue",
+    "fix-session-bridge-registration": "queue",
+    "fix-switch-source-empty-overlay": "queue",
+    "fix-ui-status-indicators": "queue",
+    "harden-path-and-process-guards": "queue",
+    "sidebar-folder-ux": "queue",
+    "throttle-kb-reindex": "queue"
+  },
+  "changeOrder": {
+    "__ungrouped__": [
+      "add-ship-batch-orchestrator",
+      "implement-it",
+      "retest-plain-language-hard-battery",
+      "track-pi-anthropic-tool-removal-fix",
+      "update-pi-core-1-6-adopt-apis",
+      "ab-test-rlm-delegation-claim",
+      "fix-npm12-remote-tarball-install"
+    ],
+    "queue": [
+      "throttle-kb-reindex",
+      "add-rest-prompt-delivery-mode",
+      "sidebar-folder-ux",
+      "add-skill-atlas-forest-aura",
+      "harden-path-and-process-guards",
+      "fix-ui-status-indicators",
+      "fix-switch-source-empty-overlay",
+      "fix-session-bridge-registration",
+      "fix-openspec-readiness-shared-skills",
+      "fix-input-state-consistency",
+      "fix-flow-graph-engine-order",
+      "fix-file-link-editor-routing",
+      "fix-background-subagent-ghost-rows",
+      "fix-automation-board-scroll",
+      "electron-menu-submenus",
+      "bridge-owned-cancellable-steer",
+      "default-model-follows-role",
+      "add-sudo-credential-prompt"
+    ]
   }
 }
