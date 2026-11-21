@@ -75,11 +75,10 @@ describe("pendingPromptAcks", () => {
   // ack is a harmless no-op (event-wiring forwards `prompt_received` to
   // browsers regardless of the return value).
   // See change: add-rest-prompt-delivery-mode.
-  it("a late ack for an expired held-steer record returns false and does not throw", () => {
+  it("a late ack for an expired held-steer record returns false (no throw)", () => {
     const acks = createPendingPromptAcks();
     acks.record("steer-1", "S1", deriveSpawnCorrelationTtlMs(30_000));
     vi.advanceTimersByTime(deriveSpawnCorrelationTtlMs(30_000) + 1);
-    expect(() => acks.acknowledge("steer-1", "S1")).not.toThrow();
     expect(acks.acknowledge("steer-1", "S1")).toBe(false);
     acks.dispose();
   });
