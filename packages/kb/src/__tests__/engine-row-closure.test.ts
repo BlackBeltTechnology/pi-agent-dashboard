@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, posix } from "node:path";
+import ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error plain-JS lib without type declarations
 import { ROW_PRODUCING_FILES } from "../../bin/lib/engine-fingerprint.mjs";
@@ -21,16 +22,26 @@ import { copyKbSrc, KB_PKG } from "./helpers/src-sandbox.js";
 const NON_ROW_LIST = ["src/types.ts", "src/sqlite-store.ts", "src/config.ts"];
 const ENTRY = "src/indexer.ts";
 
-/** Static (and `import()` / `export … from`) relative imports of one file, as package-relative `src/…ts` paths. */
-function importsOf(pkg: string, rel: string): string[] {
-  const text = readFileSync(join(pkg, rel), "utf8");
-  const out: string[] = [];
-  for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.{1,2}\/[^"']+)["']/g)) {
-    const target = posix.normalize(posix.join(dirname(rel), m[1].replace(/\.js$/, ".ts")));
-    out.push(target);
-  }
-  return out;
+/** Static (and `import()` / `export … from`) relative imports of TS source `text`, as package-relative `src/…ts` paths.
+ *  Walks the real syntax tree, so a comment between `from` and the specifier is no blind spot and a commented-out
+ *  or string-embedded import is not counted. */
+function importsInText(text: string, rel: string): string[] {
+  const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const specs: string[] = [];
+  const stringArg = (n: ts.Node | undefined): void => {
+    if (n && ts.isStringLiteralLike(n)) specs.push(n.text);
+  };
+  const visit = (n: ts.Node): void => {
+    if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) stringArg(n.moduleSpecifier);
+    else if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword) stringArg(n.arguments[0]);
+    else if (ts.isImportTypeNode(n) && ts.isLiteralTypeNode(n.argument)) stringArg(n.argument.literal);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return specs.filter((spec) => /^\.{1,2}\//.test(spec)).map((spec) => posix.normalize(posix.join(dirname(rel), spec.replace(/\.js$/, ".ts"))));
 }
+
+const importsOf = (pkg: string, rel: string): string[] => importsInText(readFileSync(join(pkg, rel), "utf8"), rel);
 
 /** Transitive closure of `entry` (package-relative paths, entry included). */
 function importClosure(pkg: string, entry = ENTRY): Set<string> {
@@ -105,6 +116,21 @@ describe("row closure guard (S12-S14)", () => {
     const pkg = sandbox("s14");
     writeFileSync(join(pkg, "src", "helper.ts"), "export const h = 1;\n");
     appendFileSync(join(pkg, "src", "chunker.ts"), '\nimport { h } from "./helper.js";\nexport const useH = h;\n');
+    expect(() => assertClosureGuard(pkg)).toThrow(/src\/helper\.ts/);
+  });
+});
+
+describe("closure guard import walk — comments are no blind spot", () => {
+  it("S14b a comment between `from` and the specifier still yields the import; commented-out imports yield none", () => {
+    expect(importsInText('import { h } from /* explanation */ "./helper.js";\n', "src/indexer.ts")).toEqual(["src/helper.ts"]);
+    expect(importsInText('import {\n  h,\n} from // why\n  "./helper.js";\nexport * from "../x.js";\nconst m = await import("./dyn.js");\n', "src/indexer.ts")).toEqual(["src/helper.ts", "x.ts", "src/dyn.ts"]);
+    expect(importsInText('// import "./no.js";\n/* import "./no2.js"; */\nconst s = "import \\"./no3.js\\"";\n', "src/indexer.ts")).toEqual([]);
+  });
+
+  it("S14c fault-seeding: chunker.ts importing helper.ts through a commented `from` fails the guard naming helper.ts", () => {
+    const pkg = sandbox("s14c");
+    writeFileSync(join(pkg, "src", "helper.ts"), "export const h = 1;\n");
+    appendFileSync(join(pkg, "src", "chunker.ts"), '\nimport { h } from /* explanation */ "./helper.js";\nexport const useH = h;\n');
     expect(() => assertClosureGuard(pkg)).toThrow(/src\/helper\.ts/);
   });
 });

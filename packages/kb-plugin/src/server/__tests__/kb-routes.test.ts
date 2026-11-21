@@ -37,11 +37,17 @@ import { createReindexRunner } from "../reindex-runner.js";
 import { type FakeReindexWorker, fakeFactory } from "./helpers/fake-reindex-worker.js";
 
 // Passthrough spy on `resolverFor`: a test can park `resolveSpecs` on a deferred (S51, throttle-kb-reindex).
-const resolveGate = vi.hoisted(() => ({ block: null as Promise<void> | null }));
+const resolveGate = vi.hoisted(() => ({ block: null as Promise<void> | null, afterIndexSource: null as ((root: string) => void) | null }));
 vi.mock("@blackbelt-technology/pi-dashboard-kb", async (orig) => {
   const real = await orig<typeof import("@blackbelt-technology/pi-dashboard-kb")>();
   return {
     ...real,
+    // Passthrough spy on `indexSource`: a test can act right after a source's walk returns normally.
+    indexSource: async (...a: Parameters<typeof real.indexSource>) => {
+      const r = await real.indexSource(...a);
+      resolveGate.afterIndexSource?.(a[1].root);
+      return r;
+    },
     resolverFor: (...a: Parameters<typeof real.resolverFor>) => {
       const r = real.resolverFor(...a);
       return Object.assign(Object.create(r), {
@@ -1452,6 +1458,35 @@ describe("reindex-core abort handling (S30, R5/R3 illegal transition: abort is n
     }
   });
 
+  it("in-place: a cancel that lands as a source's walk returns normally is not recorded ok and is not stamped (success-path signal check)", async () => {
+    const cwd = threeSourceFolder();
+    const dbp = dbPathOf(cwd);
+    const seed = new SqliteFtsStore(dbp);
+    seed.init();
+    seed.close();
+    const ac = new AbortController();
+    const logs: string[] = [];
+    const log = { info: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) };
+    resolveGate.afterIndexSource = (root) => {
+      if (root === "d2") ac.abort(); // source 2's indexSource already returned success
+    };
+    try {
+      await expect(runReindexCore(coreInput(cwd, "in-place"), { signal: ac.signal, log })).rejects.toBeInstanceOf(KbIndexAborted);
+    } finally {
+      resolveGate.afterIndexSource = null;
+    }
+    expect(logs.some((l) => /source ok ref=d2/.test(l))).toBe(false);
+    expect(logs.some((l) => /ref=d3/.test(l))).toBe(false);
+    const st = new SqliteFtsStore(dbp);
+    try {
+      expect(st.getMeta("gate:docs") ?? null).not.toBeNull(); // completed before the cancel keeps its stamp
+      expect(st.getMeta("gate:d2") ?? null).toBeNull();
+      expect(st.getMeta("facetConfigHash") ?? null).toBeNull();
+    } finally {
+      st.close();
+    }
+  });
+
   it("first index: abort in the atomic path rethrows (no all-sources error outcomes), leaves no db and no temp", async () => {
     const cwd = threeSourceFolder();
     const dbp = dbPathOf(cwd);
@@ -1578,6 +1613,52 @@ describe("folder vanishes while a job runs (S50, R5)", () => {
     expect(done.lastError).toBeUndefined();
     await app.close();
   });
+
+  it("a folder removed while resolveSpecs() is pending cancels the job (idle, no lastError, no worker) instead of recording 'folder missing'", async () => {
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready());
+    const registry = new KbJobRegistry();
+    const app = Fastify();
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry, reindexRunner: createReindexRunner({ workerFactory: factory, useWorker: () => true }) });
+    let release!: () => void;
+    resolveGate.block = new Promise<void>((r) => (release = r));
+    try {
+      await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+      await tick();
+      rmSync(cwd, { recursive: true, force: true });
+      release();
+      const done = await settle(app, cwd);
+      expect(done.jobStatus).toBe("idle");
+      expect(done.lastError).toBeUndefined();
+      expect(workers).toHaveLength(0);
+    } finally {
+      resolveGate.block = null;
+    }
+    await app.close();
+  });
+
+  it("the folder watcher already runs while resolveSpecs() is pending (a removal there cancels the job at the next check)", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const cwd = makeFolder();
+    const { factory } = fakeFactory((w) => w.ready());
+    const registry = new KbJobRegistry();
+    const app = Fastify();
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry, reindexRunner: createReindexRunner({ workerFactory: factory, useWorker: () => true }) });
+    let release!: () => void;
+    resolveGate.block = new Promise<void>((r) => (release = r));
+    try {
+      await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+      await tick();
+      rmSync(cwd, { recursive: true, force: true });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(registry.isCancelling(cwd)).toBe(true);
+      release();
+      expect((await settle(app, cwd)).jobStatus).toBe("idle");
+    } finally {
+      resolveGate.block = null;
+    }
+    await app.close();
+  });
 });
 
 // ── throttle-kb-reindex phase E: cancel route, progress, race, telemetry ────────────────────────
@@ -1622,6 +1703,20 @@ describe("cancel route and the cancel→reindex race (S36, R5)", () => {
     workers[0].cancelled();
     expect((await settle(app, cwd)).jobStatus).toBe("idle");
     expect((await postCancel(app, cwd)).json()).toEqual({ cancelled: false });
+  });
+
+  it("a cancelled REST reindex is not logged as a failure (log.error stays silent)", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    const error = vi.spyOn(app.log, "error");
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    await postCancel(app, cwd);
+    await until(() => workers[0].gotCancel, Boolean);
+    workers[0].cancelled();
+    expect((await settle(app, cwd)).jobStatus).toBe("idle");
+    await tick();
+    expect(error.mock.calls.map((c) => c.map(String).join(" ")).filter((l) => /reindex failed/.test(l))).toEqual([]);
   });
 
   it("PUT /config {reindex:true} during the grace period starts one fresh job after the cancelled one settles", async () => {
@@ -1945,9 +2040,13 @@ describe("no main-thread writer to index.db while a worker job runs (S60, R4 inv
 
   it("stats, search, sources, trust and config requests issue only reads on main-thread handles; busy_timeout stays 5000", async () => {
     const cwd = makeFolder();
+    const G = "https://github.com/example/grant"; // a saved REMOTE source: the only kind the trust route grants (never fetched: untrusted at resolve)
+    setSources(cwd, [{ kind: "filesystem", ref: "docs" }, { kind: "git", ref: G, pin: "main", subdir: "docs" }]);
     const app = Fastify();
     openedApps.push(app);
-    mountKbRoutes(app, { knownCwds: () => [cwd], registry: new KbJobRegistry() }); // the real worker runner
+    const jobLines: string[] = [];
+    const logger = { info: (m: string) => jobLines.push(m), warn: (m: string) => jobLines.push(m), error: (m: string) => jobLines.push(m) };
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry: new KbJobRegistry(), logger }); // the real worker runner
     await reindexAndSettle(app, cwd); // an existing store, so the main thread opens handles on it during the next job
     for (let i = 0; i < 700; i++) writeFileSync(join(cwd, "docs", `n${i}.md`), `# Doc ${i}\n\n${"body text widgets gadgets ".repeat(40)}\n\n## Part ${i}\n\nmore ${i}\n`);
     // Instrument only now: a worker has its own realm, so this patch sees main-thread handles only.
@@ -1965,10 +2064,11 @@ describe("no main-thread writer to index.db while a worker job runs (S60, R4 inv
       const s = await statsOf(app, cwd);
       if (s.jobStatus !== "running") break;
       during++;
-      await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=widgets`);
-      await getJson(app, `/api/kb/sources?cwd=${q(cwd)}`);
-      await app.inject({ method: "POST", url: `/api/kb/source-trust?cwd=${q(cwd)}`, payload: { ref: "docs" } });
-      await app.inject({ method: "PUT", url: `/api/kb/config?cwd=${q(cwd)}`, payload: {} });
+      // each request must reach its handler (not a 4xx before it touches the store)
+      expect((await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=widgets`)).status).toBe(200);
+      expect((await getJson(app, `/api/kb/sources?cwd=${q(cwd)}`)).status).toBe(200);
+      expect((await app.inject({ method: "POST", url: `/api/kb/source-trust?cwd=${q(cwd)}`, payload: { ref: G } })).statusCode).toBe(200);
+      expect((await app.inject({ method: "PUT", url: `/api/kb/config?cwd=${q(cwd)}`, payload: {} })).statusCode).toBe(200);
       await new Promise((r) => setTimeout(r, 5));
     }
     expect(during).toBeGreaterThan(0); // the main paths really ran while the worker job was live
@@ -1978,5 +2078,7 @@ describe("no main-thread writer to index.db while a worker job runs (S60, R4 inv
     expect(pragmas.length).toBeGreaterThan(0);
     for (const p of pragmas) expect(p.replace(/\s/g, "")).toMatch(/busy_timeout=5000$/i);
     expect((await settle(app, cwd)).jobStatus).toBe("idle");
+    // the measured job ran on the worker end to end (no in-process fallback)
+    expect(jobLines.filter((l) => /\] reindex mode=/.test(l)).at(-1)).toMatch(/reindex mode=worker .* outcome=ok /);
   }, 60_000);
 });

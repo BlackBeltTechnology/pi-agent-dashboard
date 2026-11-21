@@ -290,8 +290,8 @@ describe("S59 second writer (stand-in for a kb-extension session)", () => {
     seedEmptyDb(cwd);
     const holder = spawn(process.execPath, [
       "-e",
-      `const {DatabaseSync}=require("node:sqlite");const d=new DatabaseSync(${JSON.stringify(dbOf(cwd))});d.exec("PRAGMA busy_timeout=0;BEGIN IMMEDIATE");process.stdout.write("locked\\n");setTimeout(()=>process.exit(0),5600);`,
-    ], { stdio: ["ignore", "pipe", "ignore"] });
+      `const {DatabaseSync}=require("node:sqlite");const d=new DatabaseSync(${JSON.stringify(dbOf(cwd))});d.exec("PRAGMA busy_timeout=0;BEGIN IMMEDIATE");process.stdout.write("locked\\n");process.stdin.resume();process.stdin.on("end",()=>process.exit(0));setTimeout(()=>process.exit(0),40000);`,
+    ], { stdio: ["pipe", "pipe", "ignore"] }); // holds the lock until the parent closes stdin (the job has settled); 40 s is only a cleanup safety net
     kids.push(holder);
     await new Promise<void>((res, rej) => {
       holder.stdout?.once("data", () => res());
@@ -303,6 +303,7 @@ describe("S59 second writer (stand-in for a kb-extension session)", () => {
     lag.enable();
     await registry.start(cwd, (ctx) => reindexAll(cwd, undefined, { runner, signal: ctx.signal })).promise.catch(() => undefined);
     lag.disable();
+    holder.stdin?.end(); // release the writer lock only now that the indexing attempt has settled
     expect(registry.statusFor(cwd)).toBe("error");
     expect(registry.get(cwd)?.error).toMatch(/locked|busy/i);
     expect(lag.max / 1e6).toBeLessThanOrEqual(200);

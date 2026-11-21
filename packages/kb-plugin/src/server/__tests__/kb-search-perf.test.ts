@@ -111,6 +111,7 @@ async function readWhileWorkerWrites(cwd: string, newFiles: number): Promise<Rea
     for (let i = 0; i < 2; i++) await get(`/api/kb/search?cwd=${q}&q=bridge`); // warm the main-thread read paths
     await get(`/api/kb/stats?cwd=${q}`);
     buildReindexCorpus(join(cwd, "docs", "more"), { files: newFiles }); // new work for an in-place pass
+    logs.length = 0; // only the measured pass's lifecycle lines count below (not the seed pass's)
     await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q}` });
     const samples = await sampleReaders(app, cwd, () => registry.isRunning(cwd));
     // Control: the same search once the writer is gone, to separate index-size cost from writer contention.
@@ -120,7 +121,9 @@ async function readWhileWorkerWrites(cwd: string, newFiles: number): Promise<Rea
       await get(`/api/kb/search?cwd=${q}&q=${encodeURIComponent("bridge session")}`);
       idleSearchTimes.push(performance.now() - t0);
     }
-    return { ...samples, idleSearchTimes, spawnedWorker: logs.some((l) => l.includes("reindex worker started")) };
+    // the measured pass ended on the worker (a pre-`ready` failure logs "worker started" and then falls back in-process)
+    const spawnedWorker = /reindex mode=worker .* outcome=ok /.test(logs.filter((l) => /\] reindex mode=/.test(l)).at(-1) ?? "");
+    return { ...samples, idleSearchTimes, spawnedWorker };
   } finally {
     await app.close();
   }

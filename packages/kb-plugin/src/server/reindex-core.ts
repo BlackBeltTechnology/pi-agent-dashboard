@@ -131,6 +131,7 @@ async function indexInPlace(cfg: ReturnType<typeof loadConfig>, sources: Reindex
           { root: x.id, dir: x.dir },
           indexOptionsFromConfig(cfg, { force, onFirstBatch: force ? beginForcedSource(store, x.id) : undefined, signal, onProgress: hooks.onProgress }),
         );
+        if (signal?.aborted) throw new KbIndexAborted(); // a cancel that landed as the walk returned: never record ok / stamp
         if (!stats.missing) stampSource(store, cfg, x.id);
         changed += stats.changed;
         outcomes.push(okOutcome(x));
@@ -141,6 +142,7 @@ async function indexInPlace(cfg: ReturnType<typeof loadConfig>, sources: Reindex
         log?.warn(`[kb-plugin] source failed ref=${x.ref} ms=${Date.now() - x.started}: ${errMsg(e)}`);
       }
     }
+    if (signal?.aborted) throw new KbIndexAborted();
     stampPass(store, cfg);
     return { changed, chunks: store.counts().chunks, outcomes };
   } finally {

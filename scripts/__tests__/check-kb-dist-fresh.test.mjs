@@ -98,6 +98,7 @@ describe("check-kb-dist-fresh decision table (S19)", () => {
     ["missing file", (pkg) => rmSync(fpPath(pkg)), false],
     ["malformed", (pkg) => writeFileSync(fpPath(pkg), "{ not json"), false],
     ["rowsHash absent", (pkg) => rewrite(pkg, (fp) => delete fp.rowsHash), false],
+    ["rowsHash mismatch", (pkg) => rewrite(pkg, (fp) => (fp.rowsHash = "0".repeat(64))), false],
     ["srcHash mismatch", (pkg) => rewrite(pkg, (fp) => (fp.srcHash = "0".repeat(64))), false],
     ["tsconfigHash mismatch", (pkg) => rewrite(pkg, (fp) => (fp.tsconfigHash = "0".repeat(64))), false],
   ])("committed fingerprint: %s", (name, tamper, ok) => {

@@ -293,22 +293,18 @@ async function reindexAllSteps(cwd: string, log: JobLog | undefined, opts: Reind
   const throwIfAborted = (): void => {
     if (signal?.aborted) throw abortError();
   };
+  // A vanished folder: when a registry caller wired `onFolderGone`, cancel the job (it restores the pre-start
+  // state) instead of recording a failed one; callers without it (direct use) get the "folder missing" error.
+  const folderGone = (): never => {
+    if (!opts.onFolderGone) throw new Error("folder missing");
+    opts.onFolderGone();
+    throw abortError();
+  };
   // TOCTOU re-check: the folder may vanish between preflight and the walk; the
   // creating open below would resurrect it (design D9).
-  if (!folderExists(cwd)) throw new Error("folder missing");
+  if (!folderExists(cwd)) folderGone();
   throwIfAborted();
-  const cfg = loadConfig(cwd);
-  const outcomes: KbSourceOutcome[] = [];
-  const resolved = await resolveSpecs(cwd, cfg, outcomes, log);
-  throwIfAborted();
-  // Another process is building the first index: wait for it rather than create the database.
-  while (!existsSync(cfg.dbAbsPath) && isFirstIndexLive(cfg.dbAbsPath)) {
-    await abortableSleep(opts.pollMs ?? 1000, signal);
-    throwIfAborted();
-  }
-  // The wait can be long: re-check so a folder removed meanwhile is not resurrected by the build (design D9).
-  if (!folderExists(cwd)) throw new Error("folder missing");
-  throwIfAborted();
+  // Watch from here on, so a removal during the (unabortable) resolve or the first-index wait is seen too.
   const watch = opts.onFolderGone
     ? setInterval(() => {
         if (!folderExists(cwd)) opts.onFolderGone?.();
@@ -316,6 +312,18 @@ async function reindexAllSteps(cwd: string, log: JobLog | undefined, opts: Reind
     : undefined;
   watch?.unref();
   try {
+    const cfg = loadConfig(cwd);
+    const outcomes: KbSourceOutcome[] = [];
+    const resolved = await resolveSpecs(cwd, cfg, outcomes, log);
+    throwIfAborted();
+    // Another process is building the first index: wait for it rather than create the database.
+    while (!existsSync(cfg.dbAbsPath) && isFirstIndexLive(cfg.dbAbsPath)) {
+      await abortableSleep(opts.pollMs ?? 1000, signal);
+      throwIfAborted();
+    }
+    // The wait can be long: re-check so a folder removed meanwhile is not resurrected by the build (design D9).
+    if (!folderExists(cwd)) folderGone();
+    throwIfAborted();
     handedToRunner.value = true;
     const result = await (opts.runner ?? defaultReindexRunner()).run(
       {
@@ -554,9 +562,10 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
       // Attach the catch SYNCHRONOUSLY so the detached tail promise is never an
       // unhandled rejection. Use the app-level `log` (not `req.log`): the request is
       // already finalized by the time the walk settles.
-      promise.catch((err) =>
-        log.error(`[kb-plugin] reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`),
-      );
+      promise.catch((err) => {
+        if (outcomeOf(err) === "cancelled") return; // the registry restored the pre-start state: not a failure
+        log.error(`[kb-plugin] reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`);
+      });
     }
     reply.code(202);
     return { status: "running" as const, jobId: registry.jobId(cwd) ?? "kb" };

@@ -120,6 +120,26 @@ describe.each([
   });
 });
 
+describe("S44b temp-file cleanup failure still settles the job", () => {
+  it("a first-index worker that crashes after ready, with an unremovable temp path, rejects with the crash (no hang) and frees the cwd", async () => {
+    const cwd = makeFolder();
+    const inp = input(cwd, "first");
+    // rmSync without `recursive` throws ERR_FS_EISDIR on a directory even with force:true
+    mkdirSync(join(`${inp.dbPath}.tmp-${process.pid}`, "x"), { recursive: true });
+    const { factory, workers } = fakeFactory((w) => w.ready().exit(1));
+    const runner = createReindexRunner({ workerFactory: factory, useWorker: () => true });
+    const warn = vi.fn();
+    const result = runner.run(inp, { log: { info: vi.fn(), warn } } as never);
+    await expect(Promise.race([result, new Promise((_r, rej) => setTimeout(() => rej(new Error("hung")), 2000))])).rejects.toThrow(/exited unexpectedly/);
+    expect(warn.mock.calls.map((c) => String(c[0])).some((l) => /cleanup/i.test(l))).toBe(true);
+    // the live entry was released: a fresh run is accepted
+    const next = runner.run(input(cwd));
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
+    workers[1].result();
+    await next;
+  });
+});
+
 describe("S45 worker out of memory", () => {
   it("ERR_WORKER_OUT_OF_MEMORY fails the job with a memory message and leaks no listeners", async () => {
     const cwd = makeFolder();

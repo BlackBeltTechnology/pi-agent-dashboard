@@ -87,6 +87,21 @@ describe("index abort (S25-S27)", () => {
     expect(started).toBeLessThanOrEqual(1); // no file's work ran
   });
 
+  it("S26b an aborted signal on an EMPTY walk throws and keeps the retained rows (no deletion sweep); unaborted empty-source deletion still works", async () => {
+    const dir = corpus("empty", 3);
+    expect((await run("e", dir)).error).toBeUndefined();
+    expect(rows(join(d, "e.db"))).toEqual({ paths: 3, chunks: 3 });
+    for (let i = 0; i < 3; i++) rmSync(join(dir, `f${String(i).padStart(4, "0")}.md`));
+    const ac = new AbortController();
+    ac.abort();
+    const r = await run("e", dir, { signal: ac.signal });
+    expect(r.error).toBeInstanceOf(KbIndexAborted);
+    expect(rows(r.dbPath)).toEqual({ paths: 3, chunks: 3 });
+    const r2 = await run("e", dir, { signal: new AbortController().signal });
+    expect(r2.error).toBeUndefined();
+    expect(rows(r2.dbPath)).toEqual({ paths: 0, chunks: 0 });
+  });
+
   it("S27 abort from the onProgress of batch 1 keeps batch 1 and commits nothing from batch 2", async () => {
     const dir = corpus("edge", 250);
     const ac = new AbortController();

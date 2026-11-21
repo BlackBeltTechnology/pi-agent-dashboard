@@ -36,10 +36,12 @@ describe.skipIf(!process.env.KB_MEASURE)("KB_MEASURE: forced worker-mode reindex
     buildReindexCorpus(join(root, "docs"), { files });
     mkdirSync(join(root, ".pi", "dashboard"), { recursive: true });
     writeFileSync(join(root, ".pi", "dashboard", "knowledge_base.json"), JSON.stringify({ sources: [{ kind: "filesystem", ref: "docs" }] }));
-    let sawWorker = false;
-    const log = { info: (m: string) => (sawWorker ||= m.includes("reindex worker started")), warn: () => {} };
+    // The final job line carries the real mode: a worker that fails before `ready` logs "worker started" and
+    // then falls back in-process, so only `mode=worker … outcome=ok` proves the measured pass ran on the worker.
+    let jobLine = "";
+    const log = { info: (m: string) => void (/\] reindex mode=/.test(m) && (jobLine = m)), warn: () => {} };
     const { result, maxDelayMs, elapsedMs } = await withEventLoopLag(() => reindexAll(root, log, { runner: createReindexRunner({ useWorker: () => true }) }));
-    measured = { maxDelayMs, elapsedMs, files: result.changed, chunks: result.chunks, spawned: sawWorker };
+    measured = { maxDelayMs, elapsedMs, files: result.changed, chunks: result.chunks, spawned: /reindex mode=worker .* outcome=ok /.test(jobLine) };
     const line = `KB_MEASURE worker ${JSON.stringify({ ...measured, spawned: undefined })}`;
     console.log(line);
     if (process.env.KB_MEASURE_OUT) appendFileSync(process.env.KB_MEASURE_OUT, `${line}\n`);

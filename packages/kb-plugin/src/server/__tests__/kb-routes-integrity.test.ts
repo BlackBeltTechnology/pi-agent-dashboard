@@ -182,9 +182,14 @@ describe("two hosts, one core (S63, R4 oracle)", () => {
     for (const [cwd, useWorker] of [[viaWorker, true], [inProc, false]] as const) {
       const registry = new KbJobRegistry();
       const runner = createReindexRunner({ useWorker: () => useWorker });
-      const r = await registry.start(cwd, (ctx) => reindexAll(cwd, undefined, { signal: ctx.signal, onProgress: ctx.progress, runner })).promise;
+      const lines: string[] = [];
+      const log = { info: (m: string) => lines.push(m), warn: (m: string) => lines.push(m) };
+      const r = await registry.start(cwd, (ctx) => reindexAll(cwd, log, { signal: ctx.signal, onProgress: ctx.progress, runner })).promise;
       results.push(stripAt(r));
       states.push(stateOf(registry, cwd));
+      // the worker request must not have silently fallen back in-process (both runs would then trivially match)
+      const jobLine = lines.filter((l) => /\] reindex mode=/.test(l)).at(-1) ?? "";
+      expect(jobLine).toMatch(new RegExp(`reindex mode=${useWorker ? "worker" : "inprocess"} .* outcome=ok `));
     }
     expect(results[0].chunks).toBeGreaterThan(0);
     expect(results[0]).toEqual(results[1]);
@@ -192,7 +197,9 @@ describe("two hosts, one core (S63, R4 oracle)", () => {
     for (const sel of [
       "SELECT path, heading_path, body FROM chunks ORDER BY path, heading_path",
       "SELECT path, key, value FROM properties ORDER BY path, key, value",
-      "SELECT k FROM kb_meta WHERE k LIKE 'gate:%' ORDER BY k",
+      "SELECT k, v FROM kb_meta WHERE k LIKE 'gate:%' ORDER BY k", // values too: a wrong gate value makes the next reindex see the source stale
     ]) expect(rows(dbOf(viaWorker), sel)).toEqual(rows(dbOf(inProc), sel));
+    expect(rows(dbOf(viaWorker), "SELECT k, v FROM kb_meta WHERE k = 'gate:docs'")).toHaveLength(1);
+    expect(rows(dbOf(inProc), "SELECT k, v FROM kb_meta WHERE k = 'gate:docs'")).toHaveLength(1);
   }, 60_000);
 });

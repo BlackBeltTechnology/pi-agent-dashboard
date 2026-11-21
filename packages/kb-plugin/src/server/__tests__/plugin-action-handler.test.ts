@@ -95,6 +95,22 @@ describe("kb plugin_action handler", () => {
     expect(reindexAll).toHaveBeenCalledTimes(2); // one fresh job — not lost, not duplicated
   });
 
+  it("a cancelled reindex (AbortError / KbIndexAborted) is not logged as a failure; a real failure is", async () => {
+    const { handler, ctx } = await setup();
+    const errors = () => (ctx.logger.error as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    reindexAll.mockRejectedValueOnce(Object.assign(new Error("reindex cancelled"), { name: "AbortError" }));
+    handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
+    await tick();
+    reindexAll.mockRejectedValueOnce(Object.assign(new Error("aborted"), { name: "KbIndexAborted" }));
+    handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
+    await tick();
+    expect(errors().filter((e) => e.includes("kb reindex failed"))).toEqual([]);
+    reindexAll.mockRejectedValueOnce(new Error("disk on fire"));
+    handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
+    await tick();
+    expect(errors().filter((e) => e.includes("kb reindex failed"))).toEqual([expect.stringContaining("disk on fire")]);
+  });
+
   it("config.set reaches the applyConfigPatchAndTrust core", async () => {
     const { handler } = await setup();
     handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { include: ["docs"] } } });

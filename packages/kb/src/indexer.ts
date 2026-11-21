@@ -191,6 +191,10 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
     return true;
   });
 
+  // The walk awaits: a cancel that landed during it must stop the pass here — an empty file list never
+  // reaches the per-file check, so the deletion sweep below would otherwise run and report success.
+  if (opts.signal?.aborted) throw new KbIndexAborted();
+
   const stats: IndexStats = { scanned: files.length, changed: 0, deleted: 0, chunks: 0 };
   const live = new Set<string>();
 

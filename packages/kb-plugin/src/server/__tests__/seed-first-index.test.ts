@@ -96,9 +96,18 @@ describe("cancel while waiting for another process's first index (S52, R5 fault-
     writeFileSync(`${db}.tmp-${foreign.pid}`, "x"); // a live first index owned by another pid
 
     const registry = new KbJobRegistry();
-    const POLL = 5000;
+    const POLL = 5003; // distinctive, so only the poll sleep trips the latch below
+    // Latch: resolves when the first-index poll's sleep actually starts (source resolution may take arbitrarily long).
+    const realSetTimeout = globalThis.setTimeout;
+    let sleepStarted!: () => void;
+    const inSleep = new Promise<void>((r) => (sleepStarted = r));
+    const timerSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms === POLL) sleepStarted();
+      return realSetTimeout(fn, ms, ...rest);
+    }) as never);
     const job = registry.start(cwd, (ctx) => reindexAll(cwd, undefined, { pollMs: POLL, signal: ctx.signal })).promise.catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 150)); // inside the first sleep
+    await inSleep;
+    timerSpy.mockRestore();
     expect(registry.statusFor(cwd)).toBe("running");
     const t0 = Date.now();
     registry.cancel(cwd);

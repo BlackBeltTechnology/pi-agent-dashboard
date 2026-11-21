@@ -22,6 +22,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { KbJobRegistry } from "./job-registry.js";
 import { applyConfigPatchAndTrust, mountKbRoutes, preflightWrite, reindexAll } from "./kb-routes.js";
+import { outcomeOf } from "./reindex-runner.js";
 
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
 const HOST_CWD_ADMISSION_LOG = "host.cwdAdmissionOnIndeterminate";
@@ -71,9 +72,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     }
     registry
       .start(cwd, (job) => reindexAll(cwd, ctx.logger, { signal: job.signal, onProgress: job.progress, onFolderGone: () => registry.cancel(cwd) }))
-      .promise.catch((err) =>
-        ctx.logger.error(`kb reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`),
-      );
+      .promise.catch((err) => {
+        if (outcomeOf(err) === "cancelled") return; // the registry restored the pre-start state: not a failure
+        ctx.logger.error(`kb reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`);
+      });
   };
 
   const handleConfigSet = (cwd: string, payload: Record<string, unknown>): void => {

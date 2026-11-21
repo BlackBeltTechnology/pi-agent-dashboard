@@ -216,7 +216,14 @@ class WorkerJob {
     this.exited = true;
     this.hooks.log?.info(`[kb-plugin] reindex worker exit code=${code} cwd=${this.input.cwd}`);
     if (this.terminal || this.finished) return;
-    if (this.ready && this.input.mode === "first") unlinkFirstIndexTemp(this.input.dbPath);
+    if (this.ready && this.input.mode === "first") {
+      try {
+        unlinkFirstIndexTemp(this.input.dbPath);
+      } catch (e) {
+        // best effort: a cleanup error must never leave the job (and its live entry) unsettled
+        this.hooks.log?.warn(`[kb-plugin] reindex worker temp cleanup failed cwd=${this.input.cwd}: ${errMsg(e)}`);
+      }
+    }
     if (this.cancelRequested || this.shutdownRequested) this.settle(() => this.reject(abortError()));
     else if (!this.ready) this.settle(() => this.resolve({ kind: "fallback", reason: this.crash ?? `worker exited with code ${code} before it was ready` }));
     else this.settle(() => this.reject(new WorkerCrash(this.crash ?? `kb reindex worker exited unexpectedly (code ${code})`)));

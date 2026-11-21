@@ -71,7 +71,7 @@ describe("assert-bundled-plugins-complete.mjs — kb reindex worker (S79)", () =
   it.each([
     ["reindex-worker.mjs", { worker: true }],
     ["reindex-core.ts", { core: true }],
-    ["src/index.ts", { kbEntry: true }], // the kb package's `exports["."]` target
+    [path.join("src", "index.ts"), { kbEntry: true }], // the kb package's `exports["."]` target (the checker joins it per-platform)
     ["native-ts-hooks.mjs", { bootstrap: true }], // the TS-loading bootstrap the worker imports first
   ] as Array<[string, Defects]>)("missing %s ⇒ non-zero, naming it", (file, defect) => {
     const r = run(defect);
