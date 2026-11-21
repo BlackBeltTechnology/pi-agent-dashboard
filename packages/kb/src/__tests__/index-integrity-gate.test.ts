@@ -1,12 +1,24 @@
 // One option derivation + per-source gate + back-compat stamps.
 // See change: fix-kb-index-integrity (test-plan E1-E5, X14).
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Spy on the real chunker (pass-through) so "not re-chunked" is observable. See change: throttle-kb-reindex (#S7-#S9).
+vi.mock("../chunker.js", async (importOriginal) => {
+  const m = await importOriginal<typeof import("../chunker.js")>();
+  return { ...m, chunkMarkdown: vi.fn(m.chunkMarkdown) };
+});
+
+// @ts-expect-error plain-JS lib without type declarations
+import { computeRowsHash, computeSrcHash } from "../../bin/lib/engine-fingerprint.mjs";
+import { chunkMarkdown } from "../chunker.js";
 import { frontmatterConfigHash, indexOptionsFromConfig, indexOptionsHash, loadConfig, type ResolvedConfig } from "../config.js";
+import { setRunningEngineForTest, sourceGateIsStale } from "../index-gate.js";
 import { runIndexAtomic } from "../index-run.js";
 import { SCHEMA_VERSION, SqliteFtsStore } from "../sqlite-store.js";
+import { copyKbSrc } from "./helpers/src-sandbox.js";
 
 let root: string;
 let dbPath: string;
@@ -109,5 +121,121 @@ describe("per-source gate", () => {
     await run([src]);
     expect((await run([src], { ...cfg, exclude: ["zzz/**"] })).changed).toBe(0);
     expect((await run([src], { ...cfg, includeSourceMarkdown: false })).changed).toBe(2);
+  });
+});
+
+// ---- change: throttle-kb-reindex (D1) — the engine record is `rowsHash` ----
+describe("runningEngine reads rowsHash (S6)", () => {
+  afterEach(() => {
+    delete process.env.KB_ENGINE_FINGERPRINT;
+  });
+  /** Import a SANDBOX copy of index-gate.ts so its `../engine-fingerprint.json` is the variant under test. */
+  async function gateWith(name: string, fp: string | null) {
+    const pkg = copyKbSrc(join(root, name));
+    if (fp !== null) writeFileSync(join(pkg, "engine-fingerprint.json"), fp);
+    return (await import(/* @vite-ignore */ join(pkg, "src", "index-gate.ts"))) as typeof import("../index-gate.js");
+  }
+  const VALID = JSON.stringify({ srcHash: "s".repeat(64), rowsHash: "r".repeat(64), tsconfigHash: null, distHash: null });
+
+  it("a valid file yields its rowsHash (never srcHash)", async () => {
+    const g = await gateWith("valid", VALID);
+    expect(g.runningEngine()).toBe("r".repeat(64));
+  });
+
+  it.each([
+    ["rowsHash absent", JSON.stringify({ srcHash: "s" })],
+    ["rowsHash empty string", JSON.stringify({ srcHash: "s", rowsHash: "" })],
+    ["rowsHash null", JSON.stringify({ srcHash: "s", rowsHash: null })],
+    ["rowsHash a number", JSON.stringify({ srcHash: "s", rowsHash: 7 })],
+    ["malformed JSON", "{ not json"],
+    ["file missing", null],
+  ])("invalid class (%s) → null, no throw, no engine record written or required", async (name, fp) => {
+    const g = await gateWith(`invalid-${name.replace(/\W+/g, "-")}`, fp);
+    expect(g.runningEngine()).toBeNull();
+    const src = docs("docs", 2);
+    const store = new SqliteFtsStore(dbPath);
+    store.init();
+    try {
+      g.stampSource(store, cfg, src.id);
+      g.stampPass(store, cfg);
+      expect(store.getMeta(`engine:${src.id}`)).toBeNull(); // none written
+      expect(g.sourceGateIsStale(store, cfg, src.id)).toBe(false); // none required
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("engine record transitions with rowsHash (S7-S10)", () => {
+  afterEach(() => setRunningEngineForTest(undefined));
+  const calls = () => vi.mocked(chunkMarkdown).mock.calls.length;
+  const edit = (pkg: string, rel: string) => appendFileSync(join(pkg, "src", rel), "\n// edit\n");
+
+  it("S7 fresh → stays fresh: a non-row edit leaves rowsHash, so the source is not forced and no unchanged file is re-chunked", async () => {
+    const pkg = copyKbSrc(join(root, "pkg-s7"));
+    const src = docs("docs", 5);
+    setRunningEngineForTest(computeRowsHash(pkg));
+    await run([src]);
+    edit(pkg, "render.ts"); // non-row edit, fingerprint regenerated
+    setRunningEngineForTest(computeRowsHash(pkg));
+    const s = new SqliteFtsStore(dbPath);
+    try {
+      expect(sourceGateIsStale(s, cfg, "docs")).toBe(false);
+    } finally {
+      s.close();
+    }
+    vi.mocked(chunkMarkdown).mockClear();
+    expect((await run([src])).changed).toBe(0);
+    expect(calls()).toBe(0);
+  });
+
+  it("S8 stale → stamped → fresh: a chunker edit forces every file once and stamps the new rowsHash", async () => {
+    const pkg = copyKbSrc(join(root, "pkg-s8"));
+    const src = docs("docs", 5);
+    const h0 = computeRowsHash(pkg);
+    setRunningEngineForTest(h0);
+    await run([src]);
+    expect(meta("engine:docs")).toBe(h0);
+    edit(pkg, "chunker.ts");
+    const h1 = computeRowsHash(pkg);
+    expect(h1).not.toBe(h0);
+    setRunningEngineForTest(h1);
+    vi.mocked(chunkMarkdown).mockClear();
+    expect((await run([src])).changed).toBe(5);
+    expect(calls()).toBe(5);
+    expect(meta("engine:docs")).toBe(h1);
+    expect((await run([src])).changed).toBe(0);
+  });
+
+  it("S9 migration: a legacy srcHash record forces one pass per source, then becomes rowsHash", async () => {
+    const pkg = copyKbSrc(join(root, "pkg-s9"));
+    const a = docs("a", 3);
+    const b = docs("b", 2);
+    const rows = computeRowsHash(pkg);
+    const legacy = computeSrcHash(pkg);
+    expect(legacy).not.toBe(rows);
+    setRunningEngineForTest(legacy);
+    await run([a, b]); // as the pre-change build stamped it
+    setRunningEngineForTest(rows);
+    expect((await run([a, b])).changed).toBe(5);
+    expect(meta("engine:a")).toBe(rows);
+    expect(meta("engine:b")).toBe(rows);
+    expect((await run([a, b])).changed).toBe(0);
+  });
+
+  it("S10 illegal (mixed versions): an old reader re-stamping srcHash makes the new reader stale again — documented ping-pong, pinned", async () => {
+    const pkg = copyKbSrc(join(root, "pkg-s10"));
+    const src = docs("docs", 3);
+    const rows = computeRowsHash(pkg);
+    setRunningEngineForTest(rows);
+    await run([src]);
+    setMeta("engine:docs", computeSrcHash(pkg)); // old reader stamps its srcHash
+    const s = new SqliteFtsStore(dbPath);
+    try {
+      expect(sourceGateIsStale(s, cfg, "docs")).toBe(true);
+    } finally {
+      s.close();
+    }
+    expect((await run([src])).changed).toBe(3);
   });
 });

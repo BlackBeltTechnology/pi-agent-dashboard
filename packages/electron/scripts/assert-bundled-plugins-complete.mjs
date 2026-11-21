@@ -33,6 +33,14 @@
  * On success prints `<dep>@<installedVersion>` per resolved third-party dep.
  * See change: bundle-plugin-third-party-deps (design D4).
  *
+ * kb reindex worker (when `kb-plugin` is bundled): the worker thread the server spawns
+ * (`new URL("./reindex-worker.mjs", import.meta.url)`) must load in the packaged layout, so the gate
+ * resolves what it imports — `reindex-worker.mjs`, `reindex-core.ts`, the kb package's `exports["."]`
+ * entry and the shared `platform/native-ts-hooks.mjs` TS-loading bootstrap (the worker registers it
+ * before importing the `.ts` sources). A load failure at runtime would silently fall back to the
+ * in-process core, so the missing file must fail the build instead. Precedent: `assert-keyring-bundle.mjs`
+ * (`credential-key-worker.mjs`). See change: throttle-kb-reindex (D3, tasks 4.62/4.63).
+ *
  * Exit non-zero listing any missing plugin. See change:
  * add-nightly-verdaccio-build.
  */
@@ -90,6 +98,69 @@ export function computeMissing(packagesDir, bundlePluginsDir) {
   return { missing, expected, bundled: [...bundled].sort() };
 }
 
+const KB_PLUGIN = "kb-plugin";
+const FIRST_PARTY = "@blackbelt-technology";
+
+/** First `node_modules/<pkg>` between `fromDir` and `rootDir` (inclusive); never above the bundle root. */
+function findPackageDir(pkg, fromDir, rootDir) {
+  for (let dir = fromDir; ; dir = dirname(dir)) {
+    const candidate = join(dir, "node_modules", ...pkg.split("/"));
+    if (existsSync(join(candidate, "package.json"))) return candidate;
+    if (resolve(dir) === resolve(rootDir) || dirname(dir) === dir) return null;
+  }
+}
+
+/** Resolves `subpath` ("." or "./x.mjs") through a package's `exports` map (exact key or one-`*` pattern). */
+function resolveExportTarget(pkgDir, subpath) {
+  let exportsMap;
+  try {
+    exportsMap = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")).exports;
+  } catch {
+    return null;
+  }
+  if (typeof exportsMap === "string") return subpath === "." ? exportsMap : null;
+  for (const [key, target] of Object.entries(exportsMap ?? {})) {
+    if (typeof target !== "string") continue;
+    if (key === subpath) return target;
+    const star = key.indexOf("*");
+    if (star < 0 || !subpath.startsWith(key.slice(0, star)) || !subpath.endsWith(key.slice(star + 1))) continue;
+    const captured = subpath.slice(star, subpath.length - (key.length - star - 1));
+    return target.split("*").join(captured);
+  }
+  return null;
+}
+
+/**
+ * Errors (empty = ok) for the kb reindex worker in a built bundle; `[]` when kb-plugin is not bundled.
+ * Each entry names the file or entry that does not resolve.
+ */
+export function checkKbReindexWorker(bundlePluginsDir, bundleRootDir) {
+  const pluginDir = join(bundlePluginsDir, KB_PLUGIN);
+  if (!existsSync(pluginDir)) return [];
+  const errors = [];
+  for (const file of ["reindex-worker.mjs", "reindex-core.ts"]) {
+    const p = join(pluginDir, "src", "server", file);
+    if (!existsSync(p)) errors.push(`${file} missing from the bundled kb-plugin (expected ${p})`);
+  }
+  const needs = [
+    { pkg: `${FIRST_PARTY}/pi-dashboard-kb`, subpath: ".", what: "the kb engine entry the worker imports" },
+    { pkg: `${FIRST_PARTY}/pi-dashboard-shared`, subpath: "./platform/native-ts-hooks.mjs", what: "the TS-loading bootstrap the worker registers first" },
+  ];
+  for (const { pkg, subpath, what } of needs) {
+    const dir = findPackageDir(pkg, pluginDir, bundleRootDir);
+    if (!dir) {
+      errors.push(`${pkg} not installed in the bundle (${what}); expected node_modules/${pkg}/package.json under '${bundleRootDir}'`);
+      continue;
+    }
+    const target = resolveExportTarget(dir, subpath);
+    const file = target ? join(dir, target) : null;
+    if (!file || !existsSync(file)) {
+      errors.push(`${pkg} export '${subpath}' does not resolve to a file (${what}); expected ${file ?? `an exports entry in ${join(dir, "package.json")}`}`);
+    }
+  }
+  return errors;
+}
+
 function main() {
   const packagesDir = process.env.PACKAGES_DIR || join(REPO_ROOT, "packages");
   const bundlePluginsDir =
@@ -128,6 +199,22 @@ function main() {
   }
   const resolved = installedThirdPartyPluginDeps(bundlePluginsDir, bundleRootDir);
   console.log(`✓ Every bundled plugin dependency resolves. Third-party: ${resolved.join(", ") || "(none)"}`);
+
+  assertKbReindexWorker(bundlePluginsDir, bundleRootDir);
+}
+
+/** Exits non-zero when the kb reindex worker would not load from the bundle; no-op without kb-plugin. */
+function assertKbReindexWorker(bundlePluginsDir, bundleRootDir) {
+  if (!existsSync(join(bundlePluginsDir, KB_PLUGIN))) return;
+  const errors = checkKbReindexWorker(bundlePluginsDir, bundleRootDir);
+  if (errors.length > 0) {
+    console.error(
+      `::error::kb reindex worker would not load from the bundle: ${errors.join("; ")}. ` +
+        `Without it every reindex silently falls back to the in-process core on the server's event loop.`,
+    );
+    process.exit(1);
+  }
+  console.log("✓ kb reindex worker files resolve (worker entry, core, kb entry, TS bootstrap).");
 }
 
 /** Sorted `<dep>@<version>` for every third-party plugin dep installed at the bundle root. */

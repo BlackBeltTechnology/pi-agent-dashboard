@@ -7,7 +7,8 @@
  * (out-of-order responses fine) and bounded by 5 s → `obs-timeout` + bridge
  * terminated (a wedged connection is never reused); the next request spawns a
  * new bridge. Dispose = stdin EOF (serve exits, exec releases its lease), kill
- * only if still alive after 5 s (exec forwards no signals). Per instance:
+ * only if still alive after 5 s (`exec` forwards SIGTERM/SIGINT/SIGHUP to its child and
+ * SIGKILLs it after its own 5 s grace; see change: harden-path-and-process-guards). Per instance:
  * `restarts` (abnormal ends) + `lastError` (last exec/pi-obs stderr line).
  * The password never passes through this process.
  * See change: add-obs-studio-plugin.

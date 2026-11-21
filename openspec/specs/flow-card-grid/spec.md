@@ -60,7 +60,7 @@ The card body SHALL reserve exactly two lines and SHALL NOT create that reserved
 
 #### Scenario: Card shows complete state with tokens and duration
 - **WHEN** a `flow_agent_complete` event is received for an agent
-- **THEN** the card SHALL show ✓ status, token counts (↑input ↓output), and duration in seconds
+- **THEN** the card SHALL show ✓ status, token counts (↓input ↑output), and duration in seconds
 
 #### Scenario: Card shows loop iteration badge
 - **WHEN** a `flow_loop_iteration` event targets an agent card
@@ -91,6 +91,10 @@ The card body SHALL reserve exactly two lines and SHALL NOT create that reserved
 - **THEN** each card SHALL render the basename of that path on its basename line
 - **AND** the full path SHALL be exposed as that line's tooltip
 - **AND** no absolute-path line SHALL be rendered on the card
+
+#### Scenario: Card token arrows match the dashboard convention
+- **WHEN** a complete agent card shows input and output token counts
+- **THEN** input SHALL use `↓` and output SHALL use `↑`
 
 ### Requirement: Responsive grid layout
 The card grid SHALL size its columns from a CSS auto-fill track of `minmax(190px, 1fr)`, so the number of columns follows the available container width instead of a hard-coded per-breakpoint count. Cards in the same row SHALL be equal in width AND equal in height: the grid row track SHALL be `minmax(124px, auto)`, and each card SHALL fill its row cell, so a row's cards share one height and each card's control row is bottom-aligned. The live grid and the frozen post-flow grid SHALL use the same column minimum, row track, and gap (8px), taken from one shared constant.
