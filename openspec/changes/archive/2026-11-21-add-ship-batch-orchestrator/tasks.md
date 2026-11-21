@@ -62,4 +62,4 @@
 ## 5. Verify
 
 - [x] 5.1 `set -o pipefail; npx vitest run --project ship-batch 2>&1 | tee /tmp/ship-batch-test.log` green; `npm run quality:changed` clean
-- [ ] 5.2 Live end-to-end smoke on a throwaway 2-change group: both start, a question frees a slot, sessions archived, worktrees removed or kept per outcome, exit code per C4 (test-plan: manual-only) (test-plan #M2)
+- [x] 5.2 Live end-to-end smoke on a throwaway 2-change group: both start, a question frees a slot, sessions archived, worktrees removed or kept per outcome, exit code per C4 (test-plan: manual-only) (test-plan #M2)
