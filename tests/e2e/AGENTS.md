@@ -22,6 +22,7 @@ One row per file.
 | `canvas-loopback-url-chip.spec.ts` | L3 |
 | `canvas-static-mockup.spec.ts` | L3 |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
+| `chat-gateway-guard-readiness.spec.ts` | → `chat-gateway-guard-readiness.spec.ts.AGENTS.md` |
 | `chat-motion.spec.ts` | → `chat-motion.spec.ts.AGENTS.md` |
 | `claude-subscription-compat.spec.ts` | #F1 sign-in prompt → Turn on → row on after reload (real compat route, staged auth reads); #F3 Landing Step ① notice → Turn on → row on. See change: retire-anthropic-messages-bridge. |
 | `composer-dock-collapse.spec.ts` | L3 composer dock collapse/peek/file open (synthetic bridge, stubbed diff/quota): 44 px one-line bar at 375 px… → see `composer-dock-collapse.spec.ts.AGENTS.md` |
