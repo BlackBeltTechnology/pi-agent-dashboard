@@ -8,7 +8,7 @@ SOAK=openspec/changes/enforce-strict-csp-default/soak/csp-soak.mjs
 node --test openspec/changes/enforce-strict-csp-default/soak/csp-soak.test.mjs   # helper self-test
 ```
 
-Status: **1.1 done; window not open** (1.2 pending — needs operator canary + reset on an install running `v0.11.0`)
+Status: **1.1 done; window NOT opened — blocking finding 2026-11-21** (see § Blocking finding: report delivery). 1.2 must wait for a release that fixes browser report delivery.
 
 **Gate override (2026-11-16, operator "go on"):** groups 2–5 code was written on this branch BEFORE 1.7. The soak gate still governs: do NOT merge / ship until 1.2–1.7 are recorded here and pass. If the soak finds a blocking violation, its fix lands first and this branch rebases.
 
@@ -121,6 +121,17 @@ Summary (passed / failed / skipped):
 - Date:
 
 ---
+
+## Blocking finding: report delivery (2026-11-21)
+
+Opening canary on this Mac (`v0.11.0`, `report`, `http://localhost:8000`, tunnel configured but `zrok share` failing) **failed**: no browser report ever reaches the server.
+
+- Baseline snapshot `soak/canary-open.json`: `since` 2026-10-25T13:27:14Z, counts `baseline` / `strict` / `trusted-types` all `{}` — zero browser reports in ~4 weeks of daily use, while the in-page TT shadow counted `would-alter-html` 34346.
+- Canary from an authorized headless Chromium (Playwright 151) and Google Chrome 157 (headless): console shows the violation; CDP `Network.reportingApiReportUpdated` → `csp-strict` `Pending` → `Queued`, never sent (watched 75 s / 131 s). Strict count +0.
+- Endpoint itself works: direct `POST /__pi/csp-report/strict` (`application/reports+json`) → 204, counted (+1 — synthetic, NOT a canary; cleared by the eventual reset).
+- Isolation (Chrome 157, local test server): header shape `report-uri` + `report-to` + `Reporting-Endpoints` → nothing delivered in 90 s (Chrome uses `report-to`, ignores `report-uri`); `report-uri` only → delivered immediately as `application/csp-report`.
+
+Consequence: on plain-`http` installs Chromium never delivers, so a soak would read zero regardless of breakage — the gate cannot produce evidence. Fix (separate change, lands on develop first): make violation reports actually arrive (e.g. drop `report-to` / `Reporting-Endpoints`, or emit them only on `https`), keep both endpoints counted. Then cut a release containing `f426a45b5` + the fix, open the window on it (1.1 re-recorded with that tag), and rebase this branch.
 
 ## Window restarts
 
