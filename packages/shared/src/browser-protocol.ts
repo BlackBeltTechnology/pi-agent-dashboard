@@ -1228,7 +1228,60 @@ export interface AutoNameOutcomeBrowserMessage {
   at: number;
 }
 
+/**
+ * Sudo credential prompt (server ↔ browser). See change: add-sudo-credential-prompt.
+ * The password rides only `SudoCredentialResponseBrowserMessage` (browser → server).
+ */
+export interface SudoCredentialRequestBrowserMessage {
+  type: "sudo_credential_request";
+  sessionId: string;
+  callId: string;
+  commands: string[];
+  prompt: string;
+  promptTruncated?: number;
+}
+
+export interface SudoCredentialDismissBrowserMessage {
+  type: "sudo_credential_dismiss";
+  sessionId: string;
+  callId: string;
+}
+
+export interface SudoCredentialCacheBrowserMessage {
+  type: "sudo_credential_cache";
+  sessionId: string;
+  expiresAt: number | null;
+}
+
+export interface SudoCredentialResponseBrowserMessage {
+  type: "sudo_credential_response";
+  sessionId: string;
+  callId: string;
+  password: string;
+}
+
+export interface SudoCredentialCancelBrowserMessage {
+  type: "sudo_credential_cancel";
+  sessionId: string;
+  callId: string;
+}
+
+export interface SudoCredentialForgetBrowserMessage {
+  type: "sudo_credential_forget";
+  sessionId: string;
+}
+
+/** Browser ack: the dialog rendered (counts the tab as able to answer). */
+export interface SudoCredentialShownBrowserMessage {
+  type: "sudo_credential_shown";
+  sessionId: string;
+  callId: string;
+}
+
 export type ServerToBrowserMessage =
+  | SudoCredentialRequestBrowserMessage
+  | SudoCredentialDismissBrowserMessage
+  | SudoCredentialCacheBrowserMessage
   | ServerRestartingMessage
   | AutoNameErrorBrowserMessage
   | AutoNameOutcomeBrowserMessage
@@ -2223,6 +2276,10 @@ export interface UiManagementBrowserMessage {
 }
 
 export type BrowserToServerMessage =
+  | SudoCredentialResponseBrowserMessage
+  | SudoCredentialCancelBrowserMessage
+  | SudoCredentialForgetBrowserMessage
+  | SudoCredentialShownBrowserMessage
   | SubscribeMessage
   | UnsubscribeMessage
   | HistoryBackfillRequestMessage

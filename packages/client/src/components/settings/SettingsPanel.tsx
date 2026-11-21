@@ -36,6 +36,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
 // Type-only import — erased at bundle time, so the rule above holds.
 import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
+import { DEFAULT_SUDO_CREDENTIAL_PROMPT, type SudoCredentialPromptConfig } from "@blackbelt-technology/pi-dashboard-shared/sudo-credential.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
@@ -99,6 +100,7 @@ import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../
 import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
+import { SudoCredentialSection } from "./SudoCredentialSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
@@ -283,6 +285,8 @@ interface Config {
   agentPathGate?: { enabled: boolean; timeoutSeconds: number };
   /** Computed by GET /api/config (never persisted): `PI_DASHBOARD_AGENT_PATH_GATE` as set on the server. */
   agentPathGateEnvOverride?: "on" | "off" | null;
+  /** Sudo password prompt (default on). See change: add-sudo-credential-prompt. */
+  sudoCredentialPrompt?: SudoCredentialPromptConfig;
   /** Raw stored security knobs; `trustedTypes` is `off | report | enforce` when valid. See change: enforce-trusted-types-default. */
   security?: { trustedTypes?: unknown };
   /** Computed by GET /api/config (never persisted): the recognized `PI_DASHBOARD_TRUSTED_TYPES` value, or null. */
@@ -358,7 +362,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", windowsBashSource: "sessions", autoStart: "sessions", editor: "general",
-  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security", security: "security",
+  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security", sudoCredentialPrompt: "security", security: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -479,6 +483,14 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
     const a = config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
     const b = original.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
     if (a.enabled !== b.enabled || a.timeoutSeconds !== b.timeoutSeconds) partial.agentPathGate = { enabled: a.enabled, timeoutSeconds: a.timeoutSeconds };
+  }
+  // Sudo credential prompt: three flat fields, written whole (server clamp-merges).
+  {
+    const a = config.sudoCredentialPrompt ?? DEFAULT_SUDO_CREDENTIAL_PROMPT;
+    const b = original.sudoCredentialPrompt ?? DEFAULT_SUDO_CREDENTIAL_PROMPT;
+    if (a.enabled !== b.enabled || a.timeoutMs !== b.timeoutMs || a.cacheMinutes !== b.cacheMinutes) {
+      partial.sudoCredentialPrompt = { enabled: a.enabled, timeoutMs: a.timeoutMs, cacheMinutes: a.cacheMinutes };
+    }
   }
   /**
    * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
@@ -2708,6 +2720,10 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                   value={config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 }}
                   envOverride={config.agentPathGateEnvOverride ?? null}
                   onChange={(next) => update((c) => { c.agentPathGate = next; })}
+                />
+                <SudoCredentialSection
+                  value={config.sudoCredentialPrompt ?? DEFAULT_SUDO_CREDENTIAL_PROMPT}
+                  onChange={(next) => update((c) => { c.sudoCredentialPrompt = next; })}
                 />
                 <Section title={t("settings.pairDevice", undefined, "Pair a device")}>
                   {/* A route, not a duplicate (D2): Security keeps the words an

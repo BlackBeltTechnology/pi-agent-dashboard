@@ -35,6 +35,11 @@ import type { ReplayPersister } from "../lib/replay/replay-persist.js";
 import { removeLookupOnly } from "../lib/session/lookup-merge.js";
 import { inferPlatform, pathKey, resolveSessionGroupPath } from "../lib/session/session-grouping.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
+import {
+  dismissSudoCredentialRequest,
+  setSudoCredentialCache,
+  setSudoCredentialRequest,
+} from "../lib/state/sudo-credential-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
 import { clearTerminalLimitNotices, showTerminalLimitNotice } from "../lib/state/terminal-limit-notice-store.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
@@ -1469,6 +1474,19 @@ export function useMessageHandler(
         }
         break;
       }
+
+      case "sudo_credential_request": {
+        // Never log the payload: it carries command text. See change: add-sudo-credential-prompt.
+        const { type: _t, ...request } = msg;
+        setSudoCredentialRequest(request);
+        break;
+      }
+      case "sudo_credential_dismiss":
+        dismissSudoCredentialRequest(msg.sessionId, msg.callId);
+        break;
+      case "sudo_credential_cache":
+        setSudoCredentialCache(msg.sessionId, msg.expiresAt);
+        break;
 
       case "recovery_offer":
         // Cold-start interrupted-session offer. Sticky top-right notification

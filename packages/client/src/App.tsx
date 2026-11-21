@@ -39,6 +39,7 @@ import { AcpEndedCallout } from "./components/session/AcpEndedCallout.js";
 import { FileAccessToastHost } from "./components/session/FileAccessToastHost.js";
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
+import { SudoCredentialHost } from "./components/SudoCredentialDialog.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
 import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
@@ -3368,6 +3369,7 @@ export default function App() {
         <WorktreeInitStack />
         <SpawnErrorToastHost />
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
+        <SudoCredentialHost send={send} sessionLabel={(id) => sessions.get(id)?.name} />
         {firstLaunchModal}
         {grantPromptHost}
         {provisionPromptHost}
@@ -3476,6 +3478,7 @@ export default function App() {
         )}
         {connectionBanner}
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
+        <SudoCredentialHost send={send} sessionLabel={(id) => sessions.get(id)?.name} />
         {/* Folder-scoped editor pane (hosts terminal tabs via the keep-alive
             TerminalPaneLayer — single <TerminalView> mount per id). See change:
             terminals-in-tabbed-panes, fix-terminal-half-height-dual-mount. */}

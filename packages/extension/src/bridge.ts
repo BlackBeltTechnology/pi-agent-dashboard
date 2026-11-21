@@ -93,6 +93,8 @@ import { drainUsageAndSend, makeCacheWarmingDecisionHandler, UsageDrain, } from 
 import { createVaultDelivery } from "./vault-delivery.js";
 import { createVaultForwardFilter } from "./vault-forwarder.js";
 import { createVaultRedaction } from "./vault-redaction.js";
+import { sudoMaskState } from "./sudo-askpass/sudo-mask-registry.js";
+import { createSudoAskpass, createSudoConfigReader } from "./sudo-askpass/index.js";
 
 /**
  * Formats the state behind a watchdog force-close for `server.log`.
@@ -1154,7 +1156,12 @@ function initBridge(pi: ExtensionAPI) {
   // every outgoing event_forward frame on a copy (with tail hold-back) and is
   // installed at the connection, so no plaintext value reaches the send buffer.
   const vaultRedaction = createVaultRedaction({
-    getState: () => vaultDelivery.redactionState(),
+    // Vault values plus operator-entered sudo passwords (append-only registry).
+    getState: () => {
+      const vault = vaultDelivery.redactionState();
+      const sudo = sudoMaskState();
+      return { version: vault.version + sudo.version, entries: [...vault.entries, ...sudo.entries] };
+    },
     createLocalBashOperations: async () => {
       try {
         const pkg: any = await import("@earendil-works/pi-coding-agent");
@@ -1186,9 +1193,65 @@ function initBridge(pi: ExtensionAPI) {
       return { message: { ...message, content: [{ type: "text", text: "[message withheld: vault redaction failed]" }] } } as any;
     }
   });
+  // Sudo credential prompt: installs an askpass wrapper while the server advertises
+  // `sudo-credential` (observed on `dashboard_identity`), asks the operator through
+  // the server relay and answers the helper. Never logs or stores the password
+  // beyond a zeroable in-memory cache. See change: add-sudo-credential-prompt.
+  const sudoAskpass = createSudoAskpass({
+    send: (m) => inst.connection.sendIfOpen(m),
+    sessionId: () => inst.sessionId ?? "",
+    isConnected: () => inst.connection?.isConnected === true,
+    readConfig: createSudoConfigReader({
+      load: () => loadConfig().sudoCredentialPrompt,
+      mtimeMs: () => {
+        try {
+          return fs.statSync(path.join(os.homedir(), ".pi", "dashboard", "config.json")).mtimeMs;
+        } catch {
+          return undefined;
+        }
+      },
+    }),
+    log: (line) => console.log(line),
+  });
+  // A Settings change applies live: re-evaluate the install predicate on a cheap tick.
+  {
+    const sudoTick = setInterval(() => {
+      if (isActive()) sudoAskpass.reconcile();
+    }, 2000);
+    sudoTick.unref?.();
+    getBridgeState().timers!.push(sudoTick);
+  }
+  pi.on("tool_execution_start", (event: any) => {
+    try {
+      if (isActive()) sudoAskpass.toolExecutionStart(event);
+    } catch {
+      /* the gate input is best effort; a failure leaves the gate closed */
+    }
+  });
+  pi.on("tool_execution_end", (event: any) => {
+    try {
+      sudoAskpass.toolExecutionEnd(event);
+    } catch {
+      /* see above */
+    }
+  });
+  pi.on("session_shutdown", () => {
+    try {
+      sudoAskpass.shutdown();
+    } catch {
+      /* best effort: the process-exit hook removes the directory */
+    }
+  });
   pi.on("user_bash", async () => {
     try {
-      return (await vaultRedaction.userBash()) as any;
+      // While the askpass wrapper is installed the `!` command is always wrapped (the
+      // password is registered mid-command, after this event) and tracked, so the
+      // gate opens for it. No operations while installed = untracked: gate closed
+      // for that command, never run unwrapped with the gate open (D7).
+      const installed = sudoAskpass.featureInstalled();
+      const result = await vaultRedaction.userBash({ always: installed });
+      if (!installed || !result) return result as any;
+      return { operations: sudoAskpass.trackUserBash(result.operations) } as any;
     } catch {
       return undefined;
     }
@@ -1254,6 +1317,7 @@ function initBridge(pi: ExtensionAPI) {
       if (!isActive() || inst.connection !== primaryConnection) return;
       pluginLaneUp();
       vaultDelivery.onOpen();
+      sudoAskpass.onOpen();
       // `onReconnect` skips the FIRST open, so plugin latest/stream messages
       // retained before it would wait for the next emission. Drain after the
       // manager flushes its buffered register frame (microtask).
@@ -1272,8 +1336,11 @@ function initBridge(pi: ExtensionAPI) {
       pluginLaneDown();
       pathGate.reset();
       vaultDelivery.onClose();
+      sudoAskpass.onClose();
     },
     onMessage: safe(async (data: unknown) => {
+    // Sudo prompt answers are consumed here (never re-emitted); the identity is only observed.
+    if (isActive() && sudoAskpass.onServerMessage(data)) return;
     return handleInboundMessage(inst, data);
   }),
     onReconnect: safe(() => {
