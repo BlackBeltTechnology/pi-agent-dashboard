@@ -5,6 +5,15 @@
  * `defaultProjectTrust`: `ask` and `never` skip project resources (no prompt, no stall),
  * `always` loads them. D3 relies on this: an uncovered dashboard spawn is NOT auto-trusted.
  * Skipped with a clear message when pi cannot be located.
+ *
+ * Also pins two more premises of the same change against the INSTALLED pi (test-plan #E105/#E107/#X21):
+ *  - a project SKILL follows the same trust outcome as a project extension: absent under `ask`, present
+ *    under `always`, absent again once the trust is withdrawn, and the session answers RPC every time
+ *    (the "skill absent, present, absent; ready every time" observable of T.107, at the real-pi level);
+ *  - a MISTYPED `-e` extension ref (the shape of a mistyped chat-gateway `guardExtension`) makes pi exit at
+ *    startup with "Failed to load extension" and never answer RPC, so such a session can never register or
+ *    announce guard readiness (the premise of T.105/T.129; the gateway's refuse-and-send-nothing half is
+ *    pinned at L1 by `gateway-guard-ready.test.ts` T.41/T.123).
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -92,4 +101,93 @@ describe.skipIf(!cli)("pi headless project_trust with no extension answer (insta
       expect(r.loadedAfter, `${mode}: the project extension must stay unloaded`).toBeNull();
     }
   }, 60_000);
+});
+
+interface RpcProbe {
+  out: string;
+  err: string;
+  exited: boolean;
+  code: number | null;
+}
+
+/**
+ * Run the installed pi in RPC mode in `proj` under `defaultProjectTrust: mode`, send `requests` (each with an
+ * `id`), and resolve once every id has answered, pi exited, or `waitMs` passed. Always kills the child.
+ */
+async function rpcProbe(
+  mode: "ask" | "never" | "always",
+  proj: string,
+  requests: Array<{ id: string; type: string }>,
+  extraArgs: string[] = [],
+  waitMs = 30_000,
+): Promise<RpcProbe> {
+  const agentDir = path.join(tmp, `agent-probe-${mode}`);
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: mode }));
+  const child = spawn(process.execPath, [cli as string, "--mode", "rpc", "--no-session", ...extraArgs], {
+    cwd: proj,
+    env: { ...process.env, HOME: tmp, PI_CODING_AGENT_DIR: agentDir },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const r: RpcProbe = { out: "", err: "", exited: false, code: null };
+  child.stdout.on("data", (d) => {
+    r.out += String(d);
+  });
+  child.stderr.on("data", (d) => {
+    r.err += String(d);
+  });
+  child.on("exit", (code) => {
+    r.exited = true;
+    r.code = code;
+  });
+  child.stdin.on("error", () => undefined); // pi may already be gone when we write
+  for (const q of requests) child.stdin.write(`${JSON.stringify(q)}\n`);
+  const t0 = Date.now();
+  try {
+    while (Date.now() - t0 < waitMs) {
+      if (requests.every((q) => r.out.includes(`"id":"${q.id}"`))) break;
+      if (r.exited) break;
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    return r;
+  } finally {
+    child.kill("SIGKILL");
+  }
+}
+
+describe.skipIf(!cli)("project skill follows the trust outcome; a mistyped extension ref never starts (installed pi)", () => {
+  const SKILL = "probe-skill";
+  const answered = (r: RpcProbe, id: string): boolean => r.out.includes(`"id":"${id}"`) && r.out.includes('"success":true');
+  const listsSkill = (r: RpcProbe): boolean => r.out.includes(`skill:${SKILL}`);
+
+  it("T.107: skill absent (ask), present (always), absent again (ask); RPC answers every time", async () => {
+    const proj = path.join(tmp, "proj-skill");
+    fs.mkdirSync(path.join(proj, ".pi", "skills", "s"), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, ".pi", "skills", "s", "SKILL.md"),
+      `---\nname: ${SKILL}\ndescription: project skill used to observe the trust outcome\n---\n# ${SKILL}\n`,
+    );
+    const asks = [{ id: "state", type: "get_state" }, { id: "cmds", type: "get_commands" }];
+    const legs: Array<["ask" | "always" | "ask", boolean, string]> = [
+      ["ask", false, "unpinned: no dashboard trust"],
+      ["always", true, "pinned: trust covers the folder"],
+      ["ask", false, "unpinned again: no stale trust"],
+    ];
+    for (const [mode, expectSkill, label] of legs) {
+      const r = await rpcProbe(mode, proj, asks);
+      expect(answered(r, "state") && answered(r, "cmds"), `${label}: the session must reach RPC readiness (stderr: ${r.err.slice(0, 200)})`).toBe(true);
+      expect(listsSkill(r), `${label}: project skill ${expectSkill ? "must be" : "must NOT be"} loaded`).toBe(expectSkill);
+    }
+  }, 120_000);
+
+  it("T.105/T.129 premise: a mistyped extension ref makes pi exit at startup and never answer RPC", async () => {
+    const proj = path.join(tmp, "proj-bad-guard");
+    fs.mkdirSync(proj, { recursive: true });
+    const typo = path.join(tmp, "no-such-dir", "chat-gateway-guard-typo.ts");
+    const r = await rpcProbe("always", proj, [{ id: "state", type: "get_state" }], ["-e", typo], 25_000);
+    expect(r.exited, "pi must exit, not sit there unguarded").toBe(true);
+    expect(r.code, "a failed extension load is a non-zero exit").not.toBe(0);
+    expect(r.err, "the failure names the extension").toContain("Failed to load extension");
+    expect(r.out.includes('"id":"state"'), "no RPC answer: no session can register or announce readiness").toBe(false);
+  }, 40_000);
 });
