@@ -9,12 +9,16 @@ card keeps its OpenSpec controls enabled, and removing the shared skills brings
 
 ## Mechanics
 
-- Dirs `/fixtures/e2e-ssl-<RUN>-<name>` created via `docker exec` on the
-  container resolved by `publish=<dashboardPort>`.
+- Dirs `/fixtures/e2e-ssl-<RUN>-<name>` are `git init`ed repos (non-git dir w/o
+  `.pi/settings.json` has null config root → skills refused) created via
+  `docker exec` on the container resolved by `publish=<dashboardPort>`.
+- READY renders no `folder-openspec-state` pill: assert `toHaveCount(0)`, not
+  `not.toHaveText` (fails on a missing element).
 - Setup: pin + expand, REST init (real CLI writes `.pi/skills`), then
   `rm -rf .pi` and/or `mkdir -p .agents/skills/openspec-explore` out-of-band.
-- Config: poll interval dropped to the 5s clamp, snapshot-restored in afterAll;
-  global profile primed to `core` so init writes skills; `/fixtures` pre-trusted
+- Config via page-context `fetch` (host-side fetch is non-loopback → 401);
+  harness needs `PI_E2E_SEED=1`. Poll interval dropped to the 5s clamp per test,
+  restored in afterEach; global profile primed to `core` so init writes skills; `/fixtures` pre-trusted
   for spawned sessions. Helpers copied from the `openspec-init-affordances-*`
   specs (repo convention: self-contained specs).
 - F2 spawns a real session (`spawnSessionIn`); ids shut down in afterEach.

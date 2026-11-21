@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { expandFolder, folderCard, gotoDashboard, pinDirectory } from "./helpers/index.js";
-import { BASE_URL, DASHBOARD_PORT } from "./lifecycle.js";
+import { closeSessionMenu, openSessionMenu } from "./helpers/session-actions-menu.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
  * Browser E2E — change `fix-openspec-readiness-shared-skills` (#1165).
@@ -38,10 +39,13 @@ function dsh(cmd: string): string {
   return execFileSync("docker", ["exec", harnessContainer(), "sh", "-c", cmd], { encoding: "utf8" });
 }
 
-/** Fresh fixture directory under /fixtures (listable by the pin dialog's PathPicker). */
+/** Fresh fixture git repo under /fixtures (listable by the pin dialog's PathPicker).
+ *  A git repo, like any real project that commits `.agents/skills/`: the readiness
+ *  probe answers at the git config root, and a non-git dir without
+ *  `.pi/settings.json` has none (null root → skills refused for both layouts). */
 function makeDir(name: string): string {
   const dir = `/fixtures/e2e-ssl-${RUN}-${name}`;
-  dsh(`rm -rf ${dir} && mkdir -p ${dir}`);
+  dsh(`rm -rf ${dir} && mkdir -p ${dir} && git init -q ${dir}`);
   return dir;
 }
 
@@ -64,14 +68,15 @@ function postJson(body: unknown): RequestInit {
   return { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } as RequestInit;
 }
 
-async function putConfigNode(openspec: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/config`, {
+/** PUT a partial `openspec` config block through the authenticated page context
+ *  (a node-side fetch from the host is not loopback to the container → 401). */
+async function putOpenspecConfig(page: Page, openspec: Record<string, unknown>): Promise<void> {
+  const r = await api(page, "/api/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ openspec }),
-  });
-  const body = (await res.json().catch(() => null)) as { success?: boolean } | null;
-  if (!body?.success) throw new Error(`config PUT failed: ${JSON.stringify(body)}`);
+  } as RequestInit);
+  expect(r.body?.success, JSON.stringify(r.body)).toBe(true);
 }
 
 /** The folder section for `cwd`, scoped to its folder card. */
@@ -150,55 +155,47 @@ async function spawnSessionIn(page: Page, dir: string): Promise<Locator> {
 
 test.describe.configure({ mode: "serial" });
 
-let settingsSnapshot: { pollIntervalSeconds: number; optOutDirectories: string[] } | null = null;
+/** Open the dashboard, drop the poll interval to its 5s clamp (out-of-band
+ *  mutations converge in one tick) and prime a valid global profile so
+ *  `openspec init --tools pi` writes skills. Returns the restore function. */
+async function setup(page: Page): Promise<() => Promise<void>> {
+  await gotoDashboard(page);
+  const cfg = await api(page, "/api/config");
+  const o = ((cfg.body?.data as Record<string, Record<string, unknown>>)?.openspec) ?? {};
+  const previous = typeof o.pollIntervalSeconds === "number" ? o.pollIntervalSeconds : 60;
+  await putOpenspecConfig(page, { pollIntervalSeconds: 5 });
+  const prime = await api(page, "/api/openspec/config", postJson({ profile: "core" }));
+  expect(prime.status, JSON.stringify(prime.body)).toBe(200);
+  trustFixtures();
+  return async () => {
+    try {
+      await putOpenspecConfig(page, { pollIntervalSeconds: previous });
+    } catch {
+      /* advisory */
+    }
+  };
+}
 
 test.describe("openspec readiness — shared .agents/skills layout (#1165)", () => {
-  test.beforeAll(async () => {
-    const res = await fetch(`${BASE_URL}/api/config`);
-    const body = (await res.json()) as { data?: { openspec?: Record<string, unknown> } };
-    const o = body.data?.openspec ?? {};
-    settingsSnapshot = {
-      pollIntervalSeconds: typeof o.pollIntervalSeconds === "number" ? o.pollIntervalSeconds : 60,
-      optOutDirectories: (Array.isArray(o.optOutDirectories) ? (o.optOutDirectories as string[]) : []).filter(
-        (d) => !d.includes("/e2e-ssl-"),
-      ),
-    };
-    await putConfigNode({ pollIntervalSeconds: 5, optOutDirectories: settingsSnapshot.optOutDirectories });
-    // `openspec init --tools pi` writes skills only under a valid global profile.
-    const prime = await fetch(`${BASE_URL}/api/openspec/config`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile: "core" }),
-    });
-    if (!prime.ok) throw new Error(`profile prime failed: ${prime.status}`);
-    trustFixtures();
-  });
+  let restore: (() => Promise<void>) | null = null;
 
-  test.afterEach(async () => {
+  test.afterEach(async ({ page }) => {
     for (const id of [...spawnedSessionIds]) {
       try {
-        await fetch(`${BASE_URL}/api/session/${id}/shutdown`, { method: "POST" });
+        await api(page, `/api/session/${id}/shutdown`, { method: "POST" });
       } catch {
         /* advisory */
       }
     }
     spawnedSessionIds.clear();
-  });
-
-  test.afterAll(async () => {
-    const s = settingsSnapshot;
-    if (!s) return;
-    try {
-      await putConfigNode({ pollIntervalSeconds: s.pollIntervalSeconds, optOutDirectories: s.optOutDirectories });
-    } catch {
-      /* advisory */
-    }
+    await restore?.();
+    restore = null;
   });
 
   test("F1: shared skills created out-of-band clear the `skills missing` pill without a restart", async ({ page }) => {
     test.setTimeout(150_000);
     const dir = makeDir("f1");
-    await gotoDashboard(page);
+    restore = await setup(page);
     const card = await pinAndExpand(page, dir);
     await initDir(page, dir);
     dsh(`rm -rf ${dir}/.pi`);
@@ -207,37 +204,41 @@ test.describe("openspec readiness — shared .agents/skills layout (#1165)", () 
 
     dsh(`mkdir -p ${dir}/.agents/skills/openspec-explore`);
 
-    await expect(pill).not.toHaveText(/skills missing/i, { timeout: 30_000 });
+    // READY renders no state pill at all (only STALE/BROKEN/ABSENT do).
     await expect(section(page, dir, "")).toBeVisible({ timeout: 30_000 });
+    await expect(pill).toHaveCount(0);
   });
 
   test("F2: session-card controls are enabled under the shared layout", async ({ page }) => {
     test.setTimeout(180_000);
     const dir = makeDir("f2");
-    await gotoDashboard(page);
+    restore = await setup(page);
     const card = await pinAndExpand(page, dir);
     await initDir(page, dir);
     dsh(`rm -rf ${dir}/.pi && mkdir -p ${dir}/.agents/skills/openspec-explore`);
     // Section variant proves the poll broadcast this cwd's readiness before the card mounts.
     await expect(section(page, dir, "")).toBeVisible({ timeout: 30_000 });
-    await expect(card.getByTestId("folder-openspec-state").first()).not.toHaveText(/skills missing/i);
+    await expect(card.getByTestId("folder-openspec-state")).toHaveCount(0);
 
     const sessionCard = await spawnSessionIn(page, dir);
 
-    await expect(sessionCard.getByText("OPENSPEC", { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(sessionCard.getByTestId("session-openspec-disabled")).toHaveCount(0);
+    // READY cards carry their OpenSpec actions in the session menu.
+    await openSessionMenu(page, sessionCard);
+    await expect(page.getByTestId("session-menu-group-openspec")).toBeVisible();
+    await closeSessionMenu(page);
   });
 
   test("F3: removing the shared skills brings `skills missing` back on the next poll", async ({ page }) => {
     test.setTimeout(150_000);
     const dir = makeDir("f3");
-    await gotoDashboard(page);
+    restore = await setup(page);
     const card = await pinAndExpand(page, dir);
     await initDir(page, dir);
     dsh(`rm -rf ${dir}/.pi && mkdir -p ${dir}/.agents/skills/openspec-explore`);
     const pill = card.getByTestId("folder-openspec-state").first();
     await expect(section(page, dir, "")).toBeVisible({ timeout: 30_000 });
-    await expect(pill).not.toHaveText(/skills missing/i);
+    await expect(pill).toHaveCount(0);
 
     dsh(`rm -rf ${dir}/.agents`);
 
