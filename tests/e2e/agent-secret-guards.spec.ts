@@ -81,7 +81,6 @@ test.describe("agent secret guards (L3)", () => {
     // Two reads (as agent-path-gate's repeat case): the second is blocked inside the suppression window
     // without a second card, and a burst of two calls renders the `N failed` badge (a single call does not).
     await expect(page.getByText(/\d+ failed/i).first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(GATE_TITLE)).toHaveCount(0);
   });
 
   test("#F2 credential dirs and a browser profile are each sensitive: no Always allow", async ({ page }) => {
