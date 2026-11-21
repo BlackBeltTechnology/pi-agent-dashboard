@@ -44,10 +44,10 @@
 ## 6. Docs
 
 - [x] 6.1 Update `packages/extension/.pi/skills/pi-dashboard/SKILL.md` (Send prompt row + example: optional `delivery`, 400 case, steer example `--data '{"text":"focus on X","delivery":"steer"}'`) and `packages/extension/.pi/skills/pi-dashboard/references/api-reference.md` + `api-reference.agent.md` (same directory) (body, 400 case, steer example).
-- [ ] 6.2 Review docs accuracy across SKILL.md, `api-reference.md`, `api-reference.agent.md`: steer curl example and 400 case read consistently and the example copy-pastes and works (test-plan: manual-only) — test-plan #M1
+- [x] 6.2 Review docs accuracy across SKILL.md, `api-reference.md`, `api-reference.agent.md`: steer curl example and 400 case read consistently and the example copy-pastes and works (test-plan: manual-only) — test-plan #M1
 
 ## 7. Verify and land
 
-- [ ] 7.1 Rebuild: server/shared/plugin-runtime changes ⇒ `npx tsx .pi/skills/implement/scripts/restart-server.ts` (jiti, no build); confirm `curl -s http://localhost:8000/api/health | jq .mode`. No extension reload needed.
-- [ ] 7.2 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary; `npm run quality:changed`.
-- [ ] 7.3 `npx openspec validate add-rest-prompt-delivery-mode --strict`; `node scripts/check-conventions.mjs`.
+- [x] 7.1 Rebuild: server/shared/plugin-runtime changes ⇒ `npx tsx .pi/skills/implement/scripts/restart-server.ts` (jiti, no build); confirm `curl -s http://localhost:8000/api/health | jq .mode`. No extension reload needed.
+- [x] 7.2 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary; `npm run quality:changed`.
+- [x] 7.3 `npx openspec validate add-rest-prompt-delivery-mode --strict`; `node scripts/check-conventions.mjs`.
