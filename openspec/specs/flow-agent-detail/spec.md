@@ -3,7 +3,9 @@
 ## Purpose
 
 Defines the FlowAgentDetail view: clicking a flow agent card replaces the chat view with that agent's full history (tool calls, assistant text, thinking, metadata), with the tool-call rows rendered without the leading per-entry status glyph.
+
 ## Requirements
+
 ### Requirement: Agent detail replaces chat view
 Clicking an agent card SHALL replace the chat view content area with a `FlowAgentDetail` component showing the full history for that agent. The flow card grid SHALL remain visible (sticky top). A back button SHALL return to the chat view.
 
@@ -51,7 +53,7 @@ The agent detail header SHALL show the agent name, status, model role, token usa
 
 #### Scenario: Complete agent header
 - **WHEN** viewing detail for a completed agent
-- **THEN** the header SHALL show agent name, ✓ status, tokens (↑in ↓out), and duration
+- **THEN** the header SHALL show agent name, ✓ status, tokens (↓in ↑out), and duration
 - **AND** when the agent's `cost` is present and greater than `0`, the header SHALL show a `$`-prefixed cost value
 
 #### Scenario: Complete agent header without cost
@@ -87,4 +89,3 @@ header becomes the single window header and its `onBack` maps to `onClose`.
 - **WHEN** a flow agent card renders its controls
 - **THEN** the detail affordance SHALL NOT open an anchored `Popover` for the
   agent timeline (the dialog replaces it)
-

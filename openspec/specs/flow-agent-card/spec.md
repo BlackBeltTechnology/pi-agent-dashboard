@@ -101,12 +101,12 @@ in name and restated in body to the shipped editor behaviour.
 
 A `FlowAgentCard` in its complete state SHALL display the accumulated per-agent
 USD cost carried by the `flow_agent_complete` event's `result.cost`, rendered in
-the stats line next to token usage and duration (e.g. `↑12k ↓3k · $0.0142 · 4.2s`).
+the stats line next to token usage and duration (e.g. `↓12k ↑3k · $0.0142 · 4.2s`).
 
 The cost segment SHALL be suppressed when `cost` is absent, `undefined`, or `0`,
 mirroring how the card already handles zero/absent token and duration values.
 When suppressed, the stats line SHALL render exactly as it does today
-(`↑in ↓out · duration`) with no leftover separator.
+(`↓in ↑out · duration`) with no leftover separator.
 
 The formatted value SHALL match the pi-flows TUI precision: two decimals when
 the amount is `>= 1` (`$1.20`), four decimals when sub-dollar (`$0.0142`).
@@ -144,3 +144,7 @@ event omits it.
 
 - **WHEN** a completed agent card renders a `cost` value at or above `1`
 - **THEN** the displayed amount SHALL show two decimal places (e.g. `$1.20`)
+
+#### Scenario: Token arrows follow the dashboard convention
+- **WHEN** an agent has 12000 input tokens and 3000 output tokens
+- **THEN** the stats line SHALL render input with `↓` and output with `↑`, never the reverse

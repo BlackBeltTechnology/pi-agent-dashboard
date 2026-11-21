@@ -112,7 +112,7 @@ The header meta block (model name, tokens, duration) SHALL render only when the 
 #### Scenario: Tokens and duration supplied
 
 - **WHEN** `meta = { tokens: { input: 1234, output: 567 }, durationMs: 4500 }` is passed
-- **THEN** the header SHALL render `↑1k ↓567 · 4.5s` (formatted via the UI primitive registry's `formatTokens` and `formatDuration`)
+- **THEN** the header SHALL render `↓1k ↑567 · 4.5s` (formatted via the UI primitive registry's `formatTokens` and `formatDuration`)
 
 #### Scenario: Subtitle path renders below title
 
