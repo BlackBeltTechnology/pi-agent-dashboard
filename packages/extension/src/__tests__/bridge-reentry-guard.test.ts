@@ -7,6 +7,9 @@
  *
  * See change: test-trust-audit (design D2: the guard stays in the entry point).
  */
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The real bridge builds its `ConnectionManager` in `initBridge`; swap it for a recording fake so no
@@ -100,20 +103,29 @@ describe("E6: a distinct pi loaded after session_shutdown{new|resume|fork} re-in
   afterEach(() => {
     if (prevEnv === undefined) delete process.env.PI_DASHBOARD_BRIDGE;
     else process.env.PI_DASHBOARD_BRIDGE = prevEnv;
-    delete g[BRIDGE_KEY];
+    // Stop the live bridge's timers, then leave a bare state with a `timers` array rather than
+    // deleting it: an in-flight async git probe (vcs-info → git-tracker) can still resolve after
+    // teardown and registers a timer on `getBridgeState().timers`, which would otherwise be
+    // undefined and surface as an unhandled rejection that fails the whole vitest run (CI unit(3)).
+    for (const t of (g[BRIDGE_KEY] as { timers?: ReturnType<typeof setInterval>[] } | undefined)?.timers ?? []) clearInterval(t);
+    g[BRIDGE_KEY] = { timers: [] };
     vi.restoreAllMocks();
   });
 
+  // A non-git temp dir: the bridge's async git probe then resolves to nothing and never re-enters
+  // the bridge after the test ends (process.cwd() is this repo, so it would).
+  const noGitCwd = mkdtempSync(join(tmpdir(), "bridge-e6-"));
+
   function makeCtx(sessionId: string) {
     return {
-      cwd: process.cwd(),
+      cwd: noGitCwd,
       hasUI: false,
       model: { provider: "anthropic", id: "claude-sonnet-4-6" },
       sessionManager: {
         getSessionId: () => sessionId,
         getSessionFile: () => undefined,
         getSessionDir: () => undefined,
-        getCwd: () => process.cwd(),
+        getCwd: () => noGitCwd,
         getBranch: () => [],
         getEntries: () => [],
       },
