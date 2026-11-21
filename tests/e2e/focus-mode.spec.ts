@@ -5,8 +5,8 @@
  */
 import { expect, test } from "./fixtures.js";
 import { resetCardPrefs, setSectionViaBus } from "./helpers/card-sections.js";
-import { inContainer } from "./helpers/folder-collapse.js";
-import { ensureGitSession, expandFolder, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { inContainer, pinViaBus, unpinViaBus } from "./helpers/folder-collapse.js";
+import { ensureGitSession, expandFolder, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 test.describe("focus mode", () => {
@@ -60,7 +60,7 @@ test.describe("focus mode", () => {
     restore();
     try {
       await ensureGitSession(page);
-      await pinDirectory(page, CWD);
+      await pinViaBus(CWD); // idempotent — survives a pin left by an earlier run
       // Hide the banner outside Focus too, so the chip is what the folder shows.
       await setSectionViaBus("folder-banner", false);
       const chip = page.getByTestId(`folder-banner-chip-${CWD}`);
@@ -77,6 +77,7 @@ test.describe("focus mode", () => {
       await expect(chip).toBeVisible({ timeout: 30_000 });
     } finally {
       restore();
+      await unpinViaBus(CWD); // leave the shared container as found (folder-action-banner.spec pins it)
     }
   });
 });

@@ -9,11 +9,11 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import type { WorktreeInitStatus } from "../../../lib/git/git-api.js";
+import { fetchWorktreeInitStatus, type WorktreeInitStatus } from "../../../lib/git/git-api.js";
 import { initStore } from "../../../lib/git/worktree-init-store.js";
 import { CardSectionsProvider } from "../../../lib/state/CardSectionsContext.js";
 import { FolderActionBanner } from "../../folder/FolderActionBanner.js";
@@ -226,13 +226,18 @@ describe("Focus mode × folder banner chip (#1134)", () => {
     const r = render(tree(prefs));
     return (next: CardSectionPrefs) => r.rerender(tree(next));
   };
+  /** Wait for the init-status probe to be requested, then flush its resolution into state. */
+  const settleProbe = async () => {
+    await waitFor(() => expect(vi.mocked(fetchWorktreeInitStatus)).toHaveBeenCalled());
+    await act(async () => {});
+  };
   const anyBanner = () => document.querySelectorAll("[data-testid^='folder-banner-']").length;
 
   it("S29: Focus (built-in profile) renders no folder chip/banner on a blocked folder — focused or compact", async () => {
     probe.status = { hasHook: true, trusted: false };
     mount(FOCUS_ON);
     await waitFor(() => expect(has(`folder-header-name-${CWD}`)).toBe(true));
-    await new Promise((r) => setTimeout(r, 20)); // let the probe resolve
+    await settleProbe();
     expect(anyBanner()).toBe(0);
   });
 
@@ -247,10 +252,10 @@ describe("Focus mode × folder banner chip (#1134)", () => {
     probe.status = { hasHook: true, trusted: true };
     initStore.startRun(CWD);
     const setPrefs = mount(FOCUS_ON);
-    await new Promise((r) => setTimeout(r, 20));
+    await settleProbe();
     expect(anyBanner()).toBe(0);
-    initStore.markFailed(CWD, "exit_1", "boom");
-    await new Promise((r) => setTimeout(r, 20));
+    act(() => initStore.markFailed(CWD, "exit_1", "boom"));
+    await act(async () => {});
     expect(anyBanner()).toBe(0);
     setPrefs(FOCUS_OFF);
     await waitFor(() => expect(has(`folder-banner-failed-${CWD}`)).toBe(true));

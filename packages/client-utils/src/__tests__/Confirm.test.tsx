@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Confirm } from "../Confirm.js";
 
 afterEach(() => cleanup());

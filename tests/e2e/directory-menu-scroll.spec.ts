@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SpawnResultBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { gotoDashboard } from "./helpers/index.js";
 import { inContainer, pinViaBus, unpinViaBus } from "./helpers/folder-collapse.js";
+import { gotoDashboard } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -44,6 +44,22 @@ async function expectWithinViewport(page: Page, el: Locator): Promise<void> {
   expect(box!.y + box!.height).toBeLessThanOrEqual(vh + 1);
 }
 
+/** Plugin items register asynchronously — wait until the item count holds still before asserting on "the last item". */
+async function settleItems(items: Locator): Promise<void> {
+  let prev = -1;
+  await expect
+    .poll(
+      async () => {
+        const n = await items.count();
+        const stable = n === prev && n > 0;
+        prev = n;
+        return stable;
+      },
+      { timeout: 15_000, intervals: [500] },
+    )
+    .toBe(true);
+}
+
 test.describe("directory menus on short viewports (#1153)", () => {
   test.describe.configure({ mode: "serial" });
   test.setTimeout(180_000);
@@ -69,6 +85,7 @@ test.describe("directory menus on short viewports (#1153)", () => {
       const p = panel(page, LAST);
       await expectWithinViewport(page, p);
       const items = p.locator("[data-testid^='folder-menu-item-']");
+      await settleItems(items);
       const last = items.last();
       await p.hover();
       await page.mouse.wheel(0, 2_000);
@@ -77,7 +94,12 @@ test.describe("directory menus on short viewports (#1153)", () => {
       await expect(p).toHaveCount(0);
 
       await openMenu(page, LAST);
-      await items.last().focus();
+      await settleItems(items);
+      // The menu focuses its checked radio on open (asynchronously). Roving focus
+      // then owns focus, so drive it the way a keyboard user does: ArrowUp from
+      // the first item wraps to the last one.
+      await expect(p.locator(":focus")).toHaveCount(1);
+      await page.keyboard.press("ArrowUp");
       await expect(items.last()).toBeInViewport();
       await page.keyboard.press("Escape");
     });
@@ -88,14 +110,16 @@ test.describe("directory menus on short viewports (#1153)", () => {
     await openMenu(page, LAST);
     const p = panel(page, LAST);
     await expectWithinViewport(page, p);
-    const last = p.locator("[data-testid^='folder-menu-item-']").last();
+    const sheetItems = p.locator("[data-testid^='folder-menu-item-']");
+    await settleItems(sheetItems);
+    const last = sheetItems.last();
     await last.scrollIntoViewIfNeeded();
     await expect(last).toBeInViewport();
   });
 
   test("F2: the add-to-workspace popover stays within the viewport at 1280×720", async ({ page }) => {
     await openMenu(page, LAST);
-    await page.getByTestId("folder-menu-item-add-to-workspace").click();
+    await page.getByTestId(`add-to-workspace-btn-${LAST}`).first().click();
     const menu = page.getByTestId("add-to-workspace-menu");
     await expect(menu).toBeVisible({ timeout: 10_000 });
     await expectWithinViewport(page, menu);
@@ -147,6 +171,12 @@ test.describe("confirm dialog focus (#F4)", () => {
       c.send({ type: "spawn_session", cwd: CWD, requestId: crypto.randomUUID() });
       const res = await result;
       expect(res.success, res.message).toBe(true);
+      // The folder only needs confirmation once the session is in the client's list.
+      const deadline = Date.now() + 30_000;
+      while (!c.read.sessions().some((x) => x.cwd === CWD && x.status !== "ended")) {
+        if (Date.now() > deadline) throw new Error("spawned session never appeared");
+        await new Promise((r) => setTimeout(r, 500));
+      }
     });
     await gotoDashboard(page);
     await openMenu(page, CWD);

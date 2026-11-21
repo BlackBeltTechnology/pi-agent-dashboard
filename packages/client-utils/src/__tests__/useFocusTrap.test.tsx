@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React, { useRef } from "react";
+import { afterEach, describe, expect, it } from "vitest";
 import { useFocusTrap } from "../useFocusTrap.js";
 
 afterEach(() => cleanup());

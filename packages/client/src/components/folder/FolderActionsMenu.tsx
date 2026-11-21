@@ -209,11 +209,24 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
   // Open with focus on the checked radio (session-list-group-by). Re-runs when
   // the desktop panel's first measure lands — a `visibility:hidden` node
   // cannot take focus.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `triggerRect` / `isMobile` re-run the focus once the panel is visible.
+  //
+  // Once per open: `usePopoverFlip` hands back a NEW `triggerRect` on every
+  // scroll (capture phase — the panel's own scrolling included), so without the
+  // guard each scroll pulled focus back to the checked radio and a keyboard user
+  // could never step onto an item below the fold of a short viewport (a focused
+  // item scrolls the panel → re-measure → focus snaps to the top).
+  // See change: sidebar-folder-ux (#1153).
+  const openFocusDone = React.useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `triggerRect` / `isMobile` re-run the focus until the panel is visible and it lands.
   React.useEffect(() => {
-    if (!open || !hasRadioGroup) return;
+    if (!open) {
+      openFocusDone.current = false;
+      return;
+    }
+    if (!hasRadioGroup || openFocusDone.current) return;
     const checked = panelRef.current?.querySelector<HTMLElement>("[role='menuitemradio'][aria-checked='true']");
     checked?.focus();
+    if (checked && document.activeElement === checked) openFocusDone.current = true;
   }, [open, hasRadioGroup, triggerRect, isMobile]);
 
   /** Roving focus across the rendered `role="menuitem"` / `menuitemradio` nodes. */

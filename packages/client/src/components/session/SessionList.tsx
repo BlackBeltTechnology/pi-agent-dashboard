@@ -62,6 +62,7 @@ import {
   type StatusLaneFlags,
 } from "../../lib/session/session-lanes.js";
 import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
+import { initializeSpawnOpts, siblingSpawnOpts } from "../../lib/spawn/spawn-opts.js";
 import { useCardSectionPrefs, useFocusState } from "../../lib/state/CardSectionsContext.js";
 import { type SessionMenuScope, SessionMenuScopeContext, type SessionMenuState, sessionScopeKey } from "../../lib/state/SessionMenuScopeContext.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
@@ -70,10 +71,9 @@ import { useYoloAppBar, YoloBarLink } from "../access-grant/YoloIndicators.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
-import { RemoveFromSidebarConfirm } from "../folder/RemoveFromSidebarConfirm.js";
-import { initializeSpawnOpts, siblingSpawnOpts } from "../../lib/spawn/spawn-opts.js";
 import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsule.js";
 import { isProjectSetupOutdated, projectSetupLabel } from "../folder/folder-menu-labels.js";
+import { RemoveFromSidebarConfirm } from "../folder/RemoveFromSidebarConfirm.js";
 import { SignedInUserBar } from "../identity/UserBar.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";

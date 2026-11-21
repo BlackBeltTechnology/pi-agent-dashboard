@@ -2,13 +2,14 @@
  * Pure utility functions for grouping, sorting, and filtering sessions.
  * Extracted from SessionList.tsx for reuse and testability.
  */
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+
 import {
   inferPlatform,
   pathKey,
   resolveSessionGroupPath,
 } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // `inferPlatform`, `pathKey`, and `resolveSessionGroupPath` now live in
 // packages/shared so the server keys its order map by the SAME resolved

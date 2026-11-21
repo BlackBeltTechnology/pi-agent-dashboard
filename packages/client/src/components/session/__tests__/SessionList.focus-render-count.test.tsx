@@ -6,7 +6,7 @@
  */
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -75,11 +75,11 @@ describe("Focus toggle render count (#P2)", () => {
   it(`renders FolderActionBanner at most once per folder per Focus toggle (${FOLDERS} folders)`, async () => {
     const r = render(tree({ focus: { enabled: false } }));
     await waitFor(() => expect(counter.renders).toBeGreaterThanOrEqual(1));
-    await new Promise((res) => setTimeout(res, 50)); // let mount-time probes settle
+    await act(async () => {}); // let mount-time probes settle
     for (const next of [true, false]) {
       const before = counter.renders;
       r.rerender(tree({ focus: { enabled: next } }));
-      await new Promise((res) => setTimeout(res, 50));
+      await act(async () => {});
       expect(counter.renders - before).toBeLessThanOrEqual(FOLDERS);
     }
   });

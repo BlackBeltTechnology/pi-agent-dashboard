@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SpawnResultBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { gotoDashboard } from "./helpers/index.js";
 import { inContainer, pinViaBus, unpinViaBus } from "./helpers/folder-collapse.js";
+import { gotoDashboard } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -100,6 +100,9 @@ test.describe("remove from sidebar (#1118)", () => {
   // S40 — live session: confirm dialog with Cancel focused; confirm ends it and the folder leaves.
   test("S40: a live session needs confirmation, Cancel is focused, confirm ends it and the folder leaves", async ({ page }) => {
     await spawnInCwd();
+    // Reload so the page's snapshot already holds the live session (a menu opened
+    // before the WS frame lands would see "no live session" and skip the dialog).
+    await gotoDashboard(page);
     await openMenuItem(page);
     await item(page).click();
     await expect(dialog(page)).toBeVisible();
@@ -112,6 +115,9 @@ test.describe("remove from sidebar (#1118)", () => {
   // S41 — real-browser focus: trapped in the dialog, returned to the trigger on close.
   test("S41: Tab stays inside the dialog and Escape returns focus to the menu trigger", async ({ page }) => {
     await spawnInCwd();
+    // Reload so the page's snapshot already holds the live session (a menu opened
+    // before the WS frame lands would see "no live session" and skip the dialog).
+    await gotoDashboard(page);
     await openMenuItem(page);
     await item(page).focus();
     await page.keyboard.press("Enter");
