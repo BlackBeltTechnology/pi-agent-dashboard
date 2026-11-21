@@ -515,8 +515,9 @@ export function wireEvents(deps: EventWiringDeps): void {
     dispatchSessionRegisteredCwd?.(cwd);
     // A session's cwd is a project the dashboard now knows about: seed the pi
     // project defaults it lacks (deferred, gap-fill only, memoized per config
-    // root). See change: auto-seed-project-defaults.
-    scheduleProjectSeed(cwd);
+    // root). Local registrations only: a remote bridge's cwd names a path on
+    // ANOTHER host. See change: auto-seed-project-defaults.
+    if (!sessionManager.get(sessionId)?.originDeviceId) scheduleProjectSeed(cwd);
     // ── attachProposal arm ───────────────────────────────────────────────
     let attachConsumed = false;
     if (pendingAttachRegistry) {

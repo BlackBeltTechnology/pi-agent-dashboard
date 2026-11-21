@@ -148,6 +148,17 @@ describe("project-init scaffold", () => {
     expect(fs.existsSync(path.join(target, ".pi", "dashboard", "knowledge_base.json"))).toBe(true);
   });
 
+  it("skipExisting does not render the settings template when settings already exist", () => {
+    const profile = makeProfileDir(profilesRoot, "coding");
+    fs.writeFileSync(path.join(profile.dir, "settings.json.tmpl"), '{"worktreeInit": {{CUSTOM_HOOK}}}');
+    fs.mkdirSync(path.join(target, ".pi"), { recursive: true });
+    fs.writeFileSync(path.join(target, ".pi", "settings.json"), "{}");
+
+    expect(() => scaffoldProfile({ profile, targetDir: target, skipExisting: true })).not.toThrow();
+    expect(fs.readFileSync(path.join(target, ".pi", "settings.json"), "utf8")).toBe("{}");
+    expect(fs.existsSync(path.join(target, "AGENTS.md"))).toBe(true);
+  });
+
   it("skipExisting seeds the doctrine into an AGENTS.md it created", () => {
     const profile = makeProfileDir(profilesRoot, "coding", { dox: true });
 

@@ -23,13 +23,14 @@ import {
 } from "../project-seed.js";
 
 // Pass-through spy on the git root probe, so tests can count probes.
-const probe = vi.hoisted(() => ({ calls: 0 }));
+const probe = vi.hoisted(() => ({ calls: 0, override: undefined as undefined | (() => unknown) }));
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", async (orig) => {
   const mod = await orig<typeof import("@blackbelt-technology/pi-dashboard-shared/platform/git.js")>();
   return {
     ...mod,
     checkoutRoots: (...args: Parameters<typeof mod.checkoutRoots>) => {
       probe.calls++;
+      if (probe.override) return probe.override() as ReturnType<typeof mod.checkoutRoots>;
       return mod.checkoutRoots(...args);
     },
   };
@@ -48,6 +49,7 @@ const seed = (dir: string, opts: SeedProjectDefaultsOptions = {}) =>
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-seed-"));
   resetSeededRoots();
+  probe.override = undefined;
 });
 
 afterEach(() => {
@@ -184,6 +186,33 @@ describe("seedProjectDefaults", () => {
     expect(outcome.reason).toBe("bare repository");
     expect(fs.existsSync(path.join(hub, ".pi"))).toBe(false);
     expect(fs.existsSync(path.join(hub, "AGENTS.md"))).toBe(false);
+  });
+
+  it("refuses a checkout root that does not exist (stale core.worktree) without creating it", () => {
+    const ghost = path.join(tmp, "ghost-checkout");
+    probe.override = () => ({ thisCheckout: null, isLinkedWorktree: true, mainCheckout: ghost, commonDir: tmp, gitDir: tmp });
+
+    const outcome = seed(tmp);
+
+    expect(outcome.seeded).toBe(false);
+    expect(outcome.reason).toBe("checkout root not found");
+    expect(fs.existsSync(ghost)).toBe(false);
+  });
+
+  it("does not seed or memoize inside a git checkout when the git probe fails", () => {
+    fs.mkdirSync(path.join(tmp, ".git"));
+    const sub = path.join(tmp, "src");
+    fs.mkdirSync(sub);
+    probe.override = () => null; // timeout / spawn failure, not "not a git dir"
+
+    const outcome = seed(sub);
+
+    expect(outcome.seeded).toBe(false);
+    expect(outcome.reason).toBe("git probe failed");
+    expect(fs.existsSync(path.join(sub, ".pi"))).toBe(false);
+
+    probe.override = undefined; // git recovers: a repeat trigger must not be memoized as seeded
+    expect(seed(sub).reason).not.toBe("already seeded");
   });
 
   it("does not re-probe git when the same directory is scheduled again", () => {

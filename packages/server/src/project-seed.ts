@@ -251,6 +251,11 @@ function resolveSeedRoot(dir: string, homeDir: string | undefined): string | See
 
   const roots = checkoutRoots({ cwd: dir, timeout: CHECKOUT_ROOTS_TIMEOUT_MS });
   if (roots && !roots.mainCheckout) return skip(null, "bare repository");
+  // A null probe is a git FAILURE (timeout, spawn error) inside a checkout, or
+  // a plain non-git directory. Never seed (or memoize) a checkout subdirectory.
+  if (!roots && insideGitCheckout(dir)) return skip(null, "git probe failed");
+  // `core.worktree` may name a path that no longer exists; the consumer validates it.
+  if (roots?.mainCheckout && !isDirectory(roots.mainCheckout)) return skip(null, "checkout root not found");
   // Canonicalize so a symlink alias of $HOME (or of /) cannot pass the refusals.
   const root = canonical(roots?.mainCheckout ?? dir);
 
@@ -258,6 +263,22 @@ function resolveSeedRoot(dir: string, homeDir: string | undefined): string | See
   if (root === home) return skip(root, "refusing to seed $HOME");
   if (root === path.parse(root).root) return skip(root, "refusing to seed filesystem root");
   return root;
+}
+
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** True when `dir` or an ancestor holds a `.git` entry (directory or gitfile). */
+function insideGitCheckout(dir: string): boolean {
+  for (let d = path.resolve(dir); ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, ".git"))) return true;
+    if (d === path.dirname(d)) return false;
+  }
 }
 
 /** Filesystem-canonical absolute path; falls back to the lexical path when unresolvable. */

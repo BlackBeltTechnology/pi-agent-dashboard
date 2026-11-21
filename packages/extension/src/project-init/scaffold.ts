@@ -217,10 +217,16 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   if (wroteAgentsMd) fs.writeFileSync(agentsMd, agentsText, "utf8");
 
   // .pi/settings.json
-  const settings = renderSettings(profile.dir, subs);
-  leftover.push(...settings.leftover);
   const settingsDir = path.join(targetDir, ".pi");
   const settingsTarget = path.join(settingsDir, "settings.json");
+  // Gap-fill never writes an existing settings file, so its template must not be
+  // rendered either: a user template that cannot render would throw AFTER
+  // AGENTS.md was already written.
+  const settings =
+    skipExisting && fs.existsSync(settingsTarget)
+      ? { text: "", hookValid: true, leftover: [] as string[] }
+      : renderSettings(profile.dir, subs);
+  leftover.push(...settings.leftover);
   if (shouldWrite(settingsTarget)) {
     fs.mkdirSync(settingsDir, { recursive: true });
     fs.writeFileSync(settingsTarget, settings.text, "utf8");
