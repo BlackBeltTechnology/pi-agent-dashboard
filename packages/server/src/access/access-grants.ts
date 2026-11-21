@@ -588,13 +588,14 @@ function recordProjectGrant(
 
   const prepared = prepareStoreWrite();
   if (!prepared.ok) return { ok: false, error: prepared.error };
-  const text = serializeStore(grants);
-  if (Buffer.byteLength(text) > GRANT_STORE_MAX_BYTES) {
-    // The reader refuses a store over the ceiling: committing this would make every grant vanish on the next start.
-    console.warn(`[access-grants] store would exceed ${GRANT_STORE_MAX_BYTES} bytes — write refused`);
-    return { ok: false, error: "store too large" };
-  }
   try {
+    // Serialization is inside the guard: a deeply nested preserved row can make JSON.stringify throw.
+    const text = serializeStore(grants);
+    if (Buffer.byteLength(text) > GRANT_STORE_MAX_BYTES) {
+      // The reader refuses a store over the ceiling: committing this would make every grant vanish on the next start.
+      console.warn(`[access-grants] store would exceed ${GRANT_STORE_MAX_BYTES} bytes — write refused`);
+      return { ok: false, error: "store too large" };
+    }
     writeAtomic(accessGrantsStorePath(), text);
   } catch (err) {
     // Not recorded. Cache untouched, so the admitted set cannot widen (D11).

@@ -502,6 +502,33 @@ describe("review: release re-authorizes, and a stopped gateway releases nothing"
     expect(h.store.get("discord:c1:-")).toBeUndefined();
   });
 
+  it("the release re-check carries the spawn cwd: a workspace change during the wait refuses the release", async () => {
+    let scope = "/repos";
+    const seen: Array<string | undefined> = [];
+    const team = {
+      authorizeRequest: (i: { targetCwd?: string }) => {
+        seen.push(i.targetCwd);
+        return i.targetCwd !== undefined && !i.targetCwd.startsWith(scope) ? { kind: "refusal", reason: "path_outside_scope" } : { kind: "grant" };
+      },
+      isDisarmed: () => false,
+      bindingFor: () => undefined,
+      boundChannelIds: () => [],
+      mirrorLevel: () => "off",
+      noteMirror: () => {},
+      attempts: () => [],
+    };
+    const h = setup({ team });
+    await h.gateway.start();
+    await h.say("hello");
+    h.resolve("S");
+    scope = "/elsewhere"; // the binding's workspace moved while the guard was starting
+    h.seam.emitGuardReady("S", h.lastSpawn().token);
+    await h.settle();
+    expect(seen.at(-1)).toBe("/repos/proj");
+    expect(h.prompts()).toEqual([]);
+    expect(h.seam.shutdowns).toEqual(["S"]);
+  });
+
   it("still armed at release: delivers once (the re-check is a no-op)", async () => {
     const team = {
       authorizeRequest: () => ({ kind: "grant" }),

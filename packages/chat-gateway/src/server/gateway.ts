@@ -701,6 +701,9 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
                     ...(msg.parentChannelId ? { parentChannelId: msg.parentChannelId } : {}),
                     ...(msg.threadId ? { threadId: msg.threadId } : {}),
                     verb: "spawn_session",
+                    // The cwd the session was actually spawned at: a workspace change during the readiness wait
+                    // must refuse the release (the spawn-time authorization above carries no target).
+                    targetCwd: cwd,
                   }),
               }
             : {}),

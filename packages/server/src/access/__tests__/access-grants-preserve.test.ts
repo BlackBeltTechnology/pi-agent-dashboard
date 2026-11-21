@@ -155,6 +155,21 @@ describe("T.81 store ceiling and the cap over admitted rows", () => {
     expect(logs(/would exceed/).length).toBeGreaterThanOrEqual(1);
   });
 
+  it("a preserved row nested so deeply that serialisation throws: the write is refused (no throw out of recordGrant), file and cache unchanged", () => {
+    const depth = 150_000;
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(storePath, `{"version":1,"grants":[${"[".repeat(depth)}${"]".repeat(depth)}]}`);
+    const before = fs.readFileSync(storePath);
+    expect(before.length).toBeLessThan(GRANT_STORE_MAX_BYTES);
+    let result: ReturnType<typeof recordGrant> | undefined;
+    expect(() => {
+      result = recordGrant({ subject: mkdir("deep") });
+    }).not.toThrow();
+    expect(result?.ok).toBe(false);
+    expect(fs.readFileSync(storePath).equals(before)).toBe(true);
+    expect(grantedSubjects()).toEqual([]);
+  });
+
   it("GRANT_CAP admitted + 50 rejected: all 250 rows survive a write; rejected rows cause no eviction", () => {
     const admitted = Array.from({ length: GRANT_CAP_PER_SCOPE }, (_, i) => row(`/seed/s${i}`, i + 1));
     const rejected = Array.from({ length: 50 }, (_, i) => row(path.join(home(), ".aws", `r${i}`), 1000 + i));
