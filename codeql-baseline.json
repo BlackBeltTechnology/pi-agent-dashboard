@@ -166,35 +166,35 @@
       "file": "packages/automation-plugin/src/server/automation-writer.ts",
       "lineHash": "14d5e7e33b99b3ec:1",
       "count": 1,
-      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+      "reason": "false-positive: gate: admitRouteCwdParam packages/automation-plugin/src/server/index.ts:238; packages/automation-plugin/src/server/routes.ts:187; scopeBase is an admitted known folder or the home dir"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/automation-plugin/src/server/automation-writer.ts",
       "lineHash": "5fb8ae74848164cb:1",
       "count": 2,
-      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+      "reason": "false-positive: gate: admitRouteCwdParam packages/automation-plugin/src/server/index.ts:238; packages/automation-plugin/src/server/routes.ts:187; scopeBase is an admitted known folder or the home dir"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/automation-plugin/src/server/automation-writer.ts",
       "lineHash": "65baf5ece431d7b:1",
       "count": 1,
-      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+      "reason": "false-positive: gate: admitRouteCwdParam packages/automation-plugin/src/server/index.ts:238; packages/automation-plugin/src/server/routes.ts:187; scopeBase is an admitted known folder or the home dir"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/automation-plugin/src/server/automation-writer.ts",
       "lineHash": "c76980f6e4a9bc3:1",
       "count": 1,
-      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+      "reason": "false-positive: gate: admitRouteCwdParam packages/automation-plugin/src/server/index.ts:238; packages/automation-plugin/src/server/routes.ts:187; scopeBase is an admitted known folder or the home dir"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/automation-plugin/src/server/automation-writer.ts",
       "lineHash": "d4632e7c8aee92e8:1",
       "count": 1,
-      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+      "reason": "false-positive: gate: admitRouteCwdParam packages/automation-plugin/src/server/index.ts:238; packages/automation-plugin/src/server/routes.ts:187; scopeBase is an admitted known folder or the home dir"
     },
     {
       "ruleId": "js/path-injection",

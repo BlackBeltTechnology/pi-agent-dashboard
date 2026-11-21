@@ -4038,6 +4038,17 @@ Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
 
 See change: improve-kb-settings-sources-and-search.
 
+## How do I run dashboard reindex in-process or cancel it?
+
+Dashboard reindex runs in worker thread (`packages/kb-plugin/src/server/reindex-worker.mjs`).
+
+- Kill-switch: `PI_DASHBOARD_KB_REINDEX_WORKER=0` → in-process. Read per job.
+- Worker load failure before ready → in-process fallback automatically.
+- Cancel: `POST /api/kb/reindex/cancel?cwd=` (operator tier) → `200 {cancelled:true|false}`.
+- Log: grep `reindex mode=` (one line per job; `outcome=` field).
+
+Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
+
 ## Why is a new worktree's kb index fast / how do I disable seeding?
 
 First kb index in linked git worktree seeds from main checkout snapshot. Measured this repo: ~4 s seeded vs ~104 s cold. Result equals cold first index.
@@ -4053,13 +4064,14 @@ Source reuse gate. Source reused only when main recorded:
 
 - same schema version.
 - same index-options hash.
-- same kb engine fingerprint (`engine:<root>` in `kb_meta`, from `packages/kb/engine-fingerprint.json` `srcHash`).
+- same kb engine fingerprint (`engine:<root>` in `kb_meta`, from `packages/kb/engine-fingerprint.json` `rowsHash`; hash of `indexer.ts`, `chunker.ts`, `adoc-chunker.ts`, `frontmatter.ts`, `gitignore.ts`).
 
 Else that source builds from scratch.
 
 Upgrade:
 
-- First pass after kb upgrade re-chunks every source once (engine record absent).
+- First pass after kb upgrade re-chunks every source once (`rowsHash` record absent).
+- Non-row kb edits (docs, config, other kb files) do not force full reindex.
 - Until main finishes that pass, worktree seeds 0 sources.
 
 Log. Every first index prints ONE stderr line:

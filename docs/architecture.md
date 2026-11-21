@@ -8520,12 +8520,16 @@ Settings page `packages/kb-plugin/src/client/KbSettingsPanel.tsx`. Add via `KbSo
 
 `reindexAll` (`packages/kb-plugin/src/server/kb-routes.ts`) walks `cfg.allSourceSpecs` — all kinds (filesystem/git/https/npm) via engine resolvers. Each source isolated: failure → `error` outcome, job `jobStatus:"error"`, `lastError` `"N source(s) failed: …"` (≤500 chars); untrusted → skipped, job stays idle; failed/skipped source keeps prior chunks. `git`/`https` resolution async (`execFile`, 120 s timeout) — never blocks server event loop. Reindex gate = saved `allSourceSpecs.length > 0`.
 
+Worker: job runs in `worker_threads` worker `reindex-worker.mjs` (`reindex-runner.ts`, core `reindex-core.ts`). Kill-switch `PI_DASHBOARD_KB_REINDEX_WORKER=0` → in-process. Read per job. Worker load failure before ready → in-process fallback. Crash after ready → job fails. Cancel → `cancel` msg, `terminate()` after `REINDEX_CANCEL_GRACE_MS` (5 s). Batch loop yields after `INDEX_BATCH_MAX_MS` (50 ms). One `[kb-plugin] reindex mode=worker|inprocess … outcome=…` log line per job.
+
 Trust = TOFU, global. Store `~/.pi/dashboard/kb-source-trust.json`, keyed sha256 of `{kind,ref,subdir,pin}`. One grant covers identical spec in every folder. Revoke under Access → `DELETE /api/kb/source-trust`. Grant path: UI trust dialog (`Trust & add` / `Add without trusting` / `Cancel`) → `PUT /api/kb/config` `trustRefs`, or `POST /api/kb/source-trust {ref}`. Server records SAVED spec matched by exact `ref` (404 none, 409 duplicate refs, 400 filesystem, 500 persist failure). `untrustedRefs` in PUT response lists grants that failed. Trust-store write atomic (`tmp`+rename); `recordTrust` returns boolean. Fetch-side SSRF/zip-slip guards from change `harden-untrusted-content-ingestion` (`net-guard.ts`, `archive-guard.ts`).
 
 ### KB source & search routes
 
 - `GET /api/kb/sources?cwd=` — per-source kind, files, trusted, outside, last outcome.
 - `GET /api/kb/search?cwd=&q=&limit=&docType=` — read-only test search over SAVED index. Opens existing store only — no init, no migrate, no create. `q` 1–512, `limit` 1–50 (default 10), `docType` `doc|agents|source-md`. No reindex, no verdicts. Stale schema → `needsReindex:true`.
+- `POST /api/kb/reindex/cancel?cwd=` — operator tier. Asks running job to stop. `200 {cancelled:true|false}`. Shares reindex admission. Job still `running` in `/stats` until settled. Repeat during grace → `cancelled:true`, no second stop.
+- `GET /api/kb/stats?cwd=` — adds transient `progress {root,done,total}` while running.
 
 All cwd-guarded (`isAllowedCwd`).
 

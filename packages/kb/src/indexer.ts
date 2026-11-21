@@ -37,6 +37,20 @@ export interface IndexOptions {
    *  `beginForcedSource` uses it to clear the source's engine record atomically with the first
    *  rewritten rows. See change: add-kb-worktree-seed (D6). */
   onFirstBatch?: () => void;
+  /** Stops the pass at the next file boundary by throwing `KbIndexAborted`; the open batch is
+   *  rolled back, already-committed batches stay (a re-run is idempotent). Optional, additive.
+   *  See change: throttle-kb-reindex (D3). */
+  signal?: AbortSignal;
+  /** Called once per committed batch (after the commit) with the source root and files done / walked
+   *  total. Never fires for an empty source. Optional, additive. See change: throttle-kb-reindex (D3). */
+  onProgress?: (p: { root: string; done: number; total: number }) => void;
+}
+/** Thrown by `indexSource` when `IndexOptions.signal` aborts the pass. Not a data error. */
+export class KbIndexAborted extends Error {
+  constructor() {
+    super("kb index aborted");
+    this.name = "KbIndexAborted";
+  }
 }
 export interface IndexStats {
   scanned: number;
@@ -66,6 +80,13 @@ const TITLE_EXT_RE = /\.(md|mdx|markdown|adoc|asciidoc)$/i;
  *  and would see no live progress. Committing per batch also releases the WAL
  *  write lock so the reader is served. See change: fix-kb-index-feedback. */
 const YIELD_EVERY = 100;
+/** Wall-clock bound on one batch: also commit + yield once this many ms passed since the last
+ *  yield, whichever of the count / time bound hits first. Per-file cost varies by orders of
+ *  magnitude (a 100-file batch of large files pinned the loop for seconds), so the count alone
+ *  cannot bound a blocked turn. One file's chunk + write stays the minimum unit — the check runs
+ *  between files, never inside one. Same idiom as `WALK_YIELD_MAX_MS`.
+ *  See change: throttle-kb-reindex (D2). */
+export const INDEX_BATCH_MAX_MS = 50;
 const yieldToEventLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
 /** Directory entries (walk) / directories (gitignore pre-scan) processed between
  *  event-loop yields. One constant for both traversals. Bounds deep and broad
@@ -170,6 +191,10 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
     return true;
   });
 
+  // The walk awaits: a cancel that landed during it must stop the pass here — an empty file list never
+  // reaches the per-file check, so the deletion sweep below would otherwise run and report success.
+  if (opts.signal?.aborted) throw new KbIndexAborted();
+
   const stats: IndexStats = { scanned: files.length, changed: 0, deleted: 0, chunks: 0 };
   const live = new Set<string>();
 
@@ -179,6 +204,15 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
   // leaves earlier batches committed; a reindex is idempotent so a re-run
   // completes it. See change: fix-kb-index-feedback.
   let sinceYield = 0;
+  let lastYield = performance.now();
+  let done = 0; // files whose work started; reported to onProgress at each commit
+  let reported = 0;
+  const report = () => {
+    if (done > reported) {
+      reported = done;
+      opts.onProgress?.({ root: src.root, done, total: files.length });
+    }
+  };
   // Rebuild the per-file chunk-rowid record when it may be stale (first pass of a
   // connection, or another connection committed since); throws BEFORE any per-file
   // delete. See change: fix-kb-index-integrity (D5).
@@ -189,14 +223,18 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
     // prior (consistent) state, a kill after leaves the hook's effect. See change: add-kb-worktree-seed (D6).
     opts.onFirstBatch?.();
     for (const abs of files) {
-      if (sinceYield >= YIELD_EVERY) {
+      if (sinceYield >= YIELD_EVERY || performance.now() - lastYield >= INDEX_BATCH_MAX_MS) {
         store.commit();
+        report();
         await yieldToEventLoop();
         store.begin();
         sinceYield = 0;
+        lastYield = performance.now();
       }
       sinceYield++;
+      done++;
       opts.heartbeat?.();
+      if (opts.signal?.aborted) throw new KbIndexAborted();
       const rel = relative(src.dir, abs);
       // A file that vanishes between the walk and its read is a deleted file, not a
       // pass-aborting error: it stays out of the live set so the deletion sweep below
@@ -294,6 +332,7 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
     // Path-less nodes (placeholders, tags) that no edge references any more.
     store.sweepPlaceholders?.();
     store.commit();
+    report();
   } catch (err) {
     store.rollback();
     throw err;

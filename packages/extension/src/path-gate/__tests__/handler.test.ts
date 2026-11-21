@@ -399,7 +399,10 @@ describe("path-gate × YOLO (change: yolo-covers-agent-path-gate)", () => {
     const h = yolo({ answers: ["Deny", "Deny"] }, "decline");
     await h.call("read", "/w/other/a.txt"); // denied → suppressed
     await h.call("read", "/w/other/b.txt");
-    expect(h.asks).toHaveLength(1);
+    // YOLO is now asked BEFORE the recent-denial short-circuit (#1115): the retry asks once
+    // more, the decline leaves the suppression in force (no second prompt).
+    expect(h.asks).toHaveLength(2);
+    expect(h.selects).toHaveLength(1);
   });
 
   it("#E31 auto-allow proceeds without a prompt, logs and counts", async () => {
@@ -538,5 +541,274 @@ describe("path-gate × YOLO (change: yolo-covers-agent-path-gate)", () => {
     times.sort((a, b) => a - b);
     expect(times[Math.floor(times.length * 0.95)]).toBeLessThan(1);
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe("path-gate × YOLO precedes recent-denial (#1115, change: harden-path-and-process-guards)", () => {
+  type V = "auto-allow" | "refused" | "decline" | "throw" | "never";
+  const ALWAYS = "Always allow /w/other/docs…";
+  function dyn(opts: Parameters<typeof harness>[0] = {}) {
+    const h = harness(opts);
+    const state = { verdict: "decline" as V, supported: true };
+    const asks: unknown[] = [];
+    const reports: unknown[] = [];
+    h.deps.yoloSupported = () => state.supported;
+    h.deps.yoloDecide = (r) => {
+      asks.push(r);
+      if (state.verdict === "throw") return Promise.reject(new Error("link down"));
+      if (state.verdict === "never") return new Promise(() => {});
+      return Promise.resolve(state.verdict);
+    };
+    h.deps.reportRefusal = (r) => void reports.push(r);
+    return { ...h, state, asks, reports };
+  }
+  const denied = (h: ReturnType<typeof dyn>, path = "/w/other/a.txt") => h.call("read", path);
+  const timedOut = async (h: ReturnType<typeof dyn>, path = "/w/other/a.txt") => {
+    const p = h.call("read", path);
+    await tick();
+    h.advance(120_000);
+    return p;
+  };
+  const sup = (h: ReturnType<typeof dyn>) => (h.deps.suppression as unknown as { denied: Map<string, number> }).denied;
+
+  it("#S12 a timeout is overridden by a live YOLO session within the window", async () => {
+    const h = dyn({ answers: ["hang"] });
+    expect((await timedOut(h))!.reason).toContain("timeout");
+    h.advance(30_000);
+    h.state.verdict = "auto-allow";
+    expect(await h.call("write", "/w/other/b.txt")).toBeUndefined();
+    expect(h.logs.some((l) => l.startsWith("[path-gate] yolo-allowed"))).toBe(true);
+    expect(h.selects).toHaveLength(1);
+    expect(h.asks).toHaveLength(2);
+  });
+
+  it("#S13 an explicit Deny the server remembered stays refused", async () => {
+    const h = dyn({ answers: ["Deny"] });
+    await denied(h);
+    expect(h.reports).toHaveLength(1);
+    h.advance(30_000);
+    h.state.verdict = "refused";
+    const r = await h.call("write", "/w/other/b.txt");
+    expect(r!.reason).toContain("yolo-refused");
+    expect(r!.reason).not.toContain("recently-denied");
+    expect(r!.reason).toContain("Settings ▸ Access");
+    expect(h.selects).toHaveLength(1);
+  });
+
+  it.each([
+    ["Deny", ["Deny"]],
+    ["timeout", ["hang"]],
+  ])("#S14 a sensitive target keeps suppression and never asks YOLO (%s)", async (kind, answers) => {
+    const h = dyn({ answers });
+    h.state.verdict = "auto-allow";
+    if (kind === "timeout") await timedOut(h, "/h/.ssh/x");
+    else await denied(h, "/h/.ssh/x");
+    h.advance(30_000);
+    const r = await h.call("read", "/h/.ssh/y");
+    expect(r!.reason).toContain("recently-denied");
+    expect(h.asks).toHaveLength(0);
+  });
+
+  it.each([
+    ["Deny", ["Deny"]],
+    ["timeout", ["hang"]],
+  ])("#S15 an ungrantable subject keeps suppression and never asks YOLO (%s)", async (kind, answers) => {
+    const h = dyn({ answers });
+    h.state.verdict = "auto-allow";
+    if (kind === "timeout") await timedOut(h, "/h/notes.txt");
+    else await denied(h, "/h/notes.txt");
+    h.advance(30_000);
+    const r = await h.call("read", "/h/other.txt");
+    expect(r!.reason).toContain("recently-denied");
+    expect(h.asks).toHaveLength(0);
+  });
+
+  it.each([["decline"], ["throw"]] as const)("#S16/#X8 a YOLO %s leaves suppression in force without a prompt", async (verdict) => {
+    const h = dyn({ answers: ["Deny"] });
+    await denied(h);
+    h.advance(30_000);
+    h.state.verdict = verdict;
+    const r = await h.call("read", "/w/other/b.txt");
+    expect(r!.reason).toContain("recently-denied");
+    expect(r!.reason).not.toContain("path-gate: error");
+    expect(h.selects).toHaveLength(1);
+    expect(h.asks).toHaveLength(2);
+  });
+
+  it("#X8 a throwing YOLO with no suppression falls through to the ordinary prompt", async () => {
+    const h = dyn({ answers: ["Allow once"] });
+    h.state.verdict = "throw";
+    expect(await denied(h)).toBeUndefined();
+    expect(h.selects).toHaveLength(1);
+  });
+
+  it("#S17 no UI blocks as no-ui and never asks YOLO", async () => {
+    const h = dyn({ hasUI: false });
+    h.state.verdict = "auto-allow";
+    const r = await denied(h);
+    expect(r!.reason).toContain("no-ui");
+    expect(h.asks).toHaveLength(0);
+  });
+
+  it.each([["unsupported"], ["store mismatch"], ["no decide fn"]])("#S18 no YOLO link (%s) keeps recently-denied, no ask", async (kind) => {
+    const h = dyn({ answers: ["Deny"], storeMatch: kind !== "store mismatch" });
+    if (kind === "unsupported") h.state.supported = false;
+    if (kind === "no decide fn") h.deps.yoloDecide = undefined;
+    await denied(h);
+    h.advance(30_000);
+    const r = await h.call("read", "/w/other/b.txt");
+    expect(r!.reason).toContain("recently-denied");
+    expect(h.asks).toHaveLength(0);
+    expect(h.selects).toHaveLength(1);
+  });
+
+  it("#S19 window boundary: no YOLO → 120 s semantics unchanged; live YOLO overrides at every point", async () => {
+    const none = dyn({ answers: ["Deny", "Allow once"] });
+    none.state.supported = false;
+    await denied(none);
+    none.advance(119_999);
+    expect((await none.call("read", "/w/other/b.txt"))!.reason).toContain("recently-denied");
+    none.advance(2);
+    expect(await none.call("read", "/w/other/b.txt")).toBeUndefined();
+    expect(none.selects).toHaveLength(2);
+
+    const live = dyn({ answers: ["Deny"] });
+    await denied(live); // decline → Deny → suppressed
+    const keys = [...sup(live).entries()];
+    live.state.verdict = "auto-allow";
+    for (const ms of [119_999, 1, 1]) {
+      live.advance(ms);
+      expect(await live.call("read", "/w/other/b.txt")).toBeUndefined();
+    }
+    expect([...sup(live).entries()].length).toBe(keys.length); // map not mutated by YOLO allows
+    expect(live.selects).toHaveLength(1);
+  });
+
+  it("#S20 a declined always-allow confirmation leaves no refusal; a live YOLO session then allows", async () => {
+    const h = dyn({ answers: [ALWAYS], confirms: [false] });
+    const r = await h.call("read", "/w/other/docs/a.md");
+    expect(r!.reason).toContain("denied");
+    expect(h.reports).toHaveLength(0);
+    h.advance(30_000);
+    h.state.verdict = "auto-allow";
+    expect(await h.call("read", "/w/other/docs/b.md")).toBeUndefined();
+    expect(h.logs.some((l) => l.startsWith("[path-gate] yolo-allowed"))).toBe(true);
+  });
+
+  it("#S21 a Deny while the link is down is not reported; recently-denied until the link returns", async () => {
+    const h = dyn({ answers: ["Deny"] });
+    h.state.supported = false;
+    await denied(h);
+    expect(h.reports).toHaveLength(0);
+    h.advance(10_000);
+    expect((await h.call("read", "/w/other/b.txt"))!.reason).toContain("recently-denied");
+    expect(h.asks).toHaveLength(0);
+    h.state.supported = true;
+    h.state.verdict = "auto-allow";
+    h.advance(10_000);
+    expect(await h.call("read", "/w/other/b.txt")).toBeUndefined();
+  });
+
+  it("#S22 an unrecognised answer is not reported; an explicit Deny is, exactly once", async () => {
+    const unknown = dyn({ answers: ["bogus"] });
+    expect((await denied(unknown))!.reason).toContain("denied");
+    expect(unknown.reports).toHaveLength(0);
+    unknown.advance(30_000);
+    unknown.state.verdict = "auto-allow";
+    expect(await unknown.call("read", "/w/other/b.txt")).toBeUndefined();
+
+    const explicit = dyn({ answers: ["Deny"] });
+    await denied(explicit);
+    expect(explicit.reports).toEqual([{ promptId: explicit.selects[0].id, path: "/w/other/a.txt", subject: "/w/other" }]);
+  });
+
+  it("#S24 non-YOLO session: a queued sibling is refused by the in-mutex re-check, no second prompt", async () => {
+    const h = harness({ answers: ["hang"] });
+    const first = h.call("read", "/w/other/a.txt");
+    await tick();
+    const second = h.call("read", "/w/other/b.txt");
+    await tick();
+    h.advance(120_000);
+    expect((await first)!.reason).toContain("timeout");
+    expect((await second)!.reason).toContain("recently-denied");
+    expect(h.selects).toHaveLength(1);
+  });
+
+  it("#X9 a throwing reportRefusal still blocks the Deny; a later live YOLO allows", async () => {
+    const h = dyn({ answers: ["Deny"] });
+    h.deps.reportRefusal = () => {
+      throw new Error("lost");
+    };
+    expect((await denied(h))!.reason).toContain("denied");
+    h.advance(30_000);
+    h.state.verdict = "auto-allow";
+    expect(await h.call("read", "/w/other/b.txt")).toBeUndefined();
+  });
+
+  it("#X11 an internal error before the reordered YOLO block fails closed", async () => {
+    const h = dyn();
+    h.state.verdict = "auto-allow";
+    h.deps.getRoots = async () => {
+      throw new Error("roots exploded");
+    };
+    const r = await denied(h);
+    expect(r!.reason).toContain("error");
+    expect(h.asks).toHaveLength(0);
+  });
+
+  it("#X12 a stale YOLO session (decline) never yields an allow; the window then lapses to a prompt", async () => {
+    const h = dyn({ answers: ["Deny", "Allow once"] });
+    await denied(h);
+    h.advance(30_000);
+    h.state.verdict = "decline"; // server-side YOLO session already ended
+    expect((await h.call("read", "/w/other/b.txt"))!.reason).toContain("recently-denied");
+    h.advance(120_000);
+    expect(await h.call("read", "/w/other/b.txt")).toBeUndefined();
+    expect(h.selects).toHaveLength(2);
+  });
+
+  it("#P1/#P3 suppressed retries: p95 < 1 ms (YOLO supported and not), non-YOLO makes no server round-trip", async () => {
+    const measure = async (h: ReturnType<typeof dyn>) => {
+      const times: number[] = [];
+      for (let i = 0; i < 2000; i++) {
+        const t0 = performance.now();
+        await h.call("read", "/w/other/b.txt");
+        times.push(performance.now() - t0);
+      }
+      times.sort((a, b) => a - b);
+      return times[Math.floor(times.length * 0.95)];
+    };
+    const yoloH = dyn({ answers: ["Deny"] });
+    await denied(yoloH);
+    expect(await measure(yoloH)).toBeLessThan(1);
+    const plain = dyn({ answers: ["Deny"] });
+    plain.state.supported = false;
+    await denied(plain);
+    expect(await measure(plain)).toBeLessThan(1);
+    expect(plain.asks).toHaveLength(0);
+  });
+
+  it("#P2 a silent server costs exactly the 1500 ms budget, then recently-denied (never a prompt)", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const link = createYoloLink({ send: () => true, sessionId: () => "S1", newId: () => "r1" });
+      link.handleIdentity({ features: ["path-yolo"] });
+      h.deps.yoloSupported = () => link.supported();
+      h.deps.yoloDecide = (r) => link.ask(r);
+      (h.deps.suppression as unknown as { deny(k: string): void }).deny("S1\u0000/w/other");
+      let settled: { reason: string } | undefined;
+      const p = h.call("read", "/w/other/a.txt").then((r) => {
+        settled = r as never;
+      });
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(settled).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      await p;
+      expect(settled!.reason).toContain("recently-denied");
+      expect(h.selects).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

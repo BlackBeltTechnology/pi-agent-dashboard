@@ -112,6 +112,26 @@ sequenceDiagram
   S-->>G: "path_grant_result ok"
 ```
 
+Order (`handler.ts:300-337`). Applies to grantable, non-sensitive paths with live YOLO link (`path-yolo` advertised, same grant store). See change: harden-path-and-process-guards (#1115).
+- YOLO verdict asked BEFORE recent-denial check (120 s, `suppression.ts:8`).
+- `auto-allow` → `yolo-allowed` (allow).
+- `refused` → `yolo-refused` (block). Clear in Settings ▸ Access.
+- `decline` / error / timeout → falls through to recent-denial check.
+- Recent-denial check → `recently-denied` (block). Sole gate when YOLO skipped (sensitive, ungrantable, no link, non-YOLO session) or declined.
+- In-mutex re-check (`handler.ts:122`) unchanged.
+- Cost: suppressed retry by YOLO-supported session = one server round-trip. ≤ `YOLO_ASK_TIMEOUT_MS` 1500 ms (`yolo-link.ts:18`) if server silent. Was immediate.
+
+Remembered Deny (server answers `refused`):
+- Operator Deny or dismiss at select step, YOLO supported + same grant store.
+- Bridge reports via `reportRefusal` (fire-and-forget, `handler.ts:211-217`). Server persists refusal.
+
+Not remembered (live YOLO overrides; without YOLO still `recently-denied`):
+- Timeout: no operator answer.
+- Unrecognised answer: denied, never reported.
+- Declined or dismissed always-allow confirmation: never reported.
+- Report lost before next call, or not persisted.
+- Deny while YOLO link down or not same host: never reported.
+
 ### Cross-session approval path (TOOL-01 — closed)
 
 Status: **closed by close-security-map-high-findings** (D2). Original High premise wrong. Re-rated Low 2026-10-22. Both answer tools then removed from MCP.
@@ -142,7 +162,7 @@ flowchart LR
 - Default: `{enabled:true, timeoutSeconds:120}` `config.ts:979`. Config error → fallback enabled `handler.ts:270-272`. Env override `config.ts:993-1001`.
 - Fail-closed: no UI `handler.ts:290-296`; suppression 120 s `suppression.ts:8`; no PromptBus → `undefined` answer → deny `index.ts:88`; unknown answer → deny `handler.ts:211`; any throw → `error` `handler.ts:343-346`.
 - Fail-open: disabled `handler.ts:274`; missing/empty `path` `handler.ts:278` (pi rejects call itself); stale bridge instance `bridge.ts:1966`.
-- Bypass: YOLO (C3) before mutex `handler.ts:303-325` — only non-sensitive, grantable, `path-yolo` advertised, same grant store.
+- Bypass: YOLO (C3) before recent-denial check and mutex `handler.ts:300-337` — only non-sensitive, grantable, `path-yolo` advertised, same grant store.
 - Sensitive (prompt w/o Always allow): `~/.ssh`, `~/.pi` only `packages/shared/src/forbidden-subjects.ts:112-113`.
 - Log: `[path-gate] <outcome> …` control-chars stripped `handler.ts:96-102`.
 - Tests: `packages/extension/src/path-gate/__tests__/` (per `path-gate/AGENTS.md`).

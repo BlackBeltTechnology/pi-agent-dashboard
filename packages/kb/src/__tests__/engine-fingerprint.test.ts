@@ -3,15 +3,17 @@
 // openspec/changes/fix-kb-eval-measurement-integrity/test-plan.md
 // (E12 determinism/normalization, E13 shim decision table).
 // Exemplar: packages/kb/src/__tests__/kb.test.ts (sandbox dirs via fs fixtures).
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+
+import { spawnSync } from "node:child_process";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // Plain-JS lib, deliberately untyped (zero-dep, shipped as-is).
 // @ts-expect-error .mjs lib without type declarations
-import { computeDistHash, computeSrcHash, computeTsconfigHash } from "../../bin/lib/engine-fingerprint.mjs";
+import { computeDistHash, computeRowsHash, computeSrcHash, computeTsconfigHash, ROW_PRODUCING_FILES, writeFingerprint } from "../../bin/lib/engine-fingerprint.mjs";
+import { copyKbSrc, KB_SRC } from "./helpers/src-sandbox.js";
 
 const PKG = fileURLToPath(new URL("../../", import.meta.url));
 const LIB = join(PKG, "bin", "lib", "engine-fingerprint.mjs");
@@ -240,5 +242,89 @@ describe("bin shim branch table (E13)", () => {
     const r = runBin(pkg);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("REBUILT_OK2"); // rebuilt, not silently accepted
+  });
+});
+
+// ---- change: throttle-kb-reindex (D1) — `rowsHash` covers only row-producing sources ----
+// Sandbox = a copy of the real kb `src/` (minus __tests__), so the allowlist is exercised on
+// the real file names. test-plan #S1-#S5.
+const REAL_SRC = KB_SRC;
+const copySrcPkg = (name: string): string => copyKbSrc(join(root, name));
+const append = (pkg: string, rel: string, text = "\n// edit\n") => appendFileSync(join(pkg, "src", rel), text);
+const origText = (rel: string) => readFileSync(join(REAL_SRC, rel), "utf8");
+const restore = (pkg: string, rel: string) => writeFileSync(join(pkg, "src", rel), origText(rel));
+
+describe("rowsHash — row-producing sources only (D1)", () => {
+  it("S1 non-row partition: an edit to render.ts / cli.ts / fetch-resolve.ts / sqlite-store.ts leaves rowsHash byte-identical", () => {
+    const pkg = copySrcPkg("rows-s1");
+    const base = computeRowsHash(pkg);
+    for (const f of ["render.ts", "cli.ts", "fetch-resolve.ts", "sqlite-store.ts"]) {
+      append(pkg, f);
+      expect(computeRowsHash(pkg), f).toBe(base);
+      restore(pkg, f);
+    }
+  });
+
+  it("S2 row partition: an edit to each of indexer/chunker/adoc-chunker/frontmatter/gitignore changes rowsHash", () => {
+    const pkg = copySrcPkg("rows-s2");
+    const base = computeRowsHash(pkg);
+    for (const f of ["indexer.ts", "chunker.ts", "adoc-chunker.ts", "frontmatter.ts", "gitignore.ts"]) {
+      append(pkg, f);
+      expect(computeRowsHash(pkg), f).not.toBe(base);
+      restore(pkg, f);
+    }
+    expect(computeRowsHash(pkg)).toBe(base);
+  });
+
+  it("S2b the allowlist is exactly those five files, and they all exist in the real package", () => {
+    expect([...ROW_PRODUCING_FILES].sort()).toEqual(["src/adoc-chunker.ts", "src/chunker.ts", "src/frontmatter.ts", "src/gitignore.ts", "src/indexer.ts"]);
+    for (const rel of ROW_PRODUCING_FILES) expect(existsSync(join(PKG, rel)), rel).toBe(true);
+  });
+
+  it("S3 smallest edit: one trailing newline on chunker.ts changes rowsHash (content-derived; accepted false positive)", () => {
+    const pkg = copySrcPkg("rows-s3");
+    const base = computeRowsHash(pkg);
+    append(pkg, "chunker.ts", "\n");
+    expect(computeRowsHash(pkg)).not.toBe(base);
+  });
+
+  it("S4 determinism: same content under different paths / mtimes / creation order → equal rowsHash", () => {
+    const a = copySrcPkg("rows-s4-a");
+    const b = join(root, "rows-s4-other-name", "nested");
+    mkdirSync(join(b, "src"), { recursive: true });
+    [...ROW_PRODUCING_FILES].reverse().forEach((rel, i) => {
+      writeFileSync(join(b, rel), readFileSync(join(a, rel)));
+      const t = new Date(2001 + i, 1, 1);
+      utimesSync(join(b, rel), t, t);
+    });
+    expect(computeRowsHash(b)).toBe(computeRowsHash(a));
+  });
+
+  it("S4b CRLF-normalized like the other hashes", () => {
+    const pkg = copySrcPkg("rows-s4b");
+    const base = computeRowsHash(pkg);
+    writeFileSync(join(pkg, "src", "chunker.ts"), origText("chunker.ts").replace(/\n/g, "\r\n"));
+    expect(computeRowsHash(pkg)).toBe(base);
+  });
+
+  it("S5 writeFingerprint always carries rowsHash/srcHash/tsconfigHash/distHash; a non-row edit moves srcHash only, a row edit moves both", () => {
+    const pkg = copySrcPkg("rows-s5");
+    const read = () => JSON.parse(readFileSync(join(pkg, "engine-fingerprint.json"), "utf8"));
+    writeFingerprint(pkg);
+    const a = read();
+    for (const k of ["rowsHash", "srcHash", "tsconfigHash", "distHash"]) expect(a, k).toHaveProperty(k);
+    expect(typeof a.rowsHash).toBe("string");
+    writeFingerprint(pkg);
+    expect(read()).toEqual(a); // (a) no edit
+    append(pkg, "render.ts");
+    writeFingerprint(pkg);
+    const b = read();
+    expect(b.srcHash).not.toBe(a.srcHash); // (b) non-row edit
+    expect(b.rowsHash).toBe(a.rowsHash);
+    append(pkg, "chunker.ts");
+    writeFingerprint(pkg);
+    const c = read();
+    expect(c.srcHash).not.toBe(b.srcHash); // (c) row edit
+    expect(c.rowsHash).not.toBe(b.rowsHash);
   });
 });

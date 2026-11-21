@@ -5,7 +5,7 @@
 // is the only form the defect can take in CI (dist/ is gitignored, so a CI
 // build is fresh by construction).
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,5 +80,37 @@ describe("check-kb-dist-fresh (C1)", () => {
     const r = runCheck(pkg);
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain("dist changed after the last build");
+  });
+});
+
+// change: throttle-kb-reindex (test-plan #S19, R8): the committed fingerprint must carry `rowsHash`
+// (the engine value the gates compare) in addition to a matching srcHash/tsconfigHash.
+describe("check-kb-dist-fresh decision table (S19)", () => {
+  const MSG = "the `kb` bin and the extension would run different engines";
+  const fpPath = (pkg) => join(pkg, "engine-fingerprint.json");
+  const rewrite = (pkg, fn) => {
+    const fp = JSON.parse(readFileSync(fpPath(pkg), "utf8"));
+    fn(fp);
+    writeFileSync(fpPath(pkg), JSON.stringify(fp, null, 2));
+  };
+  it.each([
+    ["valid", () => {}, true],
+    ["missing file", (pkg) => rmSync(fpPath(pkg)), false],
+    ["malformed", (pkg) => writeFileSync(fpPath(pkg), "{ not json"), false],
+    ["rowsHash absent", (pkg) => rewrite(pkg, (fp) => delete fp.rowsHash), false],
+    ["rowsHash mismatch", (pkg) => rewrite(pkg, (fp) => (fp.rowsHash = "0".repeat(64))), false],
+    ["srcHash mismatch", (pkg) => rewrite(pkg, (fp) => (fp.srcHash = "0".repeat(64))), false],
+    ["tsconfigHash mismatch", (pkg) => rewrite(pkg, (fp) => (fp.tsconfigHash = "0".repeat(64))), false],
+  ])("committed fingerprint: %s", (name, tamper, ok) => {
+    const pkg = sandbox(`s19-${name.replace(/\W+/g, "-")}`);
+    writeFp(pkg);
+    tamper(pkg);
+    const r = runCheck(pkg);
+    if (ok) {
+      expect(r.status).toBe(0);
+    } else {
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain(MSG);
+    }
   });
 });
