@@ -14,17 +14,18 @@ const engineKey = (root: string) => `engine:${root}`;
 const gateValue = (cfg: IndexGateConfig) => `${SCHEMA_VERSION}:${indexOptionsHash(cfg)}`;
 
 let engineCache: string | null | undefined;
-/** The running kb engine: `srcHash` of the shipped `engine-fingerprint.json`, read once per
- *  process; `null` when it cannot be read (then no engine record is kept or required and no
- *  seed is accepted). `KB_ENGINE_FINGERPRINT` overrides it (test seam for child processes).
- *  See change: add-kb-worktree-seed (D6). */
+/** The running kb engine: `rowsHash` of the shipped `engine-fingerprint.json` (a digest of the
+ *  row-producing sources only, so non-row edits do not force a reindex), read once per
+ *  process; `null` when it cannot be read or lacks `rowsHash` (then no engine record is kept or
+ *  required and no seed is accepted). `KB_ENGINE_FINGERPRINT` overrides it (test seam for child
+ *  processes). See changes: add-kb-worktree-seed (D6), throttle-kb-reindex (D1). */
 export function runningEngine(): string | null {
   if (engineCache !== undefined) return engineCache;
   const env = process.env.KB_ENGINE_FINGERPRINT;
   if (env) return (engineCache = env);
   try {
-    const raw = JSON.parse(readFileSync(new URL("../engine-fingerprint.json", import.meta.url), "utf8")) as { srcHash?: unknown };
-    engineCache = typeof raw.srcHash === "string" && raw.srcHash ? raw.srcHash : null;
+    const raw = JSON.parse(readFileSync(new URL("../engine-fingerprint.json", import.meta.url), "utf8")) as { rowsHash?: unknown };
+    engineCache = typeof raw.rowsHash === "string" && raw.rowsHash ? raw.rowsHash : null;
   } catch {
     engineCache = null;
   }

@@ -106,6 +106,9 @@ async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Prom
   // The REAL rotate route (tier observe; bearer-only auth). See change: harden-auth-credentials (AE50).
   registerBearerRotateRoute(app, { registry: reg });
   app.post("/api/fixture", async () => ({ success: true }));
+  // Stand-ins for the kb plugin's reindex routes (real handlers live in kb-plugin; the gate is what is under test).
+  app.post("/api/kb/reindex", async () => ({ status: "running" }));
+  app.post("/api/kb/reindex/cancel", async () => ({ cancelled: false }));
   // Live-preview HTTP proxy patterns (live-server-proxy.ts). See change: add-passkey-user-auth.
   app.all("/live/:id/*", async () => ({ ok: true }));
   app.all("/live/:id", async () => ({ ok: true }));
@@ -559,5 +562,29 @@ describe("E12 — device-check routes are observe, ceremony routes keep operate"
   it("an unlisted route still defaults to operate", () => {
     expect(hasRouteTier("POST", "/api/pair/not-a-route")).toBe(false);
     expect(routeTier("POST", "/api/pair/not-a-route")).toBe("operate");
+  });
+});
+
+describe("S40 — POST /api/kb/reindex/cancel is an explicit operate-tier row (throttle-kb-reindex)", () => {
+  const REMOTE = "203.0.113.9";
+
+  it("is listed (not the fail-closed default) at the same tier as /api/kb/reindex", () => {
+    expect(hasRouteTier("POST", "/api/kb/reindex/cancel")).toBe(true);
+    expect(routeTier("POST", "/api/kb/reindex/cancel")).toBe("operate");
+    expect(routeTier("POST", "/api/kb/reindex/cancel")).toBe(routeTier("POST", "/api/kb/reindex"));
+  });
+
+  it("a sub-operate caller is denied exactly like /api/kb/reindex; operate passes", async () => {
+    const { app, tokens } = await mkApp();
+    const call = (url: string, tier: "observe" | "control" | "operate") =>
+      app.inject({ method: "POST", url, remoteAddress: REMOTE, headers: bearer(tokens[tier]) });
+    for (const tier of ["observe", "control"] as const) {
+      const cancel = await call("/api/kb/reindex/cancel", tier);
+      const reindex = await call("/api/kb/reindex", tier);
+      expect(cancel.statusCode, `${tier} cancel`).toBe(403);
+      expect(cancel.statusCode).toBe(reindex.statusCode);
+      expect(cancel.headers["www-authenticate"]).toBe(reindex.headers["www-authenticate"]);
+    }
+    expect((await call("/api/kb/reindex/cancel", "operate")).statusCode).toBe(200);
   });
 });

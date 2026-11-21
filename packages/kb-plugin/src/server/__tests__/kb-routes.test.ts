@@ -15,7 +15,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -32,6 +32,27 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KbJobRegistry } from "../job-registry.js";
 import { isAllowedCwd, mountKbRoutes } from "../kb-routes.js";
+import { type ReindexCoreInput, runReindexCore } from "../reindex-core.js";
+import { createReindexRunner } from "../reindex-runner.js";
+import { type FakeReindexWorker, fakeFactory } from "./helpers/fake-reindex-worker.js";
+
+// Passthrough spy on `resolverFor`: a test can park `resolveSpecs` on a deferred (S51, throttle-kb-reindex).
+const resolveGate = vi.hoisted(() => ({ block: null as Promise<void> | null }));
+vi.mock("@blackbelt-technology/pi-dashboard-kb", async (orig) => {
+  const real = await orig<typeof import("@blackbelt-technology/pi-dashboard-kb")>();
+  return {
+    ...real,
+    resolverFor: (...a: Parameters<typeof real.resolverFor>) => {
+      const r = real.resolverFor(...a);
+      return Object.assign(Object.create(r), {
+        resolve: async (...b: Parameters<typeof r.resolve>) => {
+          if (resolveGate.block) await resolveGate.block;
+          return r.resolve(...b);
+        },
+      });
+    },
+  };
+});
 
 const cleanup: string[] = [];
 afterEach(() => {
@@ -1370,4 +1391,592 @@ describe("KB read/write preconditions (kb-denied-folder-pin-state)", () => {
     expect(preflightWrite(join(dir, "nope"), { needsSources: false })).toBe("folder missing");
     expect(preflightWrite(`${dir}/`, { needsSources: false })).toBeNull(); // trailing separator
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// throttle-kb-reindex — reindex-core abort handling (S30), kill-switch (S62),
+// cancel before spawn (S51), folder vanishes (S50)
+// ═══════════════════════════════════════════════════════════════════════════
+import { indexOptionsHash, KbIndexAborted } from "@blackbelt-technology/pi-dashboard-kb";
+
+const tick = () => new Promise<void>((r) => setImmediate(r));
+
+/** A folder with three filesystem sources `docs`, `d2`, `d3` (two small files each). */
+function threeSourceFolder(): string {
+  const cwd = makeFolder({ withConfig: false });
+  for (const d of ["d2", "d3"]) {
+    mkdirSync(join(cwd, d), { recursive: true });
+    for (const n of ["x", "y"]) writeFileSync(join(cwd, d, `${n}.md`), `# ${d}-${n}\n\nBody of ${d} ${n} with some words about the topic.\n`);
+  }
+  setSources(cwd, ["docs", "d2", "d3"].map((ref) => ({ kind: "filesystem", ref })));
+  return cwd;
+}
+function coreInput(cwd: string, mode: ReindexCoreInput["mode"]): ReindexCoreInput {
+  const cfg = loadConfig(cwd);
+  return {
+    cwd,
+    dbPath: cfg.dbAbsPath,
+    mode,
+    gate: indexOptionsHash(cfg),
+    sources: cfg.allSourceSpecs.map((s) => ({ ref: s.ref, kind: "filesystem", id: s.ref, dir: join(cwd, s.ref), started: Date.now() })),
+  };
+}
+
+describe("reindex-core abort handling (S30, R5/R3 illegal transition: abort is not an error)", () => {
+  it("in-place: abort while source 2 indexes rethrows — no error outcome, source 3 never starts, no stampSource(2) / stampPass", async () => {
+    const cwd = threeSourceFolder();
+    const dbp = dbPathOf(cwd);
+    const seed = new SqliteFtsStore(dbp);
+    seed.init();
+    seed.close();
+    const ac = new AbortController();
+    const logs: string[] = [];
+    const log = {
+      info: (m: string) => {
+        logs.push(m);
+        if (m.includes("source ok ref=docs")) ac.abort(); // source 2 starts already aborted
+      },
+      warn: (m: string) => logs.push(m),
+    };
+    await expect(runReindexCore(coreInput(cwd, "in-place"), { signal: ac.signal, log })).rejects.toBeInstanceOf(KbIndexAborted);
+    expect(logs.filter((l) => /source failed/.test(l))).toEqual([]);
+    expect(logs.some((l) => /ref=d2|ref=d3/.test(l))).toBe(false);
+    const st = new SqliteFtsStore(dbp);
+    try {
+      expect(st.getMeta("gate:docs") ?? null).not.toBeNull(); // completed + stamped before the abort keeps its stamp (G3)
+      expect(st.getMeta("gate:d2") ?? null).toBeNull();
+      expect(st.getMeta("gate:d3") ?? null).toBeNull();
+      expect(st.getMeta("facetConfigHash") ?? null).toBeNull(); // stampPass not called
+    } finally {
+      st.close();
+    }
+  });
+
+  it("first index: abort in the atomic path rethrows (no all-sources error outcomes), leaves no db and no temp", async () => {
+    const cwd = threeSourceFolder();
+    const dbp = dbPathOf(cwd);
+    const ac = new AbortController();
+    ac.abort();
+    const logs: string[] = [];
+    const log = { info: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) };
+    await expect(runReindexCore(coreInput(cwd, "first"), { signal: ac.signal, log })).rejects.toBeInstanceOf(KbIndexAborted);
+    expect(logs.filter((l) => /source failed/.test(l))).toEqual([]);
+    expect(existsSync(dbp)).toBe(false);
+    expect(readdirSync(dirname(dbp)).filter((f) => f.includes(".tmp-"))).toEqual([]);
+  });
+
+  it("a gate that differs from the core's own loadConfig fails with 'config changed during reindex' and touches nothing", async () => {
+    const cwd = threeSourceFolder();
+    const seed = new SqliteFtsStore(dbPathOf(cwd));
+    seed.init();
+    seed.close();
+    await expect(runReindexCore({ ...coreInput(cwd, "in-place"), gate: "stale-gate" })).rejects.toThrow(/config changed during reindex/);
+    const st = new SqliteFtsStore(dbPathOf(cwd));
+    try {
+      expect(st.counts().chunks).toBe(0);
+      expect(st.getMeta("facetConfigHash") ?? null).toBeNull();
+    } finally {
+      st.close();
+    }
+  });
+});
+
+describe("PI_DASHBOARD_KB_REINDEX_WORKER kill-switch (S62, R4 decision table)", () => {
+  const saved = process.env.PI_DASHBOARD_KB_REINDEX_WORKER;
+  afterEach(() => restoreEnv("PI_DASHBOARD_KB_REINDEX_WORKER", saved));
+
+  const run = async (value: string | undefined) => {
+    if (value === undefined) delete process.env.PI_DASHBOARD_KB_REINDEX_WORKER;
+    else process.env.PI_DASHBOARD_KB_REINDEX_WORKER = value;
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready().result({ changed: 0, chunks: 0, outcomes: [] }));
+    const app = Fastify();
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry: new KbJobRegistry(), reindexRunner: createReindexRunner({ workerFactory: factory }) });
+    const info = vi.spyOn(app.log, "info");
+    const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    const done = await settle(app, cwd);
+    const lines = info.mock.calls.map((c) => c.map(String).join(" "));
+    await app.close();
+    return { res, done, workers, lines };
+  };
+
+  it.each([
+    ["unset", undefined, "worker"],
+    ["1", "1", "worker"],
+    ["0", "0", "inprocess"],
+  ])("%s ⇒ mode=%s", async (_n, value, mode) => {
+    const r = await run(value);
+    expect(r.res.statusCode).toBe(202);
+    expect(r.workers.length).toBe(mode === "worker" ? 1 : 0);
+    expect(r.lines.some((l) => l.includes(`mode=${mode}`))).toBe(true);
+    expect(r.lines.some((l) => l.includes(`mode=${mode === "worker" ? "inprocess" : "worker"}`))).toBe(false);
+    expect(r.done.jobStatus).toBe("idle");
+  });
+
+  it("response and JobState/stats shape are identical in both hosts", async () => {
+    const w = await run(undefined);
+    const p = await run("0");
+    expect(Object.keys(p.res.json()).sort()).toEqual(Object.keys(w.res.json()).sort());
+    expect(Object.keys(p.done).sort()).toEqual(Object.keys(w.done).sort());
+  });
+});
+
+describe("cancel before spawn (S51, R5)", () => {
+  afterEach(() => {
+    resolveGate.block = null;
+  });
+
+  it("an abort while resolveSpecs is pending ends the job idle with no worker, no db", async () => {
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready());
+    const registry = new KbJobRegistry();
+    const app = Fastify();
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry, reindexRunner: createReindexRunner({ workerFactory: factory, useWorker: () => true }) });
+    let release!: () => void;
+    resolveGate.block = new Promise<void>((r) => (release = r));
+    await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    await tick();
+    expect(registry.cancel(cwd)).toBe(true);
+    release();
+    const done = await settle(app, cwd);
+    expect(done.jobStatus).toBe("idle");
+    expect(done.lastError).toBeUndefined();
+    expect(workers).toHaveLength(0);
+    expect(existsSync(dbPathOf(cwd))).toBe(false);
+    await app.close();
+  });
+
+  it("a signal that is already aborted when reindexAll starts spawns nothing", async () => {
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready());
+    const ac = new AbortController();
+    ac.abort();
+    await expect(reindexAll(cwd, undefined, { signal: ac.signal, runner: createReindexRunner({ workerFactory: factory, useWorker: () => true }) })).rejects.toMatchObject({ name: "AbortError" });
+    expect(workers).toHaveLength(0);
+    expect(existsSync(dbPathOf(cwd))).toBe(false);
+  });
+});
+
+describe("folder vanishes while a job runs (S50, R5)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("the job is cancelled and settles idle with no lastError", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready());
+    const registry = new KbJobRegistry();
+    const app = Fastify();
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry, reindexRunner: createReindexRunner({ workerFactory: factory, useWorker: () => true }) });
+    await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    await vi.waitFor(() => expect(workers).toHaveLength(1), { interval: 5 });
+    rmSync(cwd, { recursive: true, force: true });
+    await vi.advanceTimersByTimeAsync(2000); // the next folder-exists check
+    await vi.waitFor(() => expect(workers[0].gotCancel).toBe(true), { interval: 5 });
+    workers[0].cancelled();
+    const done = await settle(app, cwd);
+    expect(done.jobStatus).toBe("idle");
+    expect(done.lastError).toBeUndefined();
+    await app.close();
+  });
+});
+
+// ── throttle-kb-reindex phase E: cancel route, progress, race, telemetry ────────────────────────
+
+const openedApps: FastifyInstance[] = [];
+afterEach(async () => {
+  for (const a of openedApps.splice(0)) await a.close();
+});
+
+/** App over a scripted fake-worker runner (`useWorker` forced on). `graceMs` defaults high so only the test terminates. */
+function mountFake(cwd: string, onSpawn?: Parameters<typeof fakeFactory>[0], runnerOpts: Parameters<typeof createReindexRunner>[0] = {}) {
+  const { factory, workers } = fakeFactory(onSpawn);
+  const registry = new KbJobRegistry();
+  const app = Fastify();
+  openedApps.push(app);
+  mountKbRoutes(app, { knownCwds: () => [cwd], registry, reindexRunner: createReindexRunner({ workerFactory: factory, useWorker: () => true, graceMs: 60_000, ...runnerOpts }) });
+  return { app, registry, workers };
+}
+const postReindex = (app: FastifyInstance, cwd: string) => app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+const postCancel = (app: FastifyInstance, cwd: string) => app.inject({ method: "POST", url: `/api/kb/reindex/cancel?cwd=${q(cwd)}` });
+const statsOf = async (app: FastifyInstance, cwd: string) => (await getJson(app, `/api/kb/stats?cwd=${q(cwd)}`)).body as Record<string, unknown> & { progress?: { root: string; done: number; total: number } };
+async function until<T>(fn: () => T | Promise<T>, pred: (v: T) => boolean, tries = 400): Promise<T> {
+  for (let i = 0; i < tries; i++) {
+    const v = await fn();
+    if (pred(v)) return v;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("condition never held");
+}
+const errorMessage = (w: { emit: (e: string, m: unknown) => unknown }, message: string) => w.emit("message", { kind: "error", message });
+
+describe("cancel route and the cancel→reindex race (S36, R5)", () => {
+  it("POST /reindex/cancel cancels a running job: 200 {cancelled:true}, worker told, then 200 {cancelled:false} when idle", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    const res = await postCancel(app, cwd);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ cancelled: true });
+    await until(() => workers[0].gotCancel, Boolean);
+    workers[0].cancelled();
+    expect((await settle(app, cwd)).jobStatus).toBe("idle");
+    expect((await postCancel(app, cwd)).json()).toEqual({ cancelled: false });
+  });
+
+  it("PUT /config {reindex:true} during the grace period starts one fresh job after the cancelled one settles", async () => {
+    const cwd = makeFolder();
+    const { app, registry, workers } = mountFake(cwd, (w) => w.ready());
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    await postCancel(app, cwd);
+    expect(registry.isCancelling(cwd)).toBe(true);
+    const put = await app.inject({ method: "PUT", url: `/api/kb/config?cwd=${q(cwd)}`, payload: { reindex: true } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().reindexSkipped).toBeUndefined();
+    await tick();
+    expect(workers).toHaveLength(1); // queued behind the cancelling job, not started beside it
+    workers[0].cancelled();
+    await until(() => workers.length, (n) => n === 2); // the chained reindex was not lost
+    workers[1].result({ changed: 1, chunks: 2, outcomes: [] });
+    const done = await settle(app, cwd);
+    expect(done.jobStatus).toBe("idle");
+    expect(workers).toHaveLength(2); // exactly one new job
+  });
+
+  it("POST /reindex during the grace period is queued the same way, and its 202 is not a silent drop", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    await postCancel(app, cwd);
+    expect((await postReindex(app, cwd)).statusCode).toBe(202);
+    expect((await postReindex(app, cwd)).statusCode).toBe(202); // a second request coalesces onto the queued job
+    workers[0].cancelled();
+    await until(() => workers.length, (n) => n === 2);
+    workers[1].result();
+    await settle(app, cwd);
+    expect(workers).toHaveLength(2);
+  });
+});
+
+describe("GET /api/kb/stats progress (S41/S42/S43/S66/S68, R6)", () => {
+  const STATS_KEYS = ["chunks", "files", "folderMissing", "indexed", "indexing", "jobStatus", "sourceCount", "staleCount"];
+
+  it("S41: a running job with ≥1 committed batch reports progress {root,done,total}; other fields intact", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    workers[0].progress("docs", 2, 5);
+    const s = await until(() => statsOf(app, cwd), (b) => b.progress !== undefined);
+    expect(s.progress).toEqual({ root: "docs", done: 2, total: 5 });
+    expect(s.progress!.done).toBeGreaterThanOrEqual(1);
+    expect(s.progress!.done).toBeLessThanOrEqual(s.progress!.total);
+    expect(typeof s.files).toBe("number");
+    expect(typeof s.chunks).toBe("number");
+    expect(s.indexing).toBe(true);
+    expect(s.jobStatus).toBe("running");
+  });
+
+  it("S42: no batch committed yet → progress is absent (not {done:0})", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    await tick();
+    const s = await statsOf(app, cwd);
+    expect(s.indexing).toBe(true);
+    expect("progress" in s).toBe(false);
+  });
+
+  it("S43: idle key set equals the pre-change set; running adds only `progress`; /sources never has progress and creates no store", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    expect(Object.keys(await statsOf(app, cwd)).sort()).toEqual(STATS_KEYS);
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    workers[0].progress("docs", 1, 2);
+    const running = await until(() => statsOf(app, cwd), (b) => b.progress !== undefined);
+    expect(Object.keys(running).sort()).toEqual([...STATS_KEYS, "progress"].sort());
+    const src = await app.inject({ method: "GET", url: `/api/kb/sources?cwd=${q(cwd)}` });
+    expect(src.statusCode).toBe(200);
+    expect(src.body).not.toContain("progress");
+    expect(existsSync(dbPathOf(cwd))).toBe(false); // a fake worker writes nothing; /sources must not create a store
+  });
+
+  it("S66: progress.done never decreases within a job, is absent idle, and a second job never shows the previous job's final progress", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    const seen: number[] = [];
+    for (const done of [1, 2, 3]) {
+      workers[0].progress("docs", done, 3);
+      const s = await until(() => statsOf(app, cwd), (b) => b.progress?.done === done);
+      seen.push(s.progress!.done);
+      expect(s.progress!.done).toBeLessThanOrEqual(s.progress!.total);
+    }
+    expect(seen).toEqual([1, 2, 3]);
+    workers[0].result();
+    const idle = await settle(app, cwd);
+    expect("progress" in idle).toBe(false);
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 2);
+    const second = await statsOf(app, cwd);
+    expect(second.indexing).toBe(true);
+    expect("progress" in second).toBe(false); // not {3,3} from the first job
+    workers[1].result();
+    expect((await settle(app, cwd)).jobStatus).toBe("idle");
+  });
+
+  it("S66: converges to server truth — rows equal counts() once the (real, in-process) job settles", async () => {
+    const cwd = makeFolder();
+    const registry = new KbJobRegistry();
+    const app = Fastify();
+    openedApps.push(app);
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry, reindexRunner: createReindexRunner({ useWorker: () => false }) });
+    await postReindex(app, cwd);
+    const polled: Array<{ done: number; total: number } | undefined> = [];
+    const done = await until(
+      async () => {
+        const s = await statsOf(app, cwd);
+        polled.push(s.progress);
+        return s;
+      },
+      (b) => b.jobStatus !== "running",
+    );
+    expect(done.jobStatus).toBe("idle");
+    expect("progress" in done).toBe(false);
+    let last = 0;
+    for (const p of polled) {
+      if (!p) continue;
+      expect(p.done).toBeGreaterThanOrEqual(last);
+      expect(p.done).toBeLessThanOrEqual(p.total);
+      last = p.done;
+    }
+    const st = SqliteFtsStore.openExisting(dbPathOf(cwd));
+    try {
+      expect(st).not.toBeNull();
+      const truth = st!.counts();
+      expect({ files: done.files, chunks: done.chunks }).toEqual({ files: truth.files, chunks: truth.chunks });
+      expect(done.chunks as number).toBeGreaterThan(0);
+    } finally {
+      st?.close();
+    }
+  });
+
+  it("S68: after cancel, polls keep jobStatus 'running' (no 'cancelling' value) until settle, then idle with no progress", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    workers[0].progress("docs", 1, 4);
+    await until(() => statsOf(app, cwd), (b) => b.progress !== undefined);
+    await postCancel(app, cwd);
+    for (let i = 0; i < 5; i++) {
+      const s = await statsOf(app, cwd);
+      expect(s.jobStatus).toBe("running");
+      expect(s.indexing).toBe(true);
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    workers[0].cancelled();
+    const done = await settle(app, cwd);
+    expect(done.jobStatus).toBe("idle");
+    expect("progress" in done).toBe(false);
+  });
+
+  it("S68: a cancelled run restores a previously retained failure instead of clearing it", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    errorMessage(workers[0], "boom");
+    expect((await settle(app, cwd)).jobStatus).toBe("error");
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 2);
+    await postCancel(app, cwd);
+    workers[1].cancelled();
+    const done = await settle(app, cwd);
+    expect(done.jobStatus).toBe("error");
+    expect(done.lastError).toBe("boom");
+    expect("progress" in done).toBe(false);
+  });
+});
+
+describe("per-job telemetry line and worker lifecycle logs (S69/S70/S71, R6)", () => {
+  const jobLines = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.map((c) => c.map(String).join(" ")).filter((l) => l.includes("reindex mode="));
+  const FIELDS = /^\[kb-plugin\] reindex mode=(worker|inprocess) sources=(\d+) files=(\d+) chunks=(\d+) ms=(\d+)(?: first_progress_ms=(\d+|-))? lag_ms=(\d+) outcome=(ok|error|cancelled|crashed) cwd=/;
+
+  type Script = { name: string; outcome: string; drive: (w: FakeReindexWorker, app: FastifyInstance, cwd: string) => Promise<void> | void };
+  const runs: Script[] = [
+    { name: "ok", outcome: "ok", drive: (w) => void w.progress("docs", 1, 2).result({ changed: 2, chunks: 5, outcomes: [] }) },
+    { name: "error", outcome: "error", drive: (w) => void errorMessage(w, "boom") },
+    { name: "cancelled", outcome: "cancelled", drive: async (w, app, cwd) => { await postCancel(app, cwd); w.cancelled(); } },
+    { name: "crashed", outcome: "crashed", drive: (w) => void w.crash(Object.assign(new Error("worker died"), { code: "ERR_WORKER_UNEXPECTED" })) },
+  ];
+
+  it.each(runs)("S69: a $name job logs exactly one structured line with the full field set", async ({ outcome, drive }) => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    const info = vi.spyOn(app.log, "info");
+    await postReindex(app, cwd);
+    await postReindex(app, cwd); // coalesced requests add no line
+    await until(() => workers.length, (n) => n === 1);
+    await drive(workers[0], app, cwd);
+    await settle(app, cwd);
+    await tick();
+    const lines = jobLines(info);
+    expect(lines).toHaveLength(1);
+    const m = FIELDS.exec(lines[0]);
+    expect(m, lines[0]).not.toBeNull();
+    expect(m![1]).toBe("worker");
+    expect(m![2]).toBe("1"); // sources
+    expect(m![8]).toBe(outcome);
+    expect(Number.isFinite(Number(m![7]))).toBe(true); // main-thread max event-loop delay
+    if (outcome === "ok") {
+      expect(m![3]).toBe("2"); // files
+      expect(m![4]).toBe("5"); // chunks
+      expect(m![6]).toMatch(/^\d+$/); // spawn → first progress
+    }
+  });
+
+  it("S69: a job cancelled before its worker spawns still logs one line (outcome=cancelled)", async () => {
+    const cwd = makeFolder();
+    const { app, registry, workers } = mountFake(cwd, (w) => w.ready());
+    const info = vi.spyOn(app.log, "info");
+    let release!: () => void;
+    resolveGate.block = new Promise<void>((r) => (release = r));
+    try {
+      await postReindex(app, cwd);
+      await tick();
+      registry.cancel(cwd);
+      release();
+      await settle(app, cwd);
+    } finally {
+      resolveGate.block = null;
+    }
+    expect(workers).toHaveLength(0);
+    const lines = jobLines(info);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/outcome=cancelled/);
+  });
+
+  it("S69: with a host logger injected (the server runs Fastify with logger:false) the job line goes there, not to fastify.log", async () => {
+    const cwd = makeFolder();
+    const { factory, workers } = fakeFactory((w) => w.ready());
+    const host = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const app = Fastify();
+    openedApps.push(app);
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry: new KbJobRegistry(), logger: host, reindexRunner: createReindexRunner({ workerFactory: factory, useWorker: () => true }) });
+    const fastifyInfo = vi.spyOn(app.log, "info");
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    workers[0].log("info", "source ok ref=docs").result({ changed: 1, chunks: 1, outcomes: [] });
+    await settle(app, cwd);
+    expect(jobLines(host.info)).toHaveLength(1);
+    expect(host.info.mock.calls.map((c) => String(c[0]))).toContain("[kb-plugin] source ok ref=docs");
+    expect(jobLines(fastifyInfo)).toEqual([]);
+  });
+
+  it("S70: kill-switch job logs mode=inprocess, no spawn field, outcome=ok", async () => {
+    const cwd = makeFolder();
+    const registry = new KbJobRegistry();
+    const app = Fastify();
+    openedApps.push(app);
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry, reindexRunner: createReindexRunner({ useWorker: () => false }) });
+    const info = vi.spyOn(app.log, "info");
+    await postReindex(app, cwd);
+    await settle(app, cwd);
+    const lines = jobLines(info);
+    expect(lines).toHaveLength(1);
+    const m = FIELDS.exec(lines[0]);
+    expect(m, lines[0]).not.toBeNull();
+    expect(m![1]).toBe("inprocess");
+    expect(m![8]).toBe("ok");
+    expect(lines[0]).not.toContain("first_progress_ms");
+  });
+
+  it("S71: worker log messages are forwarded with the [kb-plugin] prefix", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready());
+    const info = vi.spyOn(app.log, "info");
+    const warn = vi.spyOn(app.log, "warn");
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    workers[0].log("info", "source ok ref=docs kind=filesystem ms=3").log("warn", "source failed ref=x ms=1: nope").log("info", "[kb-plugin] already prefixed");
+    workers[0].result();
+    await settle(app, cwd);
+    const infos = info.mock.calls.map((c) => String(c[0]));
+    const warns = warn.mock.calls.map((c) => String(c[0]));
+    expect(infos).toContain("[kb-plugin] source ok ref=docs kind=filesystem ms=3");
+    expect(warns).toContain("[kb-plugin] source failed ref=x ms=1: nope");
+    expect(infos).toContain("[kb-plugin] already prefixed"); // never doubled
+  });
+
+  it("S71: start, terminate and exit(code) are each logged exactly once for a cancel that needs terminate()", async () => {
+    const cwd = makeFolder();
+    const { app, workers } = mountFake(cwd, (w) => w.ready(), { graceMs: 20 }); // the fake ignores `cancel` → grace → terminate
+    const info = vi.spyOn(app.log, "info");
+    await postReindex(app, cwd);
+    await until(() => workers.length, (n) => n === 1);
+    await postCancel(app, cwd);
+    await settle(app, cwd);
+    await tick();
+    const all = info.mock.calls.map((c) => String(c[0]));
+    const count = (re: RegExp) => all.filter((l) => re.test(l)).length;
+    expect(count(/reindex worker started cwd=/)).toBe(1);
+    expect(count(/reindex worker terminate cwd=/)).toBe(1);
+    expect(count(/reindex worker exit code=\d+ cwd=/)).toBe(1);
+    expect(workers[0].terminate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("no main-thread writer to index.db while a worker job runs (S60, R4 invariant)", () => {
+  const WRITE_SQL = /^\s*(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|ATTACH)\b/i;
+  const issued: string[] = [];
+  const proto = DatabaseSync.prototype as unknown as Record<"exec" | "prepare", (sql: string) => unknown>;
+  const orig = { exec: proto.exec, prepare: proto.prepare };
+  afterEach(() => {
+    proto.exec = orig.exec;
+    proto.prepare = orig.prepare;
+    issued.length = 0;
+  });
+
+  it("stats, search, sources, trust and config requests issue only reads on main-thread handles; busy_timeout stays 5000", async () => {
+    const cwd = makeFolder();
+    const app = Fastify();
+    openedApps.push(app);
+    mountKbRoutes(app, { knownCwds: () => [cwd], registry: new KbJobRegistry() }); // the real worker runner
+    await reindexAndSettle(app, cwd); // an existing store, so the main thread opens handles on it during the next job
+    for (let i = 0; i < 700; i++) writeFileSync(join(cwd, "docs", `n${i}.md`), `# Doc ${i}\n\n${"body text widgets gadgets ".repeat(40)}\n\n## Part ${i}\n\nmore ${i}\n`);
+    // Instrument only now: a worker has its own realm, so this patch sees main-thread handles only.
+    proto.exec = function (this: unknown, sql: string) {
+      issued.push(sql);
+      return orig.exec.call(this, sql);
+    };
+    proto.prepare = function (this: unknown, sql: string) {
+      issued.push(sql);
+      return orig.prepare.call(this, sql);
+    };
+    expect((await postReindex(app, cwd)).statusCode).toBe(202);
+    let during = 0;
+    for (let i = 0; i < 400; i++) {
+      const s = await statsOf(app, cwd);
+      if (s.jobStatus !== "running") break;
+      during++;
+      await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=widgets`);
+      await getJson(app, `/api/kb/sources?cwd=${q(cwd)}`);
+      await app.inject({ method: "POST", url: `/api/kb/source-trust?cwd=${q(cwd)}`, payload: { ref: "docs" } });
+      await app.inject({ method: "PUT", url: `/api/kb/config?cwd=${q(cwd)}`, payload: {} });
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(during).toBeGreaterThan(0); // the main paths really ran while the worker job was live
+    expect(issued.length).toBeGreaterThan(0);
+    expect(issued.filter((sql) => WRITE_SQL.test(sql))).toEqual([]);
+    const pragmas = issued.filter((sql) => /busy_timeout/i.test(sql));
+    expect(pragmas.length).toBeGreaterThan(0);
+    for (const p of pragmas) expect(p.replace(/\s/g, "")).toMatch(/busy_timeout=5000$/i);
+    expect((await settle(app, cwd)).jobStatus).toBe("idle");
+  }, 60_000);
 });

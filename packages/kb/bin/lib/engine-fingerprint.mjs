@@ -5,7 +5,14 @@
 // gate (scripts/check-kb-dist-fresh.mjs) recomputes with it — no three-way
 // reimplementation.
 //
-// Three hashes:
+// Four hashes:
+//   rowsHash     — LF-normalized contents of ROW_PRODUCING_FILES only (the files whose
+//                  edits can change the rows an index pass writes). THE engine value the
+//                  staleness gate and the worktree-seed gate compare, so an edit to
+//                  render.ts / cli.ts / … no longer forces a corpus-wide reindex.
+//                  Completeness is mechanical: engine-row-closure.test.ts asserts the
+//                  indexer.ts import closure ⊆ this list ∪ a declared non-row list.
+//                  (change: throttle-kb-reindex, D1)
 //   srcHash      — LF-normalized contents of src/**/*.ts minus src/__tests__,
 //                  sorted relative paths (a src edit without a rebuild forks
 //                  the hash → observable in CI).
@@ -54,6 +61,22 @@ export function computeSrcHash(pkgRoot) {
     .filter((rel) => rel.endsWith(".ts") && !rel.split("/").includes("__tests__"))
     .map((rel) => `src/${rel}`);
   return hashFiles(pkgRoot, rels);
+}
+
+/** The files whose content determines the rows `indexSource` writes (chunkers, indexer,
+ *  frontmatter extraction, gitignore filter). `sqlite-store.ts` is deliberately absent: it also
+ *  holds search code, so its row-affecting part (DDL) is governed by SCHEMA_VERSION + the DDL
+ *  golden test instead. Package-relative posix paths. */
+export const ROW_PRODUCING_FILES = Object.freeze(["src/adoc-chunker.ts", "src/chunker.ts", "src/frontmatter.ts", "src/gitignore.ts", "src/indexer.ts"]);
+
+/** Digest of ROW_PRODUCING_FILES (fixed sorted order ⇒ path/mtime/creation-order independent).
+ *  A file absent from `pkgRoot` hashes as empty (stub sandboxes); the real package's files are
+ *  asserted present by engine-fingerprint.test.ts. */
+export function computeRowsHash(pkgRoot) {
+  return hashFiles(
+    pkgRoot,
+    [...ROW_PRODUCING_FILES].sort().filter((rel) => existsSync(join(pkgRoot, rel))),
+  );
 }
 
 /** The tsconfig extends chain (root first, then each resolved extends target).
@@ -137,6 +160,7 @@ export function computeDistHash(pkgRoot) {
 
 export function fingerprintPackage(pkgRoot) {
   return {
+    rowsHash: computeRowsHash(pkgRoot),
     srcHash: computeSrcHash(pkgRoot),
     tsconfigHash: computeTsconfigHash(pkgRoot),
     distHash: computeDistHash(pkgRoot),
