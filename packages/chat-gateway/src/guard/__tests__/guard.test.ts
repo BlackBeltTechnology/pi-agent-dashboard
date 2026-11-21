@@ -105,7 +105,7 @@ describe("createToolCallGuard", () => {
 });
 
 // ── harden-agent-tool-guards D6: readiness announcement (T.88) ───────────────────────────────
-import chatGatewayGuard, { tokenFromEnv } from "../index.js";
+import chatGatewayGuard, { READY_REANNOUNCE_MS, tokenFromEnv } from "../index.js";
 
 describe("T.88 readiness announcement at session_start", () => {
   function fakePi() {
@@ -144,6 +144,34 @@ describe("T.88 readiness announcement at session_start", () => {
         { name: "dashboard:plugin-message", payload: { pluginId: "chat-gateway", messageType: "chat_gateway_guard_ready", payload: { token: "t1" } } },
       ]);
     });
+  });
+
+  it("re-announces on a fixed schedule: pi runs a `-e` extension's session_start BEFORE the bridge's, so the first emit can be lost", () => {
+    vi.useFakeTimers();
+    try {
+      withEnv({ PI_EXT_CHAT_GATEWAY_GUARD_TOKEN: "t1" }, () => {
+        const { pi, handlers, emitted } = fakePi();
+        chatGatewayGuard(pi as never);
+        handlers.session_start[0]();
+        expect(emitted).toHaveLength(1);
+        const seen: number[] = [];
+        let last = 1;
+        for (let t = 0; t <= 20_000; t += 250) {
+          vi.advanceTimersByTime(250);
+          if (emitted.length !== last) {
+            seen.push(t + 250);
+            last = emitted.length;
+          }
+        }
+        expect(seen).toEqual(READY_REANNOUNCE_MS); // each re-announcement lands exactly on its scheduled instant
+        expect(emitted).toHaveLength(1 + READY_REANNOUNCE_MS.length);
+        expect(new Set(emitted.map((e) => JSON.stringify(e.payload))).size).toBe(1); // identical every time
+        vi.advanceTimersByTime(60_000);
+        expect(emitted).toHaveLength(1 + READY_REANNOUNCE_MS.length); // and then stops
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("unset or empty token: no session_start handler, nothing announced", () => {

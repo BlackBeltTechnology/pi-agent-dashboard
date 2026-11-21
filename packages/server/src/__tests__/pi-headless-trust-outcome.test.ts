@@ -13,7 +13,12 @@
  *  - a MISTYPED `-e` extension ref (the shape of a mistyped chat-gateway `guardExtension`) makes pi exit at
  *    startup with "Failed to load extension" and never answer RPC, so such a session can never register or
  *    announce guard readiness (the premise of T.105/T.129; the gateway's refuse-and-send-nothing half is
- *    pinned at L1 by `gateway-guard-ready.test.ts` T.41/T.123).
+ *    pinned at L1 by `gateway-guard-ready.test.ts` T.41/T.123);
+ *  - pi runs the `session_start` handler of a `-e` extension (the chat-gateway guard) BEFORE that of an
+ *    extension registered through settings (the dashboard bridge). The bridge only listens for
+ *    `dashboard:plugin-message` inside its own `session_start`, so a single readiness emit from the guard
+ *    is lost; the guard therefore re-announces on a schedule (found by the L3 spec
+ *    `chat-gateway-guard-readiness.spec.ts`).
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -120,10 +125,14 @@ async function rpcProbe(
   requests: Array<{ id: string; type: string }>,
   extraArgs: string[] = [],
   waitMs = 30_000,
+  /** Keep the process alive until this also holds (e.g. a side effect of a handler that runs after the RPC answer). */
+  alsoUntil: () => boolean = () => true,
 ): Promise<RpcProbe> {
   const agentDir = path.join(tmp, `agent-probe-${mode}`);
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: mode }));
+  const settingsPath = path.join(agentDir, "settings.json");
+  const existing = fs.existsSync(settingsPath) ? (JSON.parse(fs.readFileSync(settingsPath, "utf8")) as Record<string, unknown>) : {};
+  fs.writeFileSync(settingsPath, JSON.stringify({ ...existing, defaultProjectTrust: mode }));
   const child = spawn(process.execPath, [cli as string, "--mode", "rpc", "--no-session", ...extraArgs], {
     cwd: proj,
     env: { ...process.env, HOME: tmp, PI_CODING_AGENT_DIR: agentDir },
@@ -145,7 +154,7 @@ async function rpcProbe(
   const t0 = Date.now();
   try {
     while (Date.now() - t0 < waitMs) {
-      if (requests.every((q) => r.out.includes(`"id":"${q.id}"`))) break;
+      if (requests.every((q) => r.out.includes(`"id":"${q.id}"`)) && alsoUntil()) break;
       if (r.exited) break;
       await new Promise((res) => setTimeout(res, 100));
     }
@@ -190,4 +199,30 @@ describe.skipIf(!cli)("project skill follows the trust outcome; a mistyped exten
     expect(r.err, "the failure names the extension").toContain("Failed to load extension");
     expect(r.out.includes('"id":"state"'), "no RPC answer: no session can register or announce readiness").toBe(false);
   }, 40_000);
+
+  it("a `-e` extension's session_start runs BEFORE a settings-registered extension's (why a one-shot readiness emit is lost)", async () => {
+    const proj = path.join(tmp, "proj-order");
+    const extDir = path.join(tmp, "ext-order");
+    const log = path.join(tmp, "order.log");
+    fs.mkdirSync(proj, { recursive: true });
+    fs.mkdirSync(extDir, { recursive: true });
+    for (const name of ["bridge", "guard"]) {
+      fs.writeFileSync(
+        path.join(extDir, `${name}.ts`),
+        `import * as fs from "node:fs";\nexport default function (pi: any) {\n  pi.on("session_start", async () => { fs.appendFileSync(${JSON.stringify(log)}, "${name}\\n"); });\n}\n`,
+      );
+    }
+    const agentDir = path.join(tmp, "agent-probe-always");
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(agentDir, "settings.json"),
+      JSON.stringify({ defaultProjectTrust: "always", extensions: [path.join(extDir, "bridge.ts")] }),
+    );
+    const r = await rpcProbe("always", proj, [{ id: "state", type: "get_state" }], ["-e", path.join(extDir, "guard.ts")], 30_000, () =>
+      fs.existsSync(log) && fs.readFileSync(log, "utf8").trim().split("\n").length >= 2,
+    );
+    expect(answered(r, "state"), `pi must start (stderr: ${r.err.slice(0, 200)})`).toBe(true);
+    expect(fs.readFileSync(log, "utf8").trim().split("\n")).toEqual(["guard", "bridge"]);
+  }, 60_000);
 });
+

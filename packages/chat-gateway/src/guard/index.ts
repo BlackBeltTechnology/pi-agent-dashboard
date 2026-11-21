@@ -153,17 +153,34 @@ export function tokenFromEnv(env: Record<string, string | undefined> = process.e
   return typeof raw === "string" && raw !== "" ? raw : undefined;
 }
 
+/**
+ * Delays (ms after `session_start`) at which the readiness announcement is repeated. pi runs the
+ * `session_start` handlers of `-e` extensions (this guard) BEFORE those registered through settings or
+ * packages (the dashboard bridge), and the bridge only starts listening for `dashboard:plugin-message`
+ * inside its own `session_start`: a single emit from here can be lost. The gateway ignores duplicates
+ * (unknown, released or refused tokens), so repeating is harmless; it stops after the last entry (the
+ * gateway's own readiness window is 30 s).
+ */
+export const READY_REANNOUNCE_MS: readonly number[] = [250, 1_000, 3_000, 8_000, 15_000];
+
 export default function chatGatewayGuard(pi: GuardPi, options?: Partial<GuardOptions>): void {
   const policy: ToolPolicy = options?.policy ?? policyFromEnv();
   // The enforcement point is registered BEFORE readiness can be announced.
   pi.on("tool_call", createToolCallGuard({ ...options, policy }));
   const token = tokenFromEnv();
   if (!token) return; // no token (older gateway / manual load): nothing to prove readiness to
-  pi.on("session_start", () => {
+  const announce = (): void => {
     pi.events?.emit("dashboard:plugin-message", {
       pluginId: CHAT_GATEWAY_PLUGIN_ID,
       messageType: GUARD_READY_MESSAGE,
       payload: { token },
     });
+  };
+  pi.on("session_start", () => {
+    announce();
+    for (const delay of READY_REANNOUNCE_MS) {
+      const timer = setTimeout(announce, delay);
+      (timer as { unref?: () => void }).unref?.(); // never keep the pi process alive for an announcement
+    }
   });
 }
