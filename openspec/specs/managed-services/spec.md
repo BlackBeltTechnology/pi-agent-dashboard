@@ -355,6 +355,16 @@ without `--json` SHALL exit non-zero on failure. `remove --all` SHALL apply
 - Without `--json`, `ensure` SHALL exit non-zero unless the state is `healthy`.
 - `exec <id> -- <argv…>` SHALL hold a lease for the child's lifetime,
   heartbeating every 30 s, and SHALL forward the child's exit code.
+- While the child runs, `exec` SHALL forward `SIGTERM`, `SIGINT` and `SIGHUP`
+  to it, wait for it to exit, release the lease, and exit with the child's
+  status (128+n when the child died to signal n). If the child is still alive
+  after a kill-grace (default 5 s) from the first forwarded signal, `exec` SHALL
+  send it `SIGKILL`. A repeated signal SHALL be forwarded but SHALL NOT shorten
+  the grace (a terminal delivers the same signal to `exec` directly and through
+  the CLI wrapper). Its handlers SHALL stay installed until the lease release has
+  completed and SHALL then be removed. `exec` signals its direct child only;
+  descendants reparented by a child that exits are not reaped. `SIGKILL` of
+  `exec` itself cannot be forwarded; the lease then expires at its TTL.
 - REST read routes under `/api/services` SHALL be protected by the existing
   network guard. `GET /api/services/:id/logs` returns process output and SHALL
   instead require the same authority as mutating routes. Every mutating route SHALL additionally require an
@@ -380,6 +390,30 @@ without `--json` SHALL exit non-zero on failure. `remove --all` SHALL apply
 #### Scenario: Logs need operate although they are a read
 - **WHEN** an unauthenticated caller from a configured trusted network requests `/api/services/docling/logs`
 - **THEN** the request SHALL be refused and no output SHALL be returned
+#### Scenario: exec forwards SIGTERM and releases the lease
+- **GIVEN** `service exec docling -- <child>` is running a child that is terminated by `SIGTERM`
+- **WHEN** `exec` receives `SIGTERM`
+- **THEN** the child SHALL receive `SIGTERM`, the lease SHALL be released after it exits, and `exec` SHALL exit with 143
+- **AND** a child that handles `SIGTERM` and exits with code N SHALL make `exec` exit with N
+
+#### Scenario: A child that ignores the signal is killed after the grace
+- **GIVEN** a child that ignores `SIGTERM`
+- **WHEN** `exec` receives `SIGTERM` and the kill-grace elapses
+- **THEN** `exec` SHALL send the child `SIGKILL`, release the lease, and exit
+
+#### Scenario: A repeated signal does not escalate
+- **GIVEN** a child that ignores `SIGTERM` and a forwarded `SIGINT` is already in flight
+- **WHEN** `exec` receives `SIGINT` again immediately (a terminal Ctrl-C reaching `exec` directly and through the wrapper)
+- **THEN** the child SHALL NOT receive `SIGKILL` before the kill-grace elapses
+
+#### Scenario: Handlers do not outlive the child
+- **WHEN** the child has exited, `exec` has released the lease, and the release call has resolved
+- **THEN** no `SIGTERM`, `SIGINT` or `SIGHUP` listener added by `exec` SHALL remain registered
+
+#### Scenario: A signal during the lease release does not skip it
+- **GIVEN** the child has exited and the lease release call is in flight
+- **WHEN** `exec` receives `SIGTERM`
+- **THEN** `exec` SHALL still complete the lease release before exiting
 
 ### Requirement: Service start record
 Every dashboard start of a service, with any driver, SHALL write

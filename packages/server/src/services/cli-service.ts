@@ -6,7 +6,9 @@
  *
  * Exit rule for every verb: with `--json` exit 0 and put the outcome in the
  * payload; without it exit non-zero on failure (`ensure`: unless `healthy`).
- * `exec` forwards the child's exit code. An unreachable server yields
+ * `exec` forwards the child's exit code, and SIGTERM/SIGINT/SIGHUP to the child
+ * (SIGKILL after a 5 s grace from the first signal), releasing the lease before it
+ * exits. An unreachable server yields
  * `state: "no-server"` (produced here, never by the server).
  *
  * Secrets: `secret set` reads the value from STDIN, never argv. `exec`
@@ -29,6 +31,10 @@ import { resolveServiceSecrets } from "./secrets-resolver.js";
 import { SecretsStore } from "./secrets-store.js";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
+/** Signals `exec` forwards to its child while it runs. */
+const FORWARDED_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
+/** Grace between the first forwarded signal and SIGKILL to a child that ignores it. */
+const KILL_GRACE_MS = 5_000;
 
 export type ExecSecrets = { ok: true; values: Record<string, string> } | { ok: false; hint: string };
 
@@ -46,6 +52,13 @@ export interface ServiceCliDeps {
   /** Resolve a service's secret values locally (for `exec`). */
   resolveExecSecrets?: (id: string) => Promise<ExecSecrets>;
   spawnChild?: typeof spawn;
+  /** Where `exec` listens for SIGTERM/SIGINT/SIGHUP (default: `process`; a test seam). */
+  signalSource?: {
+    on(signal: NodeJS.Signals, handler: () => void): unknown;
+    off(signal: NodeJS.Signals, handler: () => void): unknown;
+  };
+  /** `exec`: ms from the first forwarded signal to SIGKILL of a child that ignores it (default 5000). */
+  killGraceMs?: number;
   heartbeatMs?: number;
   env?: NodeJS.ProcessEnv;
 }
@@ -382,16 +395,52 @@ export async function cmdService(args: string[], deps: ServiceCliDeps): Promise<
         beating = false;
       }
     }, deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS);
-    const code = await new Promise<number>((resolve) => {
-      child.once("error", (e) => {
-        err(`cannot run ${p.childArgv[0]}: ${e.message}`);
-        resolve(127);
-      });
-      child.once("exit", (c, signal) => resolve(c ?? (signal ? 128 + (signalNumber(signal) ?? 1) : 1)));
+    // Signal forwarding (#1103): a SIGTERM to this wrapper must reach the child, else the
+    // child is reparented and outlives the lease. The first signal arms ONE kill-grace timer
+    // (a repeat is forwarded but never shortens or re-arms it: a tty Ctrl-C reaches `exec`
+    // directly and via the bin wrapper). Handlers stay installed through the lease release
+    // (a signal then is a no-op) and are removed in `finally`.
+    // See change: harden-path-and-process-guards.
+    const source = deps.signalSource ?? process;
+    let done = false;
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    const killChild = (sig: NodeJS.Signals): void => {
+      try {
+        child.kill(sig);
+      } catch {
+        // Already dead (ESRCH): the exit path proceeds on its own.
+      }
+    };
+    const handlers = FORWARDED_SIGNALS.map((sig) => {
+      const h = (): void => {
+        if (done) return;
+        killChild(sig);
+        graceTimer ??= setTimeout(() => {
+          if (!done) killChild("SIGKILL");
+        }, deps.killGraceMs ?? KILL_GRACE_MS);
+      };
+      source.on(sig, h);
+      return [sig, h] as const;
     });
-    clearInterval(timer);
-    await call("POST", `/api/services/${encodeURIComponent(id)}/release`, { leaseId });
-    return code;
+    try {
+      const code = await new Promise<number>((resolve) => {
+        child.once("error", (e) => {
+          err(`cannot run ${p.childArgv[0]}: ${e.message}`);
+          resolve(127);
+        });
+        child.once("exit", (c, signal) => resolve(c ?? (signal ? 128 + (signalNumber(signal) ?? 1) : 1)));
+      });
+      done = true;
+      clearTimeout(graceTimer);
+      clearInterval(timer);
+      await call("POST", `/api/services/${encodeURIComponent(id)}/release`, { leaseId });
+      return code;
+    } finally {
+      done = true;
+      clearTimeout(graceTimer);
+      clearInterval(timer);
+      for (const [sig, h] of handlers) source.off(sig, h);
+    }
   }
 }
 
