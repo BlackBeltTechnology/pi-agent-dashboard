@@ -295,17 +295,74 @@ describe("CanvasDriver — chip tray slot", () => {
   });
 });
 
-describe("CanvasServerChip — long path truncates (#E16)", () => {
-  for (const p of ["", `/${"x".repeat(120)}`]) {
-    it(`address span truncates (path length ${p.length})`, () => {
-      renderTray({ ...EMPTY_CANVAS_STATE, chip: { kind: "server", port: 4321, title: "Dev", path: p } as CanvasState["chip"] });
-      const chip = screen.getByTestId("canvas-server-chip");
-      const spans = chip.querySelectorAll(":scope > span");
-      const address = spans[spans.length - 1] as HTMLElement;
-      expect(address.className).toContain("min-w-0");
-      expect(address.className).toContain("truncate");
-      expect(address.className).not.toContain("shrink-0");
-      expect((spans[0] as HTMLElement).className).toContain("truncate");
+// Chip label cap, fixed-host address, accessible name, alignment.
+// See change: fix-ui-status-indicators (D4; supersedes the old #E16 "address truncates" pin;
+// test-plan #S34-#S37).
+const chipOf = (title: string | undefined, port: number, path?: string): CanvasState => ({
+  ...EMPTY_CANVAS_STATE,
+  chip: { kind: "server", port, ...(title !== undefined ? { title } : {}), ...(path !== undefined ? { path } : {}) } as CanvasState["chip"],
+});
+const HINT = "Tap to probe 127.0.0.1 and open a restricted preview";
+
+describe("CanvasServerChip — label cap, address, accessible name", () => {
+  const LONG = "Saját jóváhagyó csoportok — A + C — a very long page title";
+
+  it("caps the label at 32ch with an ellipsis; full title + address in tooltip and accessible name", () => {
+    renderTray(chipOf(LONG, 57783, "/app"));
+    const chip = screen.getByTestId("canvas-server-chip");
+    const label = screen.getByTestId("canvas-server-chip-label");
+    expect(label.className).toContain("max-w-[32ch]");
+    expect(label.className).toContain("truncate");
+    expect(label.textContent).toBe(LONG);
+    const name = `${LONG} — 127.0.0.1:57783/app. ${HINT}`;
+    expect(chip.getAttribute("title")).toBe(name);
+    expect(chip.getAttribute("aria-label")).toBe(name);
+    expect(screen.getByRole("button", { name })).toBe(chip);
+  });
+
+  it("the 127.0.0.1:<port> part never shrinks; only the path (then the label) truncates", () => {
+    renderTray(chipOf("Dev", 4321, `/${"x".repeat(120)}`));
+    const address = screen.getByTestId("canvas-server-chip-address");
+    const [host, path] = Array.from(address.children) as HTMLElement[];
+    expect(host?.textContent).toBe("127.0.0.1:4321");
+    expect(host?.className).toContain("shrink-0");
+    expect(host?.className).not.toContain("truncate");
+    expect(path?.className).toContain("truncate");
+    expect(path?.className).toContain("min-w-0");
+    expect(screen.getByTestId("canvas-server-chip-label").className).toContain("truncate");
+  });
+
+  it("the host is the fixed probe host, never chip data", () => {
+    renderTray({
+      ...EMPTY_CANVAS_STATE,
+      chip: { kind: "server", port: 4321, title: "Dev", host: "evil.example" } as unknown as CanvasState["chip"],
     });
-  }
+    const text = screen.getByTestId("canvas-server-chip").textContent ?? "";
+    expect(text).toContain("127.0.0.1:4321");
+    expect(text).not.toContain("evil.example");
+    expect(screen.getByTestId("canvas-server-chip").getAttribute("aria-label")).not.toContain("evil.example");
+  });
+
+  it.each([undefined, "", "/"])("root/absent path %j: no trailing slash, name ends at the address then the hint", (path) => {
+    renderTray(chipOf("Dev", 57783, path));
+    expect(screen.getByTestId("canvas-server-chip-address").textContent).toBe("127.0.0.1:57783");
+    expect(screen.getByTestId("canvas-server-chip").getAttribute("aria-label")).toBe(`Dev — 127.0.0.1:57783. ${HINT}`);
+  });
+
+  it("slot tray is left-aligned; the fixed fallback stays bottom-right", () => {
+    const parent = document.createElement("div");
+    const anchor = document.createElement("div");
+    parent.append(anchor);
+    document.body.append(parent);
+    const first = renderTray(chipState, anchor);
+    const slotTray = screen.getByTestId("canvas-chip-tray");
+    expect(slotTray.className.split(/\s+/)).toContain("items-start");
+    expect(slotTray.className.split(/\s+/)).not.toContain("items-end");
+    first.unmount();
+    parent.remove();
+    renderTray(chipState);
+    const fallback = screen.getByTestId("canvas-chip-tray");
+    expect(fallback.className.split(/\s+/)).toContain("items-end");
+    expect(fallback.style.right).toBe("1rem");
+  });
 });

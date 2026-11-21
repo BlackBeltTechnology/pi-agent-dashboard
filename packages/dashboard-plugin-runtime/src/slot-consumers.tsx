@@ -17,7 +17,7 @@ import { useLocation, useRoute } from "wouter";
 import { IntentRenderer } from "./intent-renderer.js";
 import { useSlotIntents } from "./intent-store.js";
 import { sendPluginAction } from "./plugin-action-bridge.js";
-import { CurrentPluginLayer, useSlotRegistryOrNull } from "./plugin-context.js";
+import { CurrentPluginLayer, useRuntimeT, useSlotRegistryOrNull } from "./plugin-context.js";
 import { decodeFolderPath } from "./sdk.js";
 import { useShellSessionOrNull } from "./shell-sessions-context.js";
 import { useSlotClaimsVersion } from "./slot-claims-invalidation.js";
@@ -101,6 +101,9 @@ function renderClaim(
   slotId: string,
   props: Record<string, unknown>,
   fallback: React.ReactNode = null,
+  // Optional error panel for a claim that throws or fails to load (default:
+  // the boundary renders null). See change: fix-ui-status-indicators (D3).
+  errorFallback?: React.ReactNode,
 ) {
   if (!claim.Component) return null;
   const Comp = claim.Component;
@@ -108,7 +111,7 @@ function renderClaim(
   // `module`) suspends while its chunk loads and a failed load is contained
   // to this claim. Eager components never suspend. See change: lazy-plugin-claim-modules.
   return (
-    <SlotErrorBoundary key={`${claim.pluginId}:${slotId}`} pluginId={claim.pluginId} slotId={slotId}>
+    <SlotErrorBoundary key={`${claim.pluginId}:${slotId}`} pluginId={claim.pluginId} slotId={slotId} fallback={errorFallback}>
       <React.Suspense fallback={fallback}>
         <CurrentPluginLayer pluginId={claim.pluginId}>
           <Comp {...props} />
@@ -1315,13 +1318,42 @@ function ShellOverlayRouteRender({
   // top-bar shape while a lazy claim chunk loads — a "content" claim usually
   // exports a `React.lazy` route component (add-plugin-app-host D8); a
   // manifest-`module` claim suspends the same way (lazy-plugin-claim-modules).
-  const rendered = renderClaim(
-    claim as Parameters<typeof renderClaim>[0],
-    "shell-overlay-route",
-    { params, cwd, session, onBack },
-    <ContentClaimSkeleton />,
-  );
+  // A failed / missing claim is never a blank overlay: show a visible panel
+  // (naming the plugin, with Back) instead of `null`. The loading state keeps
+  // the skeleton. See change: fix-ui-status-indicators (D3).
+  const errorPanel = <OverlayClaimError pluginId={claim.pluginId} onBack={onBack} />;
+  const rendered = claim.Component
+    ? renderClaim(
+        claim as Parameters<typeof renderClaim>[0],
+        "shell-overlay-route",
+        { params, cwd, session, onBack },
+        <ContentClaimSkeleton />,
+        errorPanel,
+      )
+    : errorPanel;
   return <div className="absolute inset-0 flex flex-col overflow-hidden">{rendered}</div>;
+}
+
+/** Visible failure for an overlay claim that has no component, failed to load or threw. */
+function OverlayClaimError({ pluginId, onBack }: { pluginId: string; onBack: () => void }) {
+  const t = useRuntimeT();
+  return (
+    <div className="flex flex-col h-full" data-testid="overlay-claim-error" role="alert">
+      <div className="shrink-0 flex items-center gap-3 px-3 py-2 border-b border-[var(--border-secondary)]">
+        <button
+          type="button"
+          data-testid="overlay-claim-error-back"
+          onClick={onBack}
+          className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+        >
+          {t("common.back22", undefined, "← Back")}
+        </button>
+      </div>
+      <div className="p-4 text-sm text-[var(--text-secondary)]">
+        {t("overlayClaim.failed", { plugin: pluginId }, "This panel could not be loaded ({plugin}). Go back and try again.")}
+      </div>
+    </div>
+  );
 }
 
 function ContentClaimSkeleton() {

@@ -38,7 +38,7 @@ import {
   deleteAutomation,
   getAutomationDefinition,
   getRunResult,
-  listAutomations,
+  fetchAutomations,
   listRuns,
   runAutomationNow,
   type StopRunResult,
@@ -108,7 +108,8 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
   const invalidRoute = !!params?.encodedCwd && cwd === undefined;
   const repoCrumb = cwd ? cwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || cwd : undefined;
   const [automations, setAutomations] = useState<DiscoveredAutomation[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  // `loading` only on initial load / cwd change / Retry; mutation refreshes revalidate in place.
+  const [loadState, setLoadState] = useState<"loading" | "error" | "ready">("loading");
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -128,14 +129,30 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
   const [reloadKey, setReloadKey] = useState(0);
   const [openResult, setOpenResult] = useState<{ title: string; text: string } | null>(null);
 
+  // A cwd change is an initial-load trigger: clear the stale list during render
+  // (no frame of the old folder's cards) and block on `loading`.
+  const [prevCwd, setPrevCwd] = useState(cwd);
+  if (prevCwd !== cwd) {
+    setPrevCwd(cwd);
+    setAutomations([]);
+    setRuns([]);
+    setLoadState("loading");
+  }
+
   useEffect(() => {
     if (invalidRoute) return;
-    let cancelled = false;
+    let cancelled = false; // last-request-wins: a stale cwd/Retry/refresh result is ignored
     async function load() {
-      const a = await listAutomations(cwd);
+      const res = await fetchAutomations(cwd).catch(() => ({ ok: false as const, error: "request failed" }));
       if (cancelled) return;
-      setAutomations(a);
-      setLoaded(true);
+      if (!res.ok) {
+        setAutomations([]);
+        setRuns([]);
+        setLoadState("error");
+        return;
+      }
+      setAutomations(res.automations);
+      setLoadState("ready");
       // The listing tags every record with its scope; older servers do not, so
       // fill it from the request (same-named folder/global automations must
       // keep separate histories).
@@ -150,6 +167,10 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
   }, [cwd, reloadKey, invalidRoute]);
 
   const refresh = () => setReloadKey((k) => k + 1);
+  const retry = () => {
+    setLoadState("loading");
+    refresh();
+  };
 
   /** Runs per (scope, name), newest first. */
   const runsByKey = useMemo(() => {
@@ -299,8 +320,19 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
 
         <section data-testid="automation-list">
           <h3 className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">{t("definitions", undefined, "Definitions")}</h3>
-          {automations.length === 0 ? (
-            loaded && (
+          {loadState === "loading" ? (
+            <p data-testid="automation-loading" role="status" aria-busy="true" className="text-xs text-[var(--text-secondary)]">
+              {t("loading", undefined, "Loading automations…")}
+            </p>
+          ) : loadState === "error" ? (
+            <div data-testid="automation-error" role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-4">
+              <p className="text-sm font-semibold text-[var(--severity-error-fg)]">{t("loadFailed", undefined, "Could not load automations.")}</p>
+              <button type="button" data-testid="automation-retry" onClick={retry} className={cardButtonClass("primary")}>
+                {t("retry", undefined, "Retry")}
+              </button>
+            </div>
+          ) : automations.length === 0 ? (
+            loadState === "ready" && (
               <div data-testid="automation-empty" className="flex flex-col items-start gap-2 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-4">
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{t("noAutomations", undefined, "No automations in this folder.")}</p>
                 <p className="text-xs text-[var(--text-secondary)]">

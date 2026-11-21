@@ -85,6 +85,17 @@ describe("SessionCard ended reason (F7)", () => {
     else expect(pill.textContent?.trim()).toBe(label);
   });
 
+  it("ended + hasError keeps the reason pill and never shows Failed (fix-ui-status-indicators D2, S10)", () => {
+    const session = makeSession({ closedReason: "process_gone" });
+    const { container } = render(
+      <ThemeProvider>
+        <SessionCard session={session} {...defaultProps} hasError />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId(`session-ended-reason-${session.id}`)).toBeTruthy();
+    expect(container.textContent).not.toContain("Failed");
+  });
+
   it("an out-of-vocabulary closedReason falls back to `unknown` without crashing", () => {
     // Wire frames are unvalidated. `"constructor"`/`"toString"` are inherited
     // `Object.prototype` keys: an `in` check accepts them and resolves the map to
