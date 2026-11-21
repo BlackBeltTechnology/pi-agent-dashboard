@@ -57,12 +57,13 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const onIndeterminate = ctx.consume<(info: IndeterminateInfo) => void>(HOST_CWD_ADMISSION_LOG);
   const admitOptions = { onIndeterminate };
 
-  mountKbRoutes(ctx.fastify, { knownCwds, registry, holdCwdDenial: ctx.holdCwdDenial, admitOptions });
+  mountKbRoutes(ctx.fastify, { knownCwds, registry, holdCwdDenial: ctx.holdCwdDenial, admitOptions, logger: ctx.logger });
 
   /** Start a background reindex unless one is running or a precondition refuses it
-   *  (design D9: same preconditions as REST — refuse, log, create nothing). */
+   *  (design D9: same preconditions as REST — refuse, log, create nothing). A job that is
+   *  cancelling does not count as running: the request queues behind it (kb-plugin-index-jobs). */
   const startReindex = (cwd: string, refusalPrefix: string): void => {
-    if (registry.isRunning(cwd)) return;
+    if (registry.willCoalesce(cwd)) return;
     const refused = preflightWrite(cwd, { needsSources: true });
     if (refused) {
       ctx.logger.warn(`${refusalPrefix} cwd=${cwd}: ${refused}`);

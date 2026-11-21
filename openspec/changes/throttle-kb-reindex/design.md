@@ -72,6 +72,19 @@ Baseline premise check (1.3): max lag ≈ 4.7–5.1 s ≫ 250 ms — the premise
 
 After (3.7/3.8, in-process, time budget): max lag fell from 4.4–5.1 s to 106–277 ms (p99 97–108 ms) — a ≈ 20–45× reduction — at 938–1005 commits instead of 30 (≈ 3 files per 50 ms batch). Wall regression vs count-only batching: +3.3 % on the paired guard run (66.1 s → 68.3 s; run #1 was 63.0 s — run-to-run noise on this loaded machine is ± 7 %), inside the 15 % guard, so `INDEX_BATCH_MAX_MS` stays 50. Deviation from the expectation in 3.7/3.8 ("in-process lag > 200 ms is expected"): the in-process max lag was 106 ms in one run and 277 ms in the other — the time budget alone lands at/near the ~200 ms target on this corpus and machine. The 277 ms outlier was not attributed (candidates, unverified: the post-walk single-statement sweeps `listPaths`/`sweepPlaceholders`, GC, load from other processes on the shared machine; the budget cannot split the sweeps — see Risks). The worker (section 4) still owns the guarantee under load and for slower disks/CPUs. `reindex-measure` / the S75 guard print the numbers; both are opt-in (`KB_MEASURE=1`) and non-gating.
 
+**Worker mode (4.58–4.61).** Same corpus (3250 files ⇒ 3000 indexed, 51390 chunks) through `reindexAll` on a real reindex worker (first-index path: temp file → atomic install), main-thread lag via `withEventLoopLag` (`monitorEventLoopDelay`, resolution 10 ms) over the whole pass; `KB_MEASURE=1 npx vitest run reindex-measure` in `packages/kb-plugin` (`src/server/__tests__/reindex-measure.test.ts`). Same machine, load average 4.5–11 (other work running).
+
+| Run | Mode | files | chunks | wall ms | main max lag ms |
+|---|---|---|---|---|---|
+| worker #1 (4.61) | worker | 3000 | 51390 | 69753 | 15.97 |
+| worker #2 (4.61) | worker | 3000 | 51390 | 65357 | 15.43 |
+| in-process, same session (`measureReindex`, budget on) | in-process | 3000 | 51390 | 69134 | 128.2 (p99 101.8; 990 commits) |
+
+- **Lag:** worker mode main-thread max lag **15–16 ms** (≈ the 10 ms timer resolution plus noise) vs the 200 ms target and vs 4.4–5.1 s before the change — `resolveSpecs` and spawn/message handling leave no measurable residual on main. Target met (≥ 12× margin).
+- **Throughput:** worker wall 65.4–69.8 s vs the recorded in-process baselines 66.8–70.9 s (96–105 %) and vs the same-session in-process 69.1 s (95–101 %); guard ≤ 115 % met.
+- **Concurrent reads (4.60):** `KB_MEASURE=1 … kb-search-perf` (20-file seeded store, then an in-place worker pass over the 3000-file corpus while the main thread alternates `/api/kb/search` and `/api/kb/stats`): 3066 calls, **0 failed calls / 0 `SQLITE_BUSY`**; stats p95 16.5 ms (max 23.7 ms); search p95 68.5 ms (max 105 ms) vs **61.1 ms for the same search with no writer** (control, run after the pass). The `< 50 ms` search target is therefore NOT met at 51k chunks on this machine even with no writer — it is index size + route cost, not writer contention (the writer adds ≈ 7 ms, ≈ 12 %). The test asserts 0 failed calls plus p95 ≤ max(50 ms, 2 × the no-writer control); the 50 ms absolute is a follow-up for search itself, outside this change. An earlier run at load average 12–26 showed search p95 94–141 ms against a control of 75–85 ms — the ratio, not the absolute, is the signal.
+- Small-corpus default test (`kb-search-perf` S61, 600 files, no opt-in): each call < max(50 ms, 4 × no-writer p95); 0 errors; row/file counts non-decreasing.
+
 ## Risks / Trade-offs
 
 - Narrow hash ⇒ a missed row-producing change leaves stale rows until `SCHEMA_VERSION`/options bump or file edit → guard test + review.

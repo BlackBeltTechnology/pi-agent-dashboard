@@ -76,6 +76,25 @@ describe("kb plugin_action handler", () => {
     expect(reindexAll).toHaveBeenCalledWith("/w/repo", expect.anything(), expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
+  it("S36: a reindex action arriving while the job is cancelling is queued behind it, not dropped", async () => {
+    let finishFirst!: (e: Error) => void;
+    reindexAll.mockImplementationOnce(
+      (async () => new Promise((_res, rej) => (finishFirst = rej))) as never,
+    );
+    const { handler } = await setup();
+    handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
+    await tick();
+    expect(reindexAll).toHaveBeenCalledTimes(1);
+    // The folder vanishing is the in-process cancel source the job wires through `onFolderGone`.
+    (reindexAll.mock.calls[0] as unknown as [string, unknown, { onFolderGone: () => void }])[2].onFolderGone();
+    handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
+    await tick();
+    expect(reindexAll).toHaveBeenCalledTimes(1); // waits for the cancelling job to settle
+    finishFirst(Object.assign(new Error("reindex cancelled"), { name: "AbortError" }));
+    await tick();
+    expect(reindexAll).toHaveBeenCalledTimes(2); // one fresh job — not lost, not duplicated
+  });
+
   it("config.set reaches the applyConfigPatchAndTrust core", async () => {
     const { handler } = await setup();
     handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { include: ["docs"] } } });

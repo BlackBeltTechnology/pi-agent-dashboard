@@ -16,10 +16,12 @@
  *    `<db>.tmp-<pid>` + `-wal`/`-shm`: a worker shares the server's PID, so `sweepOrphanTemps` /
  *    `isFirstIndexLive` (which skip the own PID) would never reclaim it.
  *
- * One structured line per job is logged on settle (`mode`, outcome, …).
+ * One structured line per job is logged on settle ({@link formatJobLine}): mode, sources, files, chunks,
+ * wall ms, spawn→first-progress ms (worker mode), the main thread's maximum event-loop delay, outcome.
  */
 
 import { rmSync } from "node:fs";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { Worker } from "node:worker_threads";
 import type { KbReindexResult } from "../shared/kb-plugin-types.js";
 import { errMsg, type ReindexCoreHooks, type ReindexCoreInput, runReindexCore } from "./reindex-core.js";
@@ -75,8 +77,15 @@ class WorkerCrash extends Error {
 }
 
 type WorkerEnd = { kind: "result"; value: KbReindexResult } | { kind: "fallback"; reason: string };
-type Outcome = "ok" | "error" | "cancelled" | "crashed";
+export type Outcome = "ok" | "error" | "cancelled" | "crashed";
 type WorkerMessage = { kind?: string; [k: string]: unknown };
+
+/** Per-job bookkeeping behind the telemetry line. */
+interface RunState {
+  mode: "worker" | "inprocess";
+  spawnAt?: number;
+  firstProgressMs?: number;
+}
 
 interface Live {
   terminateNow(): void;
@@ -90,7 +99,30 @@ function unlinkFirstIndexTemp(dbPath: string): void {
   for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true });
 }
 
-const outcomeOf = (e: unknown): Outcome => {
+/** Every worker log line carries the `[kb-plugin]` prefix (the core's own lines already do). */
+const prefixed = (message: string): string => (message.startsWith("[kb-plugin]") ? message : `[kb-plugin] ${message}`);
+
+export interface JobLineFields {
+  mode: "worker" | "inprocess";
+  sources: number;
+  files: number;
+  chunks: number;
+  wallMs: number;
+  /** Worker spawn → first progress message; `undefined` in-process, `null` when the worker sent none. */
+  firstProgressMs?: number | null;
+  /** Main-thread maximum event-loop delay over the job (ms). */
+  lagMs: number;
+  outcome: Outcome;
+  cwd: string;
+}
+
+/** The single structured per-job line (kb-plugin-index-jobs: "Reindex progress and job telemetry"). */
+export function formatJobLine(f: JobLineFields): string {
+  const spawn = f.firstProgressMs === undefined ? "" : ` first_progress_ms=${f.firstProgressMs ?? "-"}`;
+  return `[kb-plugin] reindex mode=${f.mode} sources=${f.sources} files=${f.files} chunks=${f.chunks} ms=${f.wallMs}${spawn} lag_ms=${f.lagMs} outcome=${f.outcome} cwd=${f.cwd}`;
+}
+
+export const outcomeOf = (e: unknown): Outcome => {
   if (isAbortError(e) || (e instanceof Error && e.name === "KbIndexAborted")) return "cancelled";
   return e instanceof WorkerCrash ? "crashed" : "error";
 };
@@ -216,7 +248,7 @@ class WorkerJob {
         this.hooks.onProgress?.(m.progress as never);
         return;
       case "log":
-        (m.level === "warn" ? this.hooks.log?.warn : this.hooks.log?.info)?.call(this.hooks.log, String(m.message));
+        (m.level === "warn" ? this.hooks.log?.warn : this.hooks.log?.info)?.call(this.hooks.log, prefixed(String(m.message)));
         return;
       case "result":
         this.terminal = true;
@@ -254,15 +286,20 @@ export function createReindexRunner(o: ReindexRunnerOptions = {}): ReindexRunner
   }
 
   /** Worker first; the same core in-process when the kill-switch is set or the worker failed to load. */
-  async function execute(input: ReindexCoreInput, hooks: ReindexCoreHooks, state: { mode: "worker" | "inprocess" }): Promise<KbReindexResult> {
+  async function execute(input: ReindexCoreInput, hooks: ReindexCoreHooks, state: RunState): Promise<KbReindexResult> {
     const { log, signal } = hooks;
     if (signal?.aborted) throw abortError();
     if (live.has(input.cwd)) throw new Error(`a reindex worker is already running for ${input.cwd}`);
     if (useWorker()) {
       state.mode = "worker";
-      const end = await runInWorker(input, hooks);
+      state.spawnAt = Date.now();
+      const end = await runInWorker(input, { ...hooks, onProgress: (p) => {
+        state.firstProgressMs ??= Date.now() - (state.spawnAt as number);
+        hooks.onProgress?.(p);
+      } });
       if (end.kind === "result") return end.value;
       state.mode = "inprocess";
+      delete state.firstProgressMs;
       if (signal?.aborted) throw abortError();
       log?.warn(`[kb-plugin] reindex worker failed to load (${end.reason}); running this job in-process`);
     }
@@ -271,18 +308,35 @@ export function createReindexRunner(o: ReindexRunnerOptions = {}): ReindexRunner
 
   async function run(input: ReindexCoreInput, hooks: ReindexCoreHooks = {}): Promise<KbReindexResult> {
     const t0 = Date.now();
-    const state = { mode: "inprocess" as "worker" | "inprocess" };
+    const state: RunState = { mode: "inprocess" };
+    const lag = monitorEventLoopDelay({ resolution: 10 });
+    lag.enable();
     let outcome: Outcome = "ok";
+    let files = 0;
     let chunks = 0;
     try {
       const value = await execute(input, hooks, state);
+      files = value.changed;
       chunks = value.chunks;
       return value;
     } catch (e) {
       outcome = outcomeOf(e);
       throw e;
     } finally {
-      hooks.log?.info(`[kb-plugin] reindex mode=${state.mode} sources=${input.sources.length} chunks=${chunks} ms=${Date.now() - t0} outcome=${outcome} cwd=${input.cwd}`);
+      lag.disable();
+      hooks.log?.info(
+        formatJobLine({
+          mode: state.mode,
+          sources: input.sources.length,
+          files,
+          chunks,
+          wallMs: Date.now() - t0,
+          ...(state.mode === "worker" ? { firstProgressMs: state.firstProgressMs ?? null } : {}),
+          lagMs: Math.round(lag.max / 1e6),
+          outcome,
+          cwd: input.cwd,
+        }),
+      );
     }
   }
 

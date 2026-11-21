@@ -889,6 +889,111 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       echo "WARN: docker compose overlay config failed or docker unavailable; skipping D2 config assertion"
     fi
 
+    # --- kb reindex runs on a worker thread from the installed layout (test-plan #S80) -------
+    # See change: throttle-kb-reindex (D3, task 4.64).
+    #
+    # The server spawns `reindex-worker.mjs` (beside the kb-plugin server entry), which loads the
+    # TypeScript sources through the shared per-thread hooks. A packaging gap (missing file, unresolved
+    # kb export) never fails a reindex — the runner falls back to the in-process core with a warning —
+    # so only the `mode=worker` job line and the ABSENCE of the load-failure warning prove the worker
+    # loaded in THIS layout. Process-level only: no rendered-UI assertion.
+    #
+    # `pi-dashboard api` mints local proof (a bare curl is refused by `requireLocalProof`); the folder is
+    # admitted by pinning it in preferences.json, written while the server is stopped (a running server
+    # rewrites that file from memory), then booted fresh.
+    pi-dashboard stop >/dev/null 2>&1 || true
+    sleep 2
+    KBW_DIR="$(mktemp -d)"
+    KBW_DIR="$(cd "$KBW_DIR" && pwd -P)"
+    mkdir -p "$KBW_DIR/docs" "$KBW_DIR/.pi/dashboard"
+    for KBW_I in 1 2 3 4 5; do
+      printf '# Doc %s\n\nSearchable content about widgets and gadgets, section %s.\n' "$KBW_I" "$KBW_I" > "$KBW_DIR/docs/d$KBW_I.md"
+    done
+    printf '{"sources":[{"kind":"filesystem","ref":"docs"}]}' > "$KBW_DIR/.pi/dashboard/knowledge_base.json"
+    KBW_PREFS="$HOME/.pi/dashboard/preferences.json"
+    KBW_PREFS_BACKUP=""
+    if [ -f "$KBW_PREFS" ]; then
+      KBW_PREFS_BACKUP="$(mktemp)"
+      cp "$KBW_PREFS" "$KBW_PREFS_BACKUP"
+    fi
+    restore_kbw() {
+      pi-dashboard stop >/dev/null 2>&1 || true
+      rm -rf "$KBW_DIR"
+      if [ -n "$KBW_PREFS_BACKUP" ]; then
+        cp "$KBW_PREFS_BACKUP" "$KBW_PREFS"
+        rm -f "$KBW_PREFS_BACKUP"
+      else
+        rm -f "$KBW_PREFS"
+      fi
+    }
+    trap 'restore_config; restore_kbw; cleanup' EXIT
+    node -e '
+      const fs = require("fs");
+      let j = {};
+      try { j = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch {}
+      j.pinnedDirectories = [...(Array.isArray(j.pinnedDirectories) ? j.pinnedDirectories : []), process.argv[2]];
+      fs.mkdirSync(require("path").dirname(process.argv[1]), { recursive: true });
+      fs.writeFileSync(process.argv[1], JSON.stringify(j, null, 2));
+    ' "$KBW_PREFS" "$KBW_DIR"
+    if ! boot_with_config '{"port":8000}'; then
+      echo "FAIL (#S80): server did not come up for the kb worker smoke"
+      exit 1
+    fi
+    KBW_Q=$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$KBW_DIR")
+    KBW_RESP=$(pi-dashboard api POST "/api/kb/reindex?cwd=$KBW_Q" 2>&1 || true)
+    if ! printf '%s' "$KBW_RESP" | grep -q '"status":"running"'; then
+      echo "FAIL (#S80): POST /api/kb/reindex did not register a job: $KBW_RESP"
+      exit 1
+    fi
+    KBW_STATE="running 0"
+    KBW_WAITED=0
+    while [ $KBW_WAITED -lt 60 ]; do
+      KBW_STATS=$(pi-dashboard api GET "/api/kb/stats?cwd=$KBW_Q" 2>&1 || true)
+      KBW_STATE=$(printf '%s' "$KBW_STATS" | node -e '
+        let d = "";
+        process.stdin.on("data", (c) => (d += c));
+        process.stdin.on("end", () => {
+          try { const j = JSON.parse(d); process.stdout.write(`${j.jobStatus} ${j.files}`); }
+          catch { process.stdout.write("unparsed 0"); }
+        });
+      ')
+      case "$KBW_STATE" in
+        running*|unparsed*) ;;
+        *) break ;;
+      esac
+      sleep 1
+      KBW_WAITED=$((KBW_WAITED + 1))
+    done
+    KBW_STATUS="${KBW_STATE%% *}"
+    KBW_FILES="${KBW_STATE##* }"
+    if [ "$KBW_STATUS" != "idle" ] || [ "${KBW_FILES:-0}" -lt 1 ] 2>/dev/null; then
+      echo "FAIL (#S80): kb reindex did not complete idle with files > 0 within 60s (jobStatus/files: $KBW_STATE)"
+      grep -F '[kb-plugin]' "$LOG_PATH" | tail -10 || true
+      exit 1
+    fi
+    KBW_LINES=$(grep -F 'reindex mode=' "$LOG_PATH" || true)
+    KBW_LINE_COUNT=$(printf '%s' "$KBW_LINES" | grep -c . || true)
+    if [ "$KBW_LINE_COUNT" != "1" ]; then
+      echo "FAIL (#S80): expected exactly 1 kb job line in server.log, got $KBW_LINE_COUNT"
+      grep -F '[kb-plugin]' "$LOG_PATH" | tail -10 || true
+      exit 1
+    fi
+    if ! printf '%s' "$KBW_LINES" | grep -qF 'mode=worker'; then
+      echo "FAIL (#S80): the kb job ran in-process, not on the worker: $KBW_LINES"
+      grep -F '[kb-plugin]' "$LOG_PATH" | tail -10 || true
+      exit 1
+    fi
+    if ! printf '%s' "$KBW_LINES" | grep -qF 'outcome=ok'; then
+      echo "FAIL (#S80): the kb job did not end outcome=ok: $KBW_LINES"
+      exit 1
+    fi
+    if grep -qF 'reindex worker failed to load' "$LOG_PATH"; then
+      echo "FAIL (#S80): server.log reports a kb reindex worker load error"
+      grep -F 'reindex worker failed to load' "$LOG_PATH" | head -3
+      exit 1
+    fi
+    echo "#S80: kb reindex completed on a worker thread (mode=worker, files=$KBW_FILES, no load error)"
+
     echo "PASS: Server started successfully"
     exit 0
   fi

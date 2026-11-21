@@ -154,6 +154,20 @@ describe("KbJobRegistry cancel (S32-S35, S67)", () => {
     expect(registry.statusFor("/c")).toBe("idle");
   });
 
+  it("willCoalesce: idle false, running true, cancelling false (a start then queues instead of joining)", async () => {
+    const registry = new KbJobRegistry();
+    const job = fakeJob({ changed: 0, chunks: 0 });
+    expect(registry.willCoalesce("/c")).toBe(false);
+    registry.start("/c", job.fn).promise.catch(() => {});
+    await tick();
+    expect(registry.willCoalesce("/c")).toBe(true);
+    registry.cancel("/c");
+    expect(registry.willCoalesce("/c")).toBe(false);
+    job.release("abort");
+    await tick();
+    expect(registry.willCoalesce("/c")).toBe(false);
+  });
+
   it("S35 start while cancelling waits for the old job to settle, then runs once as a fresh job", async () => {
     const registry = new KbJobRegistry();
     const a = fakeJob({ changed: 0, chunks: 0 });

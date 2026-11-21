@@ -73,6 +73,12 @@ export class KbJobRegistry {
     return this.inflight.has(cwd);
   }
 
+  /** True when a `start` for `cwd` would coalesce onto the running job: it runs and is not cancelling (a cancelling
+   *  job is not joined — the request queues behind it instead of being dropped). */
+  willCoalesce(cwd: string): boolean {
+    return this.inflight.has(cwd) && !this.isCancelling(cwd);
+  }
+
   /** True while `cwd`'s running job has been asked to stop but has not settled yet. */
   isCancelling(cwd: string): boolean {
     return this.active.get(cwd)?.cancelling === true;

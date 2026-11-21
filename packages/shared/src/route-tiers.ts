@@ -359,6 +359,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/git/worktree/remove-batch", tier: "control" },
   { method: "POST", path: "/api/grammar/check", tier: "observe" },
   { method: "POST", path: "/api/kb/reindex", tier: "operate" },
+  { method: "POST", path: "/api/kb/reindex/cancel", tier: "operate" },
   { method: "POST", path: "/api/kb/source-trust", tier: "operate" },
   { method: "POST", path: "/api/known-servers", tier: "operate" },
   { method: "POST", path: "/api/known-servers/accept-move", tier: "operate" },
