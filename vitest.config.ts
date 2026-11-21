@@ -163,6 +163,9 @@ export default defineConfig({
       // ship-it's pure decision helpers. Added by wire-local-review-gate: they
       // gate real ship decisions but were collected by no project before.
       ".pi/skills/ship-it",
+      // ship-batch: scheduler / outcome / lock / args + the runner through injected
+      // adapters. Added by add-ship-batch-orchestrator.
+      ".pi/skills/ship-batch",
       // switch-extension-source script: its prune rule guards the bridge
       // from empty-filter shadowing. Added by fix-switch-source-empty-overlay.
       ".pi/skills/switch-extension-source",

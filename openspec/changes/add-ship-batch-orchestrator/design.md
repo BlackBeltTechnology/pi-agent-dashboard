@@ -253,9 +253,12 @@ common prefix confirmed no live session, and only where the table allows.
   stay on disk with an archived session; the report lists every kept path.
 - **Parallel merges race on `develop`** → `ship-it` §2.5 merges `origin/develop`
   before its harness; conflicts surface as a question or `SHIP_IT_BLOCKED.md`.
-- **`/skill:ship-it` via `initialPrompt`** is unproven → task 1.2 is a gating
-  spike before implementation; fallback prompt "Run the ship-it skill for change
-  <change>." (ship-it auto-loads on its triggers).
+- **`/skill:ship-it` via `initialPrompt`** → spike 1.2 **confirmed (2026-11-21)**:
+  bus `spawn({cwd, initialPrompt:"/skill:<name>"})` in a throwaway dir with a
+  project skill produced a session whose first user turn is the expanded
+  `<skill name=… location=…>` block (the same path the Initialize button uses for
+  `/skill:project-init`). No fallback prompt needed; the nudge text (E16) is plain
+  prose and is not expected to expand.
 - **More ship-it questions** → interactive ship-it also asks at §4.4b (CodeQL
   alerts, script error) and §4.5 (review cap / hand back); each pins its session
   by design.
