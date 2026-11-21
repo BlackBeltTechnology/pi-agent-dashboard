@@ -77,10 +77,10 @@ Card render tests target the existing `SessionCard-status-shape.test.tsx` (there
 
 ## 5. Verify and land
 
-- [ ] 5.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary; `npm run quality:changed`
-- [ ] 5.2 Client + `dashboard-plugin-runtime` changes: `npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts`; check `curl -s http://localhost:8000/api/health | jq .mode`
+- [x] 5.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary; `npm run quality:changed`
+- [x] 5.2 Client + `dashboard-plugin-runtime` changes: `npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts`; check `curl -s http://localhost:8000/api/health | jq .mode`
 - [ ] 5.3 Errored idle card in light + dark theme: `Failed` glyph/colour reads as error (test-plan #S43) (test-plan: manual-only)
 - [ ] 5.4 Token arrow direction reads naturally on every surface: header `TokenStatsBar`, session card, board row, minimal chat header, flow card (test-plan #S44) (test-plan: manual-only)
-- [ ] 5.5 Manual smoke: card with error shows Failed in Failed lane; board in error state (stop server route / 503); chip with long title
-- [ ] 5.6 `review-code` pass on the diff
-- [ ] 5.7 `npx openspec validate fix-ui-status-indicators --strict` and `node scripts/check-conventions.mjs`
+- [x] 5.5 Manual smoke: card with error shows Failed in Failed lane; board in error state (stop server route / 503); chip with long title
+- [x] 5.6 `review-code` pass on the diff
+- [x] 5.7 `npx openspec validate fix-ui-status-indicators --strict` and `node scripts/check-conventions.mjs`
