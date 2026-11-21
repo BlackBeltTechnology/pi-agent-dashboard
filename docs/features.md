@@ -213,6 +213,18 @@ Derived from README.md + openspec/specs/ (562 capabilities).
 - ui-proxy wrapping of `ctx.ui.*`.
 - `dashboard:ui` events (`confirm`/`select`/`input`/`notify`).
 
+## Sudo credential prompt
+
+- `sudo` in agent bash / `!` commands asks operator for password. Dashboard modal via `SUDO_ASKPASS` helper.
+- Default on. Off: `sudoCredentialPrompt.enabled=false`. Windows no-op.
+- Modal shows session, every in-flight bash command, sudo prompt text (escaped, labelled "text supplied by the command").
+- Cancel / Esc → sudo fails. Unanswered → sudo fails after `timeoutMs` (default 120 s).
+- Password in RAM only. Never in transcript, logs, replay. Verbatim echo masked `[REDACTED:SUDO_PASSWORD]`.
+- Cache: `cacheMinutes` (default 5, 0 off). Forget chip per session clears cache.
+- Any authenticated session-owner browser may answer, incl. plain-HTTP LAN.
+- macOS verified (sudo 1.9.17p2). Linux sudo / sudo-rs unverified.
+- Security detail: `security/tool-call-guards.md` C9a, `security/credentials-and-secrets.md` (flow c). See change: add-sudo-credential-prompt.
+
 ## Subagents
 
 - Subagent inspector. Inline expand + popout overlay route.

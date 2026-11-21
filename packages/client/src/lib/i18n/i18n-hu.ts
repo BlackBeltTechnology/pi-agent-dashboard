@@ -1074,7 +1074,7 @@ export const huCatalog: Record<string, string> = {
   "sudo.errorConnection": "A kapcsolat megszakadt — próbáld újra újrakapcsolódás után.",
   "sudo.forget": "sudo jelszó elfelejtése ({session})",
   "settings.sudoCredential": "Sudo jelszó kérése",
-  "settings.sudoCredentialBody": "Ha egy ügynöki parancs sudo-t igényel, a jelszót itt kérjük be a hiba helyett. A jelszó közvetlenül a sudo-nak kerül, és csak a szerver memóriájában tárolódik.",
+  "settings.sudoCredentialBody": "Ha egy ügynöki parancs sudo-t igényel, a jelszót itt kérjük be a hiba helyett. A jelszó közvetlenül a sudo-nak kerül, és csak néhány percig az ügynök-munkamenet memóriájában marad, lemezre sosem kerül.",
   "settings.sudoCredentialEnabled": "sudo jelszó bekérése a vezérlőpulton",
   "settings.sudoCredentialTimeout": "Válaszidő (másodperc)",
   "settings.sudoCredentialTimeoutHint": "5–600 másodperc. Ha nincs válasz időben, a sudo hívás sikertelen, de a későbbi kérések nem blokkolódnak.",

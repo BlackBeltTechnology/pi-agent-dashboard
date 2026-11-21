@@ -46,7 +46,7 @@ export function SudoCredentialSection({
         {t(
           "settings.sudoCredentialBody",
           undefined,
-          "When an agent command needs sudo, ask for the password here instead of failing. The password goes straight to sudo and is only cached in server memory.",
+          "When an agent command needs sudo, ask for the password here instead of failing. The password goes straight to sudo and is only kept in the agent session's memory for a few minutes, never written to disk.",
         )}
       </p>
       <label className="flex items-center gap-2 text-sm text-[var(--text-primary)]">

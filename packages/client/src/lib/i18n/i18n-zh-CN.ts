@@ -560,7 +560,7 @@ export const zhCNCatalog: Record<string, string> = {
   "sudo.errorConnection": "连接已断开 — 请在重新连接后重试。",
   "sudo.forget": "忘记 sudo 密码（{session}）",
   "settings.sudoCredential": "sudo 密码提示",
-  "settings.sudoCredentialBody": "当智能体命令需要 sudo 时，在此询问密码而不是直接失败。密码直接交给 sudo，仅缓存在服务器内存中。",
+  "settings.sudoCredentialBody": "当智能体命令需要 sudo 时，在此询问密码而不是直接失败。密码直接交给 sudo，仅在智能体会话内存中保留几分钟，绝不写入磁盘。",
   "settings.sudoCredentialEnabled": "在仪表板中询问 sudo 密码",
   "settings.sudoCredentialTimeout": "答复时限（秒）",
   "settings.sudoCredentialTimeoutHint": "5–600 秒。超时未答复将使该 sudo 调用失败，但不会阻塞后续提示。",

@@ -33,7 +33,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `embedding-chat-view.md` | Subpath export `@blackbelt-technology/pi-dashboard-web/chat-embed` mounts live chat in sibling workspace. → see `embedding-chat-view.md.AGENTS.md` |
 | `examples/c4-example.md` | C4-model diagram example. Mermaid fenced blocks: `C4Context`, `C4Container`. → see `examples/c4-example.md.AGENTS.md` |
 | `faq.md` | Recurring how-to + troubleshooting Q&A. Caveman style. See change: harden-bridge-inbound-and-discovery, encrypt-credentials-at-rest. → see `faq.md.AGENTS.md` |
-| `features.md` | Full feature catalog. 562 capabilities. Derived from README.md + openspec/specs/. Categorized by surface. Source for end-user subset → docs/user-features.md. See change: scope-anchor-editor-pane-controls. |
+| `features.md` | Full feature catalog. 562 capabilities. Derived from README.md + openspec/specs/. Categorized by surface. Source for end-user subset → docs/user-features.md. See change: scope-anchor-editor-pane-controls, add-sudo-credential-prompt. |
 | `heap-limits.md` | V8 heap reference. Config keys `sessionHeap` (`maxOldSpaceMb` 512, `initialOldSpaceMb`, `maxSemiSpaceMb`) +… → see `heap-limits.md.AGENTS.md` |
 | `grammar-checker.md` | User + dev feature doc. LLM grammar + spelling + style check for composer + OpenSpec Explore/New Change… Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. → see `grammar-checker.md.AGENTS.md` |
 | `grammar-model-guidance.md` | Recommended LLM models for composer grammar check + latency/quality/cost tradeoffs. → see `grammar-model-guidance.md.AGENTS.md` |
