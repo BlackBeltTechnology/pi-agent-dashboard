@@ -587,14 +587,22 @@ export function createDirectoryService(
     return root;
   }
 
-  /** `.pi/skills/openspec-explore/` exists at the resolved config root. */
+  /**
+   * `openspec-explore` skill exists at the resolved config root, in either
+   * layout: legacy `.pi/skills/` or the committed shared `.agents/skills/`.
+   * Legacy first, short-circuited — the common case costs one stat. Config
+   * root only: no walk up ancestor `.agents/skills/` dirs.
+   */
   function hasOpenSpecSkillsFor(cwd: string): boolean {
     const root = configRootFor(cwd);
     // `null` (bare hub / worktree-of-bare / unresolved probe) is a REFUSAL,
     // never coerced to cwd (D5): probing under cwd would adopt whatever
     // `.pi/` tree happens to live there.
     if (root === null) return false;
-    return statMtimeOr(path.join(root, ".pi", "skills", "openspec-explore")) !== undefined;
+    return (
+      statMtimeOr(path.join(root, ".pi", "skills", "openspec-explore")) !== undefined ||
+      statMtimeOr(path.join(root, ".agents", "skills", "openspec-explore")) !== undefined
+    );
   }
 
   /** cwd listed in `openspec.optOutDirectories` (pathKey-normalized match). */
