@@ -27,7 +27,8 @@ export interface LiveCspInput {
 
 export interface LiveCspResult {
   /** `Content-Security-Policy` header value. */
-  csp: string;}
+  csp: string;
+}
 
 /** A canonical https origin: no path/space/`;`/`,` can ride into the header. */
 const SAFE_ORIGIN = /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/;
