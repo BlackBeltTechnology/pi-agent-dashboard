@@ -37,11 +37,17 @@ async function subscribe(page: Page, bridge: SudoBridge): Promise<void> {
   await openComposerSession(page, bridge.sessionId);
 }
 
+/** Selecting the session sends `subscribe`; the server adds the socket to the audience asynchronously. */
+async function settleSubscription(page: Page): Promise<void> {
+  await page.waitForTimeout(750);
+}
+
 async function setup(page: Page, tag: string): Promise<SudoBridge> {
   await gotoDashboard(page);
   await ensureFixturePinned(page);
   const bridge = await connectSudoBridge(page, tag);
   await subscribe(page, bridge);
+  await settleSubscription(page);
   return bridge;
 }
 
@@ -156,7 +162,8 @@ test.describe("sudo credential prompt (L3)", () => {
       await a.password.fill(PA);
       await b.password.fill(PB);
 
-      await Promise.all([a.submit.click(), b.submit.click()]);
+      // The first answer dismisses the other tab's dialog, so the loser's click may find it detached.
+      await Promise.allSettled([a.submit.dispatchEvent("click"), b.submit.dispatchEvent("click")]);
 
       await expect(a.dialog).toHaveCount(0, { timeout: 10_000 });
       await expect(b.dialog).toHaveCount(0, { timeout: 10_000 });
@@ -286,8 +293,9 @@ test.describe("sudo credential prompt (L3)", () => {
       const shownBefore = frames.sent().filter((m) => m.type === "sudo_credential_shown" && m.callId === callId).length;
       const receivedBefore = frames.received().filter((m) => m.type === "sudo_credential_request" && m.callId === callId).length;
 
+      // The reloaded page restores its selected session and re-subscribes by itself; the replayed
+      // request's modal overlay would block a manual card click, so none is made here.
       await page.reload();
-      await subscribe(page, bridge);
 
       await expect(ui.dialog).toBeVisible({ timeout: 20_000 });
       await expect(ui.password).toHaveValue("");

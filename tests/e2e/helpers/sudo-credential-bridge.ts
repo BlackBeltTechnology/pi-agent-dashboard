@@ -98,7 +98,7 @@ export async function connectSudoBridge(
   const child: ChildProcessWithoutNullStreams = spawn(
     "docker",
     [
-      "exec", "-i", "-u", "pi", resolveContainer(),
+      "exec", "-i", resolveContainer(),
       "node", "-e", CONTAINER_SCRIPT, sessionId, FIXTURE_GIT, String(health.piGatewayPort ?? ""),
     ],
     { stdio: ["pipe", "pipe", "pipe"] },
@@ -127,6 +127,9 @@ export async function connectSudoBridge(
     if (child.stdin.writable) child.stdin.write(`${JSON.stringify(payload)}\n`);
   };
   const kill = () => { try { child.kill("SIGKILL"); } catch { /* gone */ } };
+  // A session with a bash call in flight always has stored events; the server replays a pending
+  // prompt to a (re)subscribing page only for such a session.
+  write({ type: "event_forward", sessionId, event: { eventType: "agent_start", timestamp: Date.now(), data: {} } });
   return {
     sessionId,
     emitRequest: ({ commands, prompt, callId }) => {
@@ -244,12 +247,18 @@ export async function controlSocketOutage(page: Page): Promise<SocketOutage> {
     ws.onClose(() => live.delete(pair));
   });
   return {
+    // Offline too: the client's post-close `/auth/status` probe must REJECT (outage), not answer
+    // `authenticated:false` (which swaps the whole app for the sign-in page and unmounts the dialog).
     cut: () => {
       blocked = true;
+      void page.context().setOffline(true);
       for (const p of [...live]) p.close();
       live.clear();
     },
-    restore: () => { blocked = false; },
+    restore: () => {
+      blocked = false;
+      void page.context().setOffline(false);
+    },
   };
 }
 

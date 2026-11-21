@@ -299,6 +299,9 @@ describe("lifetime / composition (#S32)", () => {
     expect((await mk().toolResult({ content: [{ type: "text", text: PW }] }))?.content).toEqual([{ type: "text", text: TOKEN }]);
   });
 
+  /**
+   * @structural-pin bridge.ts cannot be instantiated in a test; the masker getState composition is pinned in its text
+   */
   it("bridge.ts composes vault + sudo state and does not rely on new masker methods", () => {
     const src = fs.readFileSync(path.resolve(__dirname, "../bridge.ts"), "utf8");
     expect(src).toContain('from "./sudo-askpass/sudo-mask-registry.js"');
@@ -448,6 +451,9 @@ describe("user_bash handler unchanged when the feature is not installed (#S34)",
     expect(await runOps(res!.operations)).toBe("k=[REDACTED:GEMINI_API_KEY]\n");
   });
 
+  /**
+   * @structural-pin bridge.ts cannot be instantiated in a test; the single user_bash handler wiring is pinned in its text
+   */
   it("bridge.ts user_bash handler wires always/tracking exactly as mirrored here", () => {
     const src = fs.readFileSync(path.resolve(__dirname, "../bridge.ts"), "utf8");
     expect(src).toMatch(/const installed = sudoAskpass\.featureInstalled\(\);/);
