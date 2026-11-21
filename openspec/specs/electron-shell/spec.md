@@ -148,7 +148,7 @@ The Electron app SHALL set up a native macOS application menu with standard menu
 
 #### Scenario: App menu on Windows/Linux
 - **WHEN** the app starts on Windows or Linux
-- **THEN** a minimal Help menu SHALL be set with "Doctor..." and "About" items
+- **THEN** the application menu SHALL consist of grouped Dashboard, Edit, View, and Help submenus, with "Doctor" and "About" under Help (full structure: `electron-native-chrome` "Application Menu")
 
 ### Requirement: Doctor diagnostic function
 The app SHALL provide a Doctor function accessible from the app menu that checks all required components and renders the result in a dedicated styled BrowserWindow (not a native message-box dialog).

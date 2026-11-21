@@ -48,7 +48,7 @@ The tray SHALL present a platform-appropriate icon with a context menu offering 
 
 ### Requirement: Application Menu
 
-The application menu SHALL provide About, update-check, Doctor, and remote-connection actions, with a full native menu on macOS and a flat top-level structure on Windows and Linux.
+The application menu SHALL provide About, update-check, Doctor, and remote-connection actions, with a full native menu on macOS and grouped Dashboard/Edit/View/Help submenus on Windows and Linux.
 
 #### Scenario: macOS menu structure
 
@@ -59,12 +59,22 @@ The application menu SHALL provide About, update-check, Doctor, and remote-conne
 #### Scenario: Windows and Linux menu structure
 
 - **WHEN** the app menu is set up on Windows or Linux
-- **THEN** top-level items are a View submenu (Reload `CmdOrCtrl+R`, Force Reload `CmdOrCtrl+Shift+R`, toggleDevTools, zoom, togglefullscreen), "Check for Updates…", "View Update Log", "About", "Doctor", "Connect to Remote Dashboard…", and "Use Local Dashboard"
+- **THEN** the top-level items are exactly Dashboard, Edit, View, and Help
+- **AND** Dashboard contains Servers, "Connect to Remote Dashboard…", "Use Local Dashboard", Runtime, Browser relay, a separator, and the quit role (labelled "Exit" on Windows, "Quit" on Linux)
+- **AND** Edit contains undo, redo, cut, copy, paste, and selectAll roles
+- **AND** View contains Reload `CmdOrCtrl+R`, Force Reload `CmdOrCtrl+Shift+R`, toggleDevTools, zoom, and togglefullscreen
+- **AND** Help contains "Doctor", "Check for Updates…", "View Update Log", a separator, and "About"
+
+#### Scenario: Servers submenu stays live on Windows and Linux
+
+- **WHEN** the paired-server list changes while the app runs on Windows or Linux
+- **THEN** the application menu is rebuilt once and the Dashboard → Servers submenu lists the new server without a restart
+- **AND** the top-level items remain exactly Dashboard, Edit, View, and Help
 
 #### Scenario: Update-check item hidden in dev
 
 - **WHEN** running an unpackaged dev build
-- **THEN** the "Check for Updates…" item is omitted
+- **THEN** the "Check for Updates…" item is omitted (on Windows/Linux the Help menu then starts with "Doctor" followed by "View Update Log")
 
 #### Scenario: Check for Updates result
 
