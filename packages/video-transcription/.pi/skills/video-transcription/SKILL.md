@@ -9,7 +9,7 @@ Transcribe video and audio files in-place to SRT subtitle format with speaker
 diarization. Backed by the `pi-transcribe` CLI (a TypeScript port of the
 original standalone skill — no Python).
 
-Two backends. Soniox is the default and writes `<name>.srt`. AssemblyAI is
+Two backends. Soniox (model `stt-async-v6`) is the default and writes `<name>.srt`. AssemblyAI is
 opt-in via `TRANSCRIBE_BACKEND=assemblyai`, uses the EU endpoint, and writes
 `<name>.diarize.srt` — a different suffix, so both can transcribe the same file
 and you can compare diarization side by side.
