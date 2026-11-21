@@ -226,8 +226,8 @@ export async function dropSudoRequests(page: Page): Promise<SudoRequestDrop> {
 
 export interface SocketOutage {
   /** Close the page's live socket(s) and refuse reconnects until `restore()`. */
-  cut: () => void;
-  restore: () => void;
+  cut: () => Promise<void>;
+  restore: () => Promise<void>;
 }
 
 /** Connection-loss simulation for the page's dashboard WebSocket. Install BEFORE navigation. */
@@ -249,15 +249,15 @@ export async function controlSocketOutage(page: Page): Promise<SocketOutage> {
   return {
     // Offline too: the client's post-close `/auth/status` probe must REJECT (outage), not answer
     // `authenticated:false` (which swaps the whole app for the sign-in page and unmounts the dialog).
-    cut: () => {
+    cut: async () => {
       blocked = true;
-      void page.context().setOffline(true);
+      await page.context().setOffline(true);
       for (const p of [...live]) p.close();
       live.clear();
     },
-    restore: () => {
+    restore: async () => {
       blocked = false;
-      void page.context().setOffline(false);
+      await page.context().setOffline(false);
     },
   };
 }

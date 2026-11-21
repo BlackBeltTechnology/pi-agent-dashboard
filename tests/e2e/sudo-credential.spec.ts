@@ -218,7 +218,7 @@ test.describe("sudo credential prompt (L3)", () => {
       await expect(ui.dialog).toBeVisible({ timeout: 20_000 });
       await ui.password.fill(P.slice(0, 5)); // half-typed
 
-      outage.cut();
+      await outage.cut();
       await page.waitForTimeout(3_000);
       await ui.password.fill(P);
       const sentBefore = frames.sent().filter((m) => m.type === "sudo_credential_response").length;
@@ -228,7 +228,7 @@ test.describe("sudo credential prompt (L3)", () => {
       expect(frames.sent().filter((m) => m.type === "sudo_credential_response").length, "no frame sent during the outage").toBe(sentBefore);
       expect(bridge.frames("response")).toHaveLength(0);
 
-      outage.restore();
+      await outage.restore();
       // The page reconnects by itself; nothing is answered on its own.
       await page.waitForTimeout(5_000);
       expect(bridge.frames("response"), "no _response until the user submits again").toHaveLength(0);
@@ -241,7 +241,7 @@ test.describe("sudo credential prompt (L3)", () => {
       await expectExactly(() => bridge.frames("response").length, 1);
       expect(bridge.frames("response")[0].password).toBe(P);
     } finally {
-      outage.restore();
+      await outage.restore();
       bridge.close();
     }
   });

@@ -7,6 +7,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHarness, pollUntil, settle, type Harness } from "./sudo-askpass-harness.js";
 
+/** Start an operation the test does not await; a rejection is not interesting here. */
+function pend(p: Promise<unknown>): void {
+  p.catch(() => undefined);
+}
+
 let h: Harness;
 
 beforeEach(async () => {
@@ -22,7 +27,7 @@ afterEach(() => {
 function startUserBash(command: string): () => void {
   let release!: () => void;
   const ops = h.ctl.trackUserBash({ exec: () => new Promise((res) => (release = () => res({ exitCode: 0 }))) });
-  void ops.exec(command, "/tmp", { onData: () => {} });
+  pend(ops.exec(command, "/tmp", { onData: () => {} }));
   return () => release();
 }
 
@@ -64,7 +69,7 @@ describe("anti-accident gate matrix (#S11)", () => {
       await settle();
       expect(h.requests().length).toBe(before);
     }
-    void firstPending;
+    pend(firstPending ?? Promise.resolve());
   });
 });
 
@@ -81,7 +86,7 @@ describe("direct $SUDO_ASKPASS (#S12) and concurrency attribution (#S13)", () =>
   it("lists every command in flight, in start order, with no single-call attribution", async () => {
     h.startTool("A", "sleep 30 && sudo true");
     startUserBash("echo hi; sudo -v");
-    void h.ask("p", 7);
+    pend(h.ask("p", 7));
     await pollUntil(() => h.requests().length === 1);
     const req = h.requests()[0];
     expect(req.commands).toEqual(["sleep 30 && sudo true", "echo hi; sudo -v"]);
@@ -112,7 +117,7 @@ describe("sticky Cancel (#S18) and non-sticky refusals (#S19)", () => {
     h.endTool("B");
     h.endTool("C");
     h.startTool("D", "sudo d"); // (4)
-    void h.ask("p", 4);
+    pend(h.ask("p", 4));
     await pollUntil(() => h.requests().length === 3);
     expect(h.requests()[2].commands).toEqual(["sudo d"]);
   });
@@ -123,7 +128,7 @@ describe("sticky Cancel (#S18) and non-sticky refusals (#S19)", () => {
     await pollUntil(() => h.requests().length === 1);
     h.cancel(h.requests()[0].callId, "unanswerable");
     expect(await first).toEqual({ ok: false });
-    void h.ask("p", 2);
+    pend(h.ask("p", 2));
     await pollUntil(() => h.requests().length === 2);
   });
 });
@@ -188,7 +193,7 @@ describe("late and stray answers are dropped (#S23)", () => {
     await settle();
     expect(h.registered).toEqual(["good"]); // the replay was not registered
     // the next sudo raises a modal again
-    void h.ask("p", 2);
+    pend(h.ask("p", 2));
     await pollUntil(() => h.requests().length === 2);
   });
 });
@@ -211,7 +216,7 @@ describe("per-prompt timeout (#S24)", () => {
     expect(await silent).toEqual({ ok: false });
     expect(h.frames.some((f) => f.type === "sudo_credential_dismiss" && f.callId === callId)).toBe(true);
     expect(h.ctl.debug.pendingCallId()).toBeUndefined(); // slot freed
-    void h.ask("p", 3); // not sticky: a modal again
+    pend(h.ask("p", 3)); // not sticky: a modal again
     await pollUntil(() => h.requests().length === 3);
   });
 });
@@ -226,7 +231,7 @@ describe("single pending (#S25) and cancel-vs-answer race (#S76)", () => {
     h.respond(h.requests()[0].callId, "pw1");
     expect(await first).toEqual({ ok: true, password: "pw1" });
     h.forget(); // drop the cached entry so the next sudo prompts
-    void h.ask("p3", 3);
+    pend(h.ask("p3", 3));
     await pollUntil(() => h.requests().length === 2);
   });
 
@@ -251,7 +256,7 @@ describe("single pending (#S25) and cancel-vs-answer race (#S76)", () => {
     h.cancel(callId);
     expect(await reply).toEqual({ ok: true, password: "pw" });
     h.forget();
-    void h.ask("p", 2);
+    pend(h.ask("p", 2));
     await pollUntil(() => h.requests().length === 2);
   });
 });

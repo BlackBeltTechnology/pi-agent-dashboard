@@ -39,7 +39,6 @@ import { AcpEndedCallout } from "./components/session/AcpEndedCallout.js";
 import { FileAccessToastHost } from "./components/session/FileAccessToastHost.js";
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
-import { SudoCredentialHost } from "./components/SudoCredentialDialog.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
 import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
@@ -173,6 +172,12 @@ const NAV_TRACKER = { predecessor, popNav };
 // See change: electron-runtime-overlay-updates.
 // Per-session View popover: its own chunk, off the entry gzip cap.
 // See change: add-set-global-view.
+// Sudo credential dialog host: its own chunk, off the entry gzip cap (mdi-chunk-size).
+// The request/cache bus stays in the entry (useMessageHandler); only the UI is lazy.
+// See change: add-sudo-credential-prompt.
+const SudoCredentialHost = lazy(() =>
+  import("./components/SudoCredentialDialog.js").then((m) => ({ default: m.SudoCredentialHost })),
+);
 const ChatViewMenu = lazy(() =>
   import("./components/chat/ChatViewMenu.js").then((m) => ({ default: m.ChatViewMenu })),
 );
@@ -3376,7 +3381,9 @@ export default function App() {
         <WorktreeInitStack />
         <SpawnErrorToastHost />
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
-        <SudoCredentialHost send={send} connected={status === "connected"} sessionLabel={(id) => sessions.get(id)?.name} />
+        <Suspense fallback={null}>
+          <SudoCredentialHost send={send} connected={status === "connected"} sessionLabel={(id) => sessions.get(id)?.name} />
+        </Suspense>
         {firstLaunchModal}
         {grantPromptHost}
         {provisionPromptHost}
@@ -3485,7 +3492,9 @@ export default function App() {
         )}
         {connectionBanner}
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
-        <SudoCredentialHost send={send} connected={status === "connected"} sessionLabel={(id) => sessions.get(id)?.name} />
+        <Suspense fallback={null}>
+          <SudoCredentialHost send={send} connected={status === "connected"} sessionLabel={(id) => sessions.get(id)?.name} />
+        </Suspense>
         {/* Folder-scoped editor pane (hosts terminal tabs via the keep-alive
             TerminalPaneLayer — single <TerminalView> mount per id). See change:
             terminals-in-tabbed-panes, fix-terminal-half-height-dual-mount. */}
