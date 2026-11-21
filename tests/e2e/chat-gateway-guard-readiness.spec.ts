@@ -126,6 +126,29 @@ function botSaid(): string[] {
     });
 }
 
+/** What the bot posted plus the gateway / spawn lines of the dashboard log: attached to every timeout. */
+function diagnostics(): string {
+  const log = inContainer(`
+    try {
+      const t = require("node:fs").readFileSync("/home/pi/.pi/dashboard/server.log", "utf8").split("\\n");
+      process.stdout.write(t.filter((l) => /chat-gateway|spawn|guard|refus|extension/i.test(l)).slice(-40).join("\\n"));
+    } catch (e) { process.stdout.write("(no server.log: " + e.message + ")"); }
+  `);
+  return `\n--- bot said ---\n${botSaid().join("\n") || "(nothing)"}\n--- server.log (gateway/spawn lines) ---\n${log}`;
+}
+
+/** Poll `probe` until it satisfies `done`; on timeout fail WITH the diagnostics instead of a bare "false". */
+async function until<T>(probe: () => T, done: (v: T) => boolean, timeoutMs: number, what: string): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  let last = probe();
+  while (!done(last)) {
+    if (Date.now() > deadline) throw new Error(`${what} (last value: ${JSON.stringify(last)})${diagnostics()}`);
+    await new Promise((r) => setTimeout(r, 1_000));
+    last = probe();
+  }
+  return last;
+}
+
 /** How many user-message lines carrying `marker` exist across every persisted session transcript. */
 function deliveries(marker: string): number {
   return Number(
@@ -171,13 +194,7 @@ test.describe("chat-gateway guard readiness (L3)", () => {
     say(marker);
 
     // The refusal arrives after the fixed readiness window (plus boot slack on a shared runner).
-    await expect
-      .poll(() => botSaid().some((m) => m.includes(REFUSED)), {
-        timeout: WINDOW_MS + 30_000,
-        intervals: [1_000],
-        message: `the chat never showed "${REFUSED}"`,
-      })
-      .toBe(true);
+    await until(() => botSaid().some((m) => m.includes(REFUSED)), Boolean, WINDOW_MS + 60_000, `the chat never showed "${REFUSED}"`);
 
     // The message the user typed never reached any session, before or after the refusal.
     expect(deliveries(marker), "the held message leaked into a session transcript").toBe(0);
@@ -192,13 +209,7 @@ test.describe("chat-gateway guard readiness (L3)", () => {
     const marker = `guard-real-${Date.now().toString(36)}`;
     say(marker);
 
-    await expect
-      .poll(() => deliveries(marker), {
-        timeout: WINDOW_MS + 60_000,
-        intervals: [1_000],
-        message: "the message never reached the guarded session",
-      })
-      .toBeGreaterThanOrEqual(1);
+    await until(() => deliveries(marker), (n) => n >= 1, WINDOW_MS + 60_000, "the message never reached the guarded session");
     await new Promise((r) => setTimeout(r, 5_000));
     expect(deliveries(marker), "delivered more than once").toBe(1);
     expect(botSaid().some((m) => m.includes(REFUSED))).toBe(false);
