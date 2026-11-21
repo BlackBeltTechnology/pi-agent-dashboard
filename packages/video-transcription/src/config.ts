@@ -158,10 +158,13 @@ export function parseBackends(raw: string | undefined): Backend[] {
   return picked.length > 0 ? picked : [DEFAULT_BACKEND];
 }
 
+/** Package root (parent of `src/`): where the documented fallback `.env` lives. */
+export const DEFAULT_SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
 export function loadConfig(opts: LoadConfigOptions = {}): Config {
   const env = opts.env ?? process.env;
   const cwd = opts.cwd ?? process.cwd();
-  const skillDir = opts.skillDir ?? path.dirname(fileURLToPath(import.meta.url));
+  const skillDir = opts.skillDir ?? DEFAULT_SKILL_DIR;
 
   const backends = parseBackends(env.TRANSCRIBE_BACKEND);
 

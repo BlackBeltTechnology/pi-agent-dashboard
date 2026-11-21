@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadConfig, parseBackends, parseEnvFile } from "../config.js";
+import { DEFAULT_SKILL_DIR, loadConfig, parseBackends, parseEnvFile } from "../config.js";
 
 describe("parseEnvFile", () => {
   it("parses KEY=value lines, ignoring comments and blanks", () => {
@@ -245,5 +245,14 @@ describe("BE28 MAX_AUDIO_MB parsing", () => {
     expect(load(undefined, warn).maxAudioMb).toBe(200);
     expect(load("", warn).maxAudioMb).toBe(200);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("DEFAULT_SKILL_DIR", () => {
+  // The documented fallback `.env` lives at the package root (beside
+  // package.json), not in src/ next to config.ts.
+  it("is the package root", () => {
+    expect(fs.existsSync(path.join(DEFAULT_SKILL_DIR, "package.json"))).toBe(true);
+    expect(path.basename(DEFAULT_SKILL_DIR)).toBe("video-transcription");
   });
 });
