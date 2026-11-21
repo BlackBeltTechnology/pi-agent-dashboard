@@ -60,7 +60,6 @@ type Hooks = Parameters<typeof import("../servers-menu.js").setServersMenuHooks>
 
 const F = `sha256:${"A".repeat(43)}`;
 const G = `sha256:${"B".repeat(43)}`;
-const proc = process as unknown as { resourcesPath?: string };
 const realPlatform = process.platform;
 const realResourcesPath = Object.getOwnPropertyDescriptor(process, "resourcesPath");
 const realElectronDev = process.env.ELECTRON_DEV;
