@@ -286,7 +286,7 @@ export function createReindexRunner(o: ReindexRunnerOptions = {}): ReindexRunner
     try {
       worker = factory({ input });
     } catch (e) {
-      return Promise.resolve({ kind: "fallback", reason: `worker spawn failed: ${errMsg(e)}` });
+      return Promise.resolve({ kind: "fallback", reason: `worker start failed: ${errMsg(e)}` });
     }
     hooks.log?.info(`[kb-plugin] reindex worker started cwd=${input.cwd}`);
     return new WorkerJob(worker, input, hooks, graceMs, live).start();
