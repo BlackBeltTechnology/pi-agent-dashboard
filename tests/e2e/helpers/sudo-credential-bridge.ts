@@ -244,7 +244,11 @@ export async function controlSocketOutage(page: Page): Promise<SocketOutage> {
     live.add(pair);
     ws.onMessage((m) => server.send(m));
     server.onMessage((m) => ws.send(m));
-    ws.onClose(() => live.delete(pair));
+    // Installing onClose disables Playwright's automatic close forwarding: forward it ourselves.
+    ws.onClose((code, reason) => {
+      live.delete(pair);
+      server.close({ code, reason }).catch(() => undefined);
+    });
   });
   return {
     // Offline too: the client's post-close `/auth/status` probe must REJECT (outage), not answer

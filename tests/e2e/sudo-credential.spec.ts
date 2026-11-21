@@ -228,9 +228,13 @@ test.describe("sudo credential prompt (L3)", () => {
       expect(frames.sent().filter((m) => m.type === "sudo_credential_response").length, "no frame sent during the outage").toBe(sentBefore);
       expect(bridge.frames("response")).toHaveLength(0);
 
+      const requestsBefore = frames.received().filter((m) => m.type === "sudo_credential_request").length;
       await outage.restore();
-      // The page reconnects by itself; nothing is answered on its own.
-      await page.waitForTimeout(5_000);
+      // The page reconnects by itself and the server replays the still-pending request: that
+      // replayed frame is the observable "reconnected" signal. Nothing is answered on its own.
+      await expect
+        .poll(() => frames.received().filter((m) => m.type === "sudo_credential_request").length, { timeout: 30_000 })
+        .toBeGreaterThan(requestsBefore);
       expect(bridge.frames("response"), "no _response until the user submits again").toHaveLength(0);
       expect(bridge.frames("cancel")).toHaveLength(0);
 

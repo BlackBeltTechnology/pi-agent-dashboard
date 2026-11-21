@@ -17,8 +17,6 @@
 # See change: add-sudo-credential-prompt.
 set -euo pipefail
 
-echo "=== Test: sudo SUDO_ASKPASS no-tty fallback ==="
-
 if [ "$(uname -s)" != "Linux" ]; then
   echo "SKIP: Linux only (macOS is covered by manual QA)"
   exit 0
@@ -42,9 +40,14 @@ else
   exit 0
 fi
 
+# `run-all.sh` classifies a skip by the FIRST output line, so the banner follows the prerequisites.
+echo "=== Test: sudo SUDO_ASKPASS no-tty fallback ==="
+
 WORK="$(mktemp -d /tmp/qa-sudo-askpass.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
-chmod 777 "$WORK"
+# Runner-owned and not writable by qa-sudo: only the capture files below are (a world-writable
+# dir would let another user swap them for symlinks that a root redirect then truncates).
+chmod 755 "$WORK"
 
 # The capture helper: one line per invocation; behaviour chosen by $WORK/mode.
 HELPER="$WORK/askpass.sh"
