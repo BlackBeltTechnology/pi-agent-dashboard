@@ -1,0 +1,3 @@
+blocked_by:
+  - change: fix-file-link-editor-routing
+    reason: "rich-chat-links MODIFIES tool-output-linkification requirements ('File links resolve lazily on open', 'Server-side file-mention resolution') using the text fix-file-link-editor-routing introduces, and builds on its pane-first FileLink routing and `outside: true` resolve result; it must archive after that change"
