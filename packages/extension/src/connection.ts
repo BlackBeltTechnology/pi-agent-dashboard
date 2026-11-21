@@ -1035,6 +1035,10 @@ export class ConnectionManager {
       }
       return;
     }
+    // Silence is measured from dial start: each dial (first or reconnect) gets
+    // the full watchdogTimeout as its handshake budget, never the previous
+    // socket's leftover silence, and a never-completing handshake still times out.
+    this.lastMessageAt = Date.now();
 
     // Verify the server's identity on the upgrade response, BEFORE `open`: the
     // buffered `session_register` flushes in `onopen`, so nothing is sent to —
@@ -1179,7 +1183,9 @@ export class ConnectionManager {
     this.ws = null;
     // Detach handlers to prevent re-entrant calls from ws.close()
     ws.onclose = null;
-    ws.onerror = null;
+    // Swallow, never null: `ws` emits an async 'error' when close() hits a
+    // CONNECTING socket; with no listener Node crashes pi (exit 1).
+    ws.onerror = () => {};
     ws.onopen = null;
     ws.onmessage = null;
     try { ws.close(); } catch { /* ignore — may already be closed */ }

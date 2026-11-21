@@ -313,4 +313,44 @@ describe("ConnectionManager watchdog", () => {
 
     cm.disconnect();
   });
+
+  // A reconnect dial must get its own full handshake budget. Measuring silence
+  // from the PREVIOUS socket's last message killed every slow handshake on the
+  // very next tick (field: readyState=0 force-close under host load).
+  it("gives a reconnect dial the full watchdogTimeout from dial start", () => {
+    const cm = new ConnectionManager({
+      url: "ws://localhost:9999",
+      WebSocketImpl: MockWebSocket as any,
+      watchdogTimeout: 60_000,
+    });
+    cm.connect();
+    MockWebSocket.instances[0].simulateOpen();
+
+    advance(60_000); // watchdog force-closes ws1
+    advance(1000); // 1s backoff → ws2 dials
+    const ws2 = MockWebSocket.instances.at(-1)!;
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(ws2.readyState).toBe(0);
+
+    advance(45_000); // slow handshake, still inside its own budget
+    expect(ws2.readyState).toBe(0);
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    cm.disconnect();
+  });
+
+  it("still tears down a handshake that never completes, after watchdogTimeout from dial start", () => {
+    const cm = new ConnectionManager({
+      url: "ws://localhost:9999",
+      WebSocketImpl: MockWebSocket as any,
+      watchdogTimeout: 60_000,
+    });
+    cm.connect();
+    const ws1 = MockWebSocket.instances[0];
+
+    advance(75_000); // never opens
+    expect(ws1.readyState).toBe(3);
+
+    cm.disconnect();
+  });
 });
