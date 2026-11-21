@@ -343,6 +343,7 @@ describe("strict CSP emission", () => {
     app.get("/assets/a.js", async (_req, reply) => (viteStub(reply) ? reply : reply.type("application/javascript").send("1")));
     app.get("/api/health", async () => ({ ok: true }));
     app.get("/sink", async (_req, reply) => reply.code(204).send());
+    app.get("/re", async (_req, reply) => reply.header("reporting-endpoints", 'up="/x"').type("text/plain").send("x"));
     app.setNotFoundHandler(async (req, reply) => (req.url.startsWith("/api/") ? reply.code(404).send({ error: "nf" }) : html(reply)));
     await app.ready();
     return app;
@@ -360,11 +361,9 @@ describe("strict CSP emission", () => {
     expect(strict).toContain(`report-uri ${P("strict")}`);
     expect(res.headers[EN]).toBeUndefined();
     expect([...ro, ...hv(res, EN)].join()).not.toContain("require-trusted-types-for");
-    const endpoints = String(res.headers["reporting-endpoints"]);
-    expect(endpoints).toContain(`csp-baseline="${P("baseline")}"`);
-    expect(endpoints).toContain(`csp-strict="${P("strict")}"`);
-    expect(base).toContain("report-to csp-baseline");
-    expect(strict).toContain("report-to csp-strict");
+    // report-uri only: `report-to` + `Reporting-Endpoints` is never delivered on plain http. See change: fix-csp-report-delivery.
+    expect(res.headers["reporting-endpoints"]).toBeUndefined();
+    for (const v of ro) expect(v).not.toMatch(/report-to/);
     await app.close();
   });
 
@@ -378,7 +377,8 @@ describe("strict CSP emission", () => {
     expect(en[0]!.split("; ")[0]).toBe(TT);
     expect(en[0]).not.toContain("default-src");
     expect(en[0]).toContain(`report-uri ${P("trusted-types")}`);
-    expect(String(res.headers["reporting-endpoints"])).toContain(`csp-trusted-types="${P("trusted-types")}"`);
+    expect(en[0]).not.toMatch(/report-to/);
+    expect(res.headers["reporting-endpoints"]).toBeUndefined();
     await app.close();
   });
 
@@ -390,6 +390,8 @@ describe("strict CSP emission", () => {
     expect(en).toHaveLength(1);
     expect(isStrict(en[0]!)).toBe(true);
     expect(en[0]).toContain(`report-uri ${P("strict")}`);
+    for (const v of [...en, ...hv(res, RO)]) expect(v).not.toMatch(/report-to/);
+    expect(res.headers["reporting-endpoints"]).toBeUndefined();
     for (const v of [...en, ...hv(res, RO)]) expect(v).not.toMatch(/script-src[^;]*'unsafe-inline'/);
     if (tt === "off") expect(res.headers[RO]).toBeUndefined();
     else {
@@ -607,8 +609,17 @@ describe("strict CSP emission", () => {
       const only = [...ro, ...en].filter((v) => v.startsWith(TT));
       expect(only).toHaveLength(1);
       expect(only[0]).toContain(`report-uri ${P("trusted-types")}`);
+      expect(only[0]).not.toMatch(/report-to/);
       expect((tt === "enforce" ? en : ro).includes(only[0]!)).toBe(true);
     }
+    expect(res.headers["reporting-endpoints"]).toBeUndefined();
+    await app.close();
+  });
+
+  it("WE40b: a route-level Reporting-Endpoints header is left exactly as the route set it", async () => {
+    const app = await build("report", "report");
+    const res = await get(app, "/re");
+    expect(res.headers["reporting-endpoints"]).toBe('up="/x"');
     await app.close();
   });
 

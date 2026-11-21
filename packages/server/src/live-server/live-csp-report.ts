@@ -1,6 +1,6 @@
 /**
  * The reserved `/__pi/csp-report` endpoint under a capability prefix: the sink the
- * restricted-preview CSP's `report-uri` / `report-to` point at.
+ * restricted-preview CSP's `report-uri` points at (never `report-to`: undeliverable on plain http).
  *
  * Capability-required (the proxy only dispatches a VALID capability here), `POST`
  * only, both report media types, 64 KiB (413 above), rate limited per token (429,

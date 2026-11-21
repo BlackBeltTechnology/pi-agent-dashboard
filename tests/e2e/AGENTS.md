@@ -34,7 +34,8 @@ One row per file.
 | `credential-vault-locked.spec.ts` | → `credential-vault-locked.spec.ts.AGENTS.md` |
 | `csp-report-sink-oauth.spec.ts` | WF5: report sink POST public to armed OAuth gate; GET / unknown label gated. → see `csp-report-sink-oauth.spec.ts.AGENTS.md` |
 | `csp-strict-enforce.spec.ts` | WF2/WF3/WF6/WF7 under `PI_DASHBOARD_CSP=enforce`: no `unsafe-*`, nonce == import-map nonce, inline-script… → see `csp-strict-enforce.spec.ts.AGENTS.md` |
-| `csp-strict-report.spec.ts` | WF1/WF4 in default `report` harness: zero strict `script-src*` violations on core + plugin routes; TT/inline-script report delivery. See change: harden-cors-and-csp-reporting. |
+| `csp-strict-report.spec.ts` | WF1/WF4 in default `report` harness: zero strict `script-src*` violations on core + plugin routes; TT/inline-script report delivery on the unmodified response (no header rewrite). See change: harden-cors-and-csp-reporting, fix-csp-report-delivery. |
+| `csp-report-delivery.spec.ts` | F1 in default `report` harness: `/` carries `report-uri` only (no `report-to`, no `Reporting-Endpoints`); inline script moves `cspReports.counts.strict["script-src-elem"]`. See change: fix-csp-report-delivery. |
 | `editor-pane-file-handler.spec.ts` | → `editor-pane-file-handler.spec.ts.AGENTS.md` |
 | `electron-pages-trusted-types.spec.ts` | F6: Electron bundled pages (`file://`, stubbed preload bridges) render hostile data as text under the… → see `electron-pages-trusted-types.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | → `first-run-create-project.spec.ts.AGENTS.md` |

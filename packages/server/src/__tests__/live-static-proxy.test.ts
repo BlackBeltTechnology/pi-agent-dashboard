@@ -329,16 +329,19 @@ describe("E20 — port target: upstream CSP kept, ours appended, X-Forwarded-For
   let upstream: http.Server;
   let upstreamPort = 0;
   let seen: http.IncomingHttpHeaders | undefined;
+  let upstreamReportingEndpoints: string | undefined;
   let app: FastifyInstance;
   let store: LiveCapabilityStore;
 
   beforeEach(async () => {
     seen = undefined;
+    upstreamReportingEndpoints = undefined;
     upstream = http.createServer((req, res) => {
       seen = req.headers;
       res.writeHead(200, {
         "content-type": "text/html",
         "content-security-policy": "default-src 'self'",
+        ...(upstreamReportingEndpoints ? { "reporting-endpoints": upstreamReportingEndpoints } : {}),
       });
       res.end("<p>app</p>");
     });
@@ -391,7 +394,18 @@ describe("E20 — port target: upstream CSP kept, ours appended, X-Forwarded-For
     expect(list[0]).toBe("default-src 'self'");
     expect(list[1]).toContain("sandbox allow-scripts allow-forms");
     expect(list[1]).toContain(`http://dash.example:8000/live/vite-5173/~c/${token}/`);
-    expect(String(res.headers["reporting-endpoints"])).toContain("__pi/csp-report");
+    expect(list[1]).toContain("report-uri /live/vite-5173/~c/");
+    expect(list[1]).not.toContain("report-to");
+    // No upstream Reporting-Endpoints → none added (#E9).
+    expect(res.headers["reporting-endpoints"]).toBeUndefined();
+  });
+
+  it("an upstream Reporting-Endpoints header passes through untouched (#E8)", async () => {
+    upstreamReportingEndpoints = 'up="https://example.invalid/r"';
+    const { token } = store.mint("vite-5173", { kind: "local" }, { kind: "port", policy: { egress: "restricted", scripts: true } });
+    const res = await app.inject({ method: "GET", url: `/live/vite-5173/~c/${token}/`, headers: { host: "dash.example:8000" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["reporting-endpoints"]).toBe('up="https://example.invalid/r"');
   });
 
   it("a request with no capability (non-browser local caller) is proxied unchanged — no CSP added", async () => {

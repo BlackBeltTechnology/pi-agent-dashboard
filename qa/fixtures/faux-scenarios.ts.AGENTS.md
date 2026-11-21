@@ -33,3 +33,5 @@ Adds `subagent-long-stream-hold` (one `Agent` call → `subagent-long-stream-hol
 See change: fix-chat-transcript-layout — adds `burst-large` (40 distinct quick bash calls in one step, then two `sleep 3` calls joining the burst; tail `large burst complete`), `canvas-write-md-and-server` (report.md write + server declare in ONE turn → file chip + server chip together), `canvas-declare-server-longpath` (loopback URL declare with a 120-char path → server chip with long `:port/path`).
 
 `slow-tool-steer`: slow `tool-chunk-N` text + `bash` tool call turn, then `SLOW_TOOL_FINAL` text turn (steer hand-off at a real completed `turn_end`, e2e #F4). See change: bridge-owned-cancellable-steer.
+
+Adds `canvas-html-egress-report` (writes `mockups/egress-report/index.html` whose inline script fetches `https://example.invalid/x`, then `canvas` kind:file; the violation report must reach the preview sink). See change: fix-csp-report-delivery.

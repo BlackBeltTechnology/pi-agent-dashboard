@@ -28,8 +28,6 @@ export interface LiveCspInput {
 export interface LiveCspResult {
   /** `Content-Security-Policy` header value. */
   csp: string;
-  /** `Reporting-Endpoints` header value, restricted mode only. */
-  reportingEndpoints?: string;
 }
 
 /** A canonical https origin: no path/space/`;`/`,` can ride into the header. */
@@ -87,7 +85,6 @@ export function buildLiveCsp(input: LiveCspInput): LiveCspResult | null {
     `worker-src ${p} blob:`,
     "manifest-src 'none'",
     `report-uri ${reportPath}`,
-    "report-to csp",
   ];
-  return { csp: directives.join("; "), reportingEndpoints: `csp="${reportPath}"` };
+  return { csp: directives.join("; ") };
 }
