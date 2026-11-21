@@ -14,6 +14,8 @@ import { useState } from "react";
 import { getOpenServerWindow, getPairWithCode } from "../../lib/electron-server-windows.js";
 import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
+import { requestAccessHref } from "../../lib/pairing/request-access-target.js";
+import { logRejection } from "../../lib/report-error.js";
 
 export type PairDialog = "code" | "verify" | null;
 export interface PairNote {
@@ -62,7 +64,12 @@ export function usePairAction({ client, name, fingerprint }: { client: PairClien
       return viaBridge(() => open({ host: action.route.host, port: action.route.port }));
     }
     // Browser: the peer's own request page in a new context; nothing is proven or sent from this page.
-    if (action.url) openExternalUrl(action.url);
+    // With a fingerprint and Ed25519 the link also carries this origin's companion proof (D5).
+    if (action.url) {
+      void requestAccessHref(action.url, fingerprint, window.location.origin)
+        .then((href) => openExternalUrl(href))
+        .catch(logRejection("usePairAction.requestAccess"));
+    }
   };
 
   return { dialog, note, busy, run, startCode, closeDialog: () => setDialog(null) };

@@ -7,21 +7,25 @@
  *  - `sequential` — `blockedBy` dependency
  *  - `branch`     — decision `branches` (fork / agent-decision / code-decision)
  *  - `route`      — `on_complete` / `on_error` cross-segment routing
- *  - `implicit`   — a step after a separator with no `blockedBy` (segment fall-through)
+ *  - `implicit`   — engine fall-through: segment exit → next declared segment's
+ *                   entries (pi-flows `splitIntoSegments` + `segmentIndex++`)
  *
- * The function derives only the classes its input carries: the live caller
- * passes `branches` but not `onComplete`/`onError` (pi-flows omits those from
- * `flow:flow-started`), so `route` edges appear only in the static caller.
+ * The function derives only the classes its input carries. Both callers pass
+ * `onError`; only the static (YAML) caller can carry legacy `onComplete`.
+ * An `implicit` (or in-segment `sequential`) edge and an `on_error` route on the
+ * same pair are BOTH kept — success fall-through and error route are distinct.
  *
- * See change: improve-flow-ui.
+ * See change: improve-flow-ui, fix-flow-graph-engine-order.
  */
 
 export type FlowEdgeKind = "sequential" | "branch" | "route" | "implicit";
 
 export interface FlowEdgeStep {
   id: string;
-  /** Node kind (`agent` | `fork` | `agent-decision` | `code` | `code-decision`). */
-  type: string;
+  /** RAW engine node kind (`agent` | `fork` | `agent-decision` | `code` |
+   *  `code-decision`) — never a display mapping that merges kinds. Anything
+   *  outside the separator set (absent, unknown) is a DAG-segment member. */
+  type?: string;
   blockedBy: string[];
   /** Decision branch label → target step id. */
   branches?: Record<string, string>;
@@ -44,16 +48,20 @@ export interface FlowEdge {
   routeTopology?: "returning" | "terminal";
 }
 
+/** Engine separator kinds: each is its own segment (pi-flows
+ *  `splitIntoSegments`). Closed set — anything else joins a DAG segment. */
+const SEPARATOR_KINDS = new Set(["code", "code-decision", "fork", "agent-decision"]);
+/** Decisions fall through at their `max_iterations` loop cap; forks never do. */
+const CAPPED_DECISION_KINDS = new Set(["code-decision", "agent-decision"]);
+
+const isErrorRoute = (kind: FlowEdgeKind, label?: string) => kind === "route" && label === "on_error";
+const isPlain = (kind: FlowEdgeKind) => kind === "sequential" || kind === "implicit";
+
 /** Derive the canonical edge set for a flow. Pure; order-sensitive (array index
  *  defines forward/backward). Skips edges whose endpoints are not in `steps`,
- *  and collapses duplicate `{from,to}` pairs (labeled branch/route wins). */
-/** Separator node types that close a DAG segment and open the next. A
- *  no-blockedBy step falling through from one of these is the only `implicit`
- *  edge the engine actually serializes. (`flow-ref` is NOT a separator.) The
- *  set covers both raw stepTypes (static YAML preview) and the live graph's
- *  mapped types, where `agent-decision` collapses to `fork`. */
-const SEPARATOR_TYPES = new Set(["fork", "agent-decision", "code-decision"]);
-
+ *  and collapses duplicate `{from,to}` pairs (labeled branch/route wins) —
+ *  except a plain (sequential/implicit) edge and an `on_error` route, which
+ *  coexist. */
 export function deriveFlowEdges(steps: FlowEdgeStep[]): FlowEdge[] {
   const order = new Map(steps.map((s, i) => [s.id, i]));
   const has = (id: string) => order.has(id);
@@ -62,7 +70,10 @@ export function deriveFlowEdges(steps: FlowEdgeStep[]): FlowEdge[] {
   const add = (from: string, to: string, kind: FlowEdgeKind, label?: string): void => {
     if (!has(from) || !has(to)) return;
     const backward = (order.get(to) ?? 0) <= (order.get(from) ?? 0);
-    const existing = edges.find((e) => e.from === from && e.to === to);
+    // A plain edge and an on_error route on the same pair stay distinct.
+    const coexists = (e: FlowEdge) =>
+      (isErrorRoute(kind, label) && isPlain(e.kind)) || (isPlain(kind) && isErrorRoute(e.kind, e.label));
+    const existing = edges.find((e) => e.from === from && e.to === to && !coexists(e));
     if (existing) {
       // De-dup: prefer the labeled branch/route classification over a plain
       // sequential/implicit edge for the same pair.
@@ -97,25 +108,12 @@ export function deriveFlowEdges(steps: FlowEdgeStep[]): FlowEdge[] {
     if (s.onError) add(s.id, s.onError, "route", "on_error");
   }
 
-  // 4. Implicit-segment edges. The engine wave scheduler runs EVERY step whose
-  //    blockedBy is satisfied at once — a step with no blockedBy is a root that
-  //    fires in wave 1, in parallel with its siblings. Inter-segment ordering is
-  //    enforced only by SEPARATOR steps (fork / agent-decision / code-decision),
-  //    which close one segment and open the next. So a no-blockedBy step with no
-  //    incoming edge falls through ONLY from the most recent separator (placing it
-  //    after that boundary); two such roots after the same separator are parallel
-  //    siblings and both fan out from it (never chained to each other). Roots
-  //    before any separator stay un-parented → same rank → parallel.
-  const incoming = new Set(edges.map((e) => e.to));
-  let lastSeparator: string | undefined;
-  for (const curr of steps) {
-    const fallsThrough = curr.blockedBy.length === 0 && !incoming.has(curr.id);
-    if (fallsThrough && lastSeparator && lastSeparator !== curr.id) {
-      add(lastSeparator, curr.id, "implicit");
-      incoming.add(curr.id);
-    }
-    if (SEPARATOR_TYPES.has(curr.type)) lastSeparator = curr.id;
-  }
+  // 4. Fall-through edges, mirroring the engine's segment program. Steps split
+  //    into segments in declared order: each separator is its own segment,
+  //    consecutive other steps form one DAG segment. A segment that finishes
+  //    without routing runs the next declared segment, so every exit of segment
+  //    i gets an `implicit` edge to every entry of segment i+1.
+  addFallThrough(steps, order, add);
 
   // 5. on_error route topology. The engine keeps running everything reachable
   //    from an on_error target. A handler is `returning` when its forward
@@ -124,6 +122,64 @@ export function deriveFlowEdges(steps: FlowEdgeStep[]): FlowEdge[] {
   classifyRouteTopology(edges);
 
   return edges;
+}
+
+interface Segment {
+  /** Steps that may complete without routing (fall-through sources). */
+  exits: string[];
+  /** Steps the segment starts with (fall-through targets). */
+  entries: string[];
+}
+
+function addFallThrough(
+  steps: FlowEdgeStep[],
+  order: Map<string, number>,
+  add: (from: string, to: string, kind: FlowEdgeKind, label?: string) => void,
+): void {
+  // Split into segments: separator → own segment; others group into DAGs.
+  const groups: { dag: boolean; members: FlowEdgeStep[] }[] = [];
+  for (const s of steps) {
+    const separator = SEPARATOR_KINDS.has(s.type ?? "");
+    const last = groups[groups.length - 1];
+    if (!separator && last?.dag) last.members.push(s);
+    else groups.push({ dag: !separator, members: [s] });
+  }
+
+  const segments: Segment[] = groups.map(({ dag, members }) => {
+    if (!dag) {
+      const s = members[0];
+      const branchTargets = Object.values(s.branches ?? {});
+      const own = order.get(s.id) ?? 0;
+      const fallsThrough =
+        branchTargets.length === 0 ||
+        (CAPPED_DECISION_KINDS.has(s.type ?? "") &&
+          branchTargets.some((t) => order.has(t) && (order.get(t) ?? 0) <= own));
+      return { exits: fallsThrough ? [s.id] : [], entries: [s.id] };
+    }
+    // DAG segment: in-segment blockedBy + in-segment on_error source→target.
+    const ids = new Set(members.map((m) => m.id));
+    const deps = new Map<string, Set<string>>(members.map((m) => [m.id, new Set<string>()]));
+    for (const m of members) {
+      for (const dep of m.blockedBy) if (ids.has(dep) && dep !== m.id) deps.get(m.id)?.add(dep);
+      if (m.onError && ids.has(m.onError) && m.onError !== m.id) {
+        deps.get(m.onError)?.add(m.id);
+        // The engine runs every DAG step: the target also runs after a success.
+        add(m.id, m.onError, "sequential");
+      }
+    }
+    const dependedOn = new Set<string>();
+    for (const d of deps.values()) for (const id of d) dependedOn.add(id);
+    return {
+      entries: members.filter((m) => deps.get(m.id)?.size === 0).map((m) => m.id),
+      exits: members.filter((m) => !dependedOn.has(m.id)).map((m) => m.id),
+    };
+  });
+
+  for (let i = 0; i + 1 < segments.length; i++) {
+    for (const from of segments[i].exits) {
+      for (const to of segments[i + 1].entries) add(from, to, "implicit");
+    }
+  }
 }
 
 /** Tag each `on_error` route edge with `routeTopology`. Pure: reachability over

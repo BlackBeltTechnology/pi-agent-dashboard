@@ -1,5 +1,7 @@
 # faq.md — index
 
+Gains "Every session in one repo hits REGISTER_TIMEOUT" → empty `extensions` filter on project `packages[]` entry in `.pi/settings.json` shadows global bridge; `check-pi-settings-paths.mjs`; fix via remove key or `switch-source.ts`. Cross-linked with the worktree `REGISTER_TIMEOUT` entry.
+
 Gains "What happens if I lose my data key?" and "How does the Docker `pi-key` volume work?": key loss recovery (`credentials status|reset`), key-volume mount rules, entrypoint generation refusal. See change: encrypt-credentials-at-rest.
 
 Gains "How do I enable the pi-spec-driven workflow schema?": Settings → OpenSpec → OpenSpec Workflow Schema; written paths (schema dir, change pins, config `schema:`); refusal conditions; Disable/Update/Remove; `openspec.workflowSchema.defaultForNewProjects`. See change: add-pi-spec-driven-schema.

@@ -4,21 +4,25 @@
  *
  * The client detects mentions synchronously (offline-safe); resolution against
  * the real filesystem happens on click, here. A `{ resolved: string }` names a
- * real in-scope file; `{ resolved: null }` means "no such file" (NOT an error).
+ * real in-scope file; `{ resolved: null }` means "no such file" (NOT an error);
+ * `{ resolved, outside: true }` is a candidate that FAILED server containment (never
+ * statted — existence unknown), which the open route's read gate decides.
  * A transport FAILURE (network / 5xx / non-JSON) throws — the caller MUST treat
  * that differently from a null result (design D5).
  *
- * See change: server-side-file-mention-resolution.
+ * See change: server-side-file-mention-resolution, fix-file-link-editor-routing.
  */
 import { getApiBase } from "./api-context.js";
 import { fetchJson } from "./fetch-json.js";
 
-export type ResolveMentionKind = "abs" | "tilde" | "relative";
+type ResolveMentionKind = "abs" | "tilde" | "relative";
 
 /** Resolved payload: an absolute path + kind, or null when no in-scope file. */
 export interface ResolveMentionResult {
   resolved: string | null;
   kind?: ResolveMentionKind;
+  /** True when the candidate failed containment (not statted). Absent on a contained hit and on `null`. */
+  outside?: boolean;
 }
 
 /**

@@ -73,3 +73,35 @@ describe("resolveLinkOrigin — relative tokens resolve against cwd", () => {
     expect(resolveLinkOrigin(undefined, "src/foo.ts", false)).toBe("src/foo.ts");
   });
 });
+
+// fix-file-link-editor-routing S15: FileLink probes the worktree copy only when `resolveLinkOrigin` yields a
+// DIFFERENT path, so every no-re-root case must come back identical (⇒ exactly one resolve round-trip).
+describe("resolveLinkOrigin — cases that must not trigger the worktree probe (S15)", () => {
+  const wt = "/repo/.worktrees/w1";
+
+  it.each([
+    ["already worktree-rooted", "/repo/.worktrees/w1/src/a.ts", true],
+    ["foreign absolute", "/etc/hosts", true],
+    ["prefix collision with the parent root", "/repository/a.ts", true],
+  ])("worktree cwd: %s → target unchanged", (_why, p, absolute) => {
+    expect(resolveLinkOrigin(wt, p, absolute)).toBe(p);
+  });
+
+  it("non-worktree cwd: parent-rooted absolute path → unchanged", () => {
+    expect(resolveLinkOrigin("/repo", "/repo/src/a.ts", true)).toBe("/repo/src/a.ts");
+  });
+
+  it("relative token is never an absolute-link probe candidate (FileLink only probes absolute tokens)", () => {
+    expect(resolveLinkOrigin(wt, "src/a.ts", false)).toBe("/repo/.worktrees/w1/src/a.ts");
+  });
+
+  it("a parent-rooted absolute link DOES re-root (the one case that probes)", () => {
+    expect(resolveLinkOrigin(wt, "/repo/src/a.ts", true)).toBe("/repo/.worktrees/w1/src/a.ts");
+  });
+
+  it("a sibling-worktree link re-roots under the current worktree (probe → null → original)", () => {
+    expect(resolveLinkOrigin(wt, "/repo/.worktrees/w2/src/a.ts", true)).toBe(
+      "/repo/.worktrees/w1/.worktrees/w2/src/a.ts",
+    );
+  });
+});

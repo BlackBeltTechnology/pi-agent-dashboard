@@ -52,7 +52,7 @@ import {
   isWithinBrowseRoots,
   resolveBrowseRoots,
 } from "../lib/browse-roots.js";
-import { DashboardStateRefused, openStateChecked, readFileStateChecked } from "../lib/dashboard-state-guard.js";
+import { ContainmentBindingRefused, DashboardStateRefused, openStateChecked, readFileStateChecked } from "../lib/dashboard-state-guard.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
 import { createDigestGate, type DigestGate, type DigestLane } from "../lib/digest-gate.js";
@@ -61,6 +61,7 @@ import { admitFileCwd, CWD_UNAVAILABLE_FAILURE, cwdAnchors, type GateWire, relea
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
 import {
+  convertBound,
   createDefaultDocxPdfEngine,
   type DocxPdfEngine,
   type DocxRenderMode,
@@ -120,7 +121,7 @@ export function sendGateFailure(reply: import("fastify").FastifyReply, gate: Gat
 
 import { serializeWrite } from "../lib/file-write-lock.js";
 import { resolveFileMention } from "../lib/resolve-file-mention.js";
-import { isWritableMdTarget } from "../lib/writable-md-target.js";
+import { isTextDocWriteTarget, isWritableMdTarget } from "../lib/writable-md-target.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import {
@@ -225,14 +226,29 @@ type MdWriteOutcome =
   | { code: 404 | 409 | 413 | 500; error: string };
 
 /** Parsed + authorized write request, or a {code,error} reply mapping. */
-type MdWritePrep = { resolved: string; content: string; mtime: number } | GateFailure;
+type MdWritePrep =
+  | {
+      resolved: string;
+      content: string;
+      mtime: number;
+      /** Set when a write-mode GRANT admitted an outside-cwd target: the real path the gate decided. */
+      gatedReal?: string;
+    }
+  | GateFailure;
 
 // Parse, scope-validate, and authorize a `POST /api/file/write` body. Keeps the
 // route handler trivial. Authorization is the `isWritableMdTarget` security
 // boundary. See change: directory-settings-page-and-scoped-md-editing.
+//
+// A text doc OUTSIDE the admitted cwd (directory scope only) is not a flat 403 any more: it goes to the
+// write-mode containment gate (`evaluateContainment(..., {action:"write"})`), which admits it only through
+// a WRITE grant or a fresh operator write prompt (allow once / always / deny). A read grant and the
+// bound-checkout-root widening never admit a write. Global scope (no cwd) is unchanged.
+// See change: fix-file-link-editor-routing (D2).
 async function prepareMdWrite(
   body: { cwd?: unknown; path?: unknown; content?: unknown; mtime?: unknown },
   routeAdmission: RouteAdmissionDeps,
+  req: { request: import("fastify").FastifyRequest; reply: import("fastify").FastifyReply },
 ): Promise<MdWritePrep> {
   const rawPath = typeof body.path === "string" ? body.path : "";
   const content = typeof body.content === "string" ? body.content : undefined;
@@ -242,10 +258,30 @@ async function prepareMdWrite(
   }
   const target = await resolveScopedMdPath(body.cwd, rawPath, routeAdmission);
   if ("code" in target) return target;
-  if (!(await isWritableMdTarget(target.resolved, { cwd: target.cwd }))) {
+  if (await isWritableMdTarget(target.resolved, { cwd: target.cwd })) {
+    return { resolved: target.resolved, content, mtime };
+  }
+  // Only the outside-cwd text-doc case reaches the gate: global scope, a non-text extension, a Mermaid
+  // source and a dashboard-state path all stay a plain 403 with no prompt.
+  if (target.cwd === undefined || !(await isTextDocWriteTarget(target.resolved))) {
     return { code: 403, error: "target is not a writable markdown file in scope" };
   }
-  return { resolved: target.resolved, content, mtime };
+  // The gate runs BEFORE any stat (`performAtomicMdWrite`): a stat-first route would be an existence
+  // oracle for arbitrary outside paths.
+  const decision = await evaluateContainment(target.resolved, [target.cwd], {
+    site: "file-routes:write",
+    subjectKind: "file",
+    session: target.cwd,
+    hold: { request: req.request, reply: req.reply },
+    disclosure: canDiscloseAccessPosture(req.request),
+    action: "write",
+  });
+  // Only a GRANT-admitted decision proceeds: layer ① admitting a path `isWritableMdTarget` just refused
+  // would be a contradiction, so it fails closed.
+  if (!containmentAllows(decision, target.resolved) || !decision.viaGrant) {
+    return { code: 403, error: "path outside working directory — write not granted", ...decision.remedy };
+  }
+  return { resolved: target.resolved, content, mtime, gatedReal: decision.real };
 }
 
 // Atomic markdown write with optimistic-concurrency. Caller MUST run this inside
@@ -257,6 +293,7 @@ async function performAtomicMdWrite(
   resolved: string,
   content: string,
   mtime: number,
+  gatedReal?: string,
 ): Promise<MdWriteOutcome> {
   // Canonicalize to the realpath target: an in-scope symlink to an allowed
   // markdown file is authorized by `isWritableMdTarget` on its realpath, so we
@@ -269,6 +306,11 @@ async function performAtomicMdWrite(
     current = await fs.stat(real);
   } catch {
     return { code: 404, error: "file not found" };
+  }
+  // Re-bind: a target admitted by a write grant must still resolve to the path the gate decided. A symlink
+  // repointed during the operator hold (or after the gate) is refused with nothing written.
+  if (gatedReal !== undefined && real !== gatedReal) {
+    return { code: 409, error: "target changed while access was being decided" };
   }
   // Full-precision mtime token: rounding could collapse two fast saves into one
   // token and let a stale write pass the 409 check.
@@ -383,7 +425,7 @@ export async function gateFilePath(
    * `quiet`: record no denial and raise no prompt (a per-request re-check on a static preview).
    */
   opts: { allowGrant?: boolean; disclosure?: boolean; quiet?: boolean } = {},
-): Promise<{ resolved: string; viaGrant: boolean } | GateFailure> {
+): Promise<{ resolved: string; real: string; viaGrant: boolean } | GateFailure> {
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
   const admitted = await admitFileCwd(cwd, routeAdmission);
   if (!admitted.ok) return admitted.failure;
@@ -408,7 +450,7 @@ export async function gateFilePath(
   // `lstat` and therefore refuse an in-scope final-component SYMLINK that
   // layers ①/② admit. Dropping it turned "apply only on a grant" into
   // "apply always".
-  return { resolved, viaGrant: decision.viaGrant };
+  return { resolved, real: decision.real, viaGrant: decision.viaGrant };
 }
 
 /**
@@ -429,7 +471,7 @@ async function gateReadPath(
     reply: import("fastify").FastifyReply;
     quiet?: boolean;
   },
-): Promise<{ resolved: string; viaGrant: boolean; relPath: string } | GateFailure> {
+): Promise<{ resolved: string; real: string; viaGrant: boolean; relPath: string } | GateFailure> {
   const relPath = rawPath ? decodeFileUri(rawPath) : rawPath;
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
   const admitted = await admitFileCwd(cwd, req.routeAdmission);
@@ -455,7 +497,7 @@ async function gateReadPath(
   if (!containmentAllows(readDecision, resolved)) {
     return { code: 403, error: "path outside working directory", ...readDecision.remedy };
   }
-  return { resolved, viaGrant: readDecision.viaGrant, relPath };
+  return { resolved, real: readDecision.real, viaGrant: readDecision.viaGrant, relPath };
 }
 
 const CREATE_PROJECT_STATUS: Record<CreateProjectReason, number> = {
@@ -536,7 +578,7 @@ export function registerFileRoutes(
     /** The caller may see `promptOutcome` (`canDiscloseAccessPosture`). */
     disclosure: boolean,
   ): Promise<
-    | { resolved: string; ext: string; stat: import("node:fs").Stats; viaGrant: boolean }
+    | { resolved: string; real: string; ext: string; stat: import("node:fs").Stats; viaGrant: boolean }
     | GateFailure
   > {
     if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
@@ -580,7 +622,7 @@ export function registerFileRoutes(
         throw err;
       }
     }
-    return { resolved, ext, stat, viaGrant: decision.viaGrant };
+    return { resolved, real: decision.real, ext, stat, viaGrant: decision.viaGrant };
   }
 
   // Browse confinement applies ONLY to requests that are not genuinely local
@@ -753,12 +795,16 @@ export function registerFileRoutes(
         // two syscalls, so without it the path could be swapped for a symlink or
         // a FIFO in the gap. Layer ①/② reads keep the pre-existing open.
         const fh = gate.viaGrant
-          ? await openVerifiedRegularFile(resolved)
-          : await openStateChecked(resolved, "r");
+          ? await openVerifiedRegularFile(gate.real, { decidedReal: gate.real })
+          : await openStateChecked(gate.real, "r", { decidedReal: gate.real });
         let kindResult;
         let content: string | undefined;
+        // size/mtime come from the SAME checked handle as the content, so a link retargeted after the
+        // decision can never pair A's bytes with B's mtime (the editor's optimistic-concurrency token).
+        let handleStat: import("node:fs").Stats;
         try {
-          const sniffLen = Math.min(1024, stat.size);
+          handleStat = await fh.stat();
+          const sniffLen = Math.min(1024, handleStat.size);
           const sniff = Buffer.alloc(sniffLen);
           if (sniffLen > 0) await fh.read(sniff, 0, sniffLen, 0);
           kindResult = fileKind(resolved, sniff);
@@ -778,13 +824,13 @@ export function registerFileRoutes(
             type: "file",
             kind: kindResult.kind,
             mimeType: kindResult.mimeType,
-            size: stat.size,
+            size: handleStat.size,
             // mtime drives the editor's optimistic-concurrency check on write.
             // Full precision: `/api/file/write` compares against raw `mtimeMs`,
             // so a rounded token 409s on every save on sub-ms filesystems.
             // See change: directory-settings-page-and-scoped-md-editing,
             // fix-editor-mtime-token-precision.
-            mtime: stat.mtimeMs,
+            mtime: handleStat.mtimeMs,
             ...(content !== undefined ? { content } : {}),
           },
         } satisfies ApiResponse;
@@ -835,8 +881,8 @@ export function registerFileRoutes(
       try {
         release = await digestGate.acquire(lane, ac.signal);
         const fh = gate.viaGrant
-          ? await openVerifiedRegularFile(gate.resolved)
-          : await openStateChecked(gate.resolved, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+          ? await openVerifiedRegularFile(gate.real, { decidedReal: gate.real })
+          : await openStateChecked(gate.real, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0), { decidedReal: gate.real });
         try {
           const stat = await fh.stat();
           if (!stat.isFile()) {
@@ -917,7 +963,7 @@ export function registerFileRoutes(
     if ("code" in gate) {
       return sendGateFailure(reply, gate);
     }
-    const { cmd, args } = build(systemOpenPlatform, gate.resolved);
+    const { cmd, args } = build(systemOpenPlatform, gate.real);
     systemOpenRun(cmd, args);
     return { success: true, data: { spawned: true } };
   };
@@ -1020,7 +1066,7 @@ export function registerFileRoutes(
     // the handler still refuses content above the 256 MiB ceiling.
     { preHandler: networkGuard, bodyLimit: 600 * 1024 * 1024 },
     async (request, reply) => {
-      const prep = await prepareMdWrite(request.body ?? {}, routeAdmission);
+      const prep = await prepareMdWrite(request.body ?? {}, routeAdmission, { request, reply });
       if ("code" in prep) {
         return sendGateFailure(reply, prep);
       }
@@ -1030,7 +1076,7 @@ export function registerFileRoutes(
       // cannot run two writes to one file at once. See change: add-editor-pane-file-handlers (D4).
       const lockKey = await safeRealpath(prep.resolved);
       const outcome = await serializeWrite(lockKey, () =>
-        performAtomicMdWrite(prep.resolved, prep.content, prep.mtime),
+        performAtomicMdWrite(prep.resolved, prep.content, prep.mtime, prep.gatedReal),
       );
       if (outcome.code !== 200) {
         reply.code(outcome.code);
@@ -1207,7 +1253,9 @@ export function registerFileRoutes(
 
   // Lazy file-mention resolver (change: server-side-file-mention-resolution).
   //
-  // Body `{ cwd, mention }` → `{ resolved, kind }` or `{ resolved: null }`.
+  // Body `{ cwd, mention }` → `{ resolved, kind }`, `{ resolved, kind, outside: true }` (containment
+  // failed: never statted, so the payload is independent of existence — change fix-file-link-editor-routing
+  // D1) or `{ resolved: null }`.
   // `cwd` is UNTRUSTED request input and is gated against the known-session set
   // (mirrors `/api/file`, NOT the wider exists-only pinned set — design D2/F6/F7,
   // so a resolve never succeeds on a path the open route would 403) BEFORE any
@@ -1230,7 +1278,9 @@ export function registerFileRoutes(
       const result = await resolveFileMention(mention, { cwd: admitted.cwd, canonCwd: admitted.canonCwd });
       return {
         success: true,
-        data: result ? { resolved: result.resolved, kind: result.kind } : { resolved: null },
+        data: result
+          ? { resolved: result.resolved, kind: result.kind, ...(result.outside ? { outside: true } : {}) }
+          : { resolved: null },
       } satisfies ApiResponse;
     },
   );
@@ -1277,7 +1327,13 @@ export function registerFileRoutes(
       // True only when the GRANT layer admitted this read — layers ①/② and the
       // artifact root do NOT get handle verification (task 2.8 scope).
       let viaGrant = false;
-      if (!containmentAllows(await decidePassive(resolved, rawAnchors, { allowGrant: false }), resolved)) {
+      // The real path the admitting decision was made on; the open below is bound to it.
+      // An artifact-root image carries no decision (real-path contained by its own check) → opens `resolved`.
+      let decidedReal: string | undefined;
+      const passiveDecision = await decidePassive(resolved, rawAnchors, { allowGrant: false });
+      if (containmentAllows(passiveDecision, resolved)) {
+        decidedReal = passiveDecision.real;
+      } else {
         if (!(await isImageUnderArtifactRoot(resolved))) {
           const rawDecision = await evaluateContainment(resolved, rawAnchors, {
             site: "file-routes:raw",
@@ -1290,6 +1346,7 @@ export function registerFileRoutes(
             return { success: false, error: "path outside working directory", ...rawDecision.remedy } as unknown as ApiResponse;
           }
           viaGrant = rawDecision.viaGrant;
+          decidedReal = rawDecision.real;
         }
       }
 
@@ -1388,7 +1445,7 @@ export function registerFileRoutes(
       let grantedHandle: Awaited<ReturnType<typeof openVerifiedRegularFile>> | undefined;
       if (viaGrant) {
         try {
-          grantedHandle = await openVerifiedRegularFile(resolved);
+          grantedHandle = await openVerifiedRegularFile(decidedReal ?? resolved, decidedReal ? { decidedReal } : {});
         } catch (err) {
           if (err instanceof VerifiedReadRefused) return openRefusal(403, "path outside working directory");
           return openRefusal(404, "not found");
@@ -1400,7 +1457,7 @@ export function registerFileRoutes(
       let rawHandle: Awaited<ReturnType<typeof openStateChecked>> | undefined;
       if (!grantedHandle) {
         try {
-          rawHandle = await openStateChecked(resolved, "r");
+          rawHandle = await openStateChecked(decidedReal ?? resolved, "r", decidedReal ? { decidedReal } : {});
         } catch (err) {
           return err instanceof DashboardStateRefused
             ? openRefusal(403, "path outside working directory")
@@ -1464,11 +1521,20 @@ export function registerFileRoutes(
         if ("code" in gate) {
           return sendGateFailure(reply, gate);
         }
-        const result = await renderPptx(
-          gate.resolved,
-          { mtimeMs: gate.stat.mtimeMs, size: gate.stat.size },
-          { engine: docxPdfEngine },
-        );
+        let result: Awaited<ReturnType<typeof renderPptx>>;
+        try {
+          result = await renderPptx(
+            gate.real,
+            { mtimeMs: gate.stat.mtimeMs, size: gate.stat.size },
+            { engine: docxPdfEngine },
+          );
+        } catch (err) {
+          if (err instanceof ContainmentBindingRefused) {
+            reply.code(403);
+            return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+          }
+          throw err;
+        }
         if (!result.success) {
           return { success: false, error: result.error } satisfies ApiResponse;
         }
@@ -1488,11 +1554,20 @@ export function registerFileRoutes(
         if ("code" in gate) {
           return sendGateFailure(reply, gate);
         }
-        const result = await renderDocx(
-          gate.resolved,
-          { mtimeMs: gate.stat.mtimeMs, size: gate.stat.size },
-          { mode: docxRenderMode, engine: docxPdfEngine, caps: officeCaps },
-        );
+        let result: Awaited<ReturnType<typeof renderDocx>>;
+        try {
+          result = await renderDocx(
+            gate.real,
+            { mtimeMs: gate.stat.mtimeMs, size: gate.stat.size },
+            { mode: docxRenderMode, engine: docxPdfEngine, caps: officeCaps },
+          );
+        } catch (err) {
+          if (err instanceof ContainmentBindingRefused) {
+            reply.code(403);
+            return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+          }
+          throw err;
+        }
         if (!result.success) {
           // Unrenderable tail (corrupt/password/library bug) → 200 + success:false
           // so the client maps it to FallbackPreview (design D5).
@@ -1532,7 +1607,7 @@ export function registerFileRoutes(
         // Verified against the open handle (design D14, task 2.8) — a granted
         // FIFO would otherwise block this read indefinitely.
         try {
-          source = await readFileVerifiedUtf8(resolved);
+          source = await readFileVerifiedUtf8(renderDecision.real, { decidedReal: renderDecision.real });
         } catch (err) {
           if (err instanceof VerifiedReadRefused) {
             reply.code(403);
@@ -1543,7 +1618,7 @@ export function registerFileRoutes(
         }
       } else {
         try {
-          source = await readFileStateChecked(resolved, "utf-8");
+          source = await readFileStateChecked(renderDecision.real, "utf-8", { decidedReal: renderDecision.real });
         } catch (err) {
           if (err instanceof DashboardStateRefused) {
             reply.code(403);
@@ -1594,7 +1669,7 @@ export function registerFileRoutes(
       if ("code" in gate) {
         return sendGateFailure(reply, gate);
       }
-      const out = pdfCachePath(gate.resolved, gate.stat.mtimeMs, gate.stat.size);
+      const out = pdfCachePath(gate.real, gate.stat.mtimeMs, gate.stat.size);
       try {
         await fs.access(out);
       } catch {
@@ -1603,10 +1678,10 @@ export function registerFileRoutes(
           // to narrow the swap window. Residual: a swap after this checked open; the converter only
           // accepts .docx/.pptx and emits a PDF rendering, never the file bytes.
           // See change: close-security-map-high-findings (D1, F7).
-          const guard = await openStateChecked(gate.resolved, "r");
+          const guard = await openStateChecked(gate.real, "r", { decidedReal: gate.real });
           await guard.close().catch(() => undefined);
           await fs.mkdir(path.dirname(out), { recursive: true });
-          await docxPdfEngine.toPdf(gate.resolved, out);
+          await convertBound(docxPdfEngine, gate.real, out);
         } catch (err) {
           if (err instanceof DashboardStateRefused) {
             reply.code(403);
@@ -1650,7 +1725,7 @@ export function registerFileRoutes(
         // Read from the VERIFIED handle, so the bytes parsed are the bytes
         // checked (design D14, task 2.8) — not a third resolution of the path.
         try {
-          buffer = await readFileVerified(gate.resolved);
+          buffer = await readFileVerified(gate.real, { decidedReal: gate.real });
         } catch (err) {
           if (err instanceof VerifiedReadRefused) {
             reply.code(403);
@@ -1661,7 +1736,7 @@ export function registerFileRoutes(
         }
       } else {
         try {
-          buffer = await readFileStateChecked(gate.resolved);
+          buffer = await readFileStateChecked(gate.real, undefined, { decidedReal: gate.real });
         } catch (err) {
           if (err instanceof DashboardStateRefused) {
             reply.code(403);
@@ -1727,9 +1802,15 @@ export function registerFileRoutes(
         // previously followed — started failing 400. For a grant admission the
         // bytes now come from the VERIFIED handle, so the path is not resolved a
         // third time to race. (Found by the task 4.5 review gate.)
-        const parsed = gate.viaGrant
-          ? await loadParsedEml(gate.resolved, stat, await readFileVerified(gate.resolved))
-          : await loadParsedEml(gate.resolved, stat);
+        // Both branches read through the bound opener (decided real path) and hand the bytes on, so
+        // `lib/eml.ts` never re-resolves the pathname. See change: close-local-listener-and-egress-gaps.
+        const parsed = await loadParsedEml(
+          gate.resolved,
+          stat,
+          gate.viaGrant
+            ? await readFileVerified(gate.real, { decidedReal: gate.real })
+            : await readFileStateChecked(gate.real, undefined, { decidedReal: gate.real }),
+        );
         const data = await toParseResult(parsed, { allowRemote: request.query.allowRemote === "1" });
         return { success: true, data } satisfies ApiResponse;
       } catch (err) {
@@ -1785,9 +1866,13 @@ export function registerFileRoutes(
       let parsed;
       try {
         // Same grant-only rule as the EML parse site above (task 4.5 review).
-        parsed = gate.viaGrant
-          ? await loadParsedEml(gate.resolved, stat, await readFileVerified(gate.resolved))
-          : await loadParsedEml(gate.resolved, stat);
+        parsed = await loadParsedEml(
+          gate.resolved,
+          stat,
+          gate.viaGrant
+            ? await readFileVerified(gate.real, { decidedReal: gate.real })
+            : await readFileStateChecked(gate.real, undefined, { decidedReal: gate.real }),
+        );
       } catch (err) {
         if (err instanceof DashboardStateRefused || (err instanceof VerifiedReadRefused && err.reason === "state-file")) {
           reply.code(403);

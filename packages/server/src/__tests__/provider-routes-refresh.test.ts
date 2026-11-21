@@ -28,7 +28,7 @@ vi.mock("../model-proxy/registry-singleton.js", () => ({
 }));
 
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
-import { probeProvider } from "../package/provider-probe.js";
+import { probeProvider, setProbeLookupAll } from "../package/provider-probe.js";
 import { clearProviderHealth, getAllProviderHealth } from "../routes/provider-health-cache.js";
 import { registerProviderRoutes } from "../routes/provider-routes.js";
 
@@ -153,5 +153,35 @@ describe("POST /api/providers/:name/refresh", () => {
     const { app } = await buildApp();
     const res = await refresh(app, "proxy");
     expect(res.statusCode).toBe(200);
+  });
+});
+
+// -- NET-04: refresh road re-probes through the egress vet (test-plan E113) --
+// See change: close-local-listener-and-egress-gaps (design D7).
+
+describe("POST /api/providers/:name/refresh — saved metadata Base URL", () => {
+  let originalFetch: typeof globalThis.fetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    setProbeLookupAll(async () => [{ address: "93.184.216.34", family: 4 }]);
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    setProbeLookupAll(null);
+  });
+
+  it("sends no outbound request; health is ok:false with the refusal text (E113)", async () => {
+    // The file-wide mock replaces probeProvider; use the real one for this road.
+    const actual = await vi.importActual<typeof import("../package/provider-probe.js")>("../package/provider-probe.js");
+    vi.mocked(probeProvider).mockImplementationOnce(actual.probeProvider);
+    writeFixture({ meta: { baseUrl: "http://169.254.169.254/", apiKey: "sk-lit", api: "openai-completions" } });
+    const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
+    globalThis.fetch = fetchSpy as any;
+    const { app } = await buildApp();
+    const res = await refresh(app, "meta");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().health).toMatchObject({ ok: false, error: "provider target is a link-local or metadata address" });
+    expect(getAllProviderHealth().meta).toMatchObject({ ok: false });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

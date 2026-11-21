@@ -4,3 +4,5 @@ Session REST routes. Exports `registerSessionRoutes`. Endpoints: `GET /api/sessi
 `/api/session-file` branches on `containmentAllows(sessionDecision, absPath)`. See change: codeql-file-containment-barrier.
 
 `/api/session-file`: `dashboardStateRefuses(absPath)` runs BEFORE the in-cwd shortcut (403 `path outside session directory`); non-grant read via `readFileStateChecked`. See change: close-security-map-high-findings (D1).
+
+`/api/session-file` always calls `evaluateContainment` (lexical in-cwd shortcut removed); read opens `decision.real` bound. See change: close-local-listener-and-egress-gaps.

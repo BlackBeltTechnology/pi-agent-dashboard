@@ -11,6 +11,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
+import { applyDefaultModel as applyDefaultModelFromConfig } from "./default-model-apply.js";
 import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 import { processPidNamespace } from "@blackbelt-technology/pi-dashboard-shared/pid-namespace.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
@@ -216,31 +218,22 @@ function initBridge(pi: ExtensionAPI) {
   // → inst.cachedCwd (BridgeInstance field; unset until assigned)
   inst.pendingDefaultModel = null; // non-null if default model not yet applied (custom provider not ready)
 
-  /** Try to apply the default model from config. Returns the model string if not found (pending), null if applied or no default. */
+  /**
+   * Try to apply the default model from config. Returns the model string if not
+   * found (pending), null if applied or no default. An `@role` default resolves
+   * against the current role map on every call (startup + pending retry).
+   * See change: add-default-thinking-level, default-model-follows-role.
+   */
   function applyDefaultModel(): string | null {
-    const freshConfig = loadConfig();
-    if (!freshConfig.defaultModel || !inst.cachedModelRegistry) return null;
-    const slashIdx = freshConfig.defaultModel.indexOf("/");
-    if (slashIdx <= 0) return null;
-    const provider = freshConfig.defaultModel.slice(0, slashIdx);
-    const modelId = freshConfig.defaultModel.slice(slashIdx + 1);
-    try {
-      const found = inst.cachedModelRegistry.find(provider, modelId);
-      if (found) {
-        (pi as any).setModel(found).then(() => {
-          // Apply the configured default thinking level alongside the default
-          // model. setModel preserves the current level, so an explicit call is
-          // required. pi.setThinkingLevel is synchronous and clamps the level to
-          // the model's capabilities. Empty value = "do not override".
-          // See change: add-default-thinking-level.
-          const level = freshConfig.defaultThinkingLevel;
-          if (level) (pi as any).setThinkingLevel?.(level);
-          setTimeout(() => sendModelUpdateIfChanged(), 50);
-        }).catch(() => {});
-        return null; // applied
-      }
-    } catch { /* ignore */ }
-    return freshConfig.defaultModel; // not found yet — pending
+    return applyDefaultModelFromConfig({
+      loadConfig,
+      readRoles: () => readRoleConfigFromDisk(),
+      registry: inst.cachedModelRegistry,
+      setModel: (m) => (pi as any).setModel(m),
+      setThinkingLevel: (level) => (pi as any).setThinkingLevel?.(level),
+      onApplied: () => setTimeout(() => sendModelUpdateIfChanged(), 50),
+      log: (msg) => console.log(msg),
+    });
   }
   inst.applyDefaultModel = applyDefaultModel;
 

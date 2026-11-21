@@ -9,3 +9,7 @@ Approval stores delivered routes before `done`; `PairingTarget.source`. See chan
 ## harden-peer-address-identity
 
 `PairingTarget.alternatives` (≤ 8 literals); deps `lookup`, `localFp`. Primary + alternatives (http names resolved) are proven in order: `ok` binds the literal (knock, poll, saved host), `self` skips (logged), `foreign` ⇒ mismatch, none ⇒ `unreachable` (a self seen) / `unverifiable`. See change: harden-peer-address-identity.
+
+## device-key-mutual-check
+
+Knock carries `deviceKey {deviceNonce,pub,sig}` via shared `DeviceKeyProvider`: proving challenge nonce reused <= 30 s, re-run at the bound literal after. Key generated in memory (`deps.generateKey`) only when a nonce exists; `savePaired({deviceKey})` on approval only; reject / expiry / stop / quit leave nothing on disk. Same in `pairing-code-client.ts` (redeem body). See change: device-key-mutual-check.

@@ -27,6 +27,8 @@ export interface NamedGrantInput {
   widenedFrom?: string;
   /** `"prompt"` when an access-prompt verdict is writing it (task 8.2). */
   via?: "prompt";
+  /** `"write"` records a write-mode grant. Always derived from the server-held denial. */
+  mode?: "read" | "write";
 }
 
 export type NamedGrantResult =
@@ -65,6 +67,7 @@ export function grantNamedPathSubject(input: NamedGrantInput): NamedGrantResult 
     origin: input.origin,
     widenedFrom: widened ? (input.widenedFrom ?? input.deniedSubject) : undefined,
     via: input.via,
+    mode: input.mode,
   });
   // A write failure is reported to the caller so the surface that asked can say
   // the grant did not stick (design D11); the admitted set never widens.

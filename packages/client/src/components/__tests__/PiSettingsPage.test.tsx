@@ -14,6 +14,7 @@ import {
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type PiLegacyCredential, PiSettingsApiError, type PiSettingsReadResponse } from "../../lib/api/pi-settings-api.js";
+import { resolvedMirrorDefaults } from "../../lib/roles/useRolesSnapshot.js";
 import { PiSettingsPage } from "../settings/PiSettingsPage.js";
 
 afterEach(() => cleanup());
@@ -581,6 +582,36 @@ describe("PiSettingsPage", () => {
     it("a differing thinking level alone is drift", async () => {
       const r = await mount({ defaultThinkingLevel: "low" }, { dashboardDefaults: { defaultThinkingLevel: "high" } });
       expect(r.getByTestId("pi-settings-sync-defaults")).toBeTruthy();
+    });
+
+    // See change: default-model-follows-role (test-plan #E18). The Settings panel
+    // passes the RESOLVED role default (resolvedMirrorDefaults) as the baseline.
+    const liveRows = [
+      { role: "planning", assigned: true, model: "proxy/cc/claude-sonnet-5-5" },
+      { role: "validate", assigned: false },
+    ];
+    it.each([
+      ["resolved role default differs", { defaultModel: "@planning", defaultThinkingLevel: "" }, true],
+      ["unresolved role default", { defaultModel: "@validate", defaultThinkingLevel: "" }, false],
+      ["concrete without separator", { defaultModel: "claude-opus-5-5", defaultThinkingLevel: "" }, false],
+    ])("E18 %s", async (_n, saved, shown) => {
+      const syncDefaults = vi.fn().mockResolvedValue({
+        success: true,
+        piMirror: { ok: true },
+        settings: { defaultProvider: "proxy", defaultModel: "cc/claude-sonnet-5-5" },
+        raw: "{}",
+        etag: "etag-1",
+      });
+      const r = await mount(
+        { defaultProvider: "anthropic", defaultModel: "claude-sonnet-5-5" },
+        { dashboardDefaults: resolvedMirrorDefaults(saved, liveRows), syncDefaults },
+      );
+      expect(!!r.queryByTestId("pi-settings-sync-defaults")).toBe(shown);
+      if (shown) {
+        fireEvent.click(r.getByTestId("pi-settings-sync-defaults"));
+        await waitFor(() => expect(syncDefaults).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(r.queryByTestId("pi-settings-sync-defaults")).toBeNull());
+      }
     });
   });
 

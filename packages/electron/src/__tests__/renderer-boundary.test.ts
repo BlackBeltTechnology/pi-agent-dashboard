@@ -9,6 +9,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { openExternalIfAllowed } from "../lib/link-handling.js";
+import { installDefaultSessionPermissions } from "../lib/permissions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const read = (rel: string) => readFileSync(path.resolve(__dirname, "..", "..", rel), "utf-8");
@@ -256,5 +258,32 @@ describe("preload-main: browserHost only on the local dashboard origin", () => {
     expect(ipcRenderer.on).toHaveBeenCalledWith("browser-host:frame", expect.any(Function));
     off();
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith("browser-host:frame", expect.any(Function));
+  });
+});
+
+describe("openExternal permission vs link path (E82, ELEC-01)", () => {
+  it("openExternal permission is denied at the allowed origin; links reach the OS only for http/https/mailto", () => {
+    let request!: (wc: unknown, p: string, cb: (g: boolean) => void, d: unknown) => void;
+    let check!: (wc: unknown, p: string, o: string, d: unknown) => boolean;
+    installDefaultSessionPermissions(
+      {
+        setPermissionRequestHandler: (h) => {
+          request = h as typeof request;
+        },
+        setPermissionCheckHandler: (h) => {
+          check = h as typeof check;
+        },
+      },
+      () => "http://localhost:8000",
+      () => {},
+    );
+    const cb = vi.fn();
+    request({}, "openExternal", cb, { isMainFrame: true, requestingUrl: "http://localhost:8000/" });
+    expect(cb).toHaveBeenCalledWith(false);
+    expect(check({}, "openExternal", "http://localhost:8000", { isMainFrame: true, requestingUrl: "http://localhost:8000/" })).toBe(false);
+    const open = vi.fn();
+    for (const u of ["https://a.example/", "http://a.example/", "mailto:a@b.c"]) expect(openExternalIfAllowed(u, open)).toBe(true);
+    for (const u of ["javascript:alert(1)", "file:///etc/passwd", "ms-msdt:/id"]) expect(openExternalIfAllowed(u, open)).toBe(false);
+    expect(open).toHaveBeenCalledTimes(3);
   });
 });

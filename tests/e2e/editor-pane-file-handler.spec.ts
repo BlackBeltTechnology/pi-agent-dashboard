@@ -203,3 +203,82 @@ test.describe("editor pane file-handler modes", () => {
     await expect(h.text).toHaveValue("handler edit");
   });
 });
+
+// ── beforeunload arming for built-in unsaved buffers (change: fix-file-link-editor-routing, test-plan #S61) ──
+// `unsaved-store` arms ONE `beforeunload` listener while any built-in buffer is dirty (a separate listener from
+// FileHandlerLayer's, which covers handler tabs). Probed two ways: a synthetic cancelable `beforeunload`
+// (deterministic: did a listener call preventDefault?) and a real reload with a `dialog` handler.
+const BU = "beforeunload-guard.md";
+
+test.describe("beforeunload arming (built-in buffers)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+    writeOob(BU, "BU-DISK");
+  });
+  test.afterEach(() => {
+    inBox(`rm -f ${JSON.stringify(ABS(BU))}`);
+  });
+
+  const warns = (page: Page) =>
+    page.evaluate(() => {
+      const e = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    });
+
+  test("S61: armed while a built-in buffer is dirty, disarmed after Save and after Discard; handler tab warns independently", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    const sid = await sessionIdOf(card);
+    await openInPane(page, sid, BU);
+    expect(await warns(page)).toBe(false);
+
+    await page.getByTestId("md-edit-toggle").click();
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.type("BU-EDIT");
+    await expect(page.getByTestId("md-dirty-dot")).toBeVisible();
+    await expect.poll(() => warns(page)).toBe(true);
+
+    // A real reload while dirty raises the browser's beforeunload dialog (accept to let the reload proceed).
+    let dialogs = 0;
+    page.once("dialog", (d) => {
+      dialogs++;
+      void d.accept();
+    });
+    await page.reload();
+    expect(dialogs, "a real beforeunload dialog fired while dirty").toBe(1);
+
+    // After Save the listener is gone: no warning, no dialog on reload.
+    await page.getByTestId("md-edit-toggle").click();
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.type("BU-EDIT-2");
+    await expect.poll(() => warns(page)).toBe(true);
+    await page.getByTestId("md-save-btn").click();
+    await expect(page.getByTestId("md-dirty-dot")).toHaveCount(0, { timeout: 20_000 });
+    await expect.poll(() => warns(page)).toBe(false);
+    page.once("dialog", (d) => {
+      dialogs++;
+      void d.accept();
+    });
+    await page.reload();
+    expect(dialogs, "no dialog after Save").toBe(1);
+
+    // Discard (via the tab-close dialog) disarms it too.
+    await page.getByTestId("md-edit-toggle").click();
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.type("BU-EDIT-3");
+    await expect.poll(() => warns(page)).toBe(true);
+    await page.getByTestId("editor-tab").first().getByRole("button").click();
+    await page.getByTestId("unsaved-discard").click();
+    await expect.poll(() => warns(page)).toBe(false);
+  });
+
+  test("S61: a dirty handler tab (FileHandlerLayer) still warns on its own", async ({ page }) => {
+    writeOob(DOCX, "original");
+    const card = await spawnFreshGitSession(page);
+    await openInPane(page, await sessionIdOf(card), DOCX);
+    const { text } = await enterHandlerMode(page);
+    await expect.poll(() => warns(page)).toBe(false);
+    await text.fill("handler edit");
+    await expect.poll(() => warns(page)).toBe(true);
+  });
+});

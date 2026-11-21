@@ -36,6 +36,8 @@ import { TIER_OPTIONS } from "../connectivity/PairedDevicesSection.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 
 const CODE_DIGITS = 8;
+/** Placeholder swapped for the origin element when rendering `{origin}` templates. */
+const HOST_MARK = "\u0001";
 /** Server bound on the device label (UTF-8 bytes, `MAX_DEVICE_LABEL_BYTES`). */
 const MAX_NAME_BYTES = 64;
 /** D5: the success state stays visible, then closes on its own. */
@@ -51,9 +53,10 @@ export interface PairingApprovalDialogProps {
   queued: number;
   /**
    * Approve with the typed code; rejects only on a transport failure. `tier`
-   * is passed for a knock entry only (QR keeps its two-argument call).
+   * is passed for a knock entry only (QR keeps its two-argument call), and `allowCompanion`
+   * only when the request carries a verified companion (the operator's tick at submit).
    */
-  onApprove(confirmCode: string, label: string | undefined, tier?: Tier): Promise<ApprovePendingOutcome>;
+  onApprove(confirmCode: string, label: string | undefined, tier?: Tier, allowCompanion?: boolean): Promise<ApprovePendingOutcome>;
   /**
    * Resolves with nothing once answered (the host closes the dialog), or the
    * refusal's remedies when the deny was refused for want of an operator
@@ -316,6 +319,13 @@ function DeviceDetails({ entry, now }: { entry: PendingPairing; now: number }) {
       )}
       <dt className="text-[var(--text-tertiary)]">{i18nT("pairingApproval.when", undefined, "When")}</dt>
       <dd className="text-[var(--text-primary)]">{age(now - entry.createdAt)}</dd>
+      {/* Verified device key (short id only, never the key); "none" when the requester sent none. */}
+      <div data-testid="pairing-dialog-device-key" className="contents">
+        <dt className="text-[var(--text-tertiary)]">{i18nT("pairingApproval.deviceKey", undefined, "Device key")}</dt>
+        <dd className="font-mono text-[var(--text-primary)] break-all">
+          {entry.keyId ?? <span className="font-sans text-[var(--text-tertiary)]">{i18nT("pairingApproval.deviceKeyNone", undefined, "none")}</span>}
+        </dd>
+      </div>
     </dl>
   );
 }
@@ -410,6 +420,50 @@ function UnencryptedCallout() {
   );
 }
 
+/**
+ * Companion statement + opt-in tick. The origin is the requester's CLAIM (a page can sign for any origin it
+ * controls): shown as a text node, labelled as claimed, and the box starts unticked.
+ * See change: device-key-mutual-check (D5).
+ */
+function CompanionChoice({ origin, allow, onChange }: { origin: string | undefined; allow: boolean; onChange(allow: boolean): void }) {
+  const checkId = useId();
+  if (origin === undefined) return null;
+  const [before, after = ""] = i18nT(
+    "pairingApproval.companionStatement",
+    { origin: HOST_MARK },
+    "The dashboard at {origin} (claimed by the requester) can also see that this device is paired.",
+  ).split(HOST_MARK);
+  return (
+    <div
+      data-testid="pairing-dialog-companion"
+      className="space-y-1 px-3 py-2 rounded text-xs bg-[var(--bg-secondary)] border border-[var(--border-secondary)]"
+    >
+      <p className="text-[var(--text-primary)]">
+        {before}
+        <span className="font-mono font-semibold break-all">{origin}</span>
+        {after}
+      </p>
+      <p className="text-[var(--text-secondary)]">
+        {i18nT(
+          "pairingApproval.companionLimit",
+          undefined,
+          "It can only see the pairing and cannot sign in or act with it.",
+        )}
+      </p>
+      <label htmlFor={checkId} className="flex items-center gap-2 min-h-[44px] sm:min-h-8 cursor-pointer text-[var(--text-primary)]">
+        <input
+          id={checkId}
+          type="checkbox"
+          checked={allow}
+          onChange={(e) => onChange(e.target.checked)}
+          className="accent-[var(--accent-solid)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)]"
+        />
+        <span className="font-semibold">{i18nT("pairingApproval.companionAllow", undefined, "Allow this status check")}</span>
+      </label>
+    </div>
+  );
+}
+
 /** "Access for this device" — same `TIER_OPTIONS` copy as Paired devices (D17). */
 function TierGroup({ tier, onChange }: { tier: Tier; onChange(tier: Tier): void }) {
   const groupName = useId();
@@ -482,6 +536,21 @@ function dialogSubtitle(knock: boolean): string {
     : i18nT("pairingApproval.subtitle", undefined, "Someone opened a pairing link. Approve only if it's your device.");
 }
 
+/** The verified companion's claimed origin; only a knock can carry one. */
+function companionOriginOf(entry: PendingPairing): string | undefined {
+  return entry.provenance === "knock" ? entry.companionOrigin : undefined;
+}
+
+/** QR keeps the two-argument call, a knock adds the tier, a knock with a verified companion adds the tick. */
+function callApprove(
+  onApprove: PairingApprovalDialogProps["onApprove"],
+  kind: { knock: boolean; companion: boolean },
+  [code, label, tier, allowCompanion]: [string, string | undefined, Tier, boolean],
+): Promise<ApprovePendingOutcome> {
+  if (!kind.knock) return onApprove(code, label);
+  return kind.companion ? onApprove(code, label, tier, allowCompanion) : onApprove(code, label, tier);
+}
+
 export function PairingApprovalDialog({
   entry,
   now,
@@ -498,6 +567,9 @@ export function PairingApprovalDialog({
   const [name, setName] = useState(() => entry.requesterName?.trim() || deviceNameFromUserAgent(entry.userAgent));
   // Least privilege stays one click away; operate is the preselected default (D7).
   const [tier, setTier] = useState<Tier>("operate");
+  // Opt-in, never preselected: only a verified companion offers it (design D5).
+  const companionOrigin = companionOriginOf(entry);
+  const [allowCompanion, setAllowCompanion] = useState(false);
   const [pairedName, setPairedName] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -542,7 +614,7 @@ export function PairingApprovalDialog({
     let outcome: ApprovePendingOutcome;
     try {
       const label = trimmed.length > 0 ? trimmed : undefined;
-      outcome = knock ? await onApprove(digits, label, tier) : await onApprove(digits, label);
+      outcome = await callApprove(onApprove, { knock, companion: companionOrigin !== undefined }, [digits, label, tier, allowCompanion]);
     } catch {
       setBusy(false);
       setFormError(i18nT("pairingApproval.transport", undefined, "Couldn't reach the dashboard. Try again."));
@@ -688,6 +760,7 @@ export function PairingApprovalDialog({
             />
           </div>
           {knock && <TierGroup tier={tier} onChange={setTier} />}
+          <CompanionChoice origin={companionOrigin} allow={allowCompanion} onChange={setAllowCompanion} />
           {/* Hidden submit so Enter in either field submits (validates first). */}
           <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
         </form>

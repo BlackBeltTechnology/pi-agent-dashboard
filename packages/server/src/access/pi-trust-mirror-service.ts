@@ -188,9 +188,15 @@ function buildCandidates(
     const key = keyOf(repoRoot);
     if (key) push(worktreeCandidate(key, repoRoot, hash, hookHash(repoRoot)));
   }
+  // One candidate per subject: a directory may hold a read AND a write entry (fix-file-link-editor-routing),
+  // and the mirror sees a write grant as the read grant it also is.
+  const seenGrantKeys = new Set<string>();
   for (const { subject } of deps.listPersistedGrants()) {
     const key = keyOf(subject);
-    if (key) push({ sourceKind: "accessGrants", key, projectRoot: hasProjectRootMarker(key) });
+    if (key && !seenGrantKeys.has(key)) {
+      seenGrantKeys.add(key);
+      push({ sourceKind: "accessGrants", key, projectRoot: hasProjectRootMarker(key) });
+    }
   }
   return out;
 }

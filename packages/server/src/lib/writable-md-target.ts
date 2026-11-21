@@ -83,6 +83,28 @@ async function allowedRoot(opts: WritableMdTargetOptions): Promise<string | null
 }
 
 /**
+ * The extension + dashboard-state half of {@link isWritableMdTarget}, WITHOUT the scope-root check:
+ * true iff `absPath` is absolute, its REAL path is not under the dashboard state dir, and its real
+ * extension is an allowlisted text-doc kind (`.md .mdx .adoc .asciidoc .csv`). Mermaid sources
+ * (`.mmd`, `.mermaid`) are directory-only and never pass here, so they can never reach the
+ * outside-cwd write-grant gate. Never throws.
+ *
+ * Used by `POST /api/file/write` to decide whether a target outside the session cwd may be offered
+ * to the write gate at all (`evaluateContainment(..., {action:"write"})`).
+ * See change: fix-file-link-editor-routing (D2).
+ */
+export async function isTextDocWriteTarget(absPath: string): Promise<boolean> {
+  if (!path.isAbsolute(absPath)) return false;
+  try {
+    const real = await safeRealpath(path.resolve(absPath));
+    if (await dashboardStateRefuses(real)) return false;
+    return WRITABLE_MD_EXTENSIONS.has(extOf(real));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True iff `absPath` is an authorized markdown write target for the given scope.
  *
  * Realpath-normalizes both the target and the scope root before comparing, so

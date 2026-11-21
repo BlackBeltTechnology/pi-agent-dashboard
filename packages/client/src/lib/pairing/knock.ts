@@ -20,7 +20,9 @@ export type { KnockHooks, KnockOutcome };
 /** WebCrypto prover: an unverified signature is a refusal; transport failures throw (as before). */
 const proveWithWebCrypto: ProveFn = async (baseUrl) => {
   const proof = await challengeIdentity(baseUrl);
-  return proof.verified ? { proven: proof.fingerprint } : { refused: "signature invalid" };
+  return proof.verified
+    ? { proven: proof.fingerprint, ...(proof.deviceNonce ? { deviceNonce: proof.deviceNonce } : {}) }
+    : { refused: "signature invalid" };
 };
 
 export function knockServer(

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   applyPiSettingsPatch,
   computePiSettingsEtag,
+  mirrorDefaultsToPi,
   PI_RETRY_DEFAULTS,
   readPiRetryPolicy,
   readPiSettings,
@@ -15,6 +16,7 @@ import {
   writePiRetryPolicy,
   writePiSettingsRaw,
 } from "../pi-agent-settings.js";
+import { createPiDefaultRemirror } from "../pi-default-remirror.js";
 
 const lockfile = createRequire(import.meta.url)("proper-lockfile") as typeof import("proper-lockfile");
 
@@ -630,5 +632,81 @@ describe("pi-agent-settings", () => {
     expect(r).toMatchObject({ ok: false, error: "invalid" });
     expect(JSON.stringify(r)).toContain("selfUpdateCommand is not a form field; use the JSON editor for this key");
     expect(onDisk()).toBe(before);
+  });
+});
+
+// See change: default-model-follows-role (test-plan #E15, #X2).
+describe("pi default re-mirror (role default)", () => {
+  let dir: string;
+  let file: string;
+  let fsDeps: { agentDirEnv: string };
+  let dashboard: { defaultModel?: string; defaultThinkingLevel?: string };
+  let roles: Record<string, string>;
+  let logs: string[];
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "pi-remirror-"));
+    file = join(dir, "settings.json");
+    fsDeps = { agentDirEnv: dir };
+    dashboard = { defaultModel: "@planning", defaultThinkingLevel: "" };
+    roles = { planning: "anthropic/claude-sonnet-5-5:high", review: "anthropic/claude-opus-5-5" };
+    logs = [];
+    writeFileSync(file, JSON.stringify({ defaultProvider: "anthropic", defaultModel: "claude-sonnet-5-5", keep: 1 }, null, 2));
+  });
+
+  const make = () =>
+    createPiDefaultRemirror({
+      readDashboardConfig: () => dashboard,
+      readRoles: () => ({ roles }),
+      fsDeps,
+      log: (m) => logs.push(m),
+    });
+  const disk = () => readFileSync(file, "utf-8");
+
+  it("E15 writes only when the role default's resolution changes", async () => {
+    const r = make();
+    const initial = disk();
+    r.seed();
+    expect(disk()).toBe(initial); // seed never writes
+
+    await r.remirror(); // unchanged
+    expect(disk()).toBe(initial);
+
+    roles = { ...roles, planning: "proxy/cc/claude-sonnet-5-5:high" }; // preset load
+    await r.remirror();
+    expect(JSON.parse(disk())).toEqual({ keep: 1, defaultProvider: "proxy", defaultModel: "cc/claude-sonnet-5-5", defaultThinkingLevel: "high" });
+    expect(logs).toHaveLength(1);
+
+    // Settings save of @planning (mirror write), then pi hand-edited, then an unrelated role edit.
+    await mirrorDefaultsToPi(() => dashboard, ["defaultModel"], fsDeps, () => ({ roles }));
+    r.noteMirrorWrite();
+    writeFileSync(file, JSON.stringify({ defaultProvider: "picked", defaultModel: "in-pi" }));
+    const handEdited = disk();
+    roles = { ...roles, review: "proxy/cc/claude-opus-5-5" };
+    await r.remirror();
+    expect(disk()).toBe(handEdited);
+
+    // Concrete default: role changes never write.
+    dashboard = { defaultModel: "anthropic/claude-opus-5-5" };
+    roles = { ...roles, planning: "anthropic/claude-haiku-5-5" };
+    await r.remirror();
+    expect(disk()).toBe(handEdited);
+    expect(r.defaultModelRef()).toBeUndefined();
+    expect(logs).toHaveLength(1);
+  });
+
+  it("defaultModelRef returns the persisted role ref only", () => {
+    expect(make().defaultModelRef()).toBe("@planning");
+  });
+
+  it("X2 unparseable pi file: no throw, byte-identical, one log line", async () => {
+    const r = make();
+    r.seed();
+    writeFileSync(file, '{ "defaultModel": ');
+    roles = { ...roles, planning: "proxy/cc/claude-sonnet-5-5" };
+    await expect(r.remirror()).resolves.toBeUndefined();
+    expect(disk()).toBe('{ "defaultModel": ');
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatch(/parse/);
   });
 });

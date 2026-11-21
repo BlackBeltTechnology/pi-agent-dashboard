@@ -10,13 +10,14 @@
  * `{ success:false, error }` (design D5). See change: render-office-previews.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { DOCX_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
+import { ContainmentBindingRefused, readFileStateChecked } from "./dashboard-state-guard.js";
 import { loadPurify } from "./purify.js";
 
 /** Bounded-preview + size caps (design D3). Overridable per-call for tests. */
@@ -156,6 +157,38 @@ export function createDefaultDocxPdfEngine(opts?: {
   };
 }
 
+/**
+ * `engine.toPdf(real, out)` bound to the decided real path: identity before, identity after. If the
+ * path was swapped during conversion the output is deleted (no poisoned cache entry) and the caller
+ * is refused with {@link ContainmentBindingRefused}. See change: close-local-listener-and-egress-gaps (D2).
+ */
+export async function convertBound(engine: DocxPdfEngine, real: string, out: string): Promise<void> {
+  const before = await fs.lstat(real);
+  // Convert to a private temp name and publish to `out` only after the binding check passes, so a
+  // discard that fails (e.g. EPERM) can never leave a poisoned file at the cache path.
+  const tmp = `${out.replace(/\.pdf$/, "")}.${randomUUID()}.tmp.pdf`;
+  const discard = () => fs.rm(tmp, { force: true }).catch(() => undefined);
+  try {
+    await engine.toPdf(real, tmp);
+  } catch (err) {
+    await discard();
+    throw err;
+  }
+  try {
+    const [afterReal, after] = await Promise.all([fs.realpath(real), fs.lstat(real)]);
+    if (afterReal !== real || after.dev !== before.dev || after.ino !== before.ino) throw new ContainmentBindingRefused();
+  } catch (err) {
+    await discard();
+    throw err instanceof ContainmentBindingRefused ? err : new ContainmentBindingRefused();
+  }
+  try {
+    await fs.rename(tmp, out);
+  } catch (err) {
+    await discard();
+    throw err;
+  }
+}
+
 // ── docx: render (design D8) ─────────────────────────────────────────────────
 
 export type DocxRenderResult =
@@ -181,7 +214,7 @@ export type DocxRenderMode = "pdf" | "html" | "auto";
  * DOMPurify, and applies the image cap.
  */
 export async function renderDocx(
-  resolved: string,
+  real: string,
   stat: { mtimeMs: number; size: number },
   opts: { mode: DocxRenderMode; engine: DocxPdfEngine; caps: OfficeCaps },
 ): Promise<DocxRenderResult> {
@@ -190,22 +223,23 @@ export async function renderDocx(
   if (mode !== "html") {
     try {
       if (await engine.available()) {
-        const out = pdfCachePath(resolved, stat.mtimeMs, stat.size);
+        const out = pdfCachePath(real, stat.mtimeMs, stat.size);
         await fs.mkdir(pdfCacheDir(), { recursive: true });
         try {
           await fs.access(out);
         } catch {
-          await engine.toPdf(resolved, out);
+          await convertBound(engine, real, out);
         }
         return { success: true, mode: "pdf" };
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof ContainmentBindingRefused) throw err;
       // fall through to html
     }
   }
 
   try {
-    const buffer = await fs.readFile(resolved);
+    const buffer = await readFileStateChecked(real, undefined, { decidedReal: real });
     const mammoth = (await import("mammoth")).default ?? (await import("mammoth"));
     let imageCount = 0;
     const convertImage = mammoth.images.imgElement((img: any) =>
@@ -230,6 +264,7 @@ export async function renderDocx(
       ...(truncated ? { note: "Images trimmed — download for the full document." } : {}),
     };
   } catch (err) {
+    if (err instanceof ContainmentBindingRefused) throw err;
     return { success: false, error: err instanceof Error ? err.message : "failed to render docx" };
   }
 }
@@ -247,22 +282,23 @@ export type PptxRenderResult =
  * `DOCKER_UNAVAILABLE` / convert failure → `{ success:false }`. Never throws.
  */
 export async function renderPptx(
-  resolved: string,
+  real: string,
   stat: { mtimeMs: number; size: number },
   opts: { engine: DocxPdfEngine },
 ): Promise<PptxRenderResult> {
   try {
     if (await opts.engine.available()) {
-      const out = pdfCachePath(resolved, stat.mtimeMs, stat.size);
+      const out = pdfCachePath(real, stat.mtimeMs, stat.size);
       await fs.mkdir(pdfCacheDir(), { recursive: true });
       try {
         await fs.access(out);
       } catch {
-        await opts.engine.toPdf(resolved, out);
+        await convertBound(opts.engine, real, out);
       }
       return { success: true, mode: "pdf" };
     }
   } catch (err) {
+    if (err instanceof ContainmentBindingRefused) throw err;
     return { success: false, error: err instanceof Error ? err.message : "failed to render pptx" };
   }
   return { success: false, error: "presentation rendering requires the document engine" };

@@ -352,3 +352,38 @@ describe("D5: promptOutcome, decided in the gate", () => {
     expect(res.json().promptOutcome).toBe("off");
   });
 });
+
+describe("T.12 a link into a forbidden grant subject stays refused and ungrantable (close-local-listener-and-egress-gaps)", () => {
+  it("403 with the unchanged error + promptOutcome:ungrantable; persisting a grant for that dir is refused, store unchanged", async () => {
+    const home = path.join(tmp, "home");
+    fs.mkdirSync(path.join(home, ".ssh"), { recursive: true });
+    fs.writeFileSync(path.join(home, ".ssh", "id_test.xlsx"), "PRIVATE-KEY-MARKER");
+    process.env.HOME = home;
+    fs.symlinkSync(path.join(home, ".ssh", "id_test.xlsx"), path.join(cwd, "l.xlsx"));
+
+    const app = makeApp();
+    registerAccessRoutes(app, {
+      networkGuard: async () => undefined,
+      preferencesStore: { getPinnedDirectories: () => [], unpinDirectory: () => {} } as never,
+      writeConfigPartial: () => ({ success: true }),
+    });
+    const res = await app.inject({ method: "GET", url: `/api/file/sheet?${q("l.xlsx")}` });
+    expect(res.statusCode).toBe(403);
+    const body = res.json();
+    expect(body.error).toBe("path outside working directory");
+    expect(body.promptOutcome).toBe("ungrantable");
+    expect(res.body).not.toContain("PRIVATE-KEY-MARKER");
+    // The remedy names the REAL target's directory (the forbidden subject), not the in-cwd link spelling.
+    expect(body.subject).toBe(fs.realpathSync(path.join(home, ".ssh")));
+
+    const before = listGrants();
+    const granted = await app.inject({
+      method: "POST",
+      url: "/api/access/grants",
+      payload: { denialId: body.denialId, subject: body.subject, scope: "project" },
+    });
+    expect(granted.statusCode).toBeGreaterThanOrEqual(400);
+    expect(listGrants()).toEqual(before);
+    await app.close();
+  });
+});

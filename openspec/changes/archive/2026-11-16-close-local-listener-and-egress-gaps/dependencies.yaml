@@ -1,0 +1,8 @@
+blocked_by:
+  - change: close-security-map-high-findings
+    reason: "Planned, unshipped. MODIFIES file-read-containment (credential-and-state refusal wording) and builds the structural post-open recheck (openStateChecked / readFileStateChecked / openVerifiedRegularFile) that DEP-02 open binding extends. This MODIFIED block copies THAT change delta, not main; if it is edited before ship, re-copy. Tasks 1.x name functions, not line numbers."
+related:
+  - add-voice-assistant-dashboard-plugin
+  - harden-http-auth-boundaries
+  - add-google-docs-pane
+  - add-supervised-tool-approval

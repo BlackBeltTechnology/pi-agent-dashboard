@@ -30,6 +30,16 @@ vi.mock("../../lib/pairing/pairing-api.js", async (importOriginal) => ({
   requestAccess: (...a: any[]) => requestAccess(...a),
 }));
 
+import "fake-indexeddb/auto";
+import {
+  base64urlToBytes,
+  devbindMessage,
+  encodeCompanionFragment,
+  isDevicePub,
+  isDeviceSig,
+} from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
+import { IDBFactory } from "fake-indexeddb";
+import { getPending, getPublicKey, resetDeviceKeySupportCache } from "../../lib/pairing/device-key.js";
 import type { PairingPayload } from "../../lib/pairing/pairing-api.js";
 import { encodePayloadString } from "../../lib/pairing/pairing-qr.js";
 import { PairLanding } from "../connectivity/PairLanding.js";
@@ -499,5 +509,209 @@ describe("PairLanding request mode", () => {
     const html = container.innerHTML;
     expect(html).not.toMatch(/\b(?:text|bg|border)-(?:neutral|red|green|blue|amber|yellow|gray|slate)-\d/);
     expect(html).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+});
+
+// See change: device-key-mutual-check (test-plan F2, tasks 4.3/4.4). Real jsdom location + history.
+describe("PairLanding request mode: device key and companion fragment (F2)", () => {
+  const FP = "sha256:server-fp";
+  const NONCE = "N".repeat(43);
+  const COMPANION = {
+    pub: "Q".repeat(42) + "Q",
+    ts: 1_700_000_000,
+    sig: "T".repeat(85) + "Q",
+    origin: "http://192.168.16.31:8000",
+  };
+  const goto = (hash: string) => window.history.replaceState(null, "", `/pair?request${hash}`);
+  const knock = (over: Record<string, unknown> = {}) => ({
+    ok: true, pendingId: "p1", confirmCode: "48217730", expiresAt: Date.now() + 300_000, fingerprint: FP, ...over,
+  });
+  const send = async () => {
+    await act(async () => { fireEvent.click(screen.getByTestId("pair-landing-request-send")); });
+    await waitFor(() => expect(requestAccess).toHaveBeenCalled());
+  };
+  const pollPending = () =>
+    postJson.mockImplementation(async (_b: string, path: string) => {
+      if (path === "/api/pair/poll") return { status: "pending" };
+      throw new Error(`unexpected ${path}`);
+    });
+
+  beforeEach(() => {
+    (globalThis as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
+    resetDeviceKeySupportCache();
+    sessionStorage.clear();
+    requestAccess.mockResolvedValue(knock());
+    pollPending();
+    challengeIdentity.mockResolvedValue({ fingerprint: FP, publicKey: "pk", verified: true, deviceNonce: NONCE });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    sessionStorage.clear();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("with WebCrypto: exactly one challenge, then a knock carrying a verifiable deviceKey", async () => {
+    vi.stubGlobal("isSecureContext", true);
+    goto("");
+    render(<PairLanding />);
+    await send();
+    expect(challengeIdentity).toHaveBeenCalledTimes(1);
+    const [name, opts] = requestAccess.mock.calls[0];
+    expect(name).toBe("");
+    const dk = opts.deviceKey;
+    expect(dk.deviceNonce).toBe(NONCE);
+    expect(isDevicePub(dk.pub) && isDeviceSig(dk.sig)).toBe(true);
+    const key = await crypto.subtle.importKey("raw", base64urlToBytes(dk.pub) as BufferSource, { name: "Ed25519" }, false, ["verify"]);
+    expect(
+      await crypto.subtle.verify({ name: "Ed25519" }, key, base64urlToBytes(dk.sig) as BufferSource, new TextEncoder().encode(devbindMessage(FP, NONCE))),
+    ).toBe(true);
+    // the key is kept for the live request, marked pending, and the stored knock names it
+    expect(await getPublicKey(FP)).toBe(dk.pub);
+    await waitFor(async () => expect(await getPending(FP)).toMatchObject({ pendingId: "p1" }));
+    expect(JSON.parse(sessionStorage.getItem("pi-dashboard:pair-request") ?? "{}")).toMatchObject({ pendingId: "p1", keyFp: FP });
+  });
+
+  it("without WebCrypto (plain http): knock has no deviceKey, zero challenges, crypto.subtle never accessed", async () => {
+    vi.stubGlobal("isSecureContext", false);
+    const subtle = vi.fn();
+    const fake = {};
+    Object.defineProperty(fake, "subtle", { get: subtle });
+    vi.stubGlobal("crypto", fake);
+    goto("");
+    render(<PairLanding />);
+    await send();
+    expect(challengeIdentity).not.toHaveBeenCalled();
+    expect(requestAccess.mock.calls[0]).toEqual([""]);
+    expect(subtle).not.toHaveBeenCalled();
+    expect(await getPublicKey(FP)).toBeNull();
+  });
+
+  it("an older server (challenge without deviceNonce) knocks without a key", async () => {
+    vi.stubGlobal("isSecureContext", true);
+    challengeIdentity.mockResolvedValue({ fingerprint: FP, publicKey: "pk", verified: true });
+    goto("");
+    render(<PairLanding />);
+    await send();
+    expect(requestAccess.mock.calls[0]).toEqual([""]);
+    expect(await getPublicKey(FP)).toBeNull();
+  });
+
+  it("a challenge that fails or is unverified never blocks the knock", async () => {
+    vi.stubGlobal("isSecureContext", true);
+    challengeIdentity.mockRejectedValue(new Error("down"));
+    goto("");
+    render(<PairLanding />);
+    await send();
+    expect(requestAccess.mock.calls[0]).toEqual([""]);
+  });
+
+  it("a refused knock leaves no key behind", async () => {
+    vi.stubGlobal("isSecureContext", true);
+    requestAccess.mockResolvedValue({ ok: false, error: "knock_disabled" });
+    goto("");
+    render(<PairLanding />);
+    await send();
+    await waitFor(() => expect(screen.getByTestId("pair-landing-request-refused")).toBeDefined());
+    expect(await getPublicKey(FP)).toBeNull();
+  });
+
+  it("rejected deletes the pending key; approved keeps it", async () => {
+    vi.stubGlobal("isSecureContext", true);
+    for (const [status, kept] of [["rejected", false], ["approved", true]] as const) {
+      cleanup();
+      (globalThis as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
+      resetDeviceKeySupportCache();
+      postJson.mockImplementation(async (_b: string, path: string) => {
+        if (path === "/api/pair/poll") return { status, ...(status === "approved" ? { token: "TOK" } : {}) };
+        throw new Error(`unexpected ${path}`);
+      });
+      goto("");
+      render(<PairLanding />);
+      await send();
+      // first poll is due after one interval (2 s); the real timer is used here
+      await waitFor(async () => {
+        if (status === "rejected") expect(screen.getByTestId("pair-landing-request-rejected")).toBeDefined();
+        else expect(storeDeviceBearer).toHaveBeenCalled();
+      }, { timeout: 5000 });
+      await waitFor(async () => expect((await getPublicKey(FP)) !== null).toBe(kept));
+      if (kept) expect(await getPending(FP)).toBeNull();
+      requestAccess.mockClear();
+      storeDeviceBearer.mockClear();
+    }
+  });
+
+  it("#companion=<valid> keeps request mode, forwards {pub,ts,sig,origin}, strips the hash and sends no '#' in any request", async () => {
+    goto(`#${encodeCompanionFragment(COMPANION)}`);
+    render(<PairLanding />);
+    expect(screen.getByTestId("pair-landing-request-send")).toBeDefined();
+    await waitFor(() => expect(window.location.hash).toBe(""));
+    expect(window.location.href).not.toContain("#");
+    await send();
+    expect(requestAccess.mock.calls[0][1]).toEqual({ companion: COMPANION });
+    for (const c of [...requestAccess.mock.calls, ...postJson.mock.calls]) expect(JSON.stringify(c)).not.toContain("#");
+  });
+
+  it("companion + device key travel together", async () => {
+    vi.stubGlobal("isSecureContext", true);
+    goto(`#${encodeCompanionFragment(COMPANION)}`);
+    render(<PairLanding />);
+    await send();
+    const opts = requestAccess.mock.calls[0][1];
+    expect(opts.companion).toEqual(COMPANION);
+    expect(opts.deviceKey.deviceNonce).toBe(NONCE);
+  });
+
+  it.each([["#something-else"], ["#Companion=x.y.z&from=http%3A%2F%2Fa"]])("%s is not companion: the QR flow runs", async (hash) => {
+    goto(hash);
+    challengeIdentity.mockResolvedValue({ fingerprint: "sha256:IMPOSTOR", publicKey: "pk", verified: true });
+    render(<PairLanding />);
+    await waitFor(() => expect(screen.queryByTestId("pair-landing-request-send")).toBeNull());
+    expect(requestAccess).not.toHaveBeenCalled();
+  });
+
+  it("a bare '#' is request mode with no companion", async () => {
+    goto("#");
+    render(<PairLanding />);
+    await send();
+    expect(requestAccess.mock.calls[0]).toEqual([""]);
+  });
+
+  it("a 513-char companion fragment knocks without a companion (and is still stripped)", async () => {
+    const fat = { ...COMPANION, origin: `http://${"a".repeat(400)}.example` };
+    const frag = encodeCompanionFragment(fat);
+    expect(frag.length).toBeGreaterThan(512);
+    goto(`#${frag}`);
+    render(<PairLanding />);
+    expect(screen.getByTestId("pair-landing-request-send")).toBeDefined();
+    await send();
+    expect(requestAccess.mock.calls[0]).toEqual([""]);
+    await waitFor(() => expect(window.location.hash).toBe(""));
+  });
+
+  it("a malformed companion (two parts) is ignored", async () => {
+    goto("#companion=abc.def&from=http%3A%2F%2Fa.example");
+    render(<PairLanding />);
+    await send();
+    expect(requestAccess.mock.calls[0]).toEqual([""]);
+  });
+
+  it("QR redeem reuses the challenge that proved the pin and carries its deviceKey (no extra challenge)", async () => {
+    vi.stubGlobal("isSecureContext", true);
+    goto("");
+    window.location.hash = `#${encodePayloadString(PAYLOAD)}`;
+    challengeIdentity.mockResolvedValue({ fingerprint: PAYLOAD.id, publicKey: "pk", verified: true, deviceNonce: NONCE });
+    postJson.mockImplementation(async (_b: string, path: string) => {
+      if (path === "/api/pair/redeem") return { pendingId: "p9", confirmCode: "12345678" };
+      return { status: "pending" };
+    });
+    render(<PairLanding />);
+    await waitFor(() => expect(postJson).toHaveBeenCalledWith("https://relay.example.io", "/api/pair/redeem", expect.anything()));
+    expect(challengeIdentity).toHaveBeenCalledTimes(1);
+    const body = postJson.mock.calls.find((c) => c[1] === "/api/pair/redeem")?.[2];
+    expect(body.code).toBe("482913");
+    expect(body.deviceKey.deviceNonce).toBe(NONCE);
+    expect(isDevicePub(body.deviceKey.pub)).toBe(true);
+    await waitFor(async () => expect(await getPending(PAYLOAD.id)).toMatchObject({ pendingId: "p9" }));
   });
 });

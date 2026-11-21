@@ -36,6 +36,8 @@ export interface DenialFacts {
   rawSubject: string;
   ancestors?: readonly string[];
   origin: string;
+  /** `"write"` for a text-document write denial; absent = read. Filesystem plane only. */
+  action?: "read" | "write";
 }
 
 function capabilitySocketOf(request: HeaderCarrier): string | null {
@@ -63,6 +65,7 @@ export async function holdDenial(facts: DenialFacts, target?: HoldTarget): Promi
       rawSubject: facts.rawSubject,
       ancestors: facts.ancestors,
       origin: facts.origin,
+      ...(facts.action === "write" ? { action: "write" as const } : {}),
       channel,
       requestHoldsCapability: socketId !== null,
     },

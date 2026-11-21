@@ -57,6 +57,8 @@ interface PathGrantSnapshotEntry {
   via?: "prompt" | "agent-prompt" | "provision" | (string & {});
   /** The denied subject when the grant is a wider offered-ancestor rung. */
   widenedFrom?: string;
+  /** `"write"` for a write-mode grant (also admits text-doc saves); absent = read. See change: fix-file-link-editor-routing. */
+  mode?: "write";
 }
 
 /**
@@ -136,6 +138,8 @@ export interface AccessEntry {
   via?: "prompt" | "agent-prompt" | "provision" | (string & {});
   /** Path grants only: the denied subject a widened grant came from. */
   widenedFrom?: string;
+  /** Path grants only: `"write"` for a write-mode grant; absent = read (a separate row, revoked on its own). */
+  mode?: "write";
   /** Preview-egress only: the project (git common root, else cwd) the grant applies to. */
   project?: string;
 }

@@ -25,6 +25,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetPathDenials, listPathDenials } from "../access/access-denials.js";
 import { __resetAccessGrants, grantedSubjects, recordGrant } from "../access/access-grants.js";
+import { evaluateContainment } from "../access/containment-gate.js";
 import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
 import { registerFileRoutes } from "../routes/file-routes.js";
 import { systemOpenCapability } from "../system-open-capability.js";
@@ -245,5 +246,59 @@ describe("grant-admitted byte serving is verified against the open handle (task 
     }
     expect(listPathDenials()).toEqual([]);
     await app.close();
+  });
+});
+
+describe("T.4 a link into a granted subtree is admitted AT THE GRANT LAYER (close-local-listener-and-egress-gaps)", () => {
+  let base: string;
+  let dir: string;
+  let store: string | undefined;
+
+  beforeEach(async () => {
+    base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "grv-link-")));
+    dir = path.join(base, "cwd");
+    await fsp.mkdir(dir);
+    await fsp.mkdir(path.join(base, "repo", "sub"), { recursive: true });
+    await fsp.writeFile(path.join(base, "repo", "sub", "f.txt"), "granted bytes\n");
+    await fsp.symlink(path.join(base, "repo", "sub", "f.txt"), path.join(dir, "link"));
+    store = process.env.PI_ACCESS_GRANTS_STORE;
+    process.env.PI_ACCESS_GRANTS_STORE = path.join(base, "grants.json");
+    __resetAccessGrants();
+    __resetPathDenials();
+    expect(recordGrant({ subject: path.join(base, "repo", "sub"), scope: "project", origin: "test" }).ok).toBe(true);
+  });
+
+  afterEach(async () => {
+    __resetAccessGrants();
+    if (store === undefined) delete process.env.PI_ACCESS_GRANTS_STORE;
+    else process.env.PI_ACCESS_GRANTS_STORE = store;
+    await fsp.rm(base, { recursive: true, force: true });
+  });
+
+  it("the gate decides viaGrant:true on the real path; the route answers 200 with the bytes", async () => {
+    const link = path.join(dir, "link");
+    // Layers ①/② refuse (the real path leaves the cwd anchor); only the grant layer admits.
+    expect(await isAllowed(link, { anchors: [dir] })).toBe(false);
+    const decision = await evaluateContainment(link, [dir], { site: "test:t4" });
+    expect(decision).toMatchObject({ allowed: true, viaGrant: true, real: path.join(base, "repo", "sub", "f.txt") });
+    expect(listPathDenials()).toEqual([]);
+
+    const app = Fastify({ logger: false });
+    registerFileRoutes(app, {
+      sessionManager: { listAll: () => [{ cwd: dir }] } as never,
+      preferencesStore: { getPinnedDirectories: () => [] } as never,
+      networkGuard: async () => undefined,
+    });
+    await app.ready();
+    try {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/file?cwd=${encodeURIComponent(dir)}&path=${encodeURIComponent("link")}`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.content).toBe("granted bytes\n");
+    } finally {
+      await app.close();
+    }
   });
 });

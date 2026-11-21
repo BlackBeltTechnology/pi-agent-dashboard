@@ -111,9 +111,70 @@ Folder entry: `sidebar-folder-section` mount calls `useFolderMenuItem` then rend
 - `scope` = `"folder"` when `scopes` includes `"local"`, else `"global"`.
 - Claim manifest `resourceType` filter applied by consumer.
 
+## Graph view
+
+- Engine: `d3-force@^3`, direct dep of `@blackbelt-technology/pi-dashboard-skill-atlas-plugin`.
+- Sim: stateful, `src/client/atlas-simulation.ts`. Pure helpers: `src/client/graph-layout.ts`.
+- Supersedes archived Q8/D9 hand-rolled layout. `layoutGraph`, `fitTransform` removed.
+- Sim nodes = all skills of graph. Sim links = links of visible relation types (`relations` prop from `SkillAtlasPage`).
+- Origin toggles hide nodes only. Never re-layout.
+- `presettle` runs sync, seeded → deterministic.
+- Presettle: velocityDecay 0.4; alphaDecay so cooling ≤ 220 ticks; ≤ 60 extra ticks until forest discs disjoint.
+- After presettle: velocityDecay 0.72 (heavy damping) for all visible motion.
+- SVG hidden until fitted.
+- Relation toggle → forests recomputed → damped re-settle (`alpha(0.35).restart()`).
+- Reduced motion → one-step `presettle`.
+- BREAKING (behaviour): filters move nodes.
+- Live refetch → new sim seeded from surviving positions, presettled gently (alpha 0.3).
+- Old graph stays until swap.
+- Forests = connected components over drawn links (`forests`, union-find).
+- Forest ≥ 2 skills → rounded padded convex-hull outline (`outlinePath`, pad 20).
+- Outline stroke `--accent-blue-text`, dashed; solid when zoomed.
+- Outline fill: radial gradient on `--accent-blue`.
+- Singletons: no outline.
+- `forestSeparation` force (position-based, skips pinned nodes) keeps outlines apart on open.
+- Click outline (press < 4 px) → zoom to forest.
+- Other forests dimmed (outline opacity 0.4).
+- Chip `Group: N skills` + `<button>` "Show all".
+- Click another outline → switch.
+- Esc / Show all / empty-space click → back.
+- Esc leaves zoom before clearing selection.
+- Press ≥ 4 px on background or outline → pan.
+- Forest zoom pointer-only. Accepted WCAG 2.1.1 exception. Links table = text equivalent.
+- Drag node = standard d3 drag.
+- Drag start: pin at 4 px threshold + `alphaTarget(0.3)`.
+- Drag moves: rAF-batched. Neighbours follow via link forces.
+- Release / `pointercancel` / `lostpointercapture` → unpin, `alphaTarget(0)`, slow settle.
+- Positions not persisted.
+- Camera `{k,x,y}` (`fitView`).
+- Fit once at first rest.
+- Camera moves only on: pan/wheel/zoom buttons, Fit, focus change, forest enter/exit, resize while `userMoved` false.
+- `userMoved` = user has not panned/zoomed since last fit.
+- Selection, re-settle, drag never move camera.
+- View changes ease 380 ms. Reduced motion → instant.
+- Nothing runs at rest.
+- `visibilitychange` hidden → stop. Visible → resume if still settling.
+- Nodes: hollow dots. Radius `max(5, 4 + √degree)` ≤ 9.
+- Node outline `--text-secondary`, fill `--bg-primary`.
+- Origin by inner mark:
+  - Global: none.
+  - Package: filled dot r `0.3·r` (`--text-secondary`).
+  - Project: ring r `0.62·r`, stroke `--accent-green-text`.
+- Legend reuses same dot.
+- Labels: `placeLabels`, four anchors (right, left, below, above).
+- Labels never overlap labels, nodes or frame.
+- Hovered, then selected, placed first. May cover a node.
+- Hovered label always shown, clamped into frame.
+- Widths: cached canvas `measureText` 11px system-ui. Fallback 6.3 px/char + 2.
+- i18n keys (zh-CN + hu): `groupChip`, `showAll`, `outlineTitle`.
+
+See change: add-skill-atlas-forest-aura.
+
 ## Perf budget
 
 - P1: memo hit, 100 skills, p95 < 100 ms (`atlas-perf.test.ts`).
+- Graph first paint: `performance.mark("atlas-graph-rendered")` after first visible paint per mount. e2e P4: `atlas-graph-start` → `atlas-graph-rendered` < 500 ms (`tests/e2e/skill-atlas.spec.ts`).
+- Unit P1: `presettle` 300 skills median < 350 ms (`graph-layout.test.ts`).
 - P2: rebuild, 300 × 256 KiB bodies, < 500 ms (`atlas-perf.test.ts`).
 - Measured (Apple silicon dev box):
   - 300 `stat` ≈ 3–4 ms.
@@ -133,6 +194,6 @@ Folder entry: `sidebar-folder-section` mount calls `useFolderMenuItem` then rend
 
 - `packages/skill-atlas-plugin/src/shared/` — builder, types.
 - `packages/skill-atlas-plugin/src/server/` — `atlas-service.ts`, `routes.ts`, `inputs.ts`, `index.ts`.
-- `packages/skill-atlas-plugin/src/client/` — `SkillAtlasPage.tsx`, `useSkillGraph.ts`, `graph-layout.ts`, views.
+- `packages/skill-atlas-plugin/src/client/` — `SkillAtlasPage.tsx`, `useSkillGraph.ts`, `graph-layout.ts`, `atlas-simulation.ts`, `SkillGraphView.tsx`, views.
 
-Tests: `src/server/__tests__/` (service, perf P1/P2), `src/client/__tests__/` (UI, `graph-layout`).
+Tests: `src/server/__tests__/` (service, perf P1/P2), `src/client/__tests__/` (UI, `graph-view.test.tsx` interaction, `graph-layout.test.ts` helpers + simulation).

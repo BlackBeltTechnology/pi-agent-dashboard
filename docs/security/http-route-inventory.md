@@ -174,8 +174,8 @@
 | DELETE | `/api/access/refusals` | `packages/server/src/routes/access-prompt-routes.ts:249` | operate + `networkGuard` | Y | config |
 | GET | `/api/node/installs` | `packages/server/src/routes/node-runtime-routes.ts:101` | observe + `networkGuard` | N | info |
 | POST | `/api/node/installs/select` | `packages/server/src/routes/node-runtime-routes.ts:112` | operate + `networkGuard` | Y | exec/spawn |
-| GET | `/api/access/grants` | `packages/server/src/routes/access-routes.ts:159` | observe + `networkGuard` | N | info |
-| DELETE | `/api/access/grants` | `packages/server/src/routes/access-routes.ts:188` | operate + `networkGuard` | Y | config |
+| GET | `/api/access/grants` | `packages/server/src/routes/access-routes.ts:159` | observe + `networkGuard` | N | info; rows gain `mode` (`"write"`, omitted = read) |
+| DELETE | `/api/access/grants` | `packages/server/src/routes/access-routes.ts:188` | operate + `networkGuard` | Y | config; optional `mode`: omitted = all entries, `"write"`/`"read"` = that entry only, other = 400 |
 | DELETE | `/api/access/worktree-trust` | `packages/server/src/routes/access-routes.ts:218` | operate + `networkGuard` | Y | config |
 | DELETE | `/api/access/bypass-hosts` | `packages/server/src/routes/access-routes.ts:248` | operate + `networkGuard` | Y | config |
 | DELETE | `/api/access/trusted-network` | `packages/server/src/routes/access-routes.ts:276` | operate + `networkGuard` | Y | config |
@@ -269,11 +269,11 @@
 | POST | `/api/open-in-system` | `packages/server/src/routes/file-routes.ts:925` | operate + `networkGuard` | Y | exec/spawn |
 | POST | `/api/reveal-in-file-manager` | `packages/server/src/routes/file-routes.ts:931` | operate + `networkGuard` | Y | exec/spawn |
 | GET | `/api/file/tree` | `packages/server/src/routes/file-routes.ts:944` | observe + `networkGuard` | N | fs-read |
-| POST | `/api/file/write` | `packages/server/src/routes/file-routes.ts:1016` | control + `networkGuard` | Y | fs-write |
+| POST | `/api/file/write` | `packages/server/src/routes/file-routes.ts:1016` | control + `networkGuard` | Y | fs-write; outside-cwd allowlisted text doc → write-mode hold (prompt) |
 | GET | `/api/file/md-candidates` | `packages/server/src/routes/file-routes.ts:1052` | observe + `networkGuard` | N | fs-read |
 | GET | `/api/file/md-read` | `packages/server/src/routes/file-routes.ts:1077` | observe + `networkGuard` | N | fs-read |
 | GET | `/api/file/exists` | `packages/server/src/routes/file-routes.ts:1117` | observe + `networkGuard` | N | fs-read |
-| POST | `/api/file/resolve-mention` | `packages/server/src/routes/file-routes.ts:1204` | observe + `networkGuard` | Y | state |
+| POST | `/api/file/resolve-mention` | `packages/server/src/routes/file-routes.ts:1204` | observe + `networkGuard` | Y | state; payload may carry `outside:true` (no stat; echoes normalized candidate incl. expanded home) |
 | GET | `/api/pinned-dirs` | `packages/server/src/routes/file-routes.ts:1226` | observe | N | info |
 | GET | `/api/favorite-models` | `packages/server/src/routes/file-routes.ts:1232` | observe | N | info |
 | GET | `/api/file/raw` | `packages/server/src/routes/file-routes.ts:1241` | observe + `networkGuard` | N | fs-read |

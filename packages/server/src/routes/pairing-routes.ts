@@ -15,14 +15,20 @@
  */
 
 import type { TLSSocket } from "node:tls";
+import {
+  devbindMessage,
+  devcheckMessage,
+  isDevicePub,
+} from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import type { PairPollData } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { isTier, TIERS } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/tls-only-token.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { describeApprovalRefusal } from "../auth/approval-refusal.js";
-import { auditLine, auditPrefix, auditRequestFields } from "../auth/audit-log.js";
+import { auditDeviceEvent, auditKeyEvent, auditLine, auditPrefix, auditRequestFields } from "../auth/audit-log.js";
 import { parseBearerHeader, ROTATE_ROUTE } from "../auth/bearer-auth.js";
+import { DeviceNonceStore, DeviceStatusLimiter, RevokedAnswerLog, verifyNonceProof } from "../auth/device-proof.js";
 import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admission.js";
 import type { ServerIdentity } from "../auth/identity.js";
 import { signNonce } from "../auth/identity.js";
@@ -38,8 +44,14 @@ import {
   knockPeerInput,
   knockPeerState,
 } from "../pairing/knock-admission.js";
-import { BRIDGE_TOKEN_REQUIRES_HTTPS, type PairedDeviceRegistry, type PairedDeviceView } from "../pairing/paired-devices.js";
-import type { ApproveResult, PairingManager, PendingDeviceView } from "../pairing/pairing.js";
+import { createDeviceKeyIntake } from "../pairing/device-key-intake.js";
+import {
+  BRIDGE_TOKEN_REQUIRES_HTTPS,
+  keyIdOf,
+  type PairedDeviceRegistry,
+  type PairedDeviceView,
+} from "../pairing/paired-devices.js";
+import type { ApprovedKeys, ApproveResult, PairingManager, PendingDeviceView } from "../pairing/pairing.js";
 import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
 import { localEndpoints } from "../tunnel/tunnel-endpoints.js";
 import type { NetworkGuard } from "./route-deps.js";
@@ -73,6 +85,9 @@ function stripTrailingSlashes(u: string): string {
 /** URL prefixes of the PUBLIC device-facing pairing routes (auth-exempt). */
 export const PUBLIC_PAIRING_PREFIXES = [
   "/api/pair/challenge",
+  // device-key-mutual-check (D1): answers only a signed proof of the asked-about key. NOT a string prefix of
+  // `/api/pair/device-key` (the credentialed bind route) — the auth hook matches by `startsWith`.
+  "/api/pair/device-status",
   "/api/pair/redeem",
   "/api/pair/poll",
   // Device-initiated knock: public like `redeem`; the admission gates in
@@ -103,6 +118,19 @@ function approveFailure(
   return result.error === "mismatch"
     ? { success: false, error: result.error, attemptsLeft: result.attemptsLeft }
     : { success: false, error: result.error };
+}
+
+/** One audit line per key / companion outcome of an approval, caused by the operator's request. */
+function auditApprovedKeys(request: FastifyRequest, deviceId: string, keys: ApprovedKeys | undefined): void {
+  if (!keys) return;
+  if (keys.key) auditKeyEvent(keys.key.bound ? "key_bound" : "key_ignored", deviceId, keys.key.id, request);
+  if (keys.companion) auditKeyEvent(keys.companion.allowed ? "companion_allowed" : "key_ignored", deviceId, keys.companion.id, request);
+}
+
+/** Optional `allowCompanion`: absent → false; a supplied non-boolean is invalid (null). */
+function parseAllowCompanion(v: unknown): boolean | null {
+  if (v === undefined) return false;
+  return typeof v === "boolean" ? v : null;
 }
 
 /**
@@ -316,6 +344,12 @@ export function registerPairingRoutes(
     /** Injectable limiter / refusal logger (tests). */
     knockLimiter?: KnockLimiter;
     logKnockRefusal?: ReturnType<typeof createRefusalLogger>;
+    /** Injectable device-check state (tests, injected clocks). See change: device-key-mutual-check. */
+    deviceNonces?: DeviceNonceStore;
+    deviceStatusLimiter?: DeviceStatusLimiter;
+    revokedAnswerLog?: RevokedAnswerLog;
+    /** Clock for the companion `ts` window (tests). */
+    now?: () => number;
   },
 ) {
   const { networkGuard, identity, pairing, registry, localToken, hostAdmission } = deps;
@@ -326,6 +360,15 @@ export function registerPairingRoutes(
     localTrust: deps.localTrust,
     loginAvailable: deps.loginAvailable,
     getConfigPort: deps.getPort,
+  });
+  const deviceNonces = deps.deviceNonces ?? new DeviceNonceStore();
+  const deviceStatusLimiter = deps.deviceStatusLimiter ?? new DeviceStatusLimiter();
+  const revokedAnswerLog = deps.revokedAnswerLog ?? new RevokedAnswerLog();
+  const keyIntake = createDeviceKeyIntake({
+    nonces: deviceNonces,
+    registry,
+    fingerprint: () => identity.fingerprint,
+    now: deps.now,
   });
   const knockLimiter = deps.knockLimiter ?? new KnockLimiter();
   const logKnockRefusal = deps.logKnockRefusal ?? createRefusalLogger();
@@ -341,7 +384,10 @@ export function registerPairingRoutes(
   // pinned public key and detect an impostor on a reused URL.
   fastify.post<{ Body: { nonce?: string } }>(
     "/api/pair/challenge",
-    async (request, reply): Promise<ApiResponse<{ fingerprint: string; publicKey: string; signature: string; v: number }>> => {
+    async (
+      request,
+      reply,
+    ): Promise<ApiResponse<{ fingerprint: string; publicKey: string; signature: string; v: number; deviceNonce: string }>> => {
       const nonce = request.body?.nonce;
       if (typeof nonce !== "string" || nonce.length < 8 || nonce.length > 512) {
         reply.code(400);
@@ -354,8 +400,67 @@ export function registerPairingRoutes(
           publicKey: identity.publicKeyB64,
           signature: signNonce(identity, nonce),
           v: Math.max(...SUPPORTED_PAIRING_VERSIONS),
+          // Step 2 of the device check: single-use, 60 s. Never rate-limited by the status limiter.
+          deviceNonce: deviceNonces.issue(),
         },
       };
+    },
+  );
+
+  // ── Device check, step 2 (public): the status of the caller's OWN key ──
+  // Verify-before-lookup. Every failure — bad shape, bad signature, unknown / expired / used nonce,
+  // rate limit, even an unparseable body — is the same `{"status":"unverified"}` at HTTP 200, so the
+  // reply never says whether a key exists. See change: device-key-mutual-check (D1, D2).
+  const UNVERIFIED = { status: "unverified" } as const;
+  fastify.post<{ Body: unknown }>(
+    "/api/pair/device-status",
+    {
+      errorHandler: (_err, _request, reply) => {
+        reply.header("Cache-Control", "no-store").code(200).send(UNVERIFIED);
+      },
+    },
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      // Socket peer, like the knock admission — never `request.ip`.
+      if (!deviceStatusLimiter.allow(request.socket.remoteAddress ?? "unknown")) return UNVERIFIED;
+      const body = request.body;
+      const fields = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {};
+      if (!verifyNonceProof(deviceNonces, fields, (n) => devcheckMessage(identity.fingerprint, n))) return UNVERIFIED;
+      const answer = registry.deviceKeyStatus(fields.pub as string);
+      revokedAnswerLog.note(keyIdOf(fields.pub as string), answer.status);
+      return answer;
+    },
+  );
+
+  // ── Credentialed device: bind / replace its own key (D3) ───────────────
+  // Only the device's OWN credential (bearer or cookie → `authVia === "device"`), at any tier. No
+  // `networkGuard`: the device credential itself is the stricter condition and anonymous is 401 here.
+  fastify.post<{ Body: unknown }>(
+    "/api/pair/device-key",
+    async (request, reply): Promise<ApiResponse> => {
+      const authed = request as { authVia?: string; principalDeviceId?: string };
+      if (authed.authVia !== "device" || typeof authed.principalDeviceId !== "string") {
+        reply.code(401);
+        return { success: false, error: "device credential required" };
+      }
+      const body = request.body;
+      const fields = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {};
+      if (!verifyNonceProof(deviceNonces, fields, (n) => devbindMessage(identity.fingerprint, n))) {
+        reply.code(400);
+        return { success: false, error: "invalid_device_key_proof" };
+      }
+      const pub = fields.pub as string;
+      const result = registry.bindKey(authed.principalDeviceId, pub);
+      if (result === "held") {
+        reply.code(409);
+        return { success: false, error: "key_held" };
+      }
+      if (result === "no-device") {
+        reply.code(401);
+        return { success: false, error: "device credential required" };
+      }
+      auditKeyEvent(result === "replaced" ? "key_replaced" : "key_bound", authed.principalDeviceId, keyIdOf(pub), request);
+      return { success: true };
     },
   );
 
@@ -376,7 +481,7 @@ export function registerPairingRoutes(
   );
 
   // ── Device: redeem a code → pending device + confirm code (public) ─────
-  fastify.post<{ Body: { code?: string; holder?: unknown } }>(
+  fastify.post<{ Body: { code?: string; holder?: unknown; deviceKey?: unknown } }>(
     "/api/pair/redeem",
     async (request, reply): Promise<ApiResponse<{ pendingId: string; confirmCode: string }>> => {
       const code = request.body?.code;
@@ -384,9 +489,13 @@ export function registerPairingRoutes(
         reply.code(400);
         return { success: false, error: "code required" };
       }
+      // The device key (if any) is verified and its nonce consumed on ARRIVAL; an invalid / held key is
+      // dropped silently and the response is unchanged. See change: device-key-mutual-check (D3).
+      const { deviceKey } = keyIntake.accept({ deviceKey: request.body?.deviceKey });
       // Redeemer metadata is untrusted display text for the operator dialog;
       // the manager bounds it and never uses it for a decision (D4).
       const result = pairing.redeem(code, {
+        ...(deviceKey ? { deviceKey } : {}),
         userAgent: headerString(request.headers["user-agent"]),
         host: headerString(request.headers.host),
         remoteAddress: request.ip,
@@ -409,7 +518,7 @@ export function registerPairingRoutes(
   // semantics), the LAN gates, the switch and the limits. Admission uses the
   // SOCKET peer address — never `request.ip` — and that same address is recorded
   // as the pending device's remote address.
-  fastify.post<{ Body: { name?: unknown; holder?: unknown } | null }>(
+  fastify.post<{ Body: { name?: unknown; holder?: unknown; deviceKey?: unknown; companion?: unknown } | null }>(
     "/api/pair/request",
     async (
       request,
@@ -447,6 +556,8 @@ export function registerPairingRoutes(
           ? { success: false, error: decision.error }
           : { success: false, error: decision.error, retryAfter: decision.retryAfter };
       }
+      // Verified only for an ADMITTED knock, on arrival; invalid / replayed / held → dropped silently.
+      const keys = keyIntake.accept(request.body);
       const result = pairing.knock({
         sourceKey: decision.sourceKey,
         name: request.body?.name,
@@ -456,6 +567,7 @@ export function registerPairingRoutes(
           host: headerString(request.headers.host),
           remoteAddress: decision.sourceKey,
           holder: request.body?.holder,
+          ...keys,
         },
       });
       return {
@@ -476,7 +588,7 @@ export function registerPairingRoutes(
   // could mint a second durable token that survives its own revocation
   // (CodeRabbit CWE-862). `operatorGuard` admits only a dashboard login session,
   // the local token, or a genuinely-local caller.
-  fastify.post<{ Body: { code?: string; confirmCode?: string; label?: string; tier?: unknown } }>(
+  fastify.post<{ Body: { code?: string; confirmCode?: string; label?: string; tier?: unknown; allowCompanion?: unknown } }>(
     "/api/pair/approve",
     { preHandler: approvalGuard },
     async (request, reply): Promise<ApiResponse<PairedDeviceView>> => {
@@ -508,7 +620,12 @@ export function registerPairingRoutes(
         }
         label = trimmed;
       }
-      const result = pairing.approve(code, confirmCode, label, isTier(tier) ? tier : undefined);
+      const allowCompanion = parseAllowCompanion(request.body?.allowCompanion);
+      if (allowCompanion === null) {
+        reply.code(400);
+        return { success: false, error: "allowCompanion must be a boolean" };
+      }
+      const result = pairing.approve(code, confirmCode, label, isTier(tier) ? tier : undefined, { allowCompanion });
       if (!result.ok) {
         // Status codes unchanged for this route (no_pending stays 400); a
         // mismatch additionally carries `attemptsLeft` (additive, D2).
@@ -517,6 +634,7 @@ export function registerPairingRoutes(
           ? ({ success: false, error: result.error, attemptsLeft: result.attemptsLeft } as ApiResponse<PairedDeviceView>)
           : { success: false, error: result.error };
       }
+      auditApprovedKeys(request, result.device.id, result.keys);
       return { success: true, data: result.device };
     },
   );
@@ -531,7 +649,9 @@ export function registerPairingRoutes(
   );
 
   // ── Dashboard: approve by pendingId (typed confirm code, operator-only) ─
-  fastify.post<{ Body: { pendingId?: unknown; confirmCode?: unknown; label?: unknown; tier?: unknown } }>(
+  fastify.post<{
+    Body: { pendingId?: unknown; confirmCode?: unknown; label?: unknown; tier?: unknown; allowCompanion?: unknown };
+  }>(
     "/api/pair/approve-pending",
     { preHandler: approvalGuard },
     async (request, reply): Promise<ApiResponse<PairedDeviceView> & { attemptsLeft?: number }> => {
@@ -553,8 +673,15 @@ export function registerPairingRoutes(
         reply.code(400);
         return { success: false, error: `label must be 1..${MAX_DEVICE_LABEL_BYTES} UTF-8 bytes` };
       }
-      const result = pairing.approvePending(pendingId, confirmCode, name, isTier(tier) ? tier : undefined);
+      // Opt-in, default off: the companion is stored only when the operator ticked the box.
+      const allowCompanion = parseAllowCompanion(request.body?.allowCompanion);
+      if (allowCompanion === null) {
+        reply.code(400);
+        return { success: false, error: "allowCompanion must be a boolean" };
+      }
+      const result = pairing.approvePending(pendingId, confirmCode, name, isTier(tier) ? tier : undefined, { allowCompanion });
       if (!result.ok) return approveFailure(result, reply);
+      auditApprovedKeys(request, result.device.id, result.keys);
       return { success: true, data: result.device };
     },
   );
@@ -624,13 +751,75 @@ export function registerPairingRoutes(
     "/api/paired-devices/:id",
     { preHandler: operatorGuard },
     async (request, reply): Promise<ApiResponse> => {
-      const removed = registry.revoke(request.params.id);
+      const removed = registry.revoke(request.params.id, auditRequestFields(request).actor);
       if (!removed) {
         reply.code(404);
         return { success: false, error: "device not found" };
       }
       // Audit: id prefix + actor + socket peer only — never a bearer or hash (D2).
       auditLine("pairing", "revoked", { id: auditPrefix(request.params.id), ...auditRequestFields(request) });
+      return { success: true };
+    },
+  );
+
+  // ── Held (revoked) devices: operator-only list / restore / delete-now (D6) ─
+  // Static `revoked` segments win over `:id` in Fastify's router. A device bearer is refused 401 by
+  // `operatorGuard`. Audit lines only after a successful change (never on 404 / 409).
+  fastify.get(
+    "/api/paired-devices/revoked",
+    { preHandler: operatorGuard },
+    async (): Promise<ApiResponse<ReturnType<PairedDeviceRegistry["listRevoked"]>["devices"]> & { warning?: "unreadable" }> => {
+      const { devices, warning } = registry.listRevoked();
+      return { success: true, data: devices, ...(warning ? { warning } : {}) };
+    },
+  );
+
+  fastify.post<{ Params: { id: string } }>(
+    "/api/paired-devices/:id/restore",
+    { preHandler: operatorGuard },
+    async (request, reply): Promise<ApiResponse> => {
+      const result = registry.restore(request.params.id);
+      if (result === "not-found") {
+        reply.code(404);
+        return { success: false, error: "device not found" };
+      }
+      if (result === "active") {
+        reply.code(409);
+        return { success: false, error: "device_active" };
+      }
+      auditDeviceEvent("restored", request.params.id, request);
+      return { success: true };
+    },
+  );
+
+  fastify.delete<{ Params: { id: string } }>(
+    "/api/paired-devices/revoked/:id",
+    { preHandler: operatorGuard },
+    async (request, reply): Promise<ApiResponse> => {
+      const result = registry.deleteRevoked(request.params.id);
+      if (result === "not-found") {
+        reply.code(404);
+        return { success: false, error: "device not found" };
+      }
+      if (result === "active") {
+        reply.code(409);
+        return { success: false, error: "device_active" };
+      }
+      auditDeviceEvent("deleted", request.params.id, request);
+      return { success: true };
+    },
+  );
+
+  // Remove ONE companion key of an active device (the operator's "Remove"). Keyed by the short key id.
+  fastify.delete<{ Params: { id: string; companionId: string } }>(
+    "/api/paired-devices/:id/companions/:companionId",
+    { preHandler: operatorGuard },
+    async (request, reply): Promise<ApiResponse> => {
+      if (!registry.removeCompanion(request.params.id, request.params.companionId)) {
+        reply.code(404);
+        return { success: false, error: "companion not found" };
+      }
+      auditKeyEvent("companion_removed", request.params.id, request.params.companionId, request);
       return { success: true };
     },
   );

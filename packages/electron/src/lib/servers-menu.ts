@@ -17,6 +17,8 @@ export interface ServersMenuEntry {
   fingerprint: string;
   label: string;
   needsPairing: boolean;
+  /** Words for a display-only state (`access removed`, `network not allowed`, …). */
+  note?: string;
 }
 
 export interface ServersMenuHooks {
@@ -33,7 +35,8 @@ export function buildServersSubmenu(
 ): MenuItemConstructorOptions[] {
   const items: MenuItemConstructorOptions[] = entries.map((e) => {
     const label = sanitizeDisplayName(e.label, "dashboard");
-    return { label: e.needsPairing ? `${label} — needs pairing` : label, click: () => open(e.fingerprint) };
+    const note = e.needsPairing ? (e.note ?? "needs pairing") : e.note;
+    return { label: note ? `${label} — ${note}` : label, click: () => open(e.fingerprint) };
   });
   if (items.length > 0) items.push({ type: "separator" });
   items.push({ label: "Connect to another dashboard…", click: connectAnother });

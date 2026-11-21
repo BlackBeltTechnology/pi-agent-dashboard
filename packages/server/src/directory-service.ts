@@ -567,18 +567,24 @@ export function createDirectoryService(
   // cwd resolves at most once per process (a cwd does not stop being a
   // worktree). `null` (bare hub / unresolved) is a REFUSAL the callers skip —
   // never coerced to cwd. See change: apply-checkout-root-to-worktree-ops (D5).
-  const readinessConfigRoots = new Map<string, string | null>();
+  //
+  // A `null` answer is NOT permanent: a cwd probed before `git init` or
+  // `.pi/settings.json` existed (or whose git probe timed out) would otherwise
+  // read "skills missing" until restart. Null entries expire after
+  // NULL_CONFIG_ROOT_TTL_MS so they are re-probed at a bounded rate.
+  const NULL_CONFIG_ROOT_TTL_MS = 60_000;
+  const readinessConfigRoots = new Map<string, { root: string | null; at: number }>();
   function configRootFor(cwd: string): string | null {
-    if (!readinessConfigRoots.has(cwd)) {
-      let root: string | null = null;
-      try {
-        root = resolveConfigRoot(cwd);
-      } catch {
-        root = null;
-      }
-      readinessConfigRoots.set(cwd, root);
+    const hit = readinessConfigRoots.get(cwd);
+    if (hit && (hit.root !== null || Date.now() - hit.at < NULL_CONFIG_ROOT_TTL_MS)) return hit.root;
+    let root: string | null = null;
+    try {
+      root = resolveConfigRoot(cwd);
+    } catch {
+      root = null;
     }
-    return readinessConfigRoots.get(cwd) ?? null;
+    readinessConfigRoots.set(cwd, { root, at: Date.now() });
+    return root;
   }
 
   /** `.pi/skills/openspec-explore/` exists at the resolved config root. */

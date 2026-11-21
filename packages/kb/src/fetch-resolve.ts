@@ -19,11 +19,19 @@ export interface FetchRoot {
 export interface FetchStore {
   getChunk(root: string, path: string, headingPath?: string): Chunk | null;
   getChunkBySection?(root: string, path: string, section: string): Chunk[];
+  /** All chunks of one file in document order (lists sections on a miss). */
+  getChunks(root: string, path: string): Chunk[];
 }
+
+/** Most heading paths listed after a section-not-found marker. */
+const SECTION_LIST_CAP = 50;
 
 export type FetchResult =
   | { kind: "hit"; root: string; path: string; chunk: Chunk }
   | { kind: "ambiguous"; on: "path" | "section"; candidates: string[] }
+  /** The path resolved, the section did not; `sections` = the file's distinct
+   *  body heading paths in document order (frontmatter `:meta` excluded). */
+  | { kind: "section-missing"; sections: string[] }
   | { kind: "missing" };
 
 /** Build fetch roots from the store's distinct roots; `relDir` comes from the
@@ -57,7 +65,10 @@ function resolveSection(store: FetchStore, root: string, path: string, section: 
   const matches = store.getChunkBySection ? store.getChunkBySection(root, path, section) : [store.getChunk(root, path, section)].filter((c): c is Chunk => !!c);
   // A long section split into several chunks shares one heading path — one section.
   const headings = [...new Set(matches.map((c) => c.headingPath))];
-  if (!headings.length) return { kind: "missing" };
+  if (!headings.length) {
+    const body = store.getChunks(root, path).filter((c) => !c.chunkId.endsWith(":meta"));
+    return { kind: "section-missing", sections: [...new Set(body.map((c) => c.headingPath))] };
+  }
   if (headings.length > 1) return { kind: "ambiguous", on: "section", candidates: headings };
   return { kind: "hit", root, path, chunk: matches[0] };
 }
@@ -84,6 +95,13 @@ export interface RenderedFetch {
  *  (tool: "pass `section`", CLI: "pass --section <headingPath>"). */
 export function renderFetch(r: FetchResult, arg: string, section: string | undefined, sectionHint: string): RenderedFetch {
   if (r.kind === "missing") return { text: `(not found: ${arg})`, found: false, suppressedSections: 0 };
+  if (r.kind === "section-missing") {
+    if (!r.sections.length) return { text: `(section not found: ${section} in ${arg} — no sections)`, found: false, suppressedSections: 0 };
+    const extra = r.sections.length - SECTION_LIST_CAP;
+    const lines = [`(section not found: ${section} in ${arg} — sections:)`, ...r.sections.slice(0, SECTION_LIST_CAP)];
+    if (extra > 0) lines.push(`(+${extra} more section${extra === 1 ? "" : "s"})`);
+    return { text: lines.join("\n"), found: false, suppressedSections: 0 };
+  }
   if (r.kind === "ambiguous") {
     const head =
       r.on === "path"

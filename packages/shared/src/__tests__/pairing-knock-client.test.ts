@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sanitizeDisplayName } from "../display-name.js";
 import { KNOCK_REFUSAL_GENERIC, knockRefusalCopy } from "../pairing-knock.js";
-import { knockRequestBody, knockServerWith, proveExpected, sendKnock } from "../pairing-knock-client.js";
+import { knockRequestBody, knockServerWith, proveExpected, redeemPairingCode, sendKnock } from "../pairing-knock-client.js";
 
 const BASE = "http://192.168.16.204:8000";
 const F = "sha256:F";
@@ -185,4 +185,136 @@ describe("approved poll carries validated routes (D7, #E6)", () => {
       expect(await run(routes)).toEqual({ status: "approved", token: "T", fingerprint: F });
     },
   );
+});
+
+// See change: device-key-mutual-check (task 4.3, D3): the knock/redeem carries a device key bound to a fresh challenge.
+describe("device key on knock and redeem (4.3)", () => {
+  const NONCE = "N".repeat(43);
+  const NONCE2 = "M".repeat(43);
+  const SIGNED = { pub: "P".repeat(43), sig: "S".repeat(86) };
+  const bodyOf = (f: ReturnType<typeof stubFetch>, path: string) => {
+    const call = f.mock.calls.find(([u]) => String(u).endsWith(path));
+    return JSON.parse(String(((call as unknown[])[1] as RequestInit).body));
+  };
+  const redeemFetch = () => {
+    const f = vi.fn(async (url: string | URL | Request, _init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/api/pair/redeem")) return json(200, { success: true, data: { pendingId: "p1", confirmCode: "12345678" } });
+      if (u.endsWith("/api/pair/poll")) return json(200, { success: true, data: { status: "approved", token: "T" } });
+      return json(404, {});
+    });
+    vi.stubGlobal("fetch", f);
+    return f;
+  };
+
+  it("knockServerWith: reuses the fresh proving challenge, signs over its deviceNonce, sends deviceKey", async () => {
+    const f = stubFetch(() => knockOk());
+    const prove = vi.fn(async () => ({ proven: F, deviceNonce: NONCE }));
+    const sign = vi.fn(async () => SIGNED);
+    await knockServerWith(prove, BASE, F, "Laptop", { ...hooks(), deviceKey: { sign } });
+    expect(prove).toHaveBeenCalledTimes(1);
+    expect(sign).toHaveBeenCalledWith(F, NONCE);
+    expect(bodyOf(f, "/api/pair/request")).toEqual({ name: "Laptop", deviceKey: { deviceNonce: NONCE, ...SIGNED } });
+  });
+
+  it("no provider ⇒ body byte-identical to before (no deviceKey member)", async () => {
+    const f = stubFetch(() => knockOk());
+    await knockServerWith(async () => ({ proven: F, deviceNonce: NONCE }), BASE, F, "Laptop", hooks());
+    expect(bodyOf(f, "/api/pair/request")).toEqual({ name: "Laptop" });
+    expect(JSON.stringify(bodyOf(f, "/api/pair/request"))).not.toContain("deviceKey");
+  });
+
+  it("challenge without deviceNonce (older server) ⇒ no key, sign never called", async () => {
+    const f = stubFetch(() => knockOk());
+    const sign = vi.fn(async () => SIGNED);
+    await knockServerWith(async () => ({ proven: F }), BASE, F, "x", { ...hooks(), deviceKey: { sign } });
+    expect(sign).not.toHaveBeenCalled();
+    expect(bodyOf(f, "/api/pair/request")).toEqual({ name: "x" });
+  });
+
+  it("provider that holds no key (sign → null) ⇒ knock without deviceKey", async () => {
+    const f = stubFetch(() => knockOk());
+    await knockServerWith(async () => ({ proven: F, deviceNonce: NONCE }), BASE, F, "x", { ...hooks(), deviceKey: { sign: async () => null } });
+    expect(bodyOf(f, "/api/pair/request")).toEqual({ name: "x" });
+  });
+
+  it("a throwing signer never blocks the knock", async () => {
+    const f = stubFetch(() => knockOk());
+    await knockServerWith(async () => ({ proven: F, deviceNonce: NONCE }), BASE, F, "x", {
+      ...hooks(),
+      deviceKey: {
+        sign: async () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    expect(bodyOf(f, "/api/pair/request")).toEqual({ name: "x" });
+  });
+
+  it("sendKnock after a pause: a challenge older than 30 s is re-run and the new nonce is signed", async () => {
+    const f = stubFetch(() => knockOk());
+    const t = 100_000;
+    const prove = vi.fn(async () => ({ proven: F, deviceNonce: NONCE2 }));
+    const sign = vi.fn(async () => SIGNED);
+    await sendKnock(BASE, F, "x", {
+      now: () => t,
+      sleep: vi.fn(async () => {}),
+      deviceKey: { sign, prove, challenge: { deviceNonce: NONCE, at: t - 30_001 } },
+    });
+    expect(prove).toHaveBeenCalledWith(BASE);
+    expect(sign).toHaveBeenCalledWith(F, NONCE2);
+    expect(bodyOf(f, "/api/pair/request").deviceKey.deviceNonce).toBe(NONCE2);
+  });
+
+  it("sendKnock: a challenge exactly inside 30 s is reused (no second challenge)", async () => {
+    const f = stubFetch(() => knockOk());
+    const t = 100_000;
+    const prove = vi.fn(async () => ({ proven: F, deviceNonce: NONCE2 }));
+    const sign = vi.fn(async () => SIGNED);
+    await sendKnock(BASE, F, "x", {
+      now: () => t,
+      sleep: vi.fn(async () => {}),
+      deviceKey: { sign, prove, challenge: { deviceNonce: NONCE, at: t - 29_999 } },
+    });
+    expect(prove).not.toHaveBeenCalled();
+    expect(bodyOf(f, "/api/pair/request").deviceKey.deviceNonce).toBe(NONCE);
+  });
+
+  it("re-challenge that proves a different fingerprint ⇒ identity_mismatch, nothing is sent", async () => {
+    const f = stubFetch(() => knockOk());
+    const out = await sendKnock(BASE, F, "x", {
+      ...hooks(),
+      deviceKey: { sign: async () => SIGNED, prove: async () => ({ proven: G, deviceNonce: NONCE }) },
+    });
+    expect(out).toMatchObject({ status: "identity_mismatch", expected: F, proven: G, stage: "challenge" });
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("re-challenge that fails (refused or throws) ⇒ knock proceeds without a key", async () => {
+    for (const prove of [async () => ({ refused: "no" }), async () => { throw new Error("net"); }]) {
+      const f = stubFetch(() => knockOk());
+      await sendKnock(BASE, F, "x", { ...hooks(), deviceKey: { sign: async () => SIGNED, prove } });
+      expect(bodyOf(f, "/api/pair/request")).toEqual({ name: "x" });
+    }
+  });
+
+  it("sendKnock with a provider but neither a challenge nor a prover ⇒ no key", async () => {
+    const f = stubFetch(() => knockOk());
+    await sendKnock(BASE, F, "x", { ...hooks(), deviceKey: { sign: async () => SIGNED } });
+    expect(bodyOf(f, "/api/pair/request")).toEqual({ name: "x" });
+  });
+
+  it("redeemPairingCode: re-challenges and sends deviceKey beside the code", async () => {
+    const f = redeemFetch();
+    const prove = vi.fn(async () => ({ proven: F, deviceNonce: NONCE }));
+    const sign = vi.fn(async () => SIGNED);
+    await redeemPairingCode(BASE, F, "482913", { ...hooks(), deviceKey: { sign, prove } });
+    expect(bodyOf(f as never, "/api/pair/redeem")).toEqual({ code: "482913", deviceKey: { deviceNonce: NONCE, ...SIGNED } });
+  });
+
+  it("redeemPairingCode without a provider keeps the body {code}", async () => {
+    const f = redeemFetch();
+    await redeemPairingCode(BASE, F, "482913", hooks());
+    expect(bodyOf(f as never, "/api/pair/redeem")).toEqual({ code: "482913" });
+  });
 });

@@ -103,23 +103,51 @@ steps:
     expect(m).not.toContain("-->|on_error|");
   });
 
-  it("renders implicit-segment edges and emits no flow-ref shape", () => {
+  it("renders fall-through edges and emits no flow-ref shape", () => {
     const flow = parseFlowYaml(`
 name: seg
 steps:
   - id: decide
-    type: fork
-    branches: { go: end }
+    type: code
   - id: orphan
     type: agent
   - id: end
     type: agent
 `)!;
     const m = flowToMermaid(flow);
-    // `orphan` has no blockedBy and no incoming edge -> implicit edge from the
-    // preceding separator `decide`.
+    // A branch-less separator falls through to every root of the next DAG
+    // segment (engine segmentIndex++). See change: fix-flow-graph-engine-order.
     expect(m).toContain("decide --> orphan");
+    expect(m).toContain("decide --> end");
     expect(m).not.toContain("[[\"orphan");
+  });
+
+  it("E25: snapshot draws engine-order fall-through edges (NTI, UPD)", () => {
+    const nti = flowToMermaid(parseFlowYaml(`
+name: nti
+steps:
+  - { id: read, type: code-decision, branches: { some: triage, none: report }, on_error: report }
+  - { id: triage, type: agent, agent: t, on_error: report }
+  - { id: cleanup, type: code, on_error: report }
+  - { id: report, type: code }
+`)!);
+    expect(nti).toContain("triage --> cleanup");
+    expect(nti).not.toMatch(/read\b[^\n]*\bcleanup/);
+
+    const upd = flowToMermaid(parseFlowYaml(`
+name: upd
+steps:
+  - { id: pull, type: code-decision, branches: { ok: build, diverged: rebase }, on_error: report }
+  - { id: rebase, type: code-decision, branches: { ok: build, conflict: resolve }, on_error: resolve }
+  - { id: resolve, type: agent, agent: r, on_error: report }
+  - { id: check, type: code-decision, branches: { retry: resolve, ok: build }, on_error: report }
+  - { id: build, type: code-decision, branches: { ok: launch, fail: resolve }, on_error: report }
+  - { id: launch, type: code, on_error: report }
+  - { id: report, type: code }
+`)!);
+    const launchReport = upd.split("\n").filter((l) => /^\s*launch\b.*\breport\s*$/.test(l));
+    expect(launchReport).toHaveLength(2);
+    expect(launchReport).toContain("  launch --> report");
   });
 });
 

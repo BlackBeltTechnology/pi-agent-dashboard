@@ -128,7 +128,20 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // same develop base (618,011 -> 618,977 B); 620,150 B on CI, 630 B over the old cap. 606 KiB would leave ~390 B
 // (below the ~570 B judged too thin above), so 607 KiB (621,568 B, ~1.4 KB headroom for CI's compressor
 // variance). Smallest step with headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 607 * 1024;
+// device-key-mutual-check (2026-11-15): 607 -> 610 KiB. The IndexedDB/WebCrypto key store, the device check,
+// the key-pending bind and the refused-credential discard were moved behind dynamic imports first (they load on
+// a menu open, a refusal or a pairing, never on the cold landing). What stays eager: the shared
+// `device-key-proof` module (the header row-state labels, the request-page companion-fragment parse and the
+// challenge `deviceNonce` check all import it, so Rollup hoists the module into `index`), the app-wide approval
+// dialog's device-key row + companion checkbox, and the new en-source rows. +2,327 B gz measured locally against
+// the same develop base (620,962 -> 623,289 B). 609 KiB would leave ~327 B (below the ~570 B judged too thin
+// above), so 610 KiB (624,640 B, ~1.35 KB headroom). Smallest step with headroom; not a general raise.
+// fix-file-link-editor-routing (2026-11-21): 610 -> 611 KiB. Unavoidably eager: the unsaved-edits store
+// (`unsaved-store.ts`, called synchronously by `handleSelect` / pane close / LayoutModeSwitch before any lazy chunk
+// can load), the FileLink routing rewrite, and the en/hu/zh-CN catalog rows (dialog, Write badge, write prompt copy).
+// The dialog host is a lazy chunk. 624,927 B on CI, 287 B over the old cap; 611 KiB (625,664 B) leaves ~740 B for
+// CI's compressor variance. Smallest KiB step that clears it; not a general raise.
+const INDEX_GZ_CAP_BYTES = 611 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

@@ -20,6 +20,7 @@ import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { useTrackedFileWrite } from "../split/tracked-file-write.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
+import { useUnsavedBuffer } from "./use-unsaved-buffer.js";
 
 const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor.js").then((m) => ({ default: m.MarkdownEditor })),
@@ -81,8 +82,9 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
 
   const dirty = content !== null && buffer !== content;
 
-  const onSave = useCallback(async () => {
-    if (mtime === null || saving) return;
+  /** Resolves `true` only when the write succeeded (the leave guard proceeds on it). */
+  const onSave = useCallback(async (): Promise<boolean> => {
+    if (mtime === null || saving) return false;
     setSaving(true);
     setError(null);
     try {
@@ -92,17 +94,19 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
         setContent(buffer);
         setMtime(body.data?.mtime ?? mtime);
         setConflict(false);
-      } else if (res.status === 409) {
-        setConflict(true);
-      } else {
-        setError(body.error ?? t("editor.saveFailed", { status: res.status }, "Save failed ({status})"));
+        return true;
       }
+      if (res.status === 409) setConflict(true);
+      else setError(body.error ?? t("editor.saveFailed", { status: res.status }, "Save failed ({status})"));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("common.networkError", undefined, "Network error"));
     } finally {
       setSaving(false);
     }
+    return false;
   }, [cwd, path, buffer, mtime, saving, t, trackedWrite]);
+  // Leaving with an unsaved buffer asks first (unsaved-store); Discard resets to the loaded text.
+  useUnsavedBuffer(path, dirty, onSave, () => setBuffer(content ?? ""));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -140,7 +144,7 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
           <button
             type="button"
             data-testid={`${testIdPrefix}-save-btn`}
-            onClick={onSave}
+            onClick={() => void onSave()}
             disabled={!dirty || saving || mtime === null}
             className="flex items-center gap-1 rounded bg-[var(--accent-blue)] px-2 py-0.5 text-white disabled:opacity-40"
           >

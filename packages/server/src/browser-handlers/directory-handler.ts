@@ -10,6 +10,7 @@ import { isGroupByMode } from "@blackbelt-technology/pi-dashboard-shared/session
 import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
 import { scheduleProjectSeed } from "../project-seed.js";
 import { safeRealpathSync } from "../resolve-path.js";
+import { seedDiscoveredHistory } from "../session/seed-discovered-history.js";
 import { gateRemoteFolder } from "./folder-gate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
@@ -91,30 +92,11 @@ export function pinDirectorySideEffects(
   broadcast({ type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
   if (directoryService) {
     directoryService.onDirectoryAdded(resolved).then(({ sessions, openspecData }) => {
-      for (const hist of sessions) {
-        if (!sessionManager.get(hist.id)) {
-          sessionManager.register({
-            id: hist.id,
-            cwd: hist.cwd,
-            name: hist.name,
-            source: "tui",
-            sessionFile: hist.sessionFile,
-            sessionDir: hist.sessionDir,
-            firstMessage: hist.firstMessage,
-            startedAt: hist.startedAt,
-          });
-          // Historical sessions: registered only to seed the map, then ended
-          // immediately. The server never witnessed these endings, so they take
-          // the evidence-derived time rather than the moment the directory was
-          // added. See change: fix-ended-session-missing-endedat.
-          sessionManager.unregister(hist.id, { witnessed: false });
-          // Discovered history is a visible ended session — `hidden` now means
-          // "auto-hidden headless worker" only. See change:
-          // archive-sessions-lazy-load.
-          const s = sessionManager.get(hist.id);
-          if (s) broadcast({ type: "session_added", session: s });
-        }
-      }
+      // Shared guard + `restore()` seed: never resurrects an archived id,
+      // never writes a sidecar; no archive index → seeds nothing.
+      // See change: fix-discovery-resurrects-archived.
+      const seeded = seedDiscoveredHistory(sessions, { sessionManager, sessionArchive: ctx.sessionArchive });
+      for (const session of seeded) broadcast({ type: "session_added", session });
       broadcast({ type: "openspec_update", cwd: resolved, data: openspecData } as any);
     }).catch(() => {});
   }

@@ -248,4 +248,14 @@ describe("spawn_session role refs + choiceWarning", () => {
     expect(lastOptions()).toMatchObject({ model: "anthropic/claude-opus-5-5", thinking: "high" });
     expect(spawnResult(sent)).not.toHaveProperty("choiceWarning");
   });
+  // See change: default-model-follows-role (test-plan #E10).
+  it("E10: promoted role default that is unassigned → no --model, success + choiceWarning", async () => {
+    writeProviders(JSON.stringify({ roles: { planning: "anthropic/claude-opus-5-5" } }));
+    const { ctx, sent } = makeCtx({});
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p", model: "@validate" }, ctx);
+    expect(lastOptions()).not.toHaveProperty("model");
+    const r = spawnResult(sent);
+    expect(r.success).toBe(true);
+    expect(String(r.choiceWarning)).toContain("validate");
+  });
 });

@@ -2,7 +2,7 @@
 name: switch-extension-source
 description: Switch a monorepo extension/skill package between its published npm source and its local working-tree source, guaranteeing exactly one source per package. Use when "my edits don't take effect", "load local extension", "test the published npm build", or reconciling dev vs distribution package sources.
 license: MIT
-compatibility: Requires npx tsx. Edits ~/.pi/agent/settings.json + .pi/settings.json.
+compatibility: Requires npx tsx. Edits ~/.pi/agent/settings.json; only cleans up (never adds to) .pi/settings.json.
 metadata:
   author: pi-dashboard
   version: "1.0"
@@ -28,19 +28,19 @@ changed"). This skill enforces exactly **one source per package**.
     npm   -> "npm:<npmName>"
     local -> "<repoRoot>/packages/<dir>"      (dir path; pi resolves package.json "pi")
 
-  PROJECT <repo>/.pi/settings.json   "packages":[{ source, extensions:["+packages/<dir>/<entry>"] }]
-    local overlay -> only with --overlay; loads ONLY inside this repo; needs pi.extensions
+  PROJECT <repo>/.pi/settings.json   cleanup only — never added to, never created
+    strips old "+packages/<dir>/<entry>" paths; prunes entries left with an empty filter
 ```
 
-`local` (default) = global dir path → loads in **every** session everywhere.
-`local --overlay` = project overlay → loads **only when running pi inside this repo**.
+`local` = global dir path → loads in **every** session everywhere. There is no project-only mode:
+the old overlay flag was removed (a `+path` filter can only re-enable files already in the root
+manifest, so it never loaded anything new) and now exits 1 pointing at plain `local`.
 
 ## Commands
 
 ```bash
 npx tsx ./scripts/switch-source.ts status               # where each installed pkg loads from
 npx tsx ./scripts/switch-source.ts local <pkg>          # -> local working tree (global path)
-npx tsx ./scripts/switch-source.ts local <pkg> --overlay# -> local, this-repo-only (extensions only)
 npx tsx ./scripts/switch-source.ts npm   <pkg>          # -> published npm build
 ```
 
@@ -63,8 +63,12 @@ edits (`*.bak-switch-*`), and re-validates JSON before writing.
   `_dashboardManagedPackages`. This skill does NOT toggle those — leave them to the dashboard UI.
 - **npm copy is a frozen snapshot**, not a symlink to your monorepo. After `npm` mode your
   working-tree edits do NOT load until you `local` again.
-- **`--overlay` needs `pi.extensions`** — skill-only packages (pi.skills, no extensions) can't use
-  the overlay form; use plain `local` (global dir path).
+- **An empty project filter shadows global packages.** pi resolves project `packages[]` before
+  global and keeps the first entry per extension file path. `{"source":"..","extensions":[]}` in
+  `.pi/settings.json` disables the root manifest's `packages/extension/src/bridge.ts`, so the global
+  bridge entry (same file) is ignored → every session in the repo hits `REGISTER_TIMEOUT`. The
+  script prunes such entries on every switch; `node scripts/check-pi-settings-paths.mjs` (CI) rejects
+  a committed one.
 - Same package wired in both layers = non-deterministic load order. Always end with `status` showing
   one source.
 

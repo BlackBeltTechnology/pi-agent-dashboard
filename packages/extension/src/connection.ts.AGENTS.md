@@ -11,3 +11,7 @@ WebSocket connection manager with exponential backoff reconnect, message bufferi
 `rejectUnauthorized: true` for remote wss dials; `certValidation` getter. See change: prove-vault-bridge-tls.
 
 Outbound ring overflow evicts the oldest frame that is not `session_register`/`session_unregister`; buffered lifecycle frames are never evicted (`isLifecycleFrame`). See change: fix-bridge-keep-session-register-on-overflow.
+
+`handleDisconnect` sets `ws.onerror` to a no-op (never null) before `close()`: `ws` emits async `error` closing a CONNECTING socket; unlistened → pi exit 1 (watchdog force-close during stalled reconnect). Test: `__tests__/connection-close-while-connecting.test.ts`.
+
+`openSocket` resets `lastMessageAt` at dial start: watchdog silence measured per dial, each dial gets full `watchdogTimeout` handshake budget; never-opening handshake still torn down. Tests: `__tests__/watchdog.test.ts` (dial-start budget cases).

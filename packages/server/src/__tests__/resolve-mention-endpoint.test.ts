@@ -113,6 +113,42 @@ describe("POST /api/file/resolve-mention", () => {
     });
   });
 
+  // fix-file-link-editor-routing S7: `outside` maps through; a contained hit carries no `outside` key.
+  it("maps an outside result through as { resolved, kind: tilde, outside: true } (S7)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/file/resolve-mention",
+      payload: { cwd, mention: "~/Downloads/x.md" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      success: true,
+      data: { resolved: path.join(home, "Downloads", "x.md"), kind: "tilde", outside: true },
+    });
+    const hit = await app.inject({
+      method: "POST",
+      url: "/api/file/resolve-mention",
+      payload: { cwd, mention: "real.ts" },
+    });
+    expect(hit.json().data).not.toHaveProperty("outside");
+  });
+
+  // S69: the cwd gate runs first — no `outside` payload is ever produced for a non-admitted cwd.
+  it("a non-admitted cwd yields 403, zero stat, no outside payload for either mention (S69)", async () => {
+    const statSpy = vi.spyOn(fs, "stat");
+    for (const mention of ["passwd", "~/x.md"]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/file/resolve-mention",
+        payload: { cwd: "/etc", mention },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toEqual({ success: false, error: "unknown session path", code: "cwd_unknown" });
+      expect(JSON.stringify(res.json())).not.toContain("outside");
+    }
+    expect(statSpy).not.toHaveBeenCalled();
+  });
+
   it("returns { resolved: null } for a junk mention (no error)", async () => {
     const res = await app.inject({
       method: "POST",

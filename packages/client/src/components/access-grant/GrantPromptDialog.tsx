@@ -68,6 +68,10 @@ const REASON_EN: Record<AccessPlaneId, string> = {
   "preview-egress": "A preview page asked to load this site. Allowing it lets previews in this project load it.",
 };
 
+/** Reason for a text-document WRITE denial (filesystem plane, `action:"write"`). See change: fix-file-link-editor-routing. */
+const REASON_WRITE_EN =
+  "A write was blocked because this path is outside the session's working directory. Allowing it also allows reading and saving text documents under the chosen folder.";
+
 /** Planes YOLO can answer (design D13: only the two whose subject is a path). */
 const YOLO_PLANES: ReadonlySet<AccessPlaneId> = new Set(["filesystem", "cwd"]);
 
@@ -125,7 +129,9 @@ export function GrantPromptDialog({ prompt, now, queued, onAnswer }: GrantPrompt
       </div>
 
       <p className="text-sm text-[var(--text-secondary)]">
-        {i18nT(`grantPrompt.reason.${plane}`, undefined, REASON_EN[plane])}
+        {plane === "filesystem" && prompt.action === "write"
+          ? i18nT("grantPrompt.reason.filesystemWrite", undefined, REASON_WRITE_EN)
+          : i18nT(`grantPrompt.reason.${plane}`, undefined, REASON_EN[plane])}
         {!held && (
           <>
             {" "}

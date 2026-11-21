@@ -436,6 +436,15 @@ describe("SettingsPanel", () => {
             }),
         });
       }
+      // Operator viewer: the operator-only revoked list answers (device-key-mutual-check).
+      if (url === "/api/paired-devices/revoked") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => "application/json" },
+          json: () => Promise.resolve({ success: true, data: [] }),
+        });
+      }
       if (url === "/api/config" && !options?.method) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
       }
@@ -2502,5 +2511,220 @@ describe("SettingsPanel — Security open-enrolment banner (#F1–#F3)", () => {
     );
     expect(screen.queryByTestId("open-enrolment-banner")).toBeNull();
     expect(screen.getByTestId("bypass-urls-textarea")).toBeTruthy();
+  });
+});
+
+// ── Default model follows a role (See change: default-model-follows-role) ──
+describe("SettingsPanel Default model role ref (F1–F7)", () => {
+  const MODELS = [
+    { provider: "anthropic", id: "claude-sonnet-5-5", supportedThinkingLevels: ["off", "low", "medium", "high"] },
+    { provider: "anthropic", id: "claude-opus-5-5", supportedThinkingLevels: ["off", "low", "medium", "high"] },
+  ];
+  const json = (body: unknown) =>
+    Promise.resolve({ ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }), json: () => Promise.resolve(body) });
+  const rolesBody = (opts: { planning?: string | null; coding?: string; active?: string | null } = {}) => {
+    const planning = opts.planning === undefined ? "anthropic/claude-sonnet-5-5" : opts.planning;
+    const live = [
+      planning ? { role: "planning", assigned: true, model: planning, thinkingLevel: "high" } : { role: "planning", assigned: false },
+      { role: "coding", assigned: true, model: opts.coding ?? "anthropic/claude-opus-5-5" },
+      { role: "validate", assigned: false },
+    ];
+    const active = opts.active === undefined ? "Anthropic" : opts.active;
+    return {
+      object: "list",
+      data: [
+        { preset: null, active: active === null, roles: live },
+        { preset: "Anthropic", active: active === "Anthropic", roles: [] },
+        { preset: "Free", active: active === "Free", roles: [] },
+      ],
+    };
+  };
+
+  function mockFetch(opts: {
+    config?: Record<string, unknown>;
+    roles?: () => unknown;
+    rolesStatus?: number;
+    put?: Record<string, unknown>;
+  }) {
+    const puts: Record<string, unknown>[] = [];
+    let rolesCalls = 0;
+    const fn = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && options?.method === "PUT") {
+        puts.push(JSON.parse(options.body));
+        return json(opts.put ?? { success: true });
+      }
+      if (url === "/api/config") return json({ success: true, data: { ...mockConfig, defaultThinkingLevel: "", ...opts.config } });
+      if (url === "/api/roles") {
+        rolesCalls++;
+        if (opts.rolesStatus && opts.rolesStatus !== 200) return Promise.resolve({ ok: false, status: opts.rolesStatus, json: () => Promise.resolve(null) });
+        return json((opts.roles ?? (() => rolesBody()))());
+      }
+      if (url === "/api/pi-settings") return json({ success: true, settings: {}, raw: "", etag: "absent" });
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    global.fetch = fn;
+    return { puts, rolesCalls: () => rolesCalls };
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/sessions");
+  });
+  afterEach(() => cleanup());
+
+  const ready = async () => {
+    await waitFor(() => screen.getByText("Default model"));
+    await act(async () => {});
+  };
+  const openPicker = async () => {
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    await act(async () => {});
+  };
+  const pickRole = async (role: string) => {
+    await openPicker();
+    fireEvent.click(screen.getByTestId("model-tab-role"));
+    fireEvent.click(screen.getByTestId("role-list").querySelector(`[data-role='${role}']`)!);
+    await act(async () => {});
+  };
+  const save = async () => {
+    await waitFor(() => screen.getByTestId("save-btn"));
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+    await act(async () => {});
+  };
+
+  it("F1 picking a role persists the ref and adopts the role level", async () => {
+    const m = mockFetch({ config: { defaultModel: "anthropic/claude-opus-5-5", defaultThinkingLevel: "low" } });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    await ready();
+    await pickRole("planning");
+    await save();
+    await waitFor(() => expect(m.puts).toHaveLength(1));
+    expect(m.puts[0]).toEqual({ defaultModel: "@planning", defaultThinkingLevel: "" });
+    const trigger = screen.getByTestId("model-trigger-role-ref");
+    expect(trigger.textContent).toContain("@planning");
+    expect(trigger.textContent).toContain("claude-sonnet-5-5");
+  });
+
+  it("F2 a concrete pick replaces a role ref", async () => {
+    const m = mockFetch({ config: { defaultModel: "@planning" } });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    await ready();
+    await openPicker();
+    fireEvent.click(screen.getByTestId("model-tab-model"));
+    fireEvent.click(screen.getAllByTestId("model-row").find((r) => r.textContent?.includes("claude-opus-5-5"))!);
+    await save();
+    await waitFor(() => expect(m.puts).toHaveLength(1));
+    expect(m.puts[0]).toEqual({ defaultModel: "anthropic/claude-opus-5-5" });
+  });
+
+  it("F2 re-picking the role drops a hand-written suffix", async () => {
+    const m = mockFetch({ config: { defaultModel: "@planning:low" } });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    await ready();
+    await pickRole("planning");
+    await save();
+    await waitFor(() => expect(m.puts).toHaveLength(1));
+    expect(m.puts[0]).toEqual({ defaultModel: "@planning" });
+  });
+
+  it("F3 roles API absent → token shown, no Roles tab, no hint", async () => {
+    mockFetch({ config: { defaultModel: "@planning" }, rolesStatus: 404 });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    await ready();
+    expect(screen.getByTestId("model-selector-button").textContent).toContain("@planning");
+    await openPicker();
+    expect(screen.queryByTestId("model-tab-role")).toBeNull();
+    expect(screen.queryByTestId("default-model-follows")).toBeNull();
+    expect(screen.queryByTestId("default-model-dangling")).toBeNull();
+  });
+
+  it("F4 follow hint names the role model + active preset", async () => {
+    mockFetch({ config: { defaultModel: "@planning" } });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    const hint = await screen.findByTestId("default-model-follows");
+    expect(hint.querySelector("[data-role-ref]")).toBeTruthy();
+    expect(hint.textContent).toContain("@planning");
+    expect(hint.textContent).toContain("claude-sonnet-5-5");
+    expect(hint.textContent).toContain("Anthropic");
+  });
+
+  it("F4 dangling notice for an unassigned role names the preset", async () => {
+    mockFetch({ config: { defaultModel: "@validate" }, roles: () => rolesBody({ active: "Free" }) });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    const notice = await screen.findByTestId("default-model-dangling");
+    expect(notice.textContent).toContain("@validate");
+    expect(notice.textContent).toContain("Free");
+    expect(screen.queryByTestId("default-model-follows")).toBeNull();
+  });
+
+  it("F4 live group active → hint without a preset name", async () => {
+    mockFetch({ config: { defaultModel: "@planning" }, roles: () => rolesBody({ active: null }) });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    const hint = await screen.findByTestId("default-model-follows");
+    expect(hint.textContent).not.toContain("in preset");
+    expect(hint.textContent).not.toContain("Anthropic");
+  });
+
+  it("F5 re-reads /api/roles after a Default model pick and converges", async () => {
+    let n = 0;
+    const m = mockFetch({
+      config: { defaultModel: "anthropic/claude-opus-5-5" },
+      roles: () => (++n === 1 ? rolesBody() : rolesBody({ coding: "anthropic/claude-sonnet-5-5" })),
+    });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    await ready();
+    const before = m.rolesCalls();
+    await pickRole("coding");
+    await waitFor(() => expect(m.rolesCalls()).toBeGreaterThan(before));
+    const hint = await screen.findByTestId("default-model-follows");
+    await waitFor(() => expect(hint.textContent).toContain("claude-sonnet-5-5"));
+  });
+
+  it("F6 role-derived level shows `role` tag; a pick overrides without a tag", async () => {
+    const m = mockFetch({ config: { defaultModel: "@planning", defaultThinkingLevel: "" } });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    await screen.findByTestId("default-model-follows");
+    const selector = screen.getByTestId("thinking-level-selector");
+    expect(within(selector).getByTestId("thinking-level-button").textContent).toContain("high");
+    expect(within(selector).getByTestId("thinking-tag").textContent).toBe("role");
+    fireEvent.click(within(selector).getByTestId("thinking-level-button"));
+    fireEvent.click(Array.from(screen.getByTestId("thinking-level-dropdown").querySelectorAll("button")).find((b) => b.textContent === "low")!);
+    expect(within(selector).queryByTestId("thinking-tag")).toBeNull();
+    await save();
+    await waitFor(() => expect(m.puts).toHaveLength(1));
+    expect(m.puts[0]).toEqual({ defaultThinkingLevel: "low" });
+  });
+
+  it("F6 unknown level → `role` placeholder (not off), still selectable", async () => {
+    const m = mockFetch({ config: { defaultModel: "@validate", defaultThinkingLevel: "" } });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    await screen.findByTestId("default-model-dangling");
+    const selector = screen.getByTestId("thinking-level-selector");
+    const button = within(selector).getByTestId("thinking-level-button");
+    expect(button.textContent).toContain("role");
+    expect(button.textContent).not.toContain("off");
+    fireEvent.click(button);
+    fireEvent.click(Array.from(screen.getByTestId("thinking-level-dropdown").querySelectorAll("button")).find((b) => b.textContent === "low")!);
+    await save();
+    await waitFor(() => expect(m.puts).toHaveLength(1));
+    expect(m.puts[0]).toEqual({ defaultThinkingLevel: "low" });
+  });
+
+  it("F7 unresolved-role mirror skip → dangling notice only", async () => {
+    mockFetch({
+      config: { defaultModel: "@validate", defaultThinkingLevel: "" },
+      put: { success: true, piMirror: { ok: true, skipped: "unresolved-role" } },
+    });
+    render(<SettingsPanel availableModels={MODELS as any} />);
+    await screen.findByTestId("default-model-dangling");
+    const selector = screen.getByTestId("thinking-level-selector");
+    fireEvent.click(within(selector).getByTestId("thinking-level-button"));
+    fireEvent.click(Array.from(screen.getByTestId("thinking-level-dropdown").querySelectorAll("button")).find((b) => b.textContent === "low")!);
+    await save();
+    await screen.findByText("Settings saved");
+    expect(screen.getByTestId("default-model-dangling")).toBeTruthy();
+    expect(screen.queryByTestId("default-model-pi-mirror-skipped")).toBeNull();
   });
 });

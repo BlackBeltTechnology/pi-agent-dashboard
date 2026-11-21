@@ -3599,7 +3599,7 @@ Source: `packages/server/src/live-server/` (`live-static.ts`, `live-csp.ts`, `li
 | scripts off | empty | `sandbox` (+ egress directives if restricted) |
 - Applies to port AND static targets on every capability response (`buildLiveCsp`).
 - Our CSP appended to upstream CSP. Upstream never stripped. Browser enforces intersection.
-- Restricted: `default-src 'none'`; `script-src` / `style-src` = `<P> 'unsafe-inline'` (+ `'unsafe-eval'` with scripts) + `<G>`; `connect-src <P> <G>`; `form-action 'none'`; `base-uri 'none'`; `frame-src 'none'`; `object-src 'none'`; `worker-src <P> blob:`; `manifest-src 'none'`; `frame-ancestors 'self'`; `report-uri` / `report-to`.
+- Restricted: `default-src 'none'`; `script-src` / `style-src` = `<P> 'unsafe-inline'` (+ `'unsafe-eval'` with scripts) + `<G>`; `connect-src <P> <G>`; `form-action 'none'`; `base-uri 'none'`; `frame-src 'none'`; `object-src 'none'`; `worker-src <P> blob:`; `manifest-src 'none'`; `frame-ancestors 'self'`; `report-uri` only (no `report-to`, no `Reporting-Endpoints`).
 - `<P>` = prefix from validated `Host`. Never `'self'`. Never dashboard origin.
 - `<G>` = project grants ∪ viewer allow-once set.
 
@@ -4037,6 +4037,21 @@ The grant layer is third in evaluation order but is deliberately **not numbered 
 The rejected alternative, `within(realpath(resolved), realpath(grant))`, was a **double-realpath** that contradicted D2 and was corrected in planning. Strict `fs.realpath` is used, not `safeRealpath`: a granted directory later deleted (or recreated as a symlink) refuses rather than matching its nearest existing ancestor. An empty grant list short-circuits before any syscall.
 
 **The store.** `packages/server/src/access/access-grants.ts`. Persisted at `~/.pi/dashboard/access-grants.json` (`PI_ACCESS_GRANTS_STORE` overrides; schema `{ version: 1, grants }`). One grant carries `subject` (realpath), `scope` (`"session"` — in-memory until server restart — or `"project"` — persisted), `grantedAt`, `origin` (the session whose denial produced it), and optional `widenedFrom` (the denied subject when the grant came from an offered ancestor). Invariants: absent/malformed store → empty, never throws; **cap 200 per scope**, oldest-`grantedAt` evicted within that scope only (a union cap would let an ephemeral session grant delete a persisted project grant); writes atomic (temp + rename) so a crash mid-write cannot truncate the store into its own malformed→empty rule; a failed write is non-fatal — the subject stays ungranted, the failure is logged **and returned to the caller** so the UI cannot claim a grant that does not exist. Recorded grants are audited (`[access-grant] granted subject=… scope=… site=… denialId=…`).
+
+**Write-mode grants** (change: fix-file-link-editor-routing, D2). Out-of-cwd text-doc save (`POST /api/file/write`) needs write grant. Read grant never admits write.
+
+- `AccessGrant.mode?: "read" | "write"`. Absent = read. Store stays `version: 1`; rollback-safe (old build reads entry as read grant).
+- `loadFromDisk` fail-closed: `mode` other than exact `"write"` → read.
+- One entry per `(subject, scope, mode)`. Write grant = second entry beside read grant. Revocable independently.
+- `grantedSubjects()` unchanged, includes write entries (write ⊃ read). `grantedWriteSubjects()` = `mode:"write"` only.
+- Write evaluation: `evaluateContainment(..., {action:"write"})`. Skips layer ② (`checkoutAnchors`): checkout roots never admit write. Grant layer uses write subjects only.
+- Denial side field = `action: "read" | "write"` (`PathDenial`, `DenialFacts`, `PendingGrant`). Not `mode`: `mode` already names held/deferred prompt plane.
+- Pending registry key = `plane \0 action \0 subject`. Read + write denial for same dir = separate entries.
+- Grant mode derived server-side from recorded denial/prompt `action`. Never from client field. `grant_response` carries verdict + rung only.
+- `allow-once` = transient real-path grant for this request, write predicate, never persisted. `performAtomicMdWrite` re-realpath must equal gated realpath, else refuse.
+- YOLO: write hold = filesystem-plane denial → auto allow-once, only within YOLO roots (default root = session cwd → outside write still prompts). No persisted grant.
+- Prompt before existence: nonexistent outside doc prompts, then `404`. Stat-first = existence oracle, refused.
+- Access page: write row shows "Write" badge. `DELETE /api/access/grants` optional `mode`; last-entry removal only un-mirrors pi-trust.
 
 `"session"` scope means the **server process**, not the pi session whose denial produced it (design D17): one grant widens the grant layer for every session and every connected client; `origin` is what the Access tab shows.
 
@@ -4752,6 +4767,49 @@ Approval: operator types numeric confirm code shown on device → `POST /api/pai
 `no_reachable_endpoint` → empty state. Pairing needs secure context. Empty state offers Start tunnel (`/tunnel-setup`) plus `http://localhost` same-machine note. Never implies plain-http LAN pairs in a browser.
 
 Gate: `reachableUrls()` (`packages/server/src/pairing.ts`) read-time filter (D4/D14) advertises only secure `wss`/`https` endpoints. Keeps `urls[]` secure. `createPayload()` returns null when no reachable url → route returns `{success:false,error:"no_reachable_endpoint"}` (HTTP 200).
+
+### Device keys and the mutual device check (change: device-key-mutual-check)
+
+Paired device proves possession of its own key. One key per server fingerprint. Check is mutual: device proves the server first, signs second.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server (route)
+    C->>S: POST /api/pair/challenge {nonce}
+    S-->>C: {fingerprint, publicKey, signature, deviceNonce}
+    Note over C: verify signature + fingerprint vs pin or advert
+    alt route not proven
+        Note over C: stop — no proof to this route
+    else route proven
+        C->>S: POST /api/pair/device-status {deviceNonce, pub, sig}
+        S-->>C: {status: paired|expired|unknown|revoked, tier?, scope?}
+    end
+    Note over S: any failure → {status:"unverified"} at HTTP 200
+```
+
+- Step 1 — `POST /api/pair/challenge {nonce}` reply gains `deviceNonce`: 32 random bytes, base64url (43 chars). Store single-use, 60 s TTL, bound 10 000 entries, oldest evicted. Carries no secret.
+- Client verifies step 1 against pin or advertised fingerprint FIRST. Unproven route → stop, no proof sent.
+- Step 2 — `POST /api/pair/device-status {deviceNonce, pub, sig}`. `sig` = Ed25519 over `pi-devcheck/v2\n<fp>\n<deviceNonce>`. `pub` = raw 32-byte key, unpadded base64url (43), not SPKI; `sig` 64 bytes (86). Charset + length checked before decode. Nonce consumed on first presentation, so no client timestamp.
+- Reply `{status: paired|expired|unknown|revoked, tier?, scope?}`. Full paired key → `tier` + `scope:"full"`. Companion → `scope:"status-only"`, no tier. `expired` / `revoked` → neither. `revoked` decided first, wins over `expired`.
+- `expired` reuses the per-row judgement that refuses a bearer `401 bearer_expired` (`currentVerdict`, `packages/server/src/pairing/paired-devices.ts`), never a copy of the expiry arithmetic.
+- Every failure — bad signature, malformed field, unknown / expired / consumed nonce, rate-limited peer — answers `{status:"unverified"}` at HTTP 200. Discloses only the caller's own key status.
+- Limit 60/min per peer address, sliding window, invalid attempts counted. Limiter map bound 1024 peers, oldest evicted. Step 1 never limited.
+- Route public (`PUBLIC_PAIRING_PREFIXES`), tier `observe` like the challenge. Not a prefix of `/api/pair/device-key` — auth hook matches `startsWith`.
+- Proof, key bind, keyed knock go ONLY to the route that proved the pin in that selection. Electron `http:` route → the address literal that proved it, never the host name or a sibling literal. `https:` → proven host name.
+- Key per fingerprint: browser `packages/client/src/lib/pairing/device-key.ts` — non-extractable WebCrypto key in IndexedDB, secure contexts only. Electron main `packages/electron/src/lib/device-key.ts`, private part under `safeStorage` (`server-keyring.ts`). Shell `packages/shell/src/lib/device-key.ts` — IndexedDB.
+- Created only when pairing starts (Request access, Pair with code, Pair again). Listing creates nothing.
+- Registered at approval: knock / redeem body carries `deviceKey: {deviceNonce, pub, sig}`, `sig` over `pi-devbind/v1`. Held on `PendingDevice`, passed to `registry.add` — deny / expiry / lockout leaves nothing behind.
+- Later bind: `POST /api/pair/device-key {deviceNonce, pub, sig}` with the device's own credential (`authVia === "device"`). `400` bad proof, `401` no credential, `409` key held by another row, tier `observe`. One primary key per row; replaces the old one.
+- Uniqueness: one public key across primary + companion keys of active and revoked rows. Duplicate at approval → pairing proceeds keyless; duplicate at bind → `409`.
+- Companion key: `#companion=<pub>.<ts>.<sig>&from=<origin>` fragment, `sig` over `pi-companion/v1`, `ts` ±300 s. Status-only, accepted nowhere else. Opt-in, unticked at approval, max 4 per device.
+- Revoke is a state. Whole row (hash, tier, keys, companions, expiry fields) moves to `~/.pi/dashboard/revoked-devices.json` (0600) plus `revokedAt` / `revokedBy`. Revoked written FIRST, then active removed; id in both files → revoked wins.
+- Undo restores hash, tier, keys, companions, expiry fields unchanged — never extends expiry, never restarts the grace window. Purge at 90 d (`REVOKED_RETENTION_MS`) or Delete now.
+- Unreadable revoked file → set aside as `revoked-devices.corrupt-<time>.json`, empty list, `warning` on `GET /api/paired-devices/revoked`.
+- `registry.onRevoked(listener)` → browser gateway + pi gateway close matching sockets, code `4401`, reason `device revoked`. `verify()` scans active rows only, so REST, device-session, ws-ticket, bridge mint need no change.
+- Rollback-safe: older builds ignore the second file, degrade to "revoke = delete". Only Undo is lost.
+- Discard rule: no device-status answer discards anything — `unknown`, `expired`, `revoked` all keep credential and key. Only a refused credential at a proven route (`401`, incl. `401 bearer_expired`; refused cookie exchange) discards credential + key together.
+- Shared helpers: `packages/shared/src/device-key-proof.ts` — message builders, validators, `deviceRowState`. Server verifier `packages/server/src/auth/device-proof.ts`.
 
 ### Built-in TLS listener (change: add-tailscale-cert-tls)
 
@@ -8393,13 +8451,14 @@ Path-only fetch (`getChunk` without `headingPath`) returns first chunk plus `sup
   - dir-qualified `<relDir>/<path>`. `relDir` = `relative(cwd, dir)`, `/`-normalized, filesystem roots only.
   - Dedup by (root, path).
 - 1 reading → hit.
-- 0 → `(not found: <arg>)`.
+- 0 → `(not found: <arg>)`. Unresolved path only.
 - >1 → `(ambiguous: <arg> is indexed in N sources — pass one of:)` + sorted `<source-id>:<path>` candidates. No body. Details `{found:false, candidates:N}`.
 - Section: `getChunkBySection(root, path, section)` (`packages/kb/src/sqlite-store.ts`).
   - Exact `heading_path` first.
   - Else (no ` > ` in arg) last-heading suffix match.
   - Several distinct heading paths → ambiguous section candidate list.
   - `getChunk` exact semantics unchanged.
+  - No match in a resolved file → `section-missing` result. Render `(section not found: <section> in <arg> — sections:)` + ≤50 distinct body heading paths (rowid order, `:meta` chunk excluded) + `(+K more section[s])` when K > 0. Empty list → `(section not found: <section> in <arg> — no sections)`. `found:false`. Paths via required `FetchStore.getChunks(root, path)`. See change: fix-kb-parent-link-and-section-miss.
 - Source classification (`classifyRef`, `packages/kb/src/sources.ts`):
   - `ssh://` → `git`.
   - GitHub repo ref (`[https://]github.com/<o>/<r>` + optional `.git`, `@<ref>`, `/tree/<ref>`) → `git` (regex `GITHUB_REPO`). Cloned as `https://github.com/<o>/<r>` (`.git` kept if given). Revision from `@ref`/`/tree/<ref>`. `pin` wins. No auto-subdir.
@@ -9133,7 +9192,11 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 | any, Vite `--dev` (per proxied response) | baseline only (legacy `script-src`), enforcing under `enforce`. No strict header. No report destination. Dev never feeds strict counter. |
 
 - Strict = baseline with `script-src 'self' 'nonce-<n>'`. No `'unsafe-inline'`, no `'unsafe-eval'`. Enforced only under explicit `enforce`.
-- Every emitted policy carries `report-uri /__pi/csp-report/<label>` + `report-to csp-<label>`; `Reporting-Endpoints` header declares them.
+- Every emitted policy carries `report-uri /__pi/csp-report/<label>` ONLY.
+- No `report-to` directive. No `Reporting-Endpoints` header. `cspReportEndpointName` removed from `csp-report-paths.ts`.
+- Live preview same (`buildLiveCsp`): `report-uri /live/<id>/~c/<token>/__pi/csp-report` only.
+- Why: Chromium 157 / Firefox 153 never delivered `report-to` + `Reporting-Endpoints` reports on plain http. `report-to` suppresses `report-uri` in Chromium. Prod counters stayed 0.
+- Residual: `report-uri` deprecated in CSP3. Tripwire = Chromium-only `tests/e2e/csp-report-delivery.spec.ts`. Safari / Firefox need a manual canary.
 - Route-level per-response policies (`/api/file/raw` sandbox, `ctx.serveApp` mounts, `/live/`) untouched by mode.
 - Release note: explicit `enforce` now enforces the STRICT policy (before: baseline). Existing `enforce` deployments see it.
 
@@ -9227,4 +9290,4 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 - Follow-up `enforce-strict-csp-default` owns soak + default flip. Exit gate: ≥ 14 d window, zero strict `script-src*` violations, `dropped == 0`, ≥ 1 release shipped, enforce-lane E2E green. Inspect directive / document breakdown before flip.
 - E2E lanes: see `docs/faq.md` § "CSP enforce + OAuth real-gate E2E lanes".
 
-See change: harden-cors-and-csp-reporting (D8, D9, D10).
+See change: harden-cors-and-csp-reporting (D8, D9, D10), fix-csp-report-delivery.

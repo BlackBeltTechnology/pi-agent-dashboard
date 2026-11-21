@@ -50,6 +50,12 @@ export interface DenialContext {
   channel: string;
   /** Held planes: the request carries a valid prompt capability. */
   requestHoldsCapability: boolean;
+  /**
+   * `"write"` for a text-document write denial (filesystem plane); absent = read. Recorded on the
+   * entry, so the verdict's grant takes its mode from the SERVER-held denial and never from the
+   * browser's answer. See change: fix-file-link-editor-routing (D2).
+   */
+  action?: "read" | "write";
 }
 
 /** How a denial ends for the request that raised it. */
@@ -191,7 +197,15 @@ export class GrantCoordinator {
     });
     const ancestors = [...(ctx.ancestors ?? [])];
     const out = this.registry.record(
-      { plane: plane.id, subject, mode: plane.mode, channel: ctx.channel, store: plane.store, ancestors },
+      {
+        plane: plane.id,
+        subject,
+        mode: plane.mode,
+        channel: ctx.channel,
+        store: plane.store,
+        ancestors,
+        ...(ctx.action === "write" ? { action: "write" as const } : {}),
+      },
       precondition,
       this.now(),
     );
@@ -213,6 +227,7 @@ export class GrantCoordinator {
         subject: entry.subject,
         expiresAt: entry.expiresAt,
         ttlMs: Math.max(0, entry.expiresAt - this.now()),
+        ...(entry.action === "write" ? { action: "write" as const } : {}),
         copy: plane.describe(entry.subject, entry.ancestors),
       });
       if (!delivered) return immediate("broadcast-failed");
@@ -291,6 +306,7 @@ export class GrantCoordinator {
         deniedSubject: entry.subject,
         ancestors: entry.ancestors,
         origin: this.origins.get(entry.promptId) ?? "unknown",
+        action: entry.action,
       });
       // An allow-always whose store write failed did not stick: fail closed
       // rather than admit a request the operator's persistent answer never

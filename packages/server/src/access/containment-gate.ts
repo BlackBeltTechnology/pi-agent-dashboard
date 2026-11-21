@@ -25,9 +25,9 @@
 import { lstat } from "node:fs/promises";
 import type { PathDecision } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
 import { currentCallerUnproven, dashboardStateRefuses } from "../lib/dashboard-state-guard.js";
-import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
+import { isAllowedReal, isGrantAdmittedReal } from "../lib/path-containment.js";
 import { recordPathDenial } from "./access-denials.js";
-import { grantedSubjects } from "./access-grants.js";
+import { grantedSubjects, grantedWriteSubjects } from "./access-grants.js";
 import { offeredAncestorLadder } from "./ancestor-ladder.js";
 import { type HoldTarget, holdDenial } from "./denial-hold.js";
 import { isUngrantableSubject, realpathNearestAncestor } from "./forbidden-subjects.js";
@@ -75,8 +75,8 @@ async function remedySubject(resolved: string, kind: SubjectKind): Promise<strin
 export type ContainmentDecision = PathDecision;
 
 /** The one constructor of a {@link ContainmentDecision}. */
-function decision(resolved: string, allowed: boolean, viaGrant: boolean): ContainmentDecision {
-  return { allowed, viaGrant, resolved } as ContainmentDecision;
+function decision(resolved: string, allowed: boolean, viaGrant: boolean, real?: string): ContainmentDecision {
+  return { allowed, viaGrant, resolved, real } as ContainmentDecision;
 }
 
 /** The additive remedy fields carried beside an unchanged `error` string. */
@@ -204,10 +204,18 @@ function outcomeFor(resolution: Resolution, held: boolean): PromptOutcome {
  * the tests can attribute a refusal to the site that produced it.
  *
  * `allowGrant` (default `true`) lets a site declare that a grant must NOT admit
- * it. A grant is a READ remedy; `open-in-system` / `reveal-in-file-manager`
+ * it. A grant has an access MODE: a read grant is a READ remedy, and only a
+ * `mode:"write"` grant admits an allowlisted text-document write (`action:"write"`,
+ * `file-routes:write`). `open-in-system` / `reveal-in-file-manager`
  * spawn a local application instead, so they pass `false` and keep exactly the
  * pre-change `isAllowed`-only decision. Without this the grant layer silently
  * widened a read grant into an app-launch capability (task 4.5 review gate).
+ *
+ * `action:"write"` (change: fix-file-link-editor-routing, D2) selects the WRITE
+ * predicate end to end: layer ② (bound-checkout widening) is skipped, the grant
+ * layer reads `grantedWriteSubjects()` only, the denial is recorded and held with
+ * `action:"write"`, and the post-verdict re-evaluation is mode-specific. Absent or
+ * `"read"` is byte-identical to the pre-change behaviour.
  */
 export async function evaluateContainment(
   resolved: string,
@@ -239,6 +247,11 @@ export async function evaluateContainment(
      * See change: gate-changed-on-disk-by-content (D4).
      */
     quiet?: boolean;
+    /**
+     * `"write"` = the gate for a text-document WRITE (see above). Derived by the
+     * route, never from a request field.
+     */
+    action?: "read" | "write";
   },
 ): Promise<ContainmentDecision & { remedy?: ContainmentRemedy }> {
   // Dashboard secrets (token, identity key, config) are refused before anything else, with the
@@ -249,10 +262,14 @@ export async function evaluateContainment(
   // Layers ①/② first — untouched and still authoritative (design D1) — then the
   // grant layer, and only on a miss does the denial get recorded.
   let verdict: ContainmentDecision;
-  if (await isAllowed(resolved, { anchors })) {
-    verdict = decision(resolved, true, false);
-  } else if ((opts.allowGrant ?? true) && (await isGrantAdmitted(resolved, grantedSubjects()))) {
-    verdict = decision(resolved, true, true);
+  const write = opts.action === "write";
+  const layered = await isAllowedReal(resolved, { anchors, skipCheckoutRoots: write });
+  const grantReal =
+    layered.allowed || !(opts.allowGrant ?? true) ? null : await grantAdmittedReal(resolved, write);
+  if (layered.allowed) {
+    verdict = decision(resolved, true, false, layered.real);
+  } else if (grantReal !== null) {
+    verdict = decision(resolved, true, true, grantReal);
   } else {
     verdict = decision(resolved, false, false);
   }
@@ -278,7 +295,9 @@ export async function evaluateContainment(
   // recorded denial, the body and the dialog all derive from the one string a
   // grant would store (`/tmp` → `/private/tmp`). Resolving a symlink never
   // widens: it names the same resource (design D6).
-  const subject = realpathNearestAncestor(await remedySubject(resolved, opts.subjectKind ?? "file"));
+  // The remedy names the REAL target's directory: for an in-cwd link to an outside file the lexical
+  // parent is the (already anchored) cwd, which no grant could usefully name.
+  const subject = realpathNearestAncestor(await remedySubject(layered.real, opts.subjectKind ?? "file"));
   let ancestors: string[] = [];
   try {
     ancestors = await offeredAncestorLadder(subject);
@@ -305,6 +324,7 @@ export async function evaluateContainment(
     site: opts.site,
     session: opts.session,
     ancestors,
+    ...(write ? { action: "write" as const } : {}),
   });
 
   const remedy: DenialRemedy = {
@@ -322,11 +342,17 @@ export async function evaluateContainment(
   const resolution: Resolution = currentCallerUnproven()
     ? { kind: "deny", reason: "ineligible" }
     : await holdDenial(
-        { plane: "filesystem", rawSubject: entry.subject, ancestors, origin: opts.session ?? "unknown" },
+        {
+          plane: "filesystem",
+          rawSubject: entry.subject,
+          ancestors,
+          origin: opts.session ?? "unknown",
+          ...(write ? { action: "write" as const } : {}),
+        },
         opts.hold,
       );
-  const reEvaluated = resolution.kind === "allow" && (await reEvaluate(resolved, anchors, resolution));
-  if (reEvaluated) return decision(resolved, true, true);
+  const reEvaluated = resolution.kind === "allow" ? await reEvaluate(resolved, anchors, resolution, write) : null;
+  if (reEvaluated !== null) return decision(resolved, true, true, reEvaluated);
   if (opts.disclosure) remedy.promptOutcome = outcomeFor(resolution, opts.hold !== undefined);
   return { ...verdict, remedy };
 }
@@ -345,8 +371,12 @@ export async function decidePassive(
   anchors: string[],
   opts: { allowGrant: boolean; grantSubjects?: string[] },
 ): Promise<ContainmentDecision> {
-  if (await isAllowed(resolved, { anchors })) return decision(resolved, true, false);
-  if (opts.allowGrant && (await isGrantAdmitted(resolved, opts.grantSubjects ?? grantedSubjects()))) return decision(resolved, true, true);
+  const layered = await isAllowedReal(resolved, { anchors });
+  if (layered.allowed) return decision(resolved, true, false, layered.real);
+  if (opts.allowGrant) {
+    const grantReal = await isGrantAdmittedReal(resolved, opts.grantSubjects ?? grantedSubjects());
+    if (grantReal !== null) return decision(resolved, true, true, grantReal);
+  }
   return decision(resolved, false, false);
 }
 
@@ -366,10 +396,25 @@ async function reEvaluate(
   resolved: string,
   anchors: string[],
   resolution: Extract<Resolution, { kind: "allow" }>,
-): Promise<boolean> {
-  if (await isAllowed(resolved, { anchors })) return true;
-  if (await isGrantAdmitted(resolved, grantedSubjects())) return true;
-  if (resolution.verdict !== "allow-once") return false;
-  if (isUngrantableSubject(resolution.subject)) return false;
-  return isGrantAdmitted(resolved, [resolution.subject]);
+  write: boolean,
+): Promise<string | null> {
+  const layered = await isAllowedReal(resolved, { anchors, skipCheckoutRoots: write });
+  if (layered.allowed) return layered.real;
+  const stored = await grantAdmittedReal(resolved, write);
+  if (stored !== null) return stored;
+  if (resolution.verdict !== "allow-once") return null;
+  if (isUngrantableSubject(resolution.subject)) return null;
+  // The answered subject applies as a transient grant of the SAME mode as the denial: a write
+  // allow-once is checked against the write predicate and never persisted.
+  return isGrantAdmittedReal(resolved, [resolution.subject], { allowMissing: write });
+}
+
+/**
+ * The grant layer for one mode. Reads use `grantedSubjects()` (write ⊃ read) and refuse a path that
+ * does not resolve; a write uses `grantedWriteSubjects()` only and answers before any stat.
+ */
+function grantAdmittedReal(resolved: string, write: boolean): Promise<string | null> {
+  return write
+    ? isGrantAdmittedReal(resolved, grantedWriteSubjects(), { allowMissing: true })
+    : isGrantAdmittedReal(resolved, grantedSubjects());
 }

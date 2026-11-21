@@ -32,3 +32,12 @@ Files added by change fix-kb-index-integrity.
 | `index-integrity-graph.test.ts` | Vitest for qualified heading nodes, owned-row replacement, incremental==first-index graph, neighbors resolution, rowid-addressed deletes, record rebuild, vanished files, `data_version` df cache, perf ratio (E7–E21, E29, X9, X12, X15, P1, P2). |
 | `index-integrity-install.test.ts` | Vitest for the live-build marker, heartbeat, orphan sweep, `installIndex` branches/retries and `kb index` CLI concurrency with a holder connection (E22–E28, F6, X1–X5, X7). |
 | `fetch-resolve.test.ts` | Vitest for `resolveFetch`/`renderFetch` over real multi-root `SqliteFtsStore`: non-first root, collision-free coverage, not-found, dir/id-qualified (id with `:`), qualifier disambiguates, literal+qualified ambiguous, candidates round-trip, exact/last-heading/ambiguous/unknown section, `getChunk` unchanged (E1, E2, E4–E15). See change: fix-kb-get-roots-and-guard. |
+
+Files added by change bound-kb-proximity-search.
+
+| File | Purpose |
+|------|---------|
+| `proximity-bound.test.ts` | Vitest for exact proximity window: 22k-pair differential `minInOrderSpan`/`proximityDelta` vs call-budgeted reference DFS (incl. duplicate terms, spans ≥ 40), span BVA, smallest chain, order, missing/<2 terms, greedy early exits (E1–E8). |
+| `proximity-budget.test.ts` | Vitest for the per-search proximity budget: fake `performance.now` partial/zero expiry, cross-lane shared allowance, `proximityBudgetMs` coercion, unchanged `KbHit` shape, single expiry `console.warn` (E9–E12, F2, X1–X4). |
+| `proximity-perf.test.ts` | Vitest for pathological proximity inputs in a child killed after a 45 s cap: `proximityDelta` + end-to-end `store.search` (incl. ≈450 KB chunk) + 600-doc pool < 100 ms, no warn, no event-loop block (P1–P3, F1). |
+| `helpers/proximity-perf-child.mts` | Child process for `proximity-perf.test.ts` (`node --import tsx`, argv `delta|search|pool`); median-of-5 timings, prints one JSON line. |

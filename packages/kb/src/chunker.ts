@@ -77,7 +77,10 @@ export function chunkMarkdown(input: ChunkInput): ParseResult {
   const lines = text.split("\n");
   const fileTitle = input.path.split("/").pop()!.replace(/\.(md|mdx|markdown)$/i, "");
 
-  const raw: Array<{ headingPath: string; heading: string; level: number; parentChunkId: string | null; body: string }> = [];
+  // `ordinal` is the parse-time section number; `parentOrdinal` (-1 = none) names
+  // the direct enclosing section. Both survive tiny-merge and oversize-split and
+  // are resolved to final chunk indices at the end (as adoc-chunker.ts does).
+  const raw: Array<{ headingPath: string; heading: string; level: number; ordinal: number; parentOrdinal: number; body: string }> = [];
   const stack: { level: number; title: string; chunkOrdinal: number }[] = [];
   let cur: (typeof raw)[number] | null = null;
   let inFence = false;
@@ -113,13 +116,14 @@ export function chunkMarkdown(input: ChunkInput): ParseResult {
         headingPath: stack.map((s) => s.title).join(" > "),
         heading: title,
         level,
-        parentChunkId: parentOrdinal >= 0 ? String(parentOrdinal) : null,
+        ordinal,
+        parentOrdinal,
         body: "",
       };
       ordinal++;
     } else {
       if (!cur) {
-        cur = { headingPath: fileTitle, heading: fileTitle, level: 0, parentChunkId: null, body: "" };
+        cur = { headingPath: fileTitle, heading: fileTitle, level: 0, ordinal, parentOrdinal: -1, body: "" };
         ordinal++;
       }
       cur.body += line + "\n";
@@ -145,6 +149,7 @@ export function chunkMarkdown(input: ChunkInput): ParseResult {
     const paras = c.body.split(/\n\s*\n/);
     let buf = "";
     for (const p of paras) {
+      if (!p.trim()) continue; // never emit (or lead a piece with) a whitespace-only paragraph
       if ((buf + p).length > MAX_CHUNK_CHARS && buf) {
         sized.push({ ...c, body: buf });
         buf = "";
@@ -155,6 +160,17 @@ export function chunkMarkdown(input: ChunkInput): ParseResult {
   }
 
   const fileSha = sha(input.path);
+  // ordinal → first final index (a split section's children point at its first
+  // piece). An absent ordinal was dropped (empty) or merged away (tiny): its
+  // children get a null parent, never a sibling or themselves.
+  const indexByOrdinal = new Map<number, number>();
+  sized.forEach((c, i) => {
+    if (!indexByOrdinal.has(c.ordinal)) indexByOrdinal.set(c.ordinal, i);
+  });
+  const parentIdOf = (c: (typeof raw)[number]): string | null => {
+    const idx = indexByOrdinal.get(c.parentOrdinal);
+    return idx === undefined ? null : `${fileSha.slice(0, 8)}:${idx}`;
+  };
   const chunks: Chunk[] = sized.map((c, i) => ({
     root: input.root,
     path: input.path,
@@ -162,7 +178,7 @@ export function chunkMarkdown(input: ChunkInput): ParseResult {
     headingPath: c.headingPath,
     heading: c.heading,
     level: c.level,
-    parentChunkId: c.parentChunkId ? `${fileSha.slice(0, 8)}:${c.parentChunkId}` : null,
+    parentChunkId: parentIdOf(c),
     docType,
     body: c.body.trimEnd(),
     bodyHash: sha(c.body.trim()),

@@ -84,8 +84,8 @@ ffprobe.
   reports both.
 - **The selected backend's API key** — `SONIOX_API_KEY` or `ASSEMBLY_AI_KEY`,
   both declared as `env` probes in `pi.tools`. Same resolver: environment
-  first, then an optional gitignored `.env` (current directory, then the skill
-  dir). Only the active backend's key is required. No secret ships in the
+  first, then an optional gitignored `.env` (current directory, then the
+  package root beside `package.json`, so the bin works from any cwd). Only the active backend's key is required. No secret ships in the
   package; the bin fails fast with a clear message if the key is unresolved.
 
 ### Environment overrides

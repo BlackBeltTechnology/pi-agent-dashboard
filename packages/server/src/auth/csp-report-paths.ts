@@ -24,8 +24,3 @@ export function isCspReportPolicy(v: string): v is CspReportPolicy {
 export function cspReportPath(policy: CspReportPolicy): string {
   return `${CSP_REPORT_PREFIX}${policy}`;
 }
-
-/** Reporting API endpoint name declared in `Reporting-Endpoints` (`csp-<policy>`). */
-export function cspReportEndpointName(policy: CspReportPolicy): string {
-  return `csp-${policy}`;
-}

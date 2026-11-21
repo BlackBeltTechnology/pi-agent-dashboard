@@ -10,7 +10,8 @@ import url from "node:url";
 import { describe, expect, it } from "vitest";
 import { containmentAllows, type PathDecision } from "../containment-guard.js";
 
-const decide = (resolved: string, allowed: boolean, viaGrant = false): PathDecision => ({ allowed, viaGrant, resolved }) as PathDecision;
+const decide = (resolved: string, allowed: boolean, viaGrant = false): PathDecision =>
+  ({ allowed, viaGrant, resolved, real: allowed ? resolved : undefined }) as PathDecision;
 
 describe("containmentAllows (#E1 #E2 #E3 #X2)", () => {
   it("allows exactly the decided path", () => {

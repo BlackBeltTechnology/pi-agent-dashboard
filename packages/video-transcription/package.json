@@ -53,11 +53,12 @@
     ]
   },
   "bin": {
-    "pi-transcribe": "src/bin/transcribe.ts",
-    "pi-voiceid": "src/bin/voiceid.ts"
+    "pi-transcribe": "bin/pi-transcribe.mjs",
+    "pi-voiceid": "bin/pi-voiceid.mjs"
   },
   "files": [
     "src/",
+    "bin/",
     "!src/__tests__",
     ".pi/skills/",
     "README.md",
@@ -70,7 +71,8 @@
     "parity:docker": "parity/run.sh"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.11.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.11.0",
+    "tsx": "^4.21.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=1.5.0",

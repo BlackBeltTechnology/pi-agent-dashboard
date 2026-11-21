@@ -102,7 +102,7 @@ describe("grouping: saved ∪ discovered", () => {
 describe("paired state per client (D9)", () => {
   const saved = [entry({ host: "192.168.16.204", port: 8000, fingerprint: F, label: "Home" }), entry({ host: "192.168.16.77", port: 8000, fingerprint: G, label: "Studio" })];
 
-  it("browser: 'Unknown in this tab' for every origin but the current one", () => {
+  it("browser: unknown-in-this-tab state for every origin but the current one", () => {
     const m = buildServerList(base({ saved, current: { host: "192.168.16.204", port: 8000 } }));
     expect(m.entries.map((e) => e.pairedState)).toEqual(["this-dashboard", "unknown-in-this-tab"]);
   });

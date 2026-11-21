@@ -3,13 +3,15 @@
  * the spawn-time model choice. Literal models keep the mapper's verbatim
  * pass-through (trusted first-party callers); only `@role` refs resolve, via the
  * shared resolver, and a thinking-only choice pairs with the default model.
- * Drops are reported in `warning` (lenient road). Never throws.
+ * Drops are reported in `warning` (lenient road). Never throws. A role-ref
+ * default is resolved for the thinking-only pairing
+ * (See change: default-model-follows-role).
  *
  * See change: add-spawn-model-choice (design D1, D2).
  */
 import { type MappedSpawnOptions, type PluginSpawnOptions, pluginSpawnToSessionOptions } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
-import { type ResolveSpawnChoiceContext, resolveSpawnChoice, validateSpawnChoice } from "../browser-handlers/spawn-choice.js";
+import { pairDefaultModel, type ResolveSpawnChoiceContext, resolveSpawnChoice } from "../browser-handlers/spawn-choice.js";
 
 export interface PluginSpawnMapping {
   options: MappedSpawnOptions;
@@ -39,8 +41,8 @@ export function mapPluginSpawnOptions(opts: PluginSpawnOptions, ctx: ResolveSpaw
     if (choice.model) options.model = choice.model;
     if (choice.thinking) options.thinking = choice.thinking;
   } else if (options.thinking && !options.model && ctx.defaultModel) {
-    const fallback = validateSpawnChoice({ model: ctx.defaultModel, thinkingLevel: options.thinking });
-    if (fallback.model) options.model = fallback.model;
+    const paired = pairDefaultModel(ctx.defaultModel, options.thinking, ctx);
+    if (paired) options.model = paired;
   }
   return warnings.length > 0 ? { options, warning: warnings.join("; ") } : { options };
 }

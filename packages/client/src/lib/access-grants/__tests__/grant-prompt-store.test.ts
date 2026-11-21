@@ -27,6 +27,15 @@ describe("GrantPromptStore", () => {
     expect(s.getQueue().map((p) => p.promptId)).toEqual(["a", "b"]);
   });
 
+  it("keeps the optional `action` on a queued prompt, including when `ttlMs` re-bases expiry", () => {
+    const s = new GrantPromptStore();
+    s.apply(request("w", { action: "write", ttlMs: 5_000 }));
+    s.apply(request("r"));
+    const [w, r] = s.getQueue();
+    expect(w.action).toBe("write");
+    expect(r.action).toBeUndefined();
+  });
+
   it("removes a dismissed prompt and refuses a late local answer (7.3)", () => {
     const s = new GrantPromptStore();
     s.apply(request("a"));

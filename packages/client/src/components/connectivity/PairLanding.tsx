@@ -18,8 +18,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t, useI18n } from "../../lib/i18n/i18n.js";
 import { browserHolderBody, finishDevicePairing } from "../../lib/pairing/device-auth.js";
-import { challengeIdentity, postJson } from "../../lib/pairing/pair-protocol.js";
+import { challengeIdentity, type IdentityProof, postJson } from "../../lib/pairing/pair-protocol.js";
 import type { PairingPayload } from "../../lib/pairing/pairing-api.js";
+import { deviceKeyBody, deviceKeyFromChallenge, requestKeyLife } from "../../lib/pairing/pairing-device-key.js";
 import { decodePayloadString } from "../../lib/pairing/pairing-qr.js";
 import { PairKeepFailedNotice } from "./PairKeepFailedNotice.js";
 import { isRequestMode, PairRequestLanding } from "./PairRequestLanding.js";
@@ -40,12 +41,12 @@ interface PollResult {
 
 const POLL_INTERVAL_MS = 2000;
 
-/** First `payload.urls[]` entry that answers AND proves the pinned fingerprint. */
-async function findVerifiedUrl(payload: PairingPayload): Promise<string | null> {
+/** First `payload.urls[]` entry that answers AND proves the pinned fingerprint (and the proof that did). */
+async function findVerifiedUrl(payload: PairingPayload): Promise<{ url: string; proof: IdentityProof } | null> {
   for (const url of payload.urls) {
     try {
       const proof = await challengeIdentity(url);
-      if (proof.verified && proof.fingerprint === payload.id) return url;
+      if (proof.verified && proof.fingerprint === payload.id) return { url, proof };
     } catch {
       // url unreachable / failed verification — try the next.
     }
@@ -74,6 +75,12 @@ async function pollForToken(url: string, pendingId: string, isCancelled: () => b
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
   return "cancelled";
+}
+
+/** What a finished QR redemption means for its pending device key. */
+function qrKeyFate(outcome: PollOutcome): "approved" | "rejected" | "expired" {
+  if (outcome === "rejected") return "rejected";
+  return outcome === "unknown" ? "expired" : "approved";
 }
 
 /** Read + decode the payload from the URL fragment. Null when missing/invalid. */
@@ -152,9 +159,9 @@ function QrPairLanding({ onPaired }: { onPaired?: (token: string) => void }) {
 
     // 1. CHALLENGE — pin the server identity. Refuse when no url proves the
     //    pinned fingerprint (impostor on a reused url, or all unreachable).
-    const verifiedUrl = await findVerifiedUrl(payload);
+    const verified = await findVerifiedUrl(payload);
     if (cancelled.current) return;
-    if (!verifiedUrl) {
+    if (!verified) {
       setPhase("error");
       setError(
         t(
@@ -166,19 +173,28 @@ function QrPairLanding({ onPaired }: { onPaired?: (token: string) => void }) {
       return;
     }
 
+    const verifiedUrl = verified.url;
+    // A device key is bound to the challenge that just proved the pin (no second challenge); keyless where the
+    // page cannot hold one. See change: device-key-mutual-check (D3).
+    const prepared = await deviceKeyFromChallenge(verified.proof);
+    const keyLife = requestKeyLife(prepared);
+
     // 2. REDEEM — trade the one-time code for a confirm code shown on THIS phone,
     // then 3. POLL — the operator types that code into the dashboard (D12).
     try {
       const redeemed = await postJson<RedeemResult>(verifiedUrl, "/api/pair/redeem", {
         code: payload.code,
+        ...deviceKeyBody(prepared),
         ...browserHolderBody(),
       });
       if (cancelled.current) return;
+      await keyLife.admitted(redeemed.pendingId);
       setConfirmCode(redeemed.confirmCode);
       setPhase("polling");
 
       const outcome = await pollForToken(verifiedUrl, redeemed.pendingId, () => cancelled.current);
       if (outcome === "cancelled") return;
+      keyLife.settled(qrKeyFate(outcome));
       if (outcome === "rejected") {
         setPhase("rejected");
         return;
@@ -190,6 +206,7 @@ function QrPairLanding({ onPaired }: { onPaired?: (token: string) => void }) {
       }
       await finishPaired(outcome.token, outcome.expiresAt);
     } catch (err) {
+      keyLife.failed();
       setPhase("error");
       setError(
         t(

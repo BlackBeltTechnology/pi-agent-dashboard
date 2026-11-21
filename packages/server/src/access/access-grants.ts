@@ -84,6 +84,18 @@ export type GrantScope = "session" | "project";
 /** Which write path produced a grant (absent = the Access page's grant route). */
 type GrantVia = "prompt" | "agent-prompt" | "provision";
 
+/**
+ * Access mode of a grant. A write grant admits reads AND allowlisted text-document
+ * writes under its subtree; a read grant (the default, stored with NO `mode` key)
+ * never admits a write. See change: fix-file-link-editor-routing (D2).
+ */
+type GrantMode = "read" | "write";
+
+/** The mode of an entry: only the exact string `"write"` is a write grant (fail closed). */
+function modeOf(g: { mode?: unknown }): GrantMode {
+  return g.mode === "write" ? "write" : "read";
+}
+
 /** One grant. Session-scoped grants carry the SAME four fields (D17) — not a bare Set. */
 export interface AccessGrant {
   /** Directory, realpath'd at grant time (D2). */
@@ -106,6 +118,14 @@ export interface AccessGrant {
    * page's grant route. Optional and additive: older builds spread it through.
    */
   via?: GrantVia;
+  /**
+   * `"write"` when the grant also admits allowlisted text-document WRITES under
+   * its subtree. Absent = read. Optional and additive on a `version: 1` store
+   * (like `via`): an older build spreads it through and treats the entry as a
+   * read grant. Derived server-side from the denial's `action`, never from a
+   * client field. See change: fix-file-link-editor-routing (D2).
+   */
+  mode?: "write";
 }
 
 /** D10: fixed cap, per scope. */
@@ -203,7 +223,16 @@ function loadFromDisk(): AccessGrant[] {
         typeof g.grantedAt === "number" &&
         Number.isFinite(g.grantedAt),
     )
-    .map((g) => ({ ...g, origin: typeof g.origin === "string" ? g.origin : "unknown" }))
+    .map((g) => {
+      const { mode: _mode, ...rest } = g;
+      // Normalise `mode` fail-closed: only the exact string "write" survives (a hostile or
+      // hand-edited value of any other shape is a read grant). No rewrite happens on load.
+      return {
+        ...rest,
+        origin: typeof g.origin === "string" ? g.origin : "unknown",
+        ...(_mode === "write" ? { mode: "write" as const } : {}),
+      };
+    })
     // The forbidden filter must hold for values ALREADY ON DISK, not only for
     // ones arriving through `recordGrant`. The forbidden list grew during
     // planning, so a store legitimately written by an older build can contain a
@@ -271,6 +300,17 @@ export function grantedSubjects(): string[] {
   const seen = new Set<string>();
   for (const g of persisted()) seen.add(g.subject);
   for (const g of sessionGrants) seen.add(g.subject);
+  return [...seen];
+}
+
+/**
+ * Subjects of WRITE grants only — the write predicate's input. `grantedSubjects()`
+ * (the read predicate) includes these (write ⊃ read); a read grant never appears here.
+ */
+export function grantedWriteSubjects(): string[] {
+  const seen = new Set<string>();
+  for (const g of persisted()) if (modeOf(g) === "write") seen.add(g.subject);
+  for (const g of sessionGrants) if (modeOf(g) === "write") seen.add(g.subject);
   return [...seen];
 }
 
@@ -346,6 +386,8 @@ export interface RecordGrantInput {
   /** Set when the subject came from the denial's offered-ancestor ladder. */
   widenedFrom?: string;
   via?: GrantVia;
+  /** `"write"` records a write grant; anything else a read grant (no `mode` stored). */
+  mode?: GrantMode;
   /**
    * `false` = refuse with `{ok:false, error:"capacity"}` at the cap instead of
    * evicting the oldest grant (change: add-access-provisioning). Default `true`.
@@ -355,7 +397,8 @@ export interface RecordGrantInput {
 }
 
 /**
- * Record a grant. Idempotent on an already-granted subject.
+ * Record a grant. Idempotent per `(subject, scope, mode)`: a write grant is a second
+ * entry beside a read grant for the same directory, revocable independently.
  *
  * On a **write failure** the subject is left UNGRANTED and the failure is
  * returned, never thrown (D11): the request that triggered the denial still 403s
@@ -363,10 +406,16 @@ export interface RecordGrantInput {
  * did not stick.
  */
 /** A grant with its optional provenance fields set only when present. */
-function buildGrant(base: AccessGrant, widenedFrom: string | undefined, via: GrantVia | undefined): AccessGrant {
+function buildGrant(
+  base: AccessGrant,
+  widenedFrom: string | undefined,
+  via: GrantVia | undefined,
+  mode: GrantMode,
+): AccessGrant {
   const grant: AccessGrant = { ...base };
   if (widenedFrom) grant.widenedFrom = widenedFrom;
   if (via) grant.via = via;
+  if (mode === "write") grant.mode = "write";
   return grant;
 }
 
@@ -375,6 +424,7 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   const origin = input.origin ?? "unknown";
   const subject = normalizeGrantSubject(input.subject);
   const grantedAt = input.now ?? Date.now();
+  const mode: GrantMode = input.mode === "write" ? "write" : "read";
 
   // Defence in depth (design D15): the forbidden filter must run on the value
   // that is actually STORED, never on the caller's pre-normalization input.
@@ -394,9 +444,9 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
       : undefined;
 
   if (scope === "session") {
-    const existing = sessionGrants.find((g) => g.subject === subject);
+    const existing = sessionGrants.find((g) => g.subject === subject && modeOf(g) === mode);
     if (existing) return { ok: true, grant: existing };
-    const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via);
+    const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via, mode);
     sessionGrants.push(grant);
     if (!enforceCap(sessionGrants, "session", { protect: grant, evict: input.evict, spareProvisioned: true })) {
       sessionGrants.pop();
@@ -407,9 +457,9 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   }
 
   const grants = [...persisted()];
-  const existing = grants.find((g) => g.subject === subject);
+  const existing = grants.find((g) => g.subject === subject && modeOf(g) === mode);
   if (existing) return { ok: true, grant: existing };
-  const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via);
+  const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via, mode);
   grants.push(grant);
   if (!enforceCap(grants, "project", { protect: grant, evict: input.evict, spareProvisioned: true })) {
     return { ok: false, error: "capacity" };
@@ -431,18 +481,24 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
 }
 
 /**
- * Revoke by subject, or by subject+scope. Returns whether anything was removed.
- * A persisted revoke invalidates the in-memory cache, which is what makes
+ * Revoke by subject, or by subject+scope, optionally by mode. Returns whether anything
+ * was removed. A persisted revoke invalidates the in-memory cache, which is what makes
  * revocation take effect on the next request with no restart (D16).
+ *
+ * `mode` omitted (`undefined`) removes every entry for the subject (today's behaviour);
+ * `"write"` / `"read"` remove only that mode's entry; any OTHER value removes nothing
+ * (callers that take it from a request validate first and answer 400).
  */
-export function revokeGrant(subject: string, scope?: GrantScope): boolean {
+export function revokeGrant(subject: string, scope?: GrantScope, mode?: unknown): boolean {
+  if (mode !== undefined && mode !== "read" && mode !== "write") return false;
   const target = normalizeGrantSubject(subject);
+  const matches = (g: AccessGrant): boolean => g.subject === target && (mode === undefined || modeOf(g) === mode);
   let removed = false;
 
   if (scope !== "project") {
     let sessionRemoved = false;
     for (let i = sessionGrants.length - 1; i >= 0; i -= 1) {
-      if (sessionGrants[i].subject === target) {
+      if (matches(sessionGrants[i])) {
         sessionGrants.splice(i, 1);
         removed = true;
         sessionRemoved = true;
@@ -453,7 +509,7 @@ export function revokeGrant(subject: string, scope?: GrantScope): boolean {
   if (scope === "session") return removed;
 
   const grants = persisted();
-  const kept = grants.filter((g) => g.subject !== target);
+  const kept = grants.filter((g) => !matches(g));
   if (kept.length === grants.length) return removed;
   try {
     writeAtomic(accessGrantsStorePath(), JSON.stringify({ version: 1, grants: kept } satisfies StoreFile, null, 2));

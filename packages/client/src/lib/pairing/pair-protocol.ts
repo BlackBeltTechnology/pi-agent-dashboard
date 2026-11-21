@@ -10,6 +10,8 @@
  * See change: make-pairing-qr-camera-scannable.
  */
 
+import { isDeviceNonce } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
+
 interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
@@ -100,6 +102,8 @@ interface ChallengeResponse {
   publicKey: string;
   signature: string;
   v: number;
+  /** Server-issued single-use nonce for a device proof (absent on an older server). */
+  deviceNonce?: unknown;
 }
 
 async function importPublicKey(publicKeyB64: string): Promise<CryptoKey> {
@@ -132,6 +136,8 @@ export interface IdentityProof {
   publicKey: string;
   /** Signature over the nonce verified against `publicKey`. */
   verified: boolean;
+  /** The reply's `deviceNonce` when it is well-formed (43-char base64url); absent otherwise. See change: device-key-mutual-check. */
+  deviceNonce?: string;
 }
 
 /**
@@ -166,7 +172,12 @@ export async function challengeIdentity(base: string, timeoutMs?: number): Promi
       typeof err?.message === "string" ? err.message : undefined,
     );
   }
-  return { fingerprint, publicKey: data.publicKey, verified };
+  return {
+    fingerprint,
+    publicKey: data.publicKey,
+    verified,
+    ...(isDeviceNonce(data.deviceNonce) ? { deviceNonce: data.deviceNonce } : {}),
+  };
 }
 
 /** `sha256:<base64url>` over the SPKI DER key bytes — the derivation the server publishes. */

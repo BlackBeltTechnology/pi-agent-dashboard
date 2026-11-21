@@ -7,8 +7,9 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ContainmentBindingRefused,
   currentStateCaller,
   DashboardStateRefused,
   dashboardStateRefuses,
@@ -129,6 +130,44 @@ describe("handleIsAlwaysRefused / openStateChecked", () => {
     } finally {
       await fh.close();
     }
+  });
+});
+
+describe("binding refusal when the handle close itself fails", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("closes the refused handle once, still surfaces ContainmentBindingRefused, leaks no fd, raises no unhandled rejection", async () => {
+    const a = path.join(home, "notes.txt");
+    const b = path.join(home, "other.txt");
+    fs.writeFileSync(b, "o");
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    const fdCount = () => fs.readdirSync("/dev/fd").length;
+    const baseline = fdCount();
+    const closeCalls = vi.fn();
+    const realOpen = fsp.open.bind(fsp);
+    vi.spyOn(fsp, "open").mockImplementation((async (...args: Parameters<typeof fsp.open>) => {
+      const fh = await realOpen(...args);
+      const realClose = fh.close.bind(fh);
+      fh.close = async () => {
+        closeCalls();
+        await realClose(); // the descriptor is released; only the promise rejects
+        throw new Error("EIO: close failed");
+      };
+      return fh;
+    }) as typeof fsp.open);
+    try {
+      const err = await openStateChecked(a, "r", { decidedReal: b }).catch((e) => e);
+      expect(err).toBeInstanceOf(ContainmentBindingRefused);
+      expect(err).toBeInstanceOf(DashboardStateRefused);
+      await new Promise((r) => setTimeout(r, 20));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    expect(closeCalls).toHaveBeenCalledTimes(1);
+    expect(unhandled).toEqual([]);
+    expect(fdCount()).toBe(baseline);
   });
 });
 

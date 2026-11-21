@@ -25,5 +25,6 @@ export default defineMockSite({
     // Plugin sources for plugin-surface mocks (package `exports` block deep imports).
     "@flows": pkg("flows-plugin/src"),
     "@automation": pkg("automation-plugin/src"),
+    "@atlas": pkg("skill-atlas-plugin/src"),
   },
 });

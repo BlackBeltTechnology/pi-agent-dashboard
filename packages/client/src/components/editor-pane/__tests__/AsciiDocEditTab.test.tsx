@@ -23,6 +23,7 @@ vi.mock("../../preview/AsciiDocPreview.js", () => ({
 }));
 
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
+import { unsavedKey, unsavedStore } from "../unsaved-store.js";
 import { viewerRegistry } from "../viewer-registry.js";
 
 const originalFetch = globalThis.fetch;
@@ -77,5 +78,27 @@ describe("asciidoc viewer — Preview/Edit", () => {
     await waitFor(() => expect(posts).toEqual([{ cwd: "/proj", path: "doc.adoc", content: "= New\n", mtime: 1 }]));
     fireEvent.click(screen.getByTestId("adoc-preview-toggle"));
     expect(screen.getByTestId("adoc-rendered")).toBeTruthy();
+  });
+});
+
+// fix-file-link-editor-routing 4.20: the generic Preview/Edit tab publishes {dirty, save} too.
+describe("asciidoc viewer — unsaved store", () => {
+  const key = unsavedKey("", "doc.adoc");
+  it("registers dirty while edited, saves through the dialog, and unregisters on unmount", async () => {
+    const { unmount } = renderAdoc();
+    fireEvent.click(screen.getByTestId("adoc-edit-toggle"));
+    const ta = (await screen.findByTestId("monaco-textarea")) as HTMLTextAreaElement;
+    expect(unsavedStore.hasUnsaved([key])).toBe(false);
+    fireEvent.change(ta, { target: { value: "= New\n" } });
+    await waitFor(() => expect(unsavedStore.hasUnsaved([key])).toBe(true));
+    const p = unsavedStore.confirmLeave([key]);
+    unsavedStore.resolveDialog("save");
+    await expect(p).resolves.toBe(true);
+    expect(posts).toHaveLength(1);
+    await waitFor(() => expect(unsavedStore.hasUnsaved([key])).toBe(false));
+    fireEvent.change(ta, { target: { value: "= Again\n" } });
+    await waitFor(() => expect(unsavedStore.hasUnsaved([key])).toBe(true));
+    unmount();
+    expect(unsavedStore.hasUnsaved([key])).toBe(false);
   });
 });

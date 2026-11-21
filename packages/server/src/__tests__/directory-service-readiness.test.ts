@@ -386,6 +386,33 @@ describe("DirectoryService — readiness fold wiring (add-openspec-init-affordan
     expect(out.hasOpenSpecSkills).toBe(false);
   });
 
+  it("a null config root is re-probed after its TTL — a cwd that later gains a root recovers without restart", async () => {
+    const { runOpenSpecList } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+    (runOpenSpecList as any).mockResolvedValue({ changes: [] });
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    let now = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      fakeConfigRoot = () => null; // e.g. probed before `.pi/settings.json` / `git init` existed
+      service = createDirectoryService(makePrefs(), makeSessionMgr(), {}, { currentGlobalSignature: async () => "sig" });
+      expect((await service.pollDirectoryGated(repo)).hasOpenSpecSkills).toBe(false);
+
+      fakeConfigRoot = (cwd) => cwd; // root now resolvable
+      // Within the TTL the null answer is still served (no per-tick git spawn).
+      const callsBefore = configRootCalls;
+      expect((await service.pollDirectoryGated(repo)).hasOpenSpecSkills).toBe(false);
+      expect(configRootCalls).toBe(callsBefore);
+
+      now += 61_000; // past the TTL → re-probe
+      const out = await service.pollDirectoryGated(repo);
+      expect(out.hasOpenSpecSkills).toBe(true);
+      expect(out.readiness).toEqual({ state: "READY" });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("P1: 20 cwds polled in one tick → signature provider called exactly once", async () => {
     const { runOpenSpecList } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
     (runOpenSpecList as any).mockResolvedValue({ changes: [] });

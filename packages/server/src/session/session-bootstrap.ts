@@ -2,12 +2,11 @@
  * Session bootstrap: discovers sessions from known directories and starts OpenSpec polling.
  * Called during server startup (async, non-blocking).
  */
-import { deriveEndedAt } from "./derive-ended-at.js";
 import type { SessionManager } from "./memory-session-manager.js";
 import type { SessionArchive } from "./session-archive.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { isOpenSpecDataEmpty, type DirectoryService } from "../directory-service.js";
-import { extractSessionStats } from "./session-stats-reader.js";
+import { seedDiscoveredHistory } from "./seed-discovered-history.js";
 
 export interface SessionBootstrapDeps {
   sessionManager: SessionManager;
@@ -27,58 +26,14 @@ export async function discoverAndBroadcastSessions(deps: SessionBootstrapDeps): 
   try {
     const dirs = directoryService.knownDirectories();
     for (const cwd of dirs) {
-      const discovered = directoryService.discoverSessions(cwd);
-      for (const hist of discovered) {
-        if (sessionManager.get(hist.id)) continue;
-        // An archived id must never be resurrected from its `.jsonl` header.
-        // See change: archive-sessions-lazy-load.
-        if (sessionArchive?.has(hist.id)) continue;
-        {
-          let contextTokens: number | undefined;
-          let contextWindow: number | undefined;
-          let model: string | undefined;
-          if (hist.sessionFile) {
-            try {
-              const stats = extractSessionStats(hist.sessionFile);
-              if (stats) {
-                contextTokens = stats.lastTotalTokens;
-                contextWindow = stats.contextWindow;
-                model = stats.model;
-              }
-            } catch { /* ignore */ }
-          }
-          sessionManager.restore({
-            id: hist.id,
-            cwd: hist.cwd,
-            name: hist.name,
-            source: "tui",
-            status: "ended",
-            startedAt: hist.startedAt,
-            // This path sets no `lastActivityAt`, so it must stat its own
-            // transcript rather than lean on a last-activity fallback — the one
-            // case where the card's time badge is actually wrong today.
-            // See change: fix-ended-session-missing-endedat.
-            endedAt: deriveEndedAt({
-              sessionFile: hist.sessionFile,
-              startedAt: hist.startedAt,
-            }),
-            sessionFile: hist.sessionFile,
-            sessionDir: hist.sessionDir,
-            firstMessage: hist.firstMessage,
-            // Discovered history that is NOT archived is seeded as a visible
-            // ended session (the old `hidden: true` literal made all TUI
-            // history an auto-hidden worker). See change:
-            // archive-sessions-lazy-load.
-            hidden: false,
-            dataUnavailable: true,
-            model,
-            contextTokens,
-            contextWindow,
-          });
-          const session = sessionManager.get(hist.id);
-          if (session) browserGateway.broadcastSessionAdded(session);
-        }
-      }
+      // Archived / sidecar-backed ids are never re-seeded from their `.jsonl`
+      // header; no index → seed nothing. See change:
+      // fix-discovery-resurrects-archived.
+      const seeded = seedDiscoveredHistory(directoryService.discoverSessions(cwd), {
+        sessionManager,
+        sessionArchive,
+      });
+      for (const session of seeded) browserGateway.broadcastSessionAdded(session);
     }
   } catch (err) {
     console.error("[dashboard] Session discovery failed:", err);

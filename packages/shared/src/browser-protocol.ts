@@ -2871,6 +2871,12 @@ export interface GrantRequestMessage {
    * expire a prompt early. Optional for compatibility.
    */
   ttlMs?: number;
+  /**
+   * `"write"` when the denial was a text-document write (filesystem plane); absent = read. Display
+   * only: the grant's mode is taken from the server-held entry, never from the browser's answer.
+   * See change: fix-file-link-editor-routing (D2).
+   */
+  action?: "read" | "write";
   copy: GrantPromptCopy;
 }
 

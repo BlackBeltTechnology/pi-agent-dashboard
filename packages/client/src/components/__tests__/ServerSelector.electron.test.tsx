@@ -3,6 +3,8 @@
  * See change: add-electron-server-windows (test-plan E37, E38, E39),
  * group-servers-by-identity (test-plan #F5, #F9).
  */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
@@ -306,7 +308,7 @@ describe("Paired state per client (#F9)", () => {
     expect(screen.getAllByRole("menuitem", { hidden: true }).filter((i) => i.getAttribute("data-testid") === "pair-action")).toHaveLength(2);
   });
 
-  it("#F9 browser: other origins read 'Unknown in this tab', the page's own origin 'This dashboard'", async () => {
+  it("#F9 browser: other origins read 'Status unknown', the page's own origin 'This dashboard'", async () => {
     delete (window as any).piDashboard;
     vi.mocked(listKnownServers).mockResolvedValue([
       { host: "192.168.16.204", port: 8000, label: "home-imac", addedAt: ts },
@@ -315,7 +317,77 @@ describe("Paired state per client (#F9)", () => {
     await openMenu({ currentHost: "192.168.16.204", currentPort: 8000 });
     await waitFor(() => expect(rowOf("lab-server")).toBeTruthy());
     expect(pairedOf("home-imac")).toBe("This dashboard");
-    expect(pairedOf("lab-server")).toBe("Unknown in this tab");
+    expect(pairedOf("lab-server")).toBe("Status unknown");
     expect(document.body.textContent).not.toMatch(/Needs pairing|Not paired/);
+  });
+});
+
+// ── device-key-mutual-check (test-plan F5): one label set, old tab wording gone ──────────
+
+describe("F5 paired-state labels refined by the device check (Electron list)", () => {
+  const FP_OLD = "sha256:Ol0dNas0Ol0dNas0Ol0dNas0Ol0dNas0Ol0dNas0Ol0";
+  const FP_PEND = "sha256:Pe0ndKey0Pe0ndKey0Pe0ndKey0Pe0ndKey0Pe0ndKe";
+  const BRIDGE = {
+    paired: [
+      { fingerprint: FP_HOME, label: "home-imac", state: "paired", host: "192.168.16.204:8000", deviceState: "paired", tier: "operate" },
+      { fingerprint: FP_OLD, label: "old-nas", state: "paired", host: "old.lan:8000", deviceState: "access-expired" },
+      { fingerprint: FP_LAB, label: "lab-server", state: "needs-pairing", host: "lab.lan:8000" },
+      { fingerprint: FP_PEND, label: "pend-box", state: "paired", host: "pend.lan:8000", deviceState: "key-pending" },
+      { fingerprint: FP_STUDIO, label: "plain-keyring", state: "paired", host: "plain.lan:8000" },
+      // hostile / unknown values never reach a label
+      { fingerprint: "sha256:Ev1l", label: "evil-box", state: "paired", host: "evil.lan:8000", deviceState: "<b>x</b>", tier: "root" },
+    ],
+    discovered: [{ name: "studio-mbp", host: "192.168.16.77", port: 8000, fingerprint: "sha256:Stud10Mbp0Stud10Mbp0Stud10Mbp0Stud10Mbp0Stud10", state: "not-paired" }],
+  };
+
+  beforeEach(() => {
+    identityMock.reset();
+    vi.mocked(listKnownServers).mockResolvedValue([] as never);
+    (globalThis as any).fetch = vi.fn((url: string) =>
+      String(url).includes("localhost") ? Promise.reject(new TypeError("refused")) : Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response),
+    );
+  });
+  afterEach(() => {
+    identityMock.reset();
+    vi.mocked(listKnownServers).mockResolvedValue([{ host: "192.168.16.204", port: 8000, label: "home-imac" }] as never);
+  });
+
+  it("device state refines the keyring base state; no answer yet reads plain Paired; lost credential reads Needs pairing", async () => {
+    (window as any).piDashboard = { openServerWindow, listServers: vi.fn(async () => BRIDGE) };
+    await openMenu();
+    await waitFor(() => expect(rowOf("home-imac")).toBeTruthy());
+    expect(pairedOf("home-imac")).toBe("Paired · Operate");
+    expect(pairedOf("old-nas")).toBe("Access expired");
+    expect(pairedOf("lab-server")).toBe("Needs pairing");
+    expect(pairedOf("pend-box")).toBe("Paired · key pending");
+    expect(pairedOf("plain-keyring")).toBe("Paired");
+    expect(pairedOf("evil-box")).toBe("Paired");
+    expect(pairedOf("studio-mbp")).toBe("Not paired");
+    expect(pairedOf("localhost")).toBe("This dashboard");
+  });
+
+  it("the sanitised bridge state carries deviceState + tier only when they are known values", async () => {
+    (window as any).piDashboard = { listServers: vi.fn(async () => BRIDGE) };
+    const state = await getListServers()!();
+    expect(state!.paired[0]).toMatchObject({ deviceState: "paired", tier: "operate" });
+    expect(state!.paired[2]).not.toHaveProperty("deviceState");
+    expect(state!.paired[5]).not.toHaveProperty("deviceState");
+    expect(state!.paired[5]).not.toHaveProperty("tier");
+  });
+
+  it("no source under packages/client/src still carries the old tab wording", () => {
+    const needle = ["Unknown in", "this tab"].join(" ");
+    const root = join(__dirname, "..", "..");
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        if (name === "node_modules") continue;
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.(tsx?|json|md)$/.test(name) && readFileSync(full, "utf8").includes(needle)) hits.push(full);
+      }
+    };
+    walk(root);
+    expect(hits).toEqual([]);
   });
 });

@@ -38,3 +38,9 @@ Body reads open through `openStateChecked`/`readFileStateChecked` (post-open dev
 Containment sites branch on `containmentAllows(decision, resolved)`; the raw pre-check uses `decidePassive(..., {allowGrant:false})`. See change: codeql-file-containment-barrier.
 
 Post-open credential recheck at every content site: digest + md-read + eml + eml-attachment + rendered-pdf (checked open right before converter) map `DashboardStateRefused` → 403 `path outside working directory`; raw/render/sheet same; raw open-time refusals reset media headers (`openRefusal`) so JSON body is not a 500. See change: close-security-map-high-findings (D1).
+
+Gates (`gateFilePath`/`gateReadPath`/`gateOfficeFile`) return `real`; every content open, office conversion, EML read and system-open uses it; binding failure → site's 403. See change: close-local-listener-and-egress-gaps.
+
+`POST /api/file/resolve-mention` data: `{resolved,kind}` (contained+exists) | `{resolved,kind,outside:true}` (containment failed, never statted, existence-independent; cwd gate still first → 403 for non-admitted cwd) | `{resolved:null}` (contained-missing / granted-missing). See change: fix-file-link-editor-routing.
+
+`POST /api/file/write` outside-cwd text doc (dir scope only, `isTextDocWriteTarget`): `prepareMdWrite(body, admission, {request,reply})` → `evaluateContainment(..,{site:"file-routes:write",action:"write",hold})` BEFORE any stat; only a grant-admitted (`viaGrant`) decision proceeds; refusal = `403 {error:"path outside working directory — write not granted", ...remedy}`. Read grant / checkout-root never admit. Global scope + Mermaid + non-text + dashboard-state unchanged (plain 403, no prompt). `performAtomicMdWrite(..,gatedReal)` re-binds: realpath ≠ gated real → 409, nothing written. See change: fix-file-link-editor-routing.

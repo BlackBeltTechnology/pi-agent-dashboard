@@ -12,6 +12,7 @@ import {
   overlayRoles,
   parseRoleConfig,
   type RoleConfig,
+  resolveDefaultModel,
   splitRef,
 } from "../role-schema.js";
 
@@ -157,5 +158,34 @@ describe("cross-surface agreement — effective schema (F1)", () => {
     }
     expect(axis).not.toContain("vision");
     expect(overlay).not.toHaveProperty("vision");
+  });
+});
+
+// See change: default-model-follows-role (test-plan #E1).
+describe("resolveDefaultModel (E1)", () => {
+  const roles = cfg({ roles: { planning: "anthropic/claude-sonnet-5-5:high", coding: "claude-haiku-5-5" } });
+
+  it("resolves a role ref to provider/id + the role level", () => {
+    expect(resolveDefaultModel("@planning", roles)).toEqual({
+      kind: "role",
+      role: "planning",
+      provider: "anthropic",
+      id: "claude-sonnet-5-5",
+      level: "high",
+    });
+  });
+
+  it("a ref suffix outranks the role level", () => {
+    expect(resolveDefaultModel("@planning:medium", roles)).toMatchObject({ kind: "role", level: "medium" });
+  });
+
+  it.each(["@ghost", "@validate", "@coding"])("%s is unresolved (unknown / unassigned / no provider)", (v) => {
+    const r = resolveDefaultModel(v, roles);
+    expect(r.kind).toBe("unresolved");
+    if (r.kind === "unresolved") expect(r.role).toBe(v.slice(1));
+  });
+
+  it("returns a concrete value verbatim (no level strip)", () => {
+    expect(resolveDefaultModel("anthropic/x:high", roles)).toEqual({ kind: "concrete", value: "anthropic/x:high" });
   });
 });

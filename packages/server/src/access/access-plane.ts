@@ -31,6 +31,11 @@ interface PlaneGrantRequest {
   ancestors: readonly string[];
   /** Which session's denial produced the grant. */
   origin: string;
+  /**
+   * What the denial was refused for, taken from the SERVER-held pending entry (never from a browser
+   * field). `"write"` makes the filesystem plane record a write-mode grant; other planes ignore it.
+   */
+  action?: "read" | "write";
 }
 
 type PlaneGrantResult =
@@ -175,6 +180,7 @@ export interface SettledVerdict {
   deniedSubject: string;
   ancestors: readonly string[];
   origin: string;
+  action?: "read" | "write";
 }
 
 export type PersistOutcome = { persisted: false } | ({ persisted: true } & PlaneGrantResult);
@@ -191,6 +197,7 @@ export async function persistVerdict(plane: AccessPlane, v: SettledVerdict): Pro
     deniedSubject: v.deniedSubject,
     ancestors: v.ancestors,
     origin: v.origin,
+    ...(v.action === "write" ? { action: "write" as const } : {}),
   });
   return { persisted: true, ...result };
 }

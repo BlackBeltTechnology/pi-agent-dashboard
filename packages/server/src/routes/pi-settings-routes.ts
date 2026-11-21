@@ -50,6 +50,7 @@ import {
   readPiSettings,
   writePiSettingsRaw,
 } from "../pi-agent-settings.js";
+import { notePiMirrorWrite } from "../pi-default-remirror.js";
 import { createThemeLister, type ScanThemes } from "../pi-settings-themes.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -223,6 +224,7 @@ export function registerPiSettingsRoutes(
       return { success: false, error: mirror.error ?? "io" };
     }
     logWrite("sync-defaults", "ok");
+    notePiMirrorWrite(); // See change: default-model-follows-role (D4).
     const s = readPiSettings(fsDeps);
     return {
       success: true,

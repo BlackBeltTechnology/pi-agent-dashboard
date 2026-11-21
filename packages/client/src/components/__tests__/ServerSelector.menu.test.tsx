@@ -252,7 +252,7 @@ describe("ServerSelector menu button", () => {
 
       const callsBefore = fetchMock.mock.calls.length;
       fireEvent.keyDown(next, { key: "Enter" });
-      expect(openSpy).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(1)); // the link is built asynchronously (companion fragment, if any)
       expect(openSpy).toHaveBeenCalledWith("http://192.168.16.77:8000/pair?request", "_blank", "noopener,noreferrer");
       expect(fetchMock.mock.calls.length).toBe(callsBefore); // no challenge, no request precedes the navigation
       expect(onSwitch).not.toHaveBeenCalled();

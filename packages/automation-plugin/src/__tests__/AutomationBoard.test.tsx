@@ -110,6 +110,23 @@ describe("AutomationBoard", () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  // test-plan #U1: the board owns its vertical scroll on both branches and
+  // keeps Back in a sticky header. See change: fix-automation-board-scroll.
+  it("both board branches are bounded vertical scrollers; Back sits in a sticky header", async () => {
+    const scrollTokens = ["flex-1", "min-h-0", "overflow-y-auto"];
+    const valid = renderBoard({ params, onBack: vi.fn() });
+    const root = await waitFor(() => valid.getByTestId("automation-board"));
+    for (const tok of scrollTokens) expect(root.classList).toContain(tok);
+    const header = valid.getByTestId("automation-board-back").closest(".sticky");
+    expect(header).not.toBeNull();
+    expect(header?.classList).toContain("top-0");
+    cleanup();
+
+    const invalid = renderBoard({ params: { encodedCwd: "!!!not-base64!!!" }, cwd: undefined });
+    await waitFor(() => expect(invalid.getByTestId("automation-board-invalid")).toBeTruthy());
+    for (const tok of scrollTokens) expect(invalid.getByTestId("automation-board").classList).toContain(tok);
+  });
+
   it("renders definition cards with trigger summary + enabled state", async () => {
     const { getByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());

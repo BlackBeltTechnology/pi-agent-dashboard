@@ -78,7 +78,7 @@ describe("flows-plugin bridge: run channel declaration (E4)", () => {
   it("declares the persisted entry type, equal to the manifest replayEntryTypes", () => {
     const pkg = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, "../../../package.json"), "utf8"));
     expect(FLOW_RUN_DECLARATION.replayEntryTypes).toEqual(pkg["pi-dashboard-plugin"].replayEntryTypes);
-    expect([...FLOW_REPLAY_ENTRY_TYPES]).toEqual(["flow-event"]);
+    expect([...FLOW_REPLAY_ENTRY_TYPES]).toEqual(["flow-event", "flow-run-close"]);
   });
 });
 
@@ -122,5 +122,52 @@ describe("flows-plugin bridge: commands resend request (E8)", () => {
     pi.events.emit("flow:complete", { flowName: "r" });
     expect(pi.emitted.filter((e) => e.channel === COMMANDS_CHANGED_CHANNEL)).toHaveLength(2);
     expect(pi.emitted.some((e) => e.channel === "commands_list" || e.channel === "flow:list")).toBe(false);
+  });
+});
+
+/** T7: a dismissal with a runId is persisted as its own `flow-run-close` entry.
+ *  See change: persist-flow-run-close (D1). */
+describe("flows-plugin bridge: persists run dismissals (T7)", () => {
+  function piWithAppend(appendEntry: (type: string, data: unknown) => void) {
+    return Object.assign(fakePi(), { appendEntry });
+  }
+
+  it("appends one flow-run-close record for a dismiss with runId", () => {
+    const appended: Array<[string, unknown]> = [];
+    const pi = piWithAppend((type, data) => appended.push([type, data]));
+    activate(pi);
+    pi.events.emit("flow:summary-dismissed", { runId: "r1" });
+    expect(appended).toHaveLength(1);
+    const [type, rec] = appended[0] as [string, { seq: unknown; eventType: unknown; data: unknown }];
+    expect(type).toBe("flow-run-close");
+    expect(typeof rec.seq).toBe("number");
+    expect(rec.eventType).toBe("flow_summary_dismissed");
+    expect(rec.data).toEqual({ runId: "r1" });
+  });
+
+  it.each([[{}], [undefined], [{ runId: "" }], [{ runId: 5 }]])("persists nothing for %j", (payload) => {
+    const appended: unknown[] = [];
+    const pi = piWithAppend((...a) => appended.push(a));
+    activate(pi);
+    pi.events.emit("flow:summary-dismissed", payload);
+    expect(appended).toEqual([]);
+  });
+
+  it("swallows an appendEntry failure; the live forward still happens", () => {
+    const pi = piWithAppend(() => {
+      throw new Error("disk full");
+    });
+    const sent: string[] = [];
+    const registry = new PluginForwardRegistry(pi.events, {
+      send: (eventType) => sent.push(eventType),
+      isSessionReady: () => true,
+      isActive: () => true,
+      isConnected: () => true,
+      isCoreChannel: () => false,
+    });
+    registry.attach();
+    activate(pi);
+    expect(() => pi.events.emit("flow:summary-dismissed", { runId: "r1" })).not.toThrow();
+    expect(sent).toContain("flow_summary_dismissed");
   });
 });

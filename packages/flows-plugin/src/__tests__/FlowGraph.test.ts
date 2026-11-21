@@ -8,7 +8,9 @@ import { cleanup, render } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { computeLayout, FlowGraph, type FlowGraphStep, flowStateToGraphSteps, mapStepType } from "../client/FlowGraph.js";
+import { deriveFlowEdges, type FlowEdgeStep } from "../client/flow-edges.js";
 import type { FlowAgentState, FlowState } from "../types.js";
+import { CC10, IN_SEGMENT_ON_ERROR, NTI, SD4, UPD } from "./engine-order-fixtures.js";
 
 const registry = createUiPrimitiveRegistry();
 registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.zoomControls, ((() => null) as never));
@@ -157,10 +159,13 @@ describe("computeLayout", () => {
   });
 
   it("collapses terminal on_error handlers into a single sink node", () => {
+    // `notify` is error-only: the fork loop `f` never falls through into it.
+    // See change: fix-flow-graph-engine-order (error-only sink rule).
     const steps: FlowGraphStep[] = [
-      { id: "a", label: "a", status: "complete", blockedBy: [], onError: "notify" },
-      { id: "b", label: "b", status: "running", blockedBy: ["a"], onError: "notify" },
-      { id: "notify", label: "notify", status: "pending", blockedBy: [] },
+      { id: "a", label: "a", status: "complete", blockedBy: [], type: "code", onError: "notify" },
+      { id: "b", label: "b", status: "running", blockedBy: [], type: "code", onError: "notify" },
+      { id: "f", label: "f", status: "pending", blockedBy: [], type: "fork", branches: { again: "a" } },
+      { id: "notify", label: "notify", status: "pending", blockedBy: [], type: "code" },
     ];
     const result = computeLayout(steps);
     expect(result.errorSink).toBeTruthy();
@@ -171,21 +176,25 @@ describe("computeLayout", () => {
     expect(result.edges.filter(e => e.isError).map(e => e.source).sort()).toEqual(["a", "b"]);
   });
 
-  it("removes error routes from layout when showErrorRoutes is false (zero footprint)", () => {
+  it("removes error routes and error-only nodes from layout when showErrorRoutes is false (zero footprint)", () => {
+    // Baseline = the same flow with the error-only node and its route removed
+    // (the layout input must hold no error edges / error-only nodes).
     const withErr: FlowGraphStep[] = [
-      { id: "a", label: "a", status: "complete", blockedBy: [], onError: "notify" },
-      { id: "b", label: "b", status: "running", blockedBy: ["a"] },
-      { id: "notify", label: "notify", status: "pending", blockedBy: [] },
+      { id: "a", label: "a", status: "complete", blockedBy: [], type: "code", onError: "notify" },
+      { id: "f", label: "f", status: "running", blockedBy: [], type: "fork", branches: { again: "a" } },
+      { id: "notify", label: "notify", status: "pending", blockedBy: [], type: "code" },
     ];
     const baseline: FlowGraphStep[] = [
-      { id: "a", label: "a", status: "complete", blockedBy: [] },
-      { id: "b", label: "b", status: "running", blockedBy: ["a"] },
+      { id: "a", label: "a", status: "complete", blockedBy: [], type: "code" },
+      { id: "f", label: "f", status: "running", blockedBy: [], type: "fork", branches: { again: "a" } },
     ];
     const off = computeLayout(withErr, { showErrorRoutes: false });
     const base = computeLayout(baseline);
     expect(off.errorSink).toBeUndefined();
     expect(off.edges.some(e => e.isError)).toBe(false);
     expect(off.nodes.some(n => n.id === "notify")).toBe(false);
+    // a success loop (a ⇄ f) is never error-only
+    expect(off.nodes.map(n => n.id).sort()).toEqual(["a", "f"]);
     expect(off.height).toBe(base.height);
   });
 
@@ -398,5 +407,140 @@ describe("graph stays minimal (E31)", () => {
     expect(text).not.toContain("RESULT-XYZ");
     expect(text).not.toContain("bug found");
     expect(c.querySelector('[data-node*="flow-ref"]')).toBeNull();
+  });
+});
+
+// ── Engine-order layout. See change: fix-flow-graph-engine-order. ──
+
+const asGraph = (steps: FlowEdgeStep[]): FlowGraphStep[] =>
+  steps.map((s) => ({
+    id: s.id,
+    label: s.id,
+    status: "pending",
+    blockedBy: s.blockedBy,
+    kind: s.type,
+    type: mapStepType(s.type),
+    branches: s.branches,
+    onError: s.onError,
+    onComplete: s.onComplete,
+  }));
+const nodeIds = (r: ReturnType<typeof computeLayout>) => r.nodes.map((n) => n.id);
+const edgesOn = (r: ReturnType<typeof computeLayout>, from: string, to: string) =>
+  r.edges.filter((e) => e.source === from && e.target === to);
+
+describe("computeLayout — engine order + error-only sink", () => {
+  it("E15: a terminal target on the success path stays a normal node (SD4)", () => {
+    for (const showErrorRoutes of [false, true]) {
+      const r = computeLayout(asGraph(SD4), { showErrorRoutes });
+      expect(nodeIds(r)).toContain("report");
+      expect(edgesOn(r, "start", "report").length).toBeGreaterThan(0);
+      expect(r.errorSink?.handlers ?? []).not.toContain("report");
+    }
+  });
+
+  it("E16: a terminal handler and its error-only tail pool into the sink", () => {
+    // `z` is a fork loop (never falls through), so `cleanup` is reached only via
+    // on_error and `notify` only via `cleanup`.
+    const steps = asGraph([
+      { id: "a", type: "code", blockedBy: [], onError: "cleanup" },
+      { id: "z", type: "fork", blockedBy: [], branches: { again: "a" } },
+      { id: "cleanup", type: "code", blockedBy: [] },
+      { id: "notify", type: "code", blockedBy: [] },
+    ]);
+    const r = computeLayout(steps, { showErrorRoutes: true });
+    expect(nodeIds(r)).not.toContain("cleanup");
+    expect(nodeIds(r)).not.toContain("notify");
+    expect(r.errorSink?.handlers).toEqual(["cleanup", "notify"]);
+  });
+
+  it("E17: a root is never error-only (NTI)", () => {
+    expect(nodeIds(computeLayout(asGraph(NTI), { showErrorRoutes: false }))).toContain("read");
+  });
+
+  it("E18: a handler that is also a branch target stays visible (UPD)", () => {
+    const r = computeLayout(asGraph(UPD), { showErrorRoutes: false });
+    expect(nodeIds(r)).toContain("resolve");
+    expect(edgesOn(r, "rebase", "resolve")).toHaveLength(1);
+    expect(r.errorSink?.handlers ?? []).not.toContain("resolve");
+  });
+
+  it("E19: an in-segment on_error target stays visible", () => {
+    const r = computeLayout(asGraph(IN_SEGMENT_ON_ERROR), { showErrorRoutes: false });
+    expect(nodeIds(r)).toContain("b");
+    expect(edgesOn(r, "a", "b")).toHaveLength(1);
+  });
+
+  it("E20: a fall-through and an on_error route on one pair are both laid out (UPD)", () => {
+    const on = computeLayout(asGraph(UPD), { showErrorRoutes: true });
+    const lr = edgesOn(on, "launch", "report");
+    expect(lr).toHaveLength(2);
+    for (const e of lr) expect(e.points.length).toBeGreaterThanOrEqual(2);
+    expect(lr.filter((e) => e.isError)).toHaveLength(1);
+    expect(on.edges).toHaveLength(deriveFlowEdges(UPD).length);
+
+    const off = computeLayout(asGraph(UPD), { showErrorRoutes: false });
+    expect(edgesOn(off, "launch", "report")).toEqual([expect.objectContaining({ kind: "implicit", isError: false })]);
+  });
+
+  it("E21: a hidden error layer costs no layout (CC10)", () => {
+    const r = computeLayout(asGraph(CC10), { showErrorRoutes: false });
+    expect(r.edges.some((e) => e.isError)).toBe(false);
+    expect(nodeIds(r)).not.toContain("fail");
+    expect(r.edges.some((e) => e.source === "fail")).toBe(false);
+  });
+
+  it("E22: a mid-flow handler reached by fall-through stays visible", () => {
+    const r = computeLayout(
+      asGraph([
+        { id: "a", type: "code", blockedBy: [], onError: "h" },
+        { id: "b", type: "code", blockedBy: [] },
+        { id: "h", type: "code", blockedBy: [] },
+        { id: "z", type: "code", blockedBy: [] },
+      ]),
+      { showErrorRoutes: false },
+    );
+    expect(nodeIds(r)).toContain("h");
+    expect(edgesOn(r, "b", "h")).toHaveLength(1);
+  });
+
+  it.each([
+    ["agent-decision", 1],
+    ["fork", 0],
+  ])("E23: the live path keeps the raw kind (%s loop → %i fall-through edges)", (stepType, count) => {
+    const state: FlowState = {
+      flowName: "f",
+      task: "t",
+      status: "running",
+      autonomousMode: false,
+      agents: new Map(),
+      dagSteps: [
+        { id: "a", stepType: "agent", agent: "a", blockedBy: [] },
+        { id: "d", stepType, agent: "d", blockedBy: [], branches: { retry: "a" } },
+        { id: "x", stepType: "code", blockedBy: [] },
+      ],
+    };
+    const r = computeLayout(flowStateToGraphSteps(state));
+    expect(edgesOn(r, "d", "x")).toHaveLength(count);
+  });
+
+  it("X2: empty and single-step flows", () => {
+    expect(deriveFlowEdges([])).toEqual([]);
+    const empty = computeLayout([]);
+    expect(empty.edges).toEqual([]);
+    const single = computeLayout(asGraph([{ id: "a", type: "code", blockedBy: [] }]));
+    expect(single.nodes).toHaveLength(1);
+    expect(single.edges).toHaveLength(0);
+    expect(single.errorSink).toBeUndefined();
+  });
+
+  it("renders a data-edge attribute per edge", () => {
+    const steps = asGraph([
+      { id: "a", type: "code", blockedBy: [] },
+      { id: "b", type: "code", blockedBy: [] },
+    ]);
+    const { container } = render(
+      createElement(UiPrimitiveProvider, { value: registry, children: createElement(FlowGraph, { steps }) }),
+    );
+    expect(container.querySelector('[data-edge="a>b"]')).not.toBeNull();
   });
 });

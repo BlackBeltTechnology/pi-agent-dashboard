@@ -53,6 +53,11 @@ export interface FlowGraphStep {
   statusWord?: string;
   blockedBy: string[];
   type?: FlowStepType;
+  /** RAW engine step type (`agent` | `fork` | `agent-decision` | `code` |
+   *  `code-decision`) fed to `deriveFlowEdges`. `type` is the display mapping,
+   *  which merges `agent-decision` into `fork`; fall-through needs them apart.
+   *  Absent → falls back to `type`. See change: fix-flow-graph-engine-order. */
+  kind?: string;
   /** Decision branch label → target step id (fork / agent-decision / code-decision). */
   branches?: Record<string, string>;
   /** Success route target (`on_complete`). Present on the static preview path and,
@@ -107,6 +112,7 @@ export function flowStateToGraphSteps(flowState: FlowState): FlowGraphStep[] {
       ...(statusWord ? { statusWord } : {}),
       blockedBy: step.blockedBy.filter(dep => allStepIds.has(dep)),
       type: mapStepType(step.stepType),
+      ...(step.stepType ? { kind: step.stepType } : {}),
       branches: step.branches,
       // Forward/error routing (present once pi-flows emits it on flow:flow-started)
       // so on_complete-wired flows draw `route` edges live. See change:
@@ -233,7 +239,7 @@ export function computeLayout(
   const flowEdges = deriveFlowEdges(
     steps.map((s): FlowEdgeStep => ({
       id: s.id,
-      type: s.type ?? "agent",
+      type: s.kind ?? s.type ?? "agent",
       blockedBy: s.blockedBy,
       branches: s.branches,
       onComplete: s.onComplete,
@@ -242,30 +248,43 @@ export function computeLayout(
   );
 
   const isOnError = (e: FlowEdge) => e.kind === "route" && e.label === "on_error";
-  const onErrorEdges = flowEdges.filter(isOnError);
-  const terminalHandlerIds = new Set(
-    onErrorEdges.filter(e => e.routeTopology === "terminal").map(e => e.to),
-  );
 
-  // A node reached ONLY via on_error routes is an error-only handler (returning
-  // or terminal). Roots (no incoming edge at all) are NOT error-only.
-  const incoming = new Map<string, FlowEdge[]>();
+  // Error-only = reachable only through on_error routes: ≥1 incoming edge, and
+  // not reached by non-error edges from a root (or the first declared step, the
+  // engine's entry) — every incoming edge is on_error or leaves another
+  // error-only node. Roots are never error-only. Only error-only nodes are
+  // pooled into the sink or hidden; any success-reached node stays normal.
+  const hasIncoming = new Set(flowEdges.map(e => e.to));
+  const successReached = new Set<string>();
+  const frontier = steps.filter((s, i) => i === 0 || !hasIncoming.has(s.id)).map(s => s.id);
+  while (frontier.length) {
+    const n = frontier.pop() as string;
+    if (successReached.has(n)) continue;
+    successReached.add(n);
+    for (const e of flowEdges) if (e.from === n && !isOnError(e)) frontier.push(e.to);
+  }
+  const errorOnly = new Set(steps.map(s => s.id).filter(id => !successReached.has(id)));
+
+  // Terminal error-only handlers + their error-only tail collapse into ONE sink
+  // (handler-then-tail order). Terminal routes to any other target are drawn as
+  // error edges to the real node.
+  const pooled: string[] = [];
+  const pool = (id: string) => { if (!pooled.includes(id)) pooled.push(id); };
   for (const e of flowEdges) {
-    const list = incoming.get(e.to);
-    if (list) list.push(e); else incoming.set(e.to, [e]);
+    if (!isOnError(e) || e.routeTopology !== "terminal" || !errorOnly.has(e.to) || pooled.includes(e.to)) continue;
+    const stack = [e.to];
+    while (stack.length) {
+      const n = stack.shift() as string;
+      if (pooled.includes(n)) continue;
+      pool(n);
+      for (const out of flowEdges) if (out.from === n && errorOnly.has(out.to)) stack.push(out.to);
+    }
   }
-  const isErrorOnly = (id: string) => {
-    const inc = incoming.get(id) ?? [];
-    return inc.length > 0 && inc.every(isOnError);
-  };
+  const terminalHandlerIds = new Set(pooled);
 
-  // Terminal handlers collapse into ONE sink (excluded as real nodes). When the
-  // error layer is hidden, every error-only node leaves too — graph height then
-  // matches a flow with no on_error declared (zero footprint).
-  const excluded = new Set<string>(terminalHandlerIds);
-  if (!showErrorRoutes) {
-    for (const s of steps) if (isErrorOnly(s.id)) excluded.add(s.id);
-  }
+  // Shown: pooled nodes leave the layout (the sink stands for them). Hidden:
+  // every error-only node leaves, with on_error edges and edges leaving them.
+  const excluded = new Set<string>(showErrorRoutes ? pooled : errorOnly);
   const laidOutSteps = steps.filter(s => !excluded.has(s.id));
   const laidOutIds = new Set(laidOutSteps.map(s => s.id));
 
@@ -281,7 +300,9 @@ export function computeLayout(
   // (dummy nodes) so a polyline goes AROUND nodes instead of through them — this
   // is what eliminates the old hand-routed legs that sliced across node boxes.
   // Terminal on_error edges are redirected to the collapsed sink node.
-  const g = new graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+  // Multigraph: a fall-through and an on_error route on the same pair are both
+  // routed. Edges are named by kind+label and read back by name.
+  const g = new graphlib.Graph({ multigraph: true }).setDefaultEdgeLabel(() => ({}));
   // Flatter layout: tighter vertical node gap + small edgesep packs the graph
   // (edges may overlap slightly — acceptable) so it reads more horizontal.
   g.setGraph({ rankdir: "LR", nodesep: 12, edgesep: 8, ranksep: 46, marginx: 16, marginy: 16, acyclicer: "greedy" });
@@ -290,20 +311,21 @@ export function computeLayout(
   if (haveSink) g.setNode(SINK_ID, { width: SINK_W, height: NODE_HEIGHT });
 
   interface EdgeSpec {
-    from: string; to: string; dTo: string; label?: string;
+    from: string; to: string; dTo: string; name: string; label?: string;
     kind: FlowEdgeKind; isError: boolean; isReturning: boolean; isLoop: boolean;
   }
   const specs: EdgeSpec[] = [];
   for (const e of flowEdges) {
     const err = isOnError(e);
     if (err && !showErrorRoutes) continue;
-    const terminal = err && e.routeTopology === "terminal";
-    const dTo = terminal ? SINK_ID : e.to;
+    const toSink = err && haveSink && terminalHandlerIds.has(e.to);
+    const dTo = toSink ? SINK_ID : e.to;
     if (!laidOutIds.has(e.from)) continue;
     if (dTo !== SINK_ID && !laidOutIds.has(dTo)) continue;
-    g.setEdge(e.from, dTo, e.label ? { width: e.label.length * 6 + 6, height: 12 } : {});
+    const name = `${e.kind}:${e.label ?? ""}`;
+    g.setEdge(e.from, dTo, e.label ? { width: e.label.length * 6 + 6, height: 12 } : {}, name);
     specs.push({
-      from: e.from, to: e.to, dTo, label: e.label, kind: e.kind,
+      from: e.from, to: e.to, dTo, name, label: e.label, kind: e.kind,
       isError: err, isReturning: err && e.routeTopology === "returning", isLoop: !!e.backward,
     });
   }
@@ -328,7 +350,7 @@ export function computeLayout(
   // Every edge rendered from dagre's routed waypoints (multi-segment, node-aware).
   const edges: PositionedEdge[] = [];
   for (const s of specs) {
-    const ed = g.edge(s.from, s.dTo);
+    const ed = g.edge(s.from, s.dTo, s.name);
     if (!ed?.points) continue;
     edges.push({
       source: s.from,
@@ -352,7 +374,7 @@ export function computeLayout(
       y: sn.y - NODE_HEIGHT / 2,
       width: SINK_W,
       height: NODE_HEIGHT,
-      handlers: Array.from(terminalHandlerIds),
+      handlers: pooled,
     };
   }
 
@@ -562,7 +584,11 @@ export function FlowGraph({ steps, fit = false, onExpand, selectedStepId, onSele
               : edge.label === "on_complete" ? undefined : edge.label;
             const labelColor = edge.isError ? "#ef4444" : edge.isLoop ? "#a855f7" : "#888";
             return (
-              <g key={`edge-${i}`}>
+              <g
+                key={`edge-${i}`}
+                data-edge={`${edge.source}>${edge.target}`}
+                data-edge-kind={edge.isError ? "on_error" : edge.kind}
+              >
                 <path
                   d={buildEdgePath(edge.points)}
                   fill="none"

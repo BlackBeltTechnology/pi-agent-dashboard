@@ -9,7 +9,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isWritableMdTarget } from "../writable-md-target.js";
+import { isTextDocWriteTarget, isWritableMdTarget } from "../writable-md-target.js";
 
 let root: string; // realpath'd tmp root
 let cwd: string; // a project cwd
@@ -161,5 +161,54 @@ describe("isWritableMdTarget — pi-agent credential siblings", () => {
     } finally {
       process.env.HOME = prevHome;
     }
+  });
+});
+
+// fix-file-link-editor-routing 3c (test-plan #S26): the extension/state half, used by the outside-cwd write gate.
+describe("isTextDocWriteTarget — the extension + dashboard-state half", () => {
+  it("passes the text-doc kinds (.md .mdx .adoc .asciidoc .csv), regardless of the cwd", async () => {
+    await fs.writeFile(path.join(root, "sibling", "t.mdx"), "x");
+    await fs.writeFile(path.join(root, "sibling", "d.csv"), "a,b");
+    for (const f of [path.join(root, "sibling", "evil.md"), path.join(root, "sibling", "evil.adoc"), path.join(root, "sibling", "t.mdx"), path.join(root, "sibling", "d.csv"), path.join(cwd, "guide.asciidoc")]) {
+      expect(await isTextDocWriteTarget(f), f).toBe(true);
+    }
+  });
+
+  it("rejects Mermaid sources (directory-only: they never reach the grant gate)", async () => {
+    for (const f of [path.join(cwd, "flow.mmd"), path.join(cwd, "flow.mermaid"), path.join(root, "sibling", "x.mmd")]) {
+      expect(await isTextDocWriteTarget(f), f).toBe(false);
+    }
+  });
+
+  it("rejects png, no extension, a double extension ending in a non-text kind, and a symlink to one", async () => {
+    await fs.writeFile(path.join(root, "sibling", "a.png"), "x");
+    await fs.writeFile(path.join(root, "sibling", "README"), "x");
+    await fs.writeFile(path.join(root, "sibling", "a.md.png"), "x");
+    await fs.symlink(path.join(root, "sibling", "a.png"), path.join(root, "sibling", "pic.md"));
+    for (const f of ["a.png", "README", "a.md.png", "pic.md"]) {
+      expect(await isTextDocWriteTarget(path.join(root, "sibling", f)), f).toBe(false);
+    }
+  });
+
+  it("rejects a relative path and a dashboard-state path (even a .md under it)", async () => {
+    expect(await isTextDocWriteTarget("sibling/evil.md")).toBe(false);
+    const prevHome = process.env.HOME;
+    process.env.HOME = home; // the state dir is derived from HOME
+    try {
+      const state = path.join(home, ".pi", "dashboard");
+      await fs.mkdir(path.join(state, "local"), { recursive: true });
+      await fs.writeFile(path.join(state, "local", "notes.md"), "x");
+      // The always-refused tier (`local/**`). The trust-gated tier needs a request caller in scope; the route-level
+      // test (file-write-endpoint.test.ts #S25) covers it.
+      expect(await isTextDocWriteTarget(path.join(state, "local", "notes.md"))).toBe(false);
+    } finally {
+      process.env.HOME = prevHome;
+    }
+  });
+
+  it("isWritableMdTarget's results are unchanged", async () => {
+    expect(await isWritableMdTarget(path.join(cwd, "AGENTS.md"), { cwd })).toBe(true);
+    expect(await isWritableMdTarget(path.join(root, "sibling", "evil.md"), { cwd })).toBe(false);
+    expect(await isWritableMdTarget(path.join(cwd, "flow.mmd"), { cwd })).toBe(true);
   });
 });

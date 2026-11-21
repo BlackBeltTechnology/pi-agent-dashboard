@@ -76,3 +76,45 @@ describe("isOutOfCwd", () => {
     expect(isOutOfCwd("/repo/src/a.ts", undefined)).toBe(true);
   });
 });
+
+// fix-file-link-editor-routing S12: `normalizeUnderCwd` boundary — a cwd-relative tab only for a true subtree.
+describe("normalizeUnderCwd — cwd boundary (S12)", () => {
+  const cwd = "/work/repo";
+
+  it("maps an in-cwd absolute path to its relative-posix tab path", () => {
+    expect(normalizeUnderCwd("/work/repo/a.md", cwd)).toBe("a.md");
+  });
+
+  it("does not collide on a shared prefix (`/work/repo2` is outside `/work/repo`)", () => {
+    expect(normalizeUnderCwd("/work/repo2/a.md", cwd)).toBe("/work/repo2/a.md");
+  });
+
+  it("maps the cwd itself to the empty tab path without crashing", () => {
+    expect(normalizeUnderCwd("/work/repo", cwd)).toBe("");
+  });
+});
+
+// fix-file-link-editor-routing S13 / G6: only the Windows drive LETTER compares case-insensitively.
+describe("normalizeUnderCwd — Windows drive links (S13)", () => {
+  const cwd = "C:/Work/repo";
+
+  it("a backslash link under the cwd → relative tab", () => {
+    expect(normalizeUnderCwd("C:\\Work\\repo\\a.md", cwd)).toBe("a.md");
+  });
+
+  it("another drive stays an absolute tab, verbatim", () => {
+    expect(normalizeUnderCwd("D:\\x\\y.md", cwd)).toBe("D:\\x\\y.md");
+  });
+
+  it("a lower-case drive letter still maps to the cwd-relative tab (no duplicate absolute tab)", () => {
+    expect(normalizeUnderCwd("c:/Work/repo/a.md", cwd)).toBe("a.md");
+  });
+
+  it("path-case differences beyond the drive letter stay absolute", () => {
+    expect(normalizeUnderCwd("C:/Work/Repo/a.md", cwd)).toBe("C:/Work/Repo/a.md");
+  });
+
+  it("a lower-case drive in the cwd matches an upper-case drive in the link", () => {
+    expect(normalizeUnderCwd("C:/Work/repo/a.md", "c:/Work/repo")).toBe("a.md");
+  });
+});

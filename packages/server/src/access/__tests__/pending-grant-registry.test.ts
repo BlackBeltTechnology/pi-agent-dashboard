@@ -424,3 +424,66 @@ describe("dialog owner: decided and charged against the requester that raises it
     expect(later.kind).toBe("prompt");
   });
 });
+
+// fix-file-link-editor-routing 3b: the registry key includes the ACTION (read | write),
+// so a read denial and a write denial for one directory never share an entry, a verdict,
+// or a post-settle backoff. test-plan #S34, #S35.
+describe("action-keyed entries (#S34, #S35)", () => {
+  const wr = (subject: string, over: Partial<DenialInput> = {}) => fs(subject, { action: "write", ...over });
+
+  it("S34: a write denial does not join a read entry; a second write coalesces into the first write", () => {
+    const r = reg.record(fs("/d"), OK, T0);
+    const w = reg.record(wr("/d", { channel: "sock-B" }), OK, T0);
+    expect(r.kind).toBe("prompt");
+    expect(w.kind).toBe("prompt");
+    const rEntry = (r as { entry: PendingGrant }).entry;
+    const wEntry = (w as { entry: PendingGrant }).entry;
+    expect(wEntry.promptId).not.toBe(rEntry.promptId);
+    expect(rEntry.action).toBe("read");
+    expect(wEntry.action).toBe("write");
+    expect(reg.size).toBe(2);
+
+    const w2 = reg.record(wr("/d", { channel: "sock-B" }), OK, T0);
+    expect(w2.kind).toBe("joined");
+    expect((w2 as { entry: PendingGrant }).entry.promptId).toBe(wEntry.promptId);
+    expect(reg.size).toBe(2); // one dialog per (plane, action, subject); at most 2 total
+    expect(GRANT_MAX_CONCURRENT_DIALOGS).toBe(2);
+  });
+
+  it("S34: an omitted action is a read denial", () => {
+    const a = reg.record(fs("/d"), OK, T0);
+    const b = reg.record(fs("/d", { action: "read" }), OK, T0);
+    expect(b.kind).toBe("joined");
+    expect((b as { entry: PendingGrant }).entry.promptId).toBe((a as { entry: PendingGrant }).entry.promptId);
+  });
+
+  it("S35: settling the read entry (backoff armed) does not swallow a write prompt, in either order", () => {
+    for (const first of ["read", "write"] as const) {
+      reg = new PendingGrantRegistry({ onTransition: () => {}, onExpire: () => {} });
+      const other = first === "read" ? "write" : "read";
+      const a = reg.record(fs("/d", { action: first, channel: "sock-A" }), OK, T0) as { entry: PendingGrant };
+      // Settle `first` deny: a 120 s post-settle backoff is armed for ITS key only.
+      expect(reg.settle(answer(a.entry, "deny"), T0 + 1).ok).toBe(true);
+      const again = reg.record(fs("/d", { action: first, channel: "sock-A" }), OK, T0 + 2);
+      expect(again.kind, `${first} re-raise is backed off`).toBe("recorded");
+      // The other action is not in backoff and prompts.
+      const b = reg.record(fs("/d", { action: other, channel: "sock-A" }), OK, T0 + 3);
+      expect(b.kind, `${other} after ${first}`).toBe("prompt");
+    }
+  });
+
+  it("S35: a verdict on one action never releases the other", () => {
+    const r = reg.record(fs("/d"), OK, T0) as { entry: PendingGrant };
+    const w = reg.record(wr("/d", { channel: "sock-B" }), OK, T0) as { entry: PendingGrant };
+    const settled = reg.settle(answer(r.entry, "allow-always"), T0 + 1);
+    expect(settled.ok && settled.entry.action).toBe("read");
+    expect(reg.get(w.entry.promptId)).toBeDefined();
+    expect(reg.size).toBe(1);
+  });
+
+  it("transitions name the action", () => {
+    reg.record(wr("/d"), OK, T0);
+    expect(transitions.find((t) => t.transition === "recorded")).toMatchObject({ action: "write" });
+    expect(formatTransition(transitions[0])).toContain("action=write");
+  });
+});
