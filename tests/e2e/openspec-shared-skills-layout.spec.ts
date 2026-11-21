@@ -153,6 +153,20 @@ async function spawnSessionIn(page: Page, dir: string): Promise<Locator> {
   throw new Error(`spawn in ${dir} never produced a session card (2 attempts)`);
 }
 
+/** Move a freshly-initialised dir from the legacy to the shared layout, observing
+ *  each poll-visible state so a later assertion can never be satisfied by the
+ *  READY left over from `initDir`: legacy removed → `skills missing`, shared
+ *  skill created → READY (no state pill). */
+async function relocateToSharedLayout(page: Page, card: Locator, dir: string): Promise<Locator> {
+  const pill = card.getByTestId("folder-openspec-state").first();
+  dsh(`rm -rf ${dir}/.pi`);
+  await expect(pill).toHaveText(/skills missing/i, { timeout: 30_000 });
+  dsh(`mkdir -p ${dir}/.agents/skills/openspec-explore`);
+  await expect(section(page, dir, "")).toBeVisible({ timeout: 30_000 });
+  await expect(pill).toHaveCount(0);
+  return pill;
+}
+
 test.describe.configure({ mode: "serial" });
 
 /** Open the dashboard, drop the poll interval to its 5s clamp (out-of-band
@@ -215,10 +229,8 @@ test.describe("openspec readiness — shared .agents/skills layout (#1165)", () 
     restore = await setup(page);
     const card = await pinAndExpand(page, dir);
     await initDir(page, dir);
-    dsh(`rm -rf ${dir}/.pi && mkdir -p ${dir}/.agents/skills/openspec-explore`);
-    // Section variant proves the poll broadcast this cwd's readiness before the card mounts.
-    await expect(section(page, dir, "")).toBeVisible({ timeout: 30_000 });
-    await expect(card.getByTestId("folder-openspec-state")).toHaveCount(0);
+    // Poll-observed READY under the shared layout before the card mounts.
+    await relocateToSharedLayout(page, card, dir);
 
     const sessionCard = await spawnSessionIn(page, dir);
 
@@ -235,10 +247,7 @@ test.describe("openspec readiness — shared .agents/skills layout (#1165)", () 
     restore = await setup(page);
     const card = await pinAndExpand(page, dir);
     await initDir(page, dir);
-    dsh(`rm -rf ${dir}/.pi && mkdir -p ${dir}/.agents/skills/openspec-explore`);
-    const pill = card.getByTestId("folder-openspec-state").first();
-    await expect(section(page, dir, "")).toBeVisible({ timeout: 30_000 });
-    await expect(pill).toHaveCount(0);
+    const pill = await relocateToSharedLayout(page, card, dir);
 
     dsh(`rm -rf ${dir}/.agents`);
 

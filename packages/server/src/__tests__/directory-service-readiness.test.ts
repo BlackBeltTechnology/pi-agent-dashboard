@@ -1140,9 +1140,10 @@ describe("DirectoryService — shared skills layout (fix-openspec-readiness-shar
     mkProject(a, { skills: true });
     mkProject(b, { sharedSkills: true });
     mkProject(c);
+    const svc = make(); // one service: afterEach stops its worker pool
     for (const [cwd, expected] of [[a, 1], [b, 2], [c, 2]] as const) {
       const { skillCalls } = spyStat();
-      await make().refreshOpenSpec(cwd);
+      await svc.refreshOpenSpec(cwd);
       expect(skillCalls().filter((p) => p.startsWith(cwd)).length).toBe(expected);
     }
   });
