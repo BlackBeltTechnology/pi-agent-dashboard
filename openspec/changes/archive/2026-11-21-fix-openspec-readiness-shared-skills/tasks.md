@@ -43,4 +43,4 @@
 
 - [x] 5.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`; grep summary (full suite hung on unrelated cli/socket/perf tests under load; scoped server openspec + directory-service + shared types: 41 files / 522 tests green)
 - [x] 5.2 (ran against the docker harness, `PI_E2E_SEED=1`, instead of restarting the local dashboard) run the L3 spec (`tests/e2e/openspec-shared-skills-layout.spec.ts`) against the restarted instance
-- [ ] 5.3 Run `review-code` before commit
+- [x] 5.3 Run `review-code` before commit
