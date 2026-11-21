@@ -3374,7 +3374,7 @@ The dashboard derives one per-directory readiness state (`OpenSpecData.readiness
 
 - `BROKEN` · `missing-changes-dir` — Repair on the folder card (confirm, then re-runs init).
 - `BROKEN` · `cli-failed` — fix the openspec CLI itself. Error text shown; no Repair — init would auto-clean files in a directory that may hold real proposals.
-- `STALE` · `missing-skills` — Update on the folder card. Runs `openspec update --tools pi`, writes `.pi/skills/openspec-*`.
+- `STALE` · `missing-skills` — Update on the folder card. Runs `openspec update --tools pi`, writes `.pi/skills/openspec-*`. Skill counts only if `<configRoot>/.pi/skills/openspec-explore/` OR `<configRoot>/.agents/skills/openspec-explore/` exists. Other `openspec-*` dirs (e.g. `openspec-propose/`) alone do not count.
 - `STALE` · `profile-stale` — Settings → OpenSpec Workflow Profile → Update.
 - `ABSENT` — Initialize on the folder card. Or dismiss (adds cwd to `openspec.optOutDirectories`), or set `openspec.offerInitialization: false` to hide the offer fleet-wide.
 - `OPTED_OUT` — cwd listed in `openspec.optOutDirectories`. Re-enable via folder `⋯` menu → Enable OpenSpec for this folder.

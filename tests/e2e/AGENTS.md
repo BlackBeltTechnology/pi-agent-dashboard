@@ -185,6 +185,7 @@ One row per file.
 | `openspec-init-affordances-folder.spec.ts` | → `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | → `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | → `openspec-locality-gate.spec.ts.AGENTS.md` |
+| `openspec-shared-skills-layout.spec.ts` | → `openspec-shared-skills-layout.spec.ts.AGENTS.md` |
 | `openspec-status-all.spec.ts` | → `openspec-status-all.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | → `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | → `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
