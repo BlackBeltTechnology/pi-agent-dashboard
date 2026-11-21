@@ -1425,10 +1425,13 @@ export interface OpenSpecData {
    */
   hasOpenspecDir?: boolean;
   /**
-   * Whether `<configRoot>/.pi/skills/openspec-explore/` exists — i.e. will
+   * Whether `<configRoot>/.pi/skills/openspec-explore/` OR
+   * `<configRoot>/.agents/skills/openspec-explore/` exists — i.e. will
    * `/skill:openspec-explore` resolve. Resolved at the cwd's config root
    * (main checkout for a worktree) because `.pi/skills/openspec-*` is
-   * gitignored and never checks out into a worktree.
+   * gitignored and never checks out into a worktree; the shared
+   * `.agents/skills/` layout is committed but is still answered at the config
+   * root only (no ancestor walk).
    *
    * Optional for backwards compatibility — absence means "unknown, infer
    * nothing". See change: add-openspec-init-affordances.

@@ -274,6 +274,29 @@ describe("SettingsSectionByPluginSlot", () => {
     spy.mockRestore();
   });
 
+  // Only the overlay route renders an error panel; every other slot stays silent.
+  // See change: fix-ui-status-indicators (D3, test-plan #S33).
+  it("a throwing claim in a non-overlay slot renders nothing (no error panel)", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "boom",
+      priority: 100,
+      slot: "settings-section",
+      Component: () => {
+        throw new Error("plugin exploded");
+      },
+    });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = render(
+      <PluginContextProvider registry={registry}>
+        <SettingsSectionByPluginSlot pluginId="boom" />
+      </PluginContextProvider>,
+    );
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByTestId("overlay-claim-error")).toBeNull();
+    spy.mockRestore();
+  });
+
   it("renders nothing for a plugin with no contribution", () => {
     const registry = createSlotRegistry();
     const { container } = render(

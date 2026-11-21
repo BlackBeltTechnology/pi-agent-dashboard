@@ -35,6 +35,7 @@ TESTS=(
   "36-access-grant-dialog.sh"   # kill switch, env YOLO without a browser, ~/.SSH folding, case-sensitive volume (#X12, #X11, #E18, #E19). Hermetic: own temp $HOME + port. See change: add-access-grant-dialog.
   "39-cli-open.sh"              # `pi-dashboard open --print` mints the one-time local-proof URL; server down -> exit 1 (#X15). See change: harden-trust-and-credential-boundaries.
   "52-cli-api-strict-default.sh" # a bare curl to an operate route is refused (403 local_proof_required); `pi-dashboard api POST /api/restart` is admitted and restarts the server (#X7). See change: close-container-loopback-impersonation.
+  "53-bridge-session-replacement.sh" # RPC `new_session` re-registers a NEW session id with the dashboard and unregisters the old one (#1175); SKIP when pi absent. See change: fix-session-bridge-registration.
   "41-bridge-opt-out.sh"        # PI_DASHBOARD_BRIDGE / bridge.enabled opt-out inert; dashboard spawns still attach (#X2-X5). Skips when pi absent; X5 when tmux absent. See change: add-bridge-env-opt-out.
   "42-context-mode-settings.sh" # context-mode bridge-internal env scrubbed (headless + tmux), stale projected value dropped, operator export wins (#X8-X12). Skips when pi absent / Windows; MCP-child + store checks need context-mode. See change: add-context-mode-settings-plugin.
   "43-gateway-squatter-proof.sh" # a marked dashboard-spawned session refuses a loopback port squatter (proof only, no frame), logs it off-channel, recovers when the dashboard returns (#X7). Skips off POSIX / without pi. See change: loopback-credential-proof.
@@ -47,7 +48,7 @@ TESTS=(
   "51-plugin-failing-server-entry-dist-only.sh" # a throwing server entry: row loaded:false + error, /api/health 200 before and after (#X15). See change: decouple-plugins-from-core.
   "56-custom-provider-startup-model.sh" # a custom-provider --model resolves at pi startup: reachable writes the cache, unreachable is bounded then 'not found' (#X3, #X4). Hermetic: own $HOME + /v1/models stub. Skips when pi/node absent. See change: register-custom-provider-models-at-activation.
   "55-keychain-linux.sh"        # real @napi-rs/keyring: Secret Service round trip + vault migrated + decodes after restart (#E91); no session bus -> keychain_unavailable, no keyutils entry, plaintext vault readable, write refused (#X13). Skips off Linux / without dbus-run-session, gnome-keyring-daemon, secret-tool. See change: encrypt-credentials-at-rest.
-  "58-sudo-askpass-fallback.sh" # real sudo (classic + sudo-rs) calls SUDO_ASKPASS without -A and without a tty; wrong pw => <=3 same-ppid retries; helper exit 1 => no retry; skips off Linux / without the qa-sudo user (#S78). See change: add-sudo-credential-prompt.
+  "59-sudo-askpass-fallback.sh" # real sudo (classic + sudo-rs) calls SUDO_ASKPASS without -A and without a tty; wrong pw => <=3 same-ppid retries; helper exit 1 => no retry; skips off Linux / without the qa-sudo user (#S78). See change: add-sudo-credential-prompt.
   # 25-gateway-remote-join-perf.sh, 26-gateway-promotion-soak.sh and 38-poll-cost.sh are OPT-IN:
   # 56-mock-site-tarball.sh is OPT-IN too (network npm install; installed-tarball mock site, #X9). See change: add-live-component-mock-site.
   # 53-docker-credential-key.sh is OPT-IN too (PI_QA_DOCKER=1: image build + several container starts; #E80-E83, #E85, #X18).

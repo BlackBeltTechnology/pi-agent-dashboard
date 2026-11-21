@@ -28,7 +28,13 @@ export function CanvasServerChip({ chip }: Props) {
   const { t } = useI18n();
   const { openServer, serverStatus: status } = useOpenCanvasTarget();
   const label = chip.title ?? t("canvas.serverChipLabel", undefined, "Preview dev server");
-  const address = `:${chip.port}${chip.path && chip.path !== "/" ? chip.path : ""}`;
+  // The host is the fixed probe host (S29: never agent-announced), not chip data.
+  // A root `/` (or absent) path is omitted so visible text and accessible name agree.
+  // See change: fix-ui-status-indicators (D4).
+  const host = `127.0.0.1:${chip.port}`;
+  const path = chip.path && chip.path !== "/" ? chip.path : "";
+  const probeHint = t("canvas.serverChipHint", undefined, "Tap to probe 127.0.0.1 and open a restricted preview");
+  const fullName = `${label} — ${host}${path}. ${probeHint}`;
 
   const message =
     status === "not-running"
@@ -48,11 +54,22 @@ export function CanvasServerChip({ chip }: Props) {
           if (status !== "probing") void openServer(chip.port, chip.path);
         }}
         className="pointer-events-auto flex min-h-[44px] min-w-0 max-w-full items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
-        title={t("canvas.serverChipHint", undefined, "Tap to probe 127.0.0.1 and open a restricted preview")}
+        title={fullName}
+        aria-label={fullName}
       >
         <Icon path={mdiServerNetwork} size={0.6} className="shrink-0 text-[var(--accent-blue)]" />
-        <span className="min-w-0 truncate font-medium">{label}</span>
-        <span className="min-w-0 truncate font-mono text-[var(--text-tertiary)]">{address}</span>
+        <span data-testid="canvas-server-chip-label" className="min-w-0 max-w-[32ch] truncate font-medium">
+          {label}
+        </span>
+        {/* Reserve the host's width (monospace: 1ch per char) so a narrow slot truncates the path/label, never the host. */}
+        <span
+          data-testid="canvas-server-chip-address"
+          className="flex min-w-0 font-mono text-[var(--text-tertiary)]"
+          style={{ minWidth: `${host.length}ch` }}
+        >
+          <span className="shrink-0">{host}</span>
+          {path && <span className="min-w-0 truncate">{path}</span>}
+        </span>
       </button>
       {message && (
         <span data-testid="canvas-server-chip-status" className="pointer-events-auto text-xs text-[var(--accent-red)]">

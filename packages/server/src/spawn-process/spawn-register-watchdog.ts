@@ -296,24 +296,32 @@ export class SpawnRegisterWatchdog {
       stderrTail = readLogTail(logPath);
     }
 
-    // Persist the timeout to the rolling failure log. See change: spawn-failure-diagnostics.
-    appendSpawnFailure({
-      ts: new Date().toISOString(),
-      cwd,
-      strategy: entry.mechanism,
-      code: "REGISTER_TIMEOUT",
-      // The timeout that ACTUALLY applied to this entry, not the constructor
-      // default — the latter is stale after any live Settings change.
-      // See change: fix-spawn-correlation-ttl-coupling (D5).
-      message: `Pi session started but never registered (timeout ${entryTimeoutMs}ms)`,
-      ...(pid !== undefined ? { pid } : {}),
-      ...(entry.spawnToken ? { spawnToken: entry.spawnToken } : {}),
-      ...(stderrTail ? { stderrTail } : {}),
-    });
-
-    // Reclaim BEFORE the `readyState` early-return: the leak is real whether or
+    // Reclaim BEFORE appending the record so it can carry what was signalled,
+    // and before the `readyState` early-return: the leak is real whether or
     // not a browser is still listening for the diagnostic.
-    this._reclaimSpawn(entry);
+    const terminatedPids = this._reclaimSpawn(entry);
+    const evidence =
+      terminatedPids.length > 0 ? { terminated: true as const, terminatedPids } : {};
+
+    // Persist the timeout to the rolling failure log. See change: spawn-failure-diagnostics.
+    try {
+      appendSpawnFailure({
+        ts: new Date().toISOString(),
+        cwd,
+        strategy: entry.mechanism,
+        code: "REGISTER_TIMEOUT",
+        // The timeout that ACTUALLY applied to this entry, not the constructor
+        // default — the latter is stale after any live Settings change.
+        // See change: fix-spawn-correlation-ttl-coupling (D5).
+        message: `Pi session started but never registered (timeout ${entryTimeoutMs}ms)`,
+        ...(pid !== undefined ? { pid } : {}),
+        ...(entry.spawnToken ? { spawnToken: entry.spawnToken } : {}),
+        ...(stderrTail ? { stderrTail } : {}),
+        ...evidence,
+      });
+    } catch {
+      /* a failed log write must not suppress the browser diagnostic */
+    }
 
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -324,6 +332,7 @@ export class SpawnRegisterWatchdog {
       ...(pid !== undefined ? { pid } : {}),
       ...(stderrTail ? { stderrTail } : {}),
       ...(entry.requestId ? { requestId: entry.requestId } : {}),
+      ...evidence,
     };
     ws.send(JSON.stringify(msg));
   }
@@ -334,8 +343,15 @@ export class SpawnRegisterWatchdog {
    * Token first (the only handle a tmux/wt/wsl-tmux pane has), then the spawn
    * pid for headless, where the dashboard owns it directly. Never throws: a
    * failed reclaim must not suppress the diagnostic that makes the leak visible.
+   *
+   * Returns the pids whose termination was DISPATCHED without throwing. That is
+   * "signalled", not "verified exited": the default `kill` seam is
+   * fire-and-forget (the diagnostic must not wait on the SIGTERM → SIGKILL
+   * ladder), and `killProcess` resolves `ok:false` without throwing for an
+   * already-dead pid. See change: fix-session-bridge-registration (D3).
    */
-  private _reclaimSpawn(entry: Entry): void {
+  private _reclaimSpawn(entry: Entry): number[] {
+    const signalled: number[] = [];
     try {
       const pids = entry.spawnToken
         ? this.reclaim.findPidsBySpawnToken(entry.spawnToken)
@@ -345,10 +361,19 @@ export class SpawnRegisterWatchdog {
       // is an inherited env var, so a widened match can name the dashboard
       // itself. Killing that takes down every session at once.
       const targets = candidates.filter((pid) => pid !== process.pid && pid !== process.ppid);
-      for (const pid of targets) this.reclaim.kill(pid);
+      for (const pid of targets) {
+        // Own try/catch: one failing kill must not abort the remaining ones.
+        try {
+          this.reclaim.kill(pid);
+          signalled.push(pid);
+        } catch {
+          /* not signalled; keep going */
+        }
+      }
     } catch {
       /* reporting the timeout matters more than reclaiming it */
     }
+    return signalled;
   }
 
   private _checkRecoveryByPid(pid: number): boolean {

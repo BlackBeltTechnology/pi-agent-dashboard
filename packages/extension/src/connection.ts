@@ -251,11 +251,45 @@ export interface ConnectionManagerOptions {
 const DROP_REPORT_LIMIT = 10;
 const DROP_REPORT_WINDOW_MS = 60_000;
 
+/**
+ * Control frames the bounded send buffer never evicts for being old: the server
+ * ignores a session until its `session_register`, a lost `session_unregister`
+ * leaves the old session routable, and the rest seed per-session/dashboard state
+ * a flood must not erase. Deliberately NOT widened to one-shot sync frames
+ * (`session_name_update`, `first_message_update`, `usage_recorded`) nor
+ * `event_forward` (incl. `replay: true`). See change: fix-session-bridge-registration (D2).
+ */
+const PINNED_FRAME_TYPES: ReadonlySet<string> = new Set([
+  "session_register",
+  "session_unregister",
+  "replay_complete",
+  "commands_list",
+  "models_list",
+  "providers_list",
+]);
+/** Cap on buffered control frames; the oldest is evicted (and counted) beyond it. */
+const MAX_CONTROL_FRAMES = 256;
+
+/** A serialized outbound frame; `type` is read once at send time, never re-parsed. */
+interface BufferedFrame {
+  data: string;
+  type: string;
+  /** Monotonic send order, so the two queues merge back into wire order on flush. */
+  seq: number;
+}
+
 export class ConnectionManager {
   private url: string;
   private WS: any;
   private ws: any | null = null;
-  private buffer: string[] = [];
+  /** Pinned control frames (<= MAX_CONTROL_FRAMES) and everything else (<= maxBufferSize), each FIFO. */
+  private controlQueue: BufferedFrame[] = [];
+  private otherQueue: Array<BufferedFrame | undefined> = [];
+  /** Index of the oldest live `otherQueue` entry (a head index, not `shift()`, so eviction never moves the queue). */
+  private otherHead = 0;
+  private bufferSeq = 0;
+  /** Evictions per frame type since the last flush (reported in the overflow warning). */
+  private droppedByType = new Map<string, number>();
   private maxBufferSize: number;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private backoff = 0;
@@ -585,7 +619,13 @@ export class ConnectionManager {
   }
 
   send(message: unknown): void {
-    for (const frame of this.outbound(message)) this.sendOne(JSON.stringify(frame));
+    for (const frame of this.outbound(message)) this.sendOne(JSON.stringify(frame), ConnectionManager.frameType(frame));
+  }
+
+  /** Frame `type`, or `"unknown"` when absent / not a string (such frames are never pinned). */
+  private static frameType(frame: unknown): string {
+    const type = (frame as { type?: unknown } | null | undefined)?.type;
+    return typeof type === "string" ? type : "unknown";
   }
 
   /** Frames to put on the wire for `message`: itself, unless the outbound filter rewrites or adds frames. */
@@ -600,25 +640,26 @@ export class ConnectionManager {
     }
   }
 
-  private sendOne(data: string): void {
+  private sendOne(data: string, type: string): void {
     if (this.ws?.readyState === 1) {
       try {
         this.ws.send(data);
       } catch {
         // Connection died between readyState check and send — buffer instead
-        this.bufferMessage(data);
+        this.bufferMessage(data, type);
       }
     } else {
-      this.bufferMessage(data);
+      this.bufferMessage(data, type);
     }
   }
 
   /**
    * Count of outgoing messages evicted from the bounded send buffer while the
-   * WS was not OPEN (ring-buffer overflow). Silent before this change — an
-   * evicted event never reaches the server store, leaves no seq gap, and is
-   * only recovered by `replaySessionEntries()` on reconnect. Exposed for
-   * observability. See change: fix-stuck-tool-card-on-dropped-event.
+   * WS was not OPEN (non-control ring overflow, or the control-frame cap).
+   * Silent before this change — an evicted event never reaches the server
+   * store, leaves no seq gap, and is only recovered by `replaySessionEntries()`
+   * on reconnect. Exposed for observability. Monotonic total (never reset on
+   * flush). See change: fix-stuck-tool-card-on-dropped-event.
    */
   private droppedBufferedCount = 0;
   private static readonly DROP_WARN_WINDOW_MS = 5_000;
@@ -728,42 +769,62 @@ export class ConnectionManager {
     this.draining = false;
   }
 
-  /** `session_register` / `session_unregister` — never evicted from the outbound ring. */
-  private static isLifecycleFrame(data: string): boolean {
-    // Cheap substring gate first; parse only candidates so key order does not matter.
-    if (!data.includes('"session_register"') && !data.includes('"session_unregister"')) return false;
-    try {
-      const type = (JSON.parse(data) as { type?: unknown } | null)?.type;
-      return type === "session_register" || type === "session_unregister";
-    } catch {
-      return false;
+  /**
+   * Buffer a frame while the WS is not OPEN. Two FIFO queues: pinned control
+   * frames (capped at MAX_CONTROL_FRAMES) and everything else (capped at
+   * `maxBufferSize`). Overflow evicts only the oldest frame of the overflowing
+   * queue, in O(1) and without parsing — `type` was read once at send time.
+   */
+  private bufferMessage(data: string, type: string): void {
+    const frame: BufferedFrame = { data, type, seq: this.bufferSeq++ };
+    if (PINNED_FRAME_TYPES.has(type)) {
+      this.controlQueue.push(frame);
+      if (this.controlQueue.length > MAX_CONTROL_FRAMES) this.recordEviction(this.controlQueue.shift());
+    } else {
+      this.otherQueue.push(frame);
+      if (this.otherQueue.length - this.otherHead > this.maxBufferSize) {
+        const evicted = this.otherQueue[this.otherHead];
+        this.otherQueue[this.otherHead++] = undefined; // release the evicted frame now
+        // Compact once per `maxBufferSize` evictions: amortised O(1), array stays <= 2 * maxBufferSize.
+        if (this.otherHead >= this.maxBufferSize) {
+          this.otherQueue.splice(0, this.otherHead);
+          this.otherHead = 0;
+        }
+        this.recordEviction(evicted);
+      }
     }
   }
 
-  private bufferMessage(data: string): void {
-    this.buffer.push(data);
-    if (this.buffer.length > this.maxBufferSize) {
-      // Never evict session lifecycle frames: the server ignores a session until
-      // its register arrives, and a lost unregister on a session switch leaves the
-      // old session routable. Evict the oldest non-lifecycle frame instead.
-      const idx = Math.max(0, this.buffer.findIndex((d) => !ConnectionManager.isLifecycleFrame(d)));
-      const [evicted] = this.buffer.splice(idx, 1);
-      this.droppedBufferedCount++;
-      let droppedType = "unknown";
-      try {
-        const parsed = JSON.parse(evicted ?? "");
-        if (parsed && typeof parsed.type === "string") droppedType = parsed.type;
-      } catch {
-        // best-effort: leave "unknown"
-      }
-      const now = Date.now();
-      if (now - this.lastDropWarnAt >= ConnectionManager.DROP_WARN_WINDOW_MS) {
-        this.lastDropWarnAt = now;
-        console.warn(
-          `[bridge] dropped buffered message (ring overflow) hop=bridge→server droppedType=${droppedType} (total dropped=${this.droppedBufferedCount}, bufferSize=${this.maxBufferSize})`,
-        );
-      }
+  private recordEviction(evicted: BufferedFrame | undefined): void {
+    const type = evicted?.type ?? "unknown";
+    this.droppedBufferedCount++;
+    this.droppedByType.set(type, (this.droppedByType.get(type) ?? 0) + 1);
+    const now = Date.now();
+    if (now - this.lastDropWarnAt >= ConnectionManager.DROP_WARN_WINDOW_MS) {
+      this.lastDropWarnAt = now;
+      const byType = [...this.droppedByType].map(([t, n]) => `${t}:${n}`).join(",");
+      console.warn(
+        `[bridge] dropped buffered message (ring overflow) hop=bridge→server droppedTypes=${byType} (total dropped=${this.droppedBufferedCount}, bufferSize=${this.maxBufferSize})`,
+      );
     }
+  }
+
+  /** Take every retained frame in original send order (merge of the two queues by `seq`) and reset the per-type drop counts. */
+  private drainBuffer(): string[] {
+    const control = this.controlQueue;
+    const other = this.otherQueue.slice(this.otherHead) as BufferedFrame[];
+    this.controlQueue = [];
+    this.otherQueue = [];
+    this.otherHead = 0;
+    this.droppedByType.clear();
+    const out: string[] = [];
+    let c = 0;
+    let o = 0;
+    while (c < control.length || o < other.length) {
+      const takeControl = o >= other.length || (c < control.length && control[c].seq < other[o].seq);
+      out.push(takeControl ? control[c++].data : other[o++].data);
+    }
+    return out;
   }
 
   get isConnected(): boolean {
@@ -1133,8 +1194,7 @@ export class ConnectionManager {
       this.onOpen?.();
 
       // Flush buffer
-      const buffered = [...this.buffer];
-      this.buffer = [];
+      const buffered = this.drainBuffer();
       for (const data of buffered) {
         this.ws?.send(data);
       }

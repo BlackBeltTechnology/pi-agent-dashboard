@@ -57,7 +57,7 @@ function folder(withConfig = true): string {
   return root;
 }
 
-function build(opts: { runner?: GitProbeRunner; hold?: CwdHoldDecision | ((cwd: string) => CwdHoldDecision) | "absent" } = {}) {
+function build(opts: { runner?: GitProbeRunner; hold?: CwdHoldDecision | ((cwd: string) => CwdHoldDecision) | "absent"; known?: string[] } = {}) {
   const app = Fastify();
   apps.push(app);
   const registry = new KbJobRegistry();
@@ -66,7 +66,7 @@ function build(opts: { runner?: GitProbeRunner; hold?: CwdHoldDecision | ((cwd: 
     return typeof opts.hold === "function" ? opts.hold(input.cwd) : opts.hold;
   });
   mountKbRoutes(app, {
-    knownCwds: () => [],
+    knownCwds: () => opts.known ?? [],
     registry,
     ...(opts.hold === "absent" ? {} : { holdCwdDenial: hold as never }),
     admitOptions: opts.runner ? { runner: opts.runner } : undefined,
@@ -185,6 +185,44 @@ describe("E38: write routes raise the access dialog", () => {
     const dir = folder();
     const { app } = build({ hold: "absent" });
     expect((await app.inject({ method: "POST", url: url("/api/kb/reindex", dir) })).statusCode).toBe(403);
+  });
+});
+
+describe("S39: POST /api/kb/reindex/cancel shares the reindex admission (throttle-kb-reindex)", () => {
+  const cancel = (app: FastifyInstance, cwd?: string) => app.inject({ method: "POST", url: url("/api/kb/reindex/cancel", cwd) });
+  const reindex = (app: FastifyInstance, cwd?: string) => app.inject({ method: "POST", url: url("/api/kb/reindex", cwd) });
+
+  it.each([
+    ["not admitted", () => folder(), 403],
+    ["missing param", () => undefined, 400],
+    ["relative path", () => "relative/dir", 403],
+  ])("%s → same status and body as /reindex", async (_n, mk, status) => {
+    const dir = mk();
+    const { app } = build(); // real git: a plain folder is a definitive refusal
+    const c = await cancel(app, dir);
+    const r = await reindex(app, dir);
+    expect(c.statusCode).toBe(status);
+    expect(c.statusCode).toBe(r.statusCode);
+    expect(c.json()).toEqual(r.json());
+  });
+
+  it("indeterminate admission → same 503 + retry-after as /reindex", async () => {
+    const dir = folder();
+    const { app } = build({ runner: timeoutRunner });
+    const c = await cancel(app, dir);
+    const r = await reindex(app, dir);
+    expect(c.statusCode).toBe(503);
+    expect(c.json()).toEqual(r.json());
+    expect(c.headers["retry-after"]).toBe("1");
+  });
+
+  it("admitted folder → 200 {cancelled:false} when nothing runs, and the registry stays untouched", async () => {
+    const dir = folder();
+    const { app, registry } = build({ known: [dir] });
+    const res = await cancel(app, dir);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ cancelled: false });
+    expect(registry.get(dir)).toBeUndefined();
   });
 });
 

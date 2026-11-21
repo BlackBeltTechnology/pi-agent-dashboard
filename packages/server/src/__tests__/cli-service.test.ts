@@ -205,3 +205,243 @@ describe("X5 (add-obs-studio-plugin) — exec stdout carries only the child's by
     expect(r.out).toEqual([]);
   });
 });
+
+describe("exec signal forwarding (#1103, change: harden-path-and-process-guards)", () => {
+  const SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
+  const CODE = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 } as const;
+  type Child = EventEmitter & { kill: ReturnType<typeof vi.fn> };
+
+  /** A stub child; `onKill` decides how it reacts to each signal it is sent. */
+  function mkChild(events: string[], onKill: (sig: NodeJS.Signals, ee: Child) => void = () => {}): Child {
+    const ee = new EventEmitter() as Child;
+    ee.kill = vi.fn((sig: NodeJS.Signals) => {
+      events.push(`kill:${sig}`);
+      onKill(sig, ee);
+      return true;
+    });
+    ee.once("exit", () => events.push("exit"));
+    return ee;
+  }
+  const exitsOn = (...sigs: NodeJS.Signals[]) => (sig: NodeJS.Signals, ee: Child) => {
+    if (sigs.includes(sig)) queueMicrotask(() => ee.emit("exit", null, sig));
+  };
+
+  function stubFetch(events: string[], opts: { releaseGate?: Promise<void>; releaseFails?: boolean } = {}) {
+    return (async (url: string | URL | Request) => {
+      const leaf = new URL(String(url)).pathname.split("/").pop() as string;
+      if (leaf === "release") {
+        events.push("release:start");
+        if (opts.releaseFails) throw new Error("ECONNRESET");
+        await opts.releaseGate;
+        events.push("release");
+      }
+      const data = leaf === "ensure" ? { id: "docling", state: "healthy", leaseId: "L1" } : { ok: true };
+      return { status: 200, json: async () => ({ success: true, data }) } as Response;
+    }) as typeof fetch;
+  }
+
+  function start(child: Child | (() => Child), o: { events?: string[]; killGraceMs?: number; releaseGate?: Promise<void>; releaseFails?: boolean; source?: EventEmitter } = {}) {
+    const events = o.events ?? [];
+    const source = o.source ?? new EventEmitter();
+    const done = run(["exec", "docling", "--", "svc-child"], {
+      fetch: stubFetch(events, o),
+      spawnChild: (() => (typeof child === "function" ? child() : child)) as never,
+      signalSource: source,
+      ...(o.killGraceMs !== undefined ? { killGraceMs: o.killGraceMs } : {}),
+    });
+    return { done, source, events };
+  }
+  const listeners = (src: EventEmitter) => SIGNALS.map((s) => src.listenerCount(s));
+  const kills = (c: Child, sig: string) => c.kill.mock.calls.filter((a) => a[0] === sig).length;
+
+  afterEach(() => vi.useRealTimers());
+
+  it("#S25 SIGTERM is forwarded once; the lease is released after the child exits; exit 143", async () => {
+    const events: string[] = [];
+    const child = mkChild(events, exitsOn("SIGTERM"));
+    const { done, source } = start(child, { events });
+    await new Promise((r) => setImmediate(r));
+    source.emit("SIGTERM");
+    const r = await done;
+    expect(r.code).toBe(143);
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(events.indexOf("exit")).toBeLessThan(events.indexOf("release"));
+    expect(events.indexOf("kill:SIGTERM")).toBeLessThan(events.indexOf("exit"));
+  });
+
+  it.each(SIGNALS)("#S26 %s reaches the child; exit status 128+n", async (sig) => {
+    const child = mkChild([], exitsOn(sig));
+    const { done, source } = start(child);
+    await new Promise((r) => setImmediate(r));
+    source.emit(sig);
+    expect((await done).code).toBe(CODE[sig]);
+    expect(child.kill).toHaveBeenCalledWith(sig);
+  });
+
+  it.each([0, 1, 2, 255])("#S27 a child that handles SIGTERM and exits %i yields exec status %i", async (n) => {
+    const events: string[] = [];
+    const child = mkChild(events, (_s, ee) => queueMicrotask(() => ee.emit("exit", n, null)));
+    const { done, source } = start(child, { events });
+    await new Promise((r) => setImmediate(r));
+    source.emit("SIGTERM");
+    expect((await done).code).toBe(n);
+    expect(events).toContain("release");
+  });
+
+  it.each([[undefined, 5000], [200, 200]])("#S28 kill-grace boundary (killGraceMs=%s → %i ms): SIGKILL once, then 137", async (override, grace) => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    const child = mkChild(events, exitsOn("SIGKILL"));
+    const { done, source } = start(child, { events, ...(override ? { killGraceMs: override } : {}) });
+    await vi.advanceTimersByTimeAsync(0);
+    source.emit("SIGTERM");
+    await vi.advanceTimersByTimeAsync(grace - 1);
+    expect(kills(child, "SIGKILL")).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(kills(child, "SIGKILL")).toBe(1);
+    const r = await done;
+    expect(r.code).toBe(137);
+    expect(events).toContain("release");
+    expect(kills(child, "SIGKILL")).toBe(1);
+  });
+
+  it("#S29 a child that exits within the grace cancels the timer; no SIGKILL ever", async () => {
+    vi.useFakeTimers();
+    const child = mkChild([], (sig, ee) => {
+      if (sig === "SIGTERM") setTimeout(() => ee.emit("exit", null, "SIGTERM"), 1000);
+    });
+    const { done, source } = start(child);
+    await vi.advanceTimersByTimeAsync(0);
+    source.emit("SIGTERM");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect((await done).code).toBe(143);
+    expect(kills(child, "SIGKILL")).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("#S30 repeated signals are forwarded but never re-arm or shorten the single grace timer", async () => {
+    vi.useFakeTimers();
+    const child = mkChild([], exitsOn("SIGKILL"));
+    const { done, source } = start(child);
+    await vi.advanceTimersByTimeAsync(0);
+    source.emit("SIGINT");
+    source.emit("SIGINT"); // same signal twice at +0
+    await vi.advanceTimersByTimeAsync(2000);
+    source.emit("SIGTERM");
+    source.emit("SIGHUP"); // different signals later
+    expect(kills(child, "SIGINT")).toBe(2);
+    expect(kills(child, "SIGTERM")).toBe(1);
+    expect(kills(child, "SIGHUP")).toBe(1);
+    await vi.advanceTimersByTimeAsync(2998);
+    expect(kills(child, "SIGKILL")).toBe(0); // 4998 ms after the FIRST signal
+    await vi.advanceTimersByTimeAsync(2);
+    expect(kills(child, "SIGKILL")).toBe(1); // exactly 5 s after the first, not re-armed
+    await done;
+    expect(kills(child, "SIGKILL")).toBe(1);
+  });
+
+  it("#S32 listeners are removed after a normal exit, a signalled exit and a spawn error", async () => {
+    for (const mode of ["normal", "signalled", "error"] as const) {
+      const source = new EventEmitter();
+      const base = listeners(source);
+      const child = mkChild([], exitsOn("SIGTERM"));
+      const { done } = start(child, { source });
+      await new Promise((r) => setImmediate(r));
+      expect(listeners(source)).toEqual([1, 1, 1]);
+      if (mode === "normal") child.emit("exit", 0, null);
+      else if (mode === "signalled") source.emit("SIGTERM");
+      else child.emit("error", Object.assign(new Error("spawn svc-child ENOENT"), { code: "ENOENT" }));
+      const r = await done;
+      if (mode === "error") expect(r.code).toBe(127);
+      expect(listeners(source), mode).toEqual(base);
+    }
+  });
+
+  it("#P5 200 mixed runs leak no listeners and clear every heartbeat / grace timer exec arms", async () => {
+    vi.useFakeTimers();
+    const setI = vi.spyOn(globalThis, "setInterval");
+    const clearI = vi.spyOn(globalThis, "clearInterval");
+    const setT = vi.spyOn(globalThis, "setTimeout");
+    const clearT = vi.spyOn(globalThis, "clearTimeout");
+    const source = new EventEmitter();
+    for (let i = 0; i < 200; i++) {
+      const child = mkChild([], exitsOn("SIGTERM"));
+      // Wait until exec has spawned the child and installed its handlers (no timing guess).
+      const spawned = new Promise<void>((resolve) => child.once("newListener", () => resolve()));
+      const { done } = start(child, { source });
+      await vi.advanceTimersByTimeAsync(0);
+      await spawned;
+      expect(listeners(source), `iteration ${i}`).toEqual([1, 1, 1]);
+      if (i % 2) source.emit("SIGTERM");
+      else child.emit("exit", 0, null);
+      await done;
+      expect(listeners(source), `iteration ${i}`).toEqual([0, 0, 0]);
+    }
+    // Only exec's own timers (30 s heartbeat, 5 s kill-grace) — not the unrelated fetch timeouts.
+    // vi.getTimerCount() is not used: it also sees runtime-internal timers that come and go with GC.
+    const armed = (set: typeof setI | typeof setT, ms: number) =>
+      set.mock.calls.flatMap((c, k) => (c[1] === ms ? [set.mock.results[k]?.value] : []));
+    const heartbeats = armed(setI, 30_000);
+    const graces = armed(setT, 5_000);
+    expect(heartbeats).toHaveLength(200);
+    expect(graces).toHaveLength(100); // one per signalled run
+    for (const h of heartbeats) expect(clearI.mock.calls.some((c) => c[0] === h)).toBe(true);
+    for (const h of graces) expect(clearT.mock.calls.some((c) => c[0] === h)).toBe(true);
+  });
+
+  it("#X13 a signal while the lease release is in flight is a no-op; exec returns the child's status", async () => {
+    let open!: () => void;
+    const releaseGate = new Promise<void>((r) => (open = r));
+    const child = mkChild([]);
+    const { done, source } = start(child, { releaseGate });
+    await new Promise((r) => setImmediate(r));
+    child.emit("exit", 0, null);
+    await new Promise((r) => setImmediate(r)); // release now pending
+    source.emit("SIGTERM");
+    expect(child.kill).not.toHaveBeenCalled();
+    open();
+    expect((await done).code).toBe(0);
+    expect(listeners(source)).toEqual([0, 0, 0]);
+  });
+
+  it("#X14 a failing lease release still returns the child's status and removes the handlers", async () => {
+    const child = mkChild([], exitsOn("SIGTERM"));
+    const { done, source } = start(child, { releaseFails: true });
+    await new Promise((r) => setImmediate(r));
+    source.emit("SIGTERM");
+    expect((await done).code).toBe(143);
+    expect(listeners(source)).toEqual([0, 0, 0]);
+  });
+
+  it("#X15 child.kill throwing (ESRCH) on forward and on SIGKILL never crashes exec", async () => {
+    vi.useFakeTimers();
+    const child = mkChild([], () => {
+      throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+    });
+    const { done, source } = start(child);
+    await vi.advanceTimersByTimeAsync(0);
+    source.emit("SIGTERM");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(kills(child, "SIGKILL")).toBe(1);
+    child.emit("exit", null, "SIGKILL");
+    expect((await done).code).toBe(137);
+  });
+
+  it("#X16 a spawn error before or after a signal cleans up, releases and exits non-zero", async () => {
+    vi.useFakeTimers();
+    for (const afterSignal of [false, true]) {
+      const events: string[] = [];
+      const source = new EventEmitter();
+      const child = mkChild(events);
+      const { done } = start(child, { events, source });
+      await vi.advanceTimersByTimeAsync(0);
+      if (afterSignal) source.emit("SIGTERM");
+      child.emit("error", new Error("ENOENT"));
+      const r = await done;
+      expect(r.code).toBe(127);
+      expect(events).toContain("release");
+      expect(listeners(source)).toEqual([0, 0, 0]);
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  });
+});

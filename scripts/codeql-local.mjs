@@ -248,6 +248,30 @@ export function baselineGrowth(ref, work, { noGrowth = false } = {}) {
   return { ok: violations.length === 0, violations, lines };
 }
 
+/**
+ * Field-level diff of two validated baselines, for a change that may only re-type
+ * reasons (e.g. retiring an accepted-risk to a false-positive). `reasonOnly` lists the
+ * entries whose sole difference is `reason`; `other` names every entry added, removed
+ * or whose `count` differs (a `ruleId` / `file` / `lineHash` change IS an add + a remove).
+ * `ok` is true only when `other` is empty. Pure; the CLI diff stays `baselineGrowth`.
+ */
+export function reasonOnlyDiff(ref, work) {
+  const refMap = new Map(ref.entries.map((e) => [entryKey(e), e]));
+  const workMap = new Map(work.entries.map((e) => [entryKey(e), e]));
+  const id = (e) => `${e.ruleId} ${e.file} ${e.lineHash}`;
+  const reasonOnly = [];
+  const other = [];
+  for (const k of [...new Set([...refMap.keys(), ...workMap.keys()])].sort()) {
+    const r = refMap.get(k);
+    const w = workMap.get(k);
+    if (!r) other.push(`added ${id(w)}`);
+    else if (!w) other.push(`removed ${id(r)}`);
+    else if (r.count !== w.count) other.push(`count ${r.count} → ${w.count}: ${id(w)}`);
+    else if (r.reason !== w.reason) reasonOnly.push(id(w));
+  }
+  return { ok: other.length === 0, reasonOnly, other };
+}
+
 /** One printed line for an entry whose count or reason differs between ref (`r`) and work (`w`), else null. */
 function describeChange(r, w) {
   if (r && w && r.count === w.count && r.reason === w.reason) return null;

@@ -37,7 +37,7 @@ export interface ReadinessInputs {
   hasOpenspecDir: boolean;
   /** `openspec list` yielded authoritative data. */
   initialized: boolean;
-  /** `.pi/skills/openspec-explore/` exists at the resolved config root. `undefined` = unknown. */
+  /** `openspec-explore` skill exists at the resolved config root, under `.pi/skills/` or `.agents/skills/`. `undefined` = unknown. */
   hasOpenSpecSkills?: boolean;
   /** Signature recorded for this cwd by a prior init/update. `undefined` = never measured. */
   recordedSignature?: string;

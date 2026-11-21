@@ -11,10 +11,10 @@ import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { _setAcpAgentsForTests } from "../../hooks/useAcpAgents.js";
 import { yoloStatus } from "../../lib/access-grants/yolo-status.js";
 import { folderPaneId } from "../../lib/layout/folder-pane-id.js";
 import { scopedSession } from "../access-grant/__tests__/yolo-test-server.js";
-import { _setAcpAgentsForTests } from "../../hooks/useAcpAgents.js";
 import { DirectoryHomeView } from "../folder/DirectoryHomeView.js";
 import { FolderSplitProvider } from "../folder/FolderSplitProvider.js";
 
@@ -102,6 +102,48 @@ describe("spawn-mode adapter", () => {
     send();
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
     expect(onSpawnSession).not.toHaveBeenCalled();
+  });
+});
+
+// See change: fix-input-state-consistency (#1136) — spawn takes text only.
+describe("image-only send is not offered on the directory home", () => {
+  async function pasteImage() {
+    let pendingOnload: (() => void) | null = null;
+    vi.stubGlobal(
+      "FileReader",
+      class {
+        result = "data:image/png;base64,iVBORw0KGgo=";
+        onload: (() => void) | null = null;
+        readAsDataURL() {
+          pendingOnload = () => this.onload?.();
+        }
+      },
+    );
+    const file = new File([new Uint8Array([137, 80, 78, 71])], "test.png", { type: "image/png" });
+    fireEvent.paste(screen.getByRole("textbox"), {
+      clipboardData: { items: [{ type: "image/png", getAsFile: () => file, kind: "file" }] },
+    });
+    await act(async () => {
+      pendingOnload?.();
+    });
+  }
+
+  it("S8: only a pasted image never spawns (button disabled, Enter and click are no-ops)", async () => {
+    const { onSpawnSession, container } = renderView();
+    await pasteImage();
+    expect(container.querySelector("img.h-16")).not.toBeNull();
+    expect((screen.getByTestId("send-button") as HTMLButtonElement).disabled).toBe(true);
+    send();
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(onSpawnSession).not.toHaveBeenCalled();
+  });
+
+  it("S9: text still spawns with initialPrompt", () => {
+    const { onSpawnSession } = renderView({ cwd: "/a" });
+    typePrompt("hi");
+    send();
+    expect(onSpawnSession).toHaveBeenCalledTimes(1);
+    expect(onSpawnSession.mock.calls[0]?.[2]).toMatchObject({ initialPrompt: "hi" });
   });
 });
 

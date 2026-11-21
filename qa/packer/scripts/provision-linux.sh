@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bash "$SCRIPT_DIR/provision-common.sh"
 
 echo "=== Provisioning the sudo-askpass QA user (non-NOPASSWD) ==="
-# `qa/tests/58-sudo-askpass-fallback.sh` needs a user that sudo really challenges
+# `qa/tests/59-sudo-askpass-fallback.sh` needs a user that sudo really challenges
 # (the `qa` user is NOPASSWD:ALL): known password, listed in sudoers WITHOUT NOPASSWD.
 # sudo-rs is best-effort: it is not packaged on every Ubuntu release, and the test
 # marks an absent / unsupported flavour instead of failing.

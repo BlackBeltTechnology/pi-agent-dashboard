@@ -290,4 +290,44 @@ test.describe("route-backed overlays", () => {
     // ...and the underlay is NOT a second copy of the preview.
     await expect(underlay.getByTestId("preview-overlay")).toHaveCount(0);
   });
+
+  // #1155 — an overlay claim that fails to load is never a blank panel.
+  // See change: fix-ui-status-indicators (design D3/D5; test-plan #S48, #S49).
+  test.describe("automations overlay failure states (#1155)", () => {
+    const folderCwd = Buffer.from(FIXTURE_GIT).toString("base64url");
+    const route = `/folder/${folderCwd}/automations`;
+
+    test("S48: a failed claim chunk shows a visible error + Back, not a blank overlay", async ({ page }) => {
+      await page.route("**/assets/AutomationBoard-*.js", (r) => r.abort());
+      await gotoDashboard(page, `/folder/${folderCwd}`);
+      await page.evaluate((to) => {
+        window.history.pushState({}, "", to);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }, route);
+
+      await expect(page.getByTestId("overlay-claim-error")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId("overlay-claim-error")).toContainText("automation");
+      await page.getByTestId("overlay-claim-error-back").click();
+      await expect(page).not.toHaveURL(/\/automations$/);
+      await expect(page.getByTestId("overlay-claim-error")).toHaveCount(0);
+    });
+
+    test("S49: a failing /list shows loading then error + Retry; restoring it and Retry shows the board", async ({ page }) => {
+      let healthy = false;
+      await page.route("**/api/plugins/automation/list**", (r) =>
+        healthy ? r.continue() : r.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+      );
+      await gotoDashboard(page, route);
+
+      await expect(page.getByTestId("automation-error")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId("automation-empty")).toHaveCount(0);
+      await expect(page.getByText("No automations in this folder.")).toHaveCount(0);
+
+      healthy = true;
+      await page.getByTestId("automation-retry").click();
+      await expect(page.getByTestId("automation-error")).toHaveCount(0);
+      // Either definitions or the honest empty state — never the error.
+      await expect(page.getByTestId("automation-list")).toBeVisible();
+    });
+  });
 });

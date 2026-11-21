@@ -197,8 +197,14 @@ function QuestionSection({
       ) : (
         <fieldset disabled={disabled} className={`m-0 min-w-0 border-0 p-0 ${disabled ? "opacity-60" : ""}`}>
           <legend className="sr-only">{i18nT("questions.dialog.question", undefined, "Question")}</legend>
+          {/* The draft is keyed by (sessionId, promptId) so it is shared with the chat card.
+              No promptId (old server) ⇒ no sessionId ⇒ ephemeral. Images are not restored:
+              the dialog's answer road is text-only. See change: fix-input-state-consistency. */}
           <Renderer
-            requestId={detail.id}
+            key={detail.promptId ?? detail.id}
+            requestId={detail.promptId ?? detail.id}
+            sessionId={detail.promptId ? detail.sessionId : undefined}
+            restoreImages={false}
             method={detail.type}
             params={{
               title: detail.question,
