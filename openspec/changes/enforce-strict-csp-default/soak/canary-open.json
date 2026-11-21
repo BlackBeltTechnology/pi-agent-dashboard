@@ -1,0 +1,27 @@
+{
+  "takenAt": "2026-11-21T02:18:31.436Z",
+  "serverVersion": "0.11.0",
+  "cspReports": {
+    "since": "2026-10-25T13:27:14.724Z",
+    "dropped": 0,
+    "counts": {
+      "baseline": {},
+      "strict": {},
+      "trusted-types": {}
+    },
+    "ttShadow": {
+      "since": "2026-10-25T13:27:14.724Z",
+      "would-block-script": 0,
+      "would-block-script-url": 0,
+      "would-alter-html": 34346,
+      "would-throw-html": 0,
+      "not-evaluated": 26906,
+      "shadow-error": 0
+    }
+  },
+  "documents": {
+    "baseline": {},
+    "strict": {},
+    "trusted-types": {}
+  }
+}
