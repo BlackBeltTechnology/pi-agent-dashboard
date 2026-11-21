@@ -64,7 +64,7 @@
 ## 5. Slimmer compact cards (#1134) — mockup first
 
 - [x] 5.1 Measure current heights (classic collapsed vs accordion compact-empty) in an isolated dashboard (debug-dashboard `references/isolated-verification.md`, non-8000 port); record numbers in the mockup README. _Measured (docker harness, empty pinned folder, header only): classic collapsed 55 px = accordion compact-empty 55 px; the removed rows (Group-by + count) only added height when sessions/Group-by were present._
-- [ ] 5.2 Live-component mock under `openspec/changes/sidebar-folder-ux/mockups/` (`frontend-mockup-loop-dashboard`); confirm D4 layout with the owner via `mock-decide`; score at 3 breakpoints, base dark/light + one palette.
+- [x] 5.2 Live-component mock under `openspec/changes/sidebar-folder-ux/mockups/` (`frontend-mockup-loop-dashboard`); confirm D4 layout with the owner via `mock-decide`; score at 3 breakpoints, base dark/light + one palette.
 - [ ] 5.3 Manual check — D4 / dark-light-palette rendering of compact card + count (live-component mock (`mockups/`) at 3 breakpoints, base dark/light + one palette → human reviews via `mock-decide`): [judgment: count suffix muted-but-legible, header row looks "slim" — final pixels are owner call; automatable invariants covered by S33/S38] (test-plan: manual-only) — test-plan #F8
 - [x] 5.4 Failing test `packages/client/src/components/__tests__/SessionList.group-by.test.tsx` — folder-focus: no Group-by row in compact [decision-table (mode × group-by setting)]; harness exemplar: `packages/client/src/components/session/__tests__/SessionList.accordion.test.tsx` (input accordion; folder modes {compact-empty, compact-attention, full, collapsed}; group-by ∈ {none, status, non-default} · trigger render · observable `folder-group-by-row-<cwd>` absent in both compact modes; present for `full`/`collapsed` when mode≠none; classic collapsed with same setting still renders it) — test-plan #S30
 - [x] 5.5 Failing test `packages/client/src/components/__tests__/SessionList.group-by.test.tsx` — session-list-group-by: compact has no indicator but menu does [state-transition]; harness exemplar: `packages/client/src/components/__tests__/SessionList.group-by.test.tsx` (input compact folder with group-by `status` · trigger open folder menu · observable no indicator row; menu shows Group-by radio items with current selection checked) — test-plan #S31
@@ -80,7 +80,7 @@
 
 ## 6. Directory menu scroll (#1153)
 
-- [ ] 6.1 Ask the reporter on #1153 which menu and viewport fails (D5).
+- [x] 6.1 Ask the reporter on #1153 which menu and viewport fails (D5). _Posted on #1153 (comment 7063861266): asked which menu/viewport/app; mentioned the keyboard focus fix._
 - [ ] 6.2 Manual check — #1153 reporter confirmation (issue #1153 comment thread → maintainer asks reporter which menu/viewport; reporter answers): [judgment: external human answer, no automatable observable; if a surface is named it becomes F2 row] (test-plan: manual-only) — test-plan #F9
 - [x] 6.3 Reproduce at 1280×720 with 14 pinned folders in an isolated dashboard: folder actions menu, add-to-workspace menu, workspace header menu, Add-folders dialog, sidebar list. Record which surface fails (design D5); this selects any extra surface for the specs below. _Result: folder actions menu, add-to-workspace popover and sidebar list stay inside 1280×720 / 600 / 599 (F1/F2/F3 green). One real defect reproduced: scrolling the popover re-measured the trigger and pulled focus back to the checked radio, so keyboard users could not step onto items below the fold._
 - [ ] 6.4 Manual check — #1153 repro on 13" physical display (real 13" laptop (≈1280×720–800) → open each directory-listing surface, scroll with trackpad): [judgment: trackpad/OS scrollbar feel not automatable; wheel/keyboard reachability covered by F1/F2] (test-plan: manual-only) — test-plan #F10
@@ -95,5 +95,5 @@
 
 - [ ] 7.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary per AGENTS.md.
 - [ ] 7.2 Client change: `npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts`; `curl -s http://localhost:8000/api/health | jq .mode`.
-- [ ] 7.3 Update per-directory `AGENTS.md` rows (`components/session/`, `components/folder/`, `packages/client-utils/`); docs via DocScribe if `docs/` prose is touched.
+- [x] 7.3 Update per-directory `AGENTS.md` rows (`components/session/`, `components/folder/`, `packages/client-utils/`); docs via DocScribe if `docs/` prose is touched.
 - [ ] 7.4 `npx openspec validate sidebar-folder-ux --strict` and `node scripts/check-conventions.mjs`.
