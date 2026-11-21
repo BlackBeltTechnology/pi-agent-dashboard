@@ -93,8 +93,11 @@ describe.skipIf(!CI_SCENARIOS)("live knip scan", () => {
     expect(offenders.map((o) => o.file)).toEqual([]);
   });
 
-  it("#P1 completes within the 30s budget", () => {
-    expect(elapsedMs).toBeLessThan(30_000);
+  it("#P1 completes within the 30s budget (45s on CI)", () => {
+    // 30 s on a dev machine (the scan takes ~8-10 s there). On a loaded CI runner the same scan ran
+    // 16-19 s on develop and 23-31 s on busy PR runs, so CI gets contention headroom, as the other
+    // timing budgets do (`process.env.CI ? looser : tight`).
+    expect(elapsedMs).toBeLessThan(process.env.CI ? 45_000 : 30_000);
   });
 
   it("reports a count for every gated class", () => {
