@@ -501,14 +501,18 @@ describe("goal-plugin composition root (fake ctx)", () => {
       url: `/api/folders/goals/${goalId}/sessions?cwd=${encodeURIComponent(cwd)}`,
       payload: { spawn: true },
     });
-    // First register: s1 becomes the driver.
+    // First register: s1 becomes the driver. The handover chain ends in a real
+    // fs write (`replaceDriver`) that can outlast settle()'s 150 ms floor on a
+    // loaded CI fork (nightly 11-08/11-20): wait on the stamp, not on time.
     h.captured.sessionResolved.forEach((h2) => h2("s1", { goalId }));
+    await vi.waitFor(() => expect(h.mocks.assignSessionRef).toHaveBeenCalledWith("s1", { goalId }), { timeout: 10_000 });
     await settle();
 
     // The prior driver dies; a respawned s2 registers with the same ref.
     h.sessions.set("s2", { id: "s2", cwd, goalId, status: "active" });
     h.mocks.assignSessionRef.mockClear();
     h.captured.sessionResolved.forEach((h2) => h2("s2", { goalId }));
+    await vi.waitFor(() => expect(h.mocks.assignSessionRef).toHaveBeenCalledWith("s2", { goalId }), { timeout: 10_000 });
     await settle();
 
     // C2e: the OUTGOING driver's in-memory goalId was cleared memory-only.
