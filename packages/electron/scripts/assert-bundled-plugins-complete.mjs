@@ -125,7 +125,7 @@ function resolveExportTarget(pkgDir, subpath) {
     const star = key.indexOf("*");
     if (star < 0 || !subpath.startsWith(key.slice(0, star)) || !subpath.endsWith(key.slice(star + 1))) continue;
     const captured = subpath.slice(star, subpath.length - (key.length - star - 1));
-    return target.replace("*", captured);
+    return target.split("*").join(captured);
   }
   return null;
 }
