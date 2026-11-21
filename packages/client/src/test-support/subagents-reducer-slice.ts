@@ -27,6 +27,9 @@ import { sessionEventReducer } from "../../../subagents-plugin/src/client/sessio
 import { toolRowFinalizers } from "../../../subagents-plugin/src/client/toolRowFinalizer.js";
 import { setEventTypeOwners } from "../lib/plugins/event-type-owners.js";
 
+export type { AgentFinalizerState } from "../../../subagents-plugin/src/client/toolRowFinalizer.js";
+export { toolRowFinalizers };
+
 /** Register the slice and the finalizers (idempotent) and clear any test-seeded owners. */
 export function registerSubagentsReducerSlice(): void {
   registerSessionEventReducer("subagents", sessionEventReducer);
