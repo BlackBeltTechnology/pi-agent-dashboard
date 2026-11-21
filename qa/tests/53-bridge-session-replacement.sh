@@ -94,7 +94,8 @@ async function waitFor(pred, what) {
 (async () => {
   child = spawn("pi", ["--mode", "rpc", "-e", FIXTURE, "--model", "faux/faux-1"], {
     cwd: home,
-    env: { ...process.env, HOME: home, FAUX_SCRIPT: "plain-text" },
+    // Keep the real HOME: the bridge resolves the dashboard endpoint from the HOME-derived rendezvous record.
+    env: { ...process.env, FAUX_SCRIPT: "plain-text" },
     stdio: ["pipe", "ignore", "inherit"],
   });
   child.on("error", (e) => fail("pi spawn error: " + e.message));

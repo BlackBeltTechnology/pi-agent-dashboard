@@ -111,14 +111,17 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
 }
 
 function TimeoutSurface({ detail, onDismiss }: Props) {
-  const { pid, stderr, timeoutMs, terminated } = detail;
+  const { pid, stderr, timeoutMs, terminated, terminatedPids } = detail;
   // Use the timeout value carried in the message; fall back to 30s for legacy servers.
   const timeoutSecs = timeoutMs !== undefined ? timeoutMs / 1000 : 30;
 
   // `terminated` only ever arrives as `true` (the watchdog omits it otherwise), so
   // legacy servers and the nothing-signalled case keep the never-connected text.
+  // The PID-specific text only when that exact PID was signalled: the watchdog may have signalled
+  // token-matched PIDs that exclude the armed `pid`.
+  const pidTerminated = pid !== undefined && (terminatedPids?.includes(pid) ?? true);
   const label = terminated
-    ? pid !== undefined
+    ? pidTerminated
       ? i18nT("err.spawnTimeoutTerminatedWithPid", { pid, secs: timeoutSecs }, "Pi started (PID {pid}) but never connected to the dashboard within {secs}s and was terminated.")
       : i18nT("err.spawnTimeoutTerminated", { secs: timeoutSecs }, "Pi started but never connected to the dashboard within {secs}s and was terminated.")
     : pid !== undefined

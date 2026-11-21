@@ -284,7 +284,9 @@ export class ConnectionManager {
   private ws: any | null = null;
   /** Pinned control frames (<= MAX_CONTROL_FRAMES) and everything else (<= maxBufferSize), each FIFO. */
   private controlQueue: BufferedFrame[] = [];
-  private otherQueue: BufferedFrame[] = [];
+  private otherQueue: Array<BufferedFrame | undefined> = [];
+  /** Index of the oldest live `otherQueue` entry (a head index, not `shift()`, so eviction never moves the queue). */
+  private otherHead = 0;
   private bufferSeq = 0;
   /** Evictions per frame type since the last flush (reported in the overflow warning). */
   private droppedByType = new Map<string, number>();
@@ -770,7 +772,16 @@ export class ConnectionManager {
       if (this.controlQueue.length > MAX_CONTROL_FRAMES) this.recordEviction(this.controlQueue.shift());
     } else {
       this.otherQueue.push(frame);
-      if (this.otherQueue.length > this.maxBufferSize) this.recordEviction(this.otherQueue.shift());
+      if (this.otherQueue.length - this.otherHead > this.maxBufferSize) {
+        const evicted = this.otherQueue[this.otherHead];
+        this.otherQueue[this.otherHead++] = undefined; // release the evicted frame now
+        // Compact once per `maxBufferSize` evictions: amortised O(1), array stays <= 2 * maxBufferSize.
+        if (this.otherHead >= this.maxBufferSize) {
+          this.otherQueue.splice(0, this.otherHead);
+          this.otherHead = 0;
+        }
+        this.recordEviction(evicted);
+      }
     }
   }
 
@@ -791,9 +802,10 @@ export class ConnectionManager {
   /** Take every retained frame in original send order (merge of the two queues by `seq`) and reset the per-type drop counts. */
   private drainBuffer(): string[] {
     const control = this.controlQueue;
-    const other = this.otherQueue;
+    const other = this.otherQueue.slice(this.otherHead) as BufferedFrame[];
     this.controlQueue = [];
     this.otherQueue = [];
+    this.otherHead = 0;
     this.droppedByType.clear();
     const out: string[] = [];
     let c = 0;

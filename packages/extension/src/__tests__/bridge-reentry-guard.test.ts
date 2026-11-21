@@ -33,6 +33,15 @@ vi.mock("../connection.js", async (importOriginal) => {
   return { ...actual, ConnectionManager: FakeConnectionManager };
 });
 
+// `devBuildOnReload` is a dev-only config flag: the re-init teardown (`state.cleanup`) must run the client
+// build + server shutdown for `/reload` ONLY, never for an ordinary new/resume/fork session switch.
+const devBuild = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("../dev-build.js", () => ({ runDevBuild: () => { devBuild.calls++; } }));
+vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-shared/config.js")>();
+  return { ...actual, loadConfig: () => ({ ...actual.loadConfig(), devBuildOnReload: true }) };
+});
+
 const BRIDGE_KEY = "__pi_dashboard_bridge__";
 const g = process as unknown as Record<string, unknown>;
 
@@ -97,6 +106,7 @@ describe("E6: a distinct pi loaded after session_shutdown{new|resume|fork} re-in
     prevEnv = process.env.PI_DASHBOARD_BRIDGE;
     process.env.PI_DASHBOARD_BRIDGE = "on";
     fakeConnections.instances.length = 0;
+    devBuild.calls = 0;
     vi.resetModules();
   });
 
@@ -160,8 +170,22 @@ describe("E6: a distinct pi loaded after session_shutdown{new|resume|fork} re-in
       const conn = fakeConnections.instances[fakeConnections.instances.length - 1];
       const registers = conn.sent.filter((m) => m.type === "session_register");
       expect(registers.map((m) => m.sessionId)).toContain("new-session");
+      // Generic teardown ran for the replacement, but the dev build + server shutdown did not.
+      expect(devBuild.calls).toBe(0);
     });
   }
+
+  it("reload: the dev build + server shutdown still run on the re-init teardown", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const pi1 = recordingPi();
+    const pi2 = recordingPi();
+    const { default: bridge } = await import("../bridge.js");
+    bridge(pi1.pi as never);
+    await pi1.handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "reload" }, makeCtx("old-session"));
+    bridge(pi2.pi as never);
+    expect(devBuild.calls).toBe(1);
+  });
 });
 
 // The dashboard extension registers the Claude subscription compat rewrite on

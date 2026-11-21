@@ -277,6 +277,8 @@ export function reloadCompletedFeedback(sessionId: string) {
 export interface BridgeOwner {
   generation?: number;
   pi?: unknown;
+  /** The `session_shutdown` reason that released ownership; read by the re-init teardown. */
+  shutdownReason?: string;
 }
 
 /**
@@ -303,5 +305,8 @@ export const BRIDGE_RELEASE_REASONS: readonly string[] = ["reload", "new", "resu
  * dashboard session (#1175). See change: fix-session-bridge-registration (D1).
  */
 export function releaseBridgeOwnerOnShutdown(prev: BridgeOwner, reason: string | undefined): void {
-  if (reason !== undefined && BRIDGE_RELEASE_REASONS.includes(reason)) prev.pi = undefined;
+  if (reason !== undefined && BRIDGE_RELEASE_REASONS.includes(reason)) {
+    prev.pi = undefined;
+    prev.shutdownReason = reason;
+  }
 }

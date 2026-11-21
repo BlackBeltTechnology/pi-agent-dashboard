@@ -289,15 +289,16 @@ Counters SHALL be exposed on the diagnostics/health surface.
   type SHALL be emitted
 
 #### Scenario: Buffered session_register survives overflow
-- **WHEN** a `session_register` is buffered and more frames than the ring capacity
-  follow it before the socket opens
+- **WHEN** a `session_register` is buffered and more non-control frames than the ring capacity
+  follow it before the socket opens (the control queue stays within its cap)
 - **THEN** the oldest non-control frames SHALL be evicted instead
 - **AND** the `session_register` SHALL be sent when the socket opens, ahead of the
   frames buffered after it
 
 #### Scenario: Buffered session_unregister survives overflow on a session switch
 - **WHEN** a session switch buffers `session_unregister` for the old session and
-  `session_register` for the new one, and more frames than the ring capacity follow
+  `session_register` for the new one, and more non-control frames than the ring capacity follow
+  (the control queue stays within its cap)
 - **THEN** both frames SHALL be kept, in that order
 - **AND** the server SHALL remove the old session before registering the new one
 
@@ -439,7 +440,7 @@ A browser subscribe that arrives while the session is in bridge replay mode SHAL
 - **THEN** no cold hydration SHALL start
 - **AND** the browser SHALL receive `event_replay { events: [], isLast: false }` at once, hydration heartbeats while it waits, and then the session's events from the replay exit flush ending with `isLast: true`
 
-### Requirement: Bridge send buffer never evicts control frames
+### Requirement: Bridge send buffer never evicts control frames to make room for non-control frames
 While the WebSocket is not open, the bridge send buffer SHALL keep control frames (`session_register`, `session_unregister`, `replay_complete`, `commands_list`, `models_list`, `providers_list`) apart from other frames. Overflow means more than `maxBufferSize` non-control frames and SHALL evict only the oldest one. Control frames SHALL be bounded at 256 (oldest evicted and counted beyond that); retained frames SHALL flush in send order.
 
 #### Scenario: Other control frames survive a replay flood

@@ -81,6 +81,13 @@ describe("SpawnErrorBanner — terminated timeout wording", () => {
     expect(noPid).not.toMatch(/terminated/);
   });
 
+  it("E26b: the armed PID is named only when it is among the signalled PIDs", () => {
+    // Token search signalled other PIDs: the armed pid was never signalled, so no PID-specific claim.
+    const out = text(timeout({ pid: 123, timeoutMs: 30000, terminated: true, terminatedPids: [456] }));
+    expect(out).toContain("Pi started but never connected to the dashboard within 30s and was terminated.");
+    expect(out).not.toContain("123");
+  });
+
   it("E27: testid and warning severity are unchanged when terminated", () => {
     const { getByTestId } = render(<SpawnErrorBanner detail={timeout({ pid: 1, terminated: true })} />);
     expect(getByTestId("spawn-timeout-banner").outerHTML).toContain("--severity-warning");

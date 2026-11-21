@@ -419,21 +419,22 @@ describe("ConnectionManager send buffer keeps control frames (fix-session-bridge
     expect(elapsed).toBeLessThan(1_000);
   });
 
-  // test-plan #P2 — scaling ratio, median of 3 after a warm-up
-  it("evicts in O(1) amortised: time(100k)/time(10k) stays well below the quadratic ratio", () => {
-    const frames = (count: number) => Array.from({ length: count }, (_, n) => ({ type: "event_forward", n }));
-    const f10k = frames(10_000);
-    const f100k = frames(100_000);
-    const run = (fs: unknown[]) => {
-      const { cm } = mk({ maxBufferSize: 1_000 });
+  // test-plan #P2 — capacity-scaling ratio: the SAME number of overflow evictions against a 20× larger
+  // queue. Eviction that moves the retained entries (O(queue length)) scales ~20×; O(1) stays ~1×.
+  // Median of 3 after a warm-up; the bound is generous for contended CI.
+  it("evicts in O(1) amortised: the same overflow work against a 20x larger queue stays near-constant", () => {
+    const frames = Array.from({ length: 60_000 }, (_, n) => ({ type: "event_forward", n }));
+    const run = (maxBufferSize: number) => {
+      const { cm } = mk({ maxBufferSize });
+      for (let i = 0; i < maxBufferSize; i++) cm.send(frames[i]); // fill (not timed)
       const t0 = performance.now();
-      for (const f of fs) cm.send(f);
+      for (let i = maxBufferSize; i < maxBufferSize + 30_000; i++) cm.send(frames[i % frames.length]); // 30k evictions
       return performance.now() - t0;
     };
-    const median = (fs: unknown[]) => [run(fs), run(fs), run(fs)].sort((a, b) => a - b)[1];
-    run(f10k); // warm-up (JIT)
-    const ratio = median(f100k) / Math.max(median(f10k), 0.05);
-    expect(ratio).toBeLessThan(20);
+    const median = (cap: number) => [run(cap), run(cap), run(cap)].sort((a, b) => a - b)[1];
+    run(1_000); // warm-up (JIT)
+    const ratio = median(20_000) / Math.max(median(1_000), 0.05);
+    expect(ratio).toBeLessThan(8);
   });
 
   // test-plan #P3

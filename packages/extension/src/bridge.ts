@@ -2149,7 +2149,8 @@ function initBridge(pi: ExtensionAPI) {
     drainDisposables(s);
 
     // Dev build & restart: rebuild client and stop server before reload
-    if (config.devBuildOnReload) {
+    // `/reload` only: a new/resume/fork session switch tears down too but must not rebuild or stop the server.
+    if (config.devBuildOnReload && s.shutdownReason === "reload") {
       const __filename = fileURLToPath(import.meta.url);
       const __dirname = path.dirname(__filename);
       const packageRoot = path.resolve(__dirname, "..", "..");
