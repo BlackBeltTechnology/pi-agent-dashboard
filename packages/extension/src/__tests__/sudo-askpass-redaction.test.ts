@@ -252,7 +252,7 @@ describe("short passwords (#S30)", () => {
       resetRegistry();
       registerSudoPassword(pw);
       const res = await mk().toolResult({ content: [{ type: "text", text: "banana abc" }] });
-      expect((res?.content as Array<{ text: string }>)[0].text, pw).toBe(expected);
+      expect(((res?.content ?? []) as Array<{ text: string }>)[0].text, pw).toBe(expected);
     }
   });
 

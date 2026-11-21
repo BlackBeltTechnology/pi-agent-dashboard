@@ -216,7 +216,7 @@ export function createSudoAskpass(deps: SudoAskpassDeps): SudoAskpass {
       if (installed) withdraw();
       return;
     }
-    if (installed || installing) return;
+    if (installed || installing !== undefined) return;
     if (operatorPreset()) return; // a local override (or a parent pi's wrapper) is never touched
     installing = runInstall()
       .catch(() => log("[sudo-askpass] install aborted: error"))
@@ -384,7 +384,7 @@ export function createSudoAskpass(deps: SudoAskpassDeps): SudoAskpass {
       withdraw();
     },
     whenIdle: async () => {
-      while (installing) await installing;
+      while (installing !== undefined) await installing;
     },
     wrapperPath: () => installed?.wrapperPath,
     socketPath: () => installed?.socketPath,
