@@ -14,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "../args.ts";
-import { type BusPort, type Deps, type RestResponse, Runner, runMain } from "../runner.ts";
+import { type BusPort, type Deps, type RestResponse, Runner, type RunnerOptions, runMain } from "../runner.ts";
 import type { SessionObs } from "../types.ts";
 
 export const sh = (cwd: string, ...args: string[]): string => {
@@ -328,10 +328,10 @@ export class FakeDashboard {
     };
   }
 
-  runner(argv: string[] = ["--group", "g"], over: Partial<Deps> = {}): Runner {
+  runner(argv: string[] = ["--group", "g"], over: Partial<Deps> = {}, opts: RunnerOptions = {}): Runner {
     const parsed = parseArgs(argv);
     if (!parsed.ok) throw new Error(parsed.error);
-    return new Runner(this.deps(over), parsed.args, this.fx.repo);
+    return new Runner(this.deps(over), parsed.args, this.fx.repo, opts);
   }
 
   /** Connect the bus and plan, like `runMain` does before the loop. */

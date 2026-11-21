@@ -40,6 +40,9 @@ describe("#E4 flag validation", () => {
     expect(parseArgs(["--group", "g", "--nope"]).ok).toBe(false);
     expect(parseArgs(["--group", "g", "--dry-run", "--status"]).ok).toBe(false);
   });
+  it("a blank --group is a usage error", () => {
+    expect(parseArgs(["--group", "  "]).ok).toBe(false);
+  });
   it("parses durations", () => {
     expect(parseDuration("30s")).toBe(30_000);
     expect(parseDuration("5m")).toBe(300_000);

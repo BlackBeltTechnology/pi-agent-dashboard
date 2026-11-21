@@ -84,6 +84,7 @@ type Step<T> = { ok: true; value: T } | { ok: false; reason: string };
 const restOk = (res: RestResponse): boolean => res.status >= 200 && res.status < 300 && res.json?.success !== false;
 
 export const TICK_MS = 10_000;
+export const HEARTBEAT_MS = 60_000;
 export const DEP_RETRY_ATTEMPTS = 10;
 export const DEP_RETRY_DELAY_MS = 3_000;
 export const ARCHIVE_BOUND_MS = 3 * 60_000;
@@ -176,6 +177,11 @@ export function renderTable(state: BatchState, now: number): string[] {
 
 // ── Runner ──────────────────────────────────────────────────────────
 
+export interface RunnerOptions {
+  /** Lock heartbeat period; a long-blocking action must not let the lock go stale. */
+  heartbeatMs?: number;
+}
+
 export class Runner {
   state!: BatchState;
   actionsExecuted = 0;
@@ -190,11 +196,13 @@ export class Runner {
   private stopCode: number | null = null;
   private stopWake: (() => void) | null = null;
   private lockHeld = false;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly deps: Deps,
     private readonly args: CliArgs,
     readonly repo: string,
+    private readonly opts: RunnerOptions = {},
   ) {}
 
   // ── persistence ───────────────────────────────────────────────────
@@ -232,8 +240,25 @@ export class Runner {
     fs.renameSync(tmp, this.stateFile);
   }
 
+  /** Is the lock file ours? A missing / unreadable file counts as ours to re-create. */
+  private lockIsOurs(): boolean {
+    try {
+      const cur = JSON.parse(fs.readFileSync(this.lockFile, "utf8")) as LockInfo;
+      return cur.pid === this.deps.pid && cur.hostname === this.deps.hostname;
+    } catch {
+      return true;
+    }
+  }
+
+  /** Refresh `heartbeatAt`, never overwriting a lock a successor now holds. */
   private writeLock(): void {
-    const info: LockInfo = { pid: this.deps.pid, hostname: this.deps.hostname, groupId: this.state?.groupId ?? this.args.group ?? "", heartbeatAt: this.deps.now() };
+    if (!this.lockIsOurs()) {
+      if (this.lockHeld) this.event("error", { what: "lock_lost", message: "another runner took over the lock" });
+      this.lockHeld = false;
+      return;
+    }
+    const groupId = this.state?.groupId ?? this.args.group ?? "";
+    const info: LockInfo = { pid: this.deps.pid, hostname: this.deps.hostname, groupId, heartbeatAt: this.deps.now() };
     const tmp = `${this.lockFile}.${this.deps.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(info));
     fs.renameSync(tmp, this.lockFile);
@@ -268,14 +293,12 @@ export class Runner {
     throw new ExitError("could not acquire the ship-batch lock (lost a race)", 1);
   }
 
-  private releaseLock(): void {
+  /** Stop the heartbeat and remove the lock if (and only if) it is still ours. Idempotent. */
+  releaseLock(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
     if (!this.lockHeld) return;
-    try {
-      const cur = JSON.parse(fs.readFileSync(this.lockFile, "utf8")) as LockInfo;
-      if (cur.pid === this.deps.pid && cur.hostname === this.deps.hostname) fs.rmSync(this.lockFile, { force: true });
-    } catch {
-      /* already gone */
-    }
+    if (this.lockIsOurs()) fs.rmSync(this.lockFile, { force: true });
     this.lockHeld = false;
   }
 
@@ -448,19 +471,25 @@ export class Runner {
 
   /** Execute the loop until every item is terminal or a stop is requested. Returns the exit code. */
   async runLoop(): Promise<number> {
-    while (this.stopCode === null && !isDone(this.state)) {
-      try {
-        await this.tick();
-      } catch (e) {
-        this.event("error", { what: "tick", message: String((e as Error)?.message ?? e) });
+    // The heartbeat runs on its own timer: `exec` can block for minutes (init hook, docker).
+    this.heartbeatTimer = setInterval(() => this.writeLockHeartbeat(), this.opts.heartbeatMs ?? HEARTBEAT_MS);
+    this.heartbeatTimer.unref();
+    try {
+      while (this.stopCode === null && !isDone(this.state)) {
+        try {
+          await this.tick();
+        } catch (e) {
+          this.event("error", { what: "tick", message: String((e as Error)?.message ?? e) });
+        }
+        if (this.stopCode !== null || isDone(this.state)) break;
+        const wait = this.busUpSince === null ? Math.max(1, Math.min(TICK_MS, this.nextReconnectAt - this.deps.now())) : TICK_MS;
+        await this.interruptibleSleep(wait);
       }
-      if (this.stopCode !== null || isDone(this.state)) break;
-      const wait = this.busUpSince === null ? Math.max(1, Math.min(TICK_MS, this.nextReconnectAt - this.deps.now())) : TICK_MS;
-      await this.interruptibleSleep(wait);
+      this.persist();
+      this.flushTransitions();
+    } finally {
+      this.releaseLock();
     }
-    this.persist();
-    this.flushTransitions();
-    this.releaseLock();
     if (this.stopCode !== null) return this.stopCode;
     return this.state.items.every((i) => i.state === "shipped") ? 0 : 2;
   }
@@ -880,7 +909,10 @@ export class Runner {
         return null;
       case "branch-delete": {
         const r = git(this.repo, ["branch", "-D", branch]);
-        if (!r.ok) this.event("error", { what: "branch_delete", change: item.change, message: r.stderr.trim() });
+        if (!r.ok) {
+          this.event("error", { what: "branch_delete", change: item.change, message: r.stderr.trim() });
+          this.state.notes.push(`${item.change}: could not delete local branch ${branch} (${r.stderr.trim()}); delete it before re-running`);
+        }
         return null;
       }
       case "wip-commit": {
@@ -966,10 +998,14 @@ async function runMainInner(args: CliArgs, deps: Deps, opts: { onRunner?: (r: Ru
   } catch (e) {
     throw new ExitError(`preflight: cannot connect to the dashboard bus (${String((e as Error)?.message ?? e)})`, 1);
   }
-  await runner.prepare(args.group as string);
-  const code = await runner.runLoop();
-  for (const line of runner.report()) deps.out(line);
-  return code;
+  try {
+    await runner.prepare(args.group as string);
+    const code = await runner.runLoop();
+    for (const line of runner.report()) deps.out(line);
+    return code;
+  } finally {
+    runner.releaseLock(); // a throw after the lock was taken must not strand it for 10 minutes
+  }
 }
 
 /** SIGINT/SIGTERM → stop new starts, persist, release the lock, exit 130/143 (live sessions untouched). */

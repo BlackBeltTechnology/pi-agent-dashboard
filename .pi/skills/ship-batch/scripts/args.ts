@@ -125,7 +125,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const model = raw.get("--model") ?? DEFAULT_MODEL;
   if (!model.trim()) return { ok: false, error: "--model must not be empty" };
   const group = raw.get("--group");
-  if (!group && !status) return { ok: false, error: `--group is required\n${USAGE}` };
+  if (!group?.trim() && !status) return { ok: false, error: `--group is required\n${USAGE}` };
   if (dryRun && status) return { ok: false, error: "--dry-run and --status are mutually exclusive" };
 
   return {
