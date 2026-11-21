@@ -15,14 +15,14 @@ import {
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FlowAgentState, FlowState } from "../types.js";
 import { cleanup, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { FlowAgentCard } from "../client/FlowAgentCard.js";
-import { formatCost } from "../client/format-cost.js";
 import { FlowAgentDetail } from "../client/FlowAgentDetail.js";
+import { formatCost } from "../client/format-cost.js";
 import { reduceFlowEvent } from "../reducer.js";
+import type { FlowAgentState, FlowState } from "../types.js";
 
 function ev(type: string, data: Record<string, unknown>): DashboardEvent {
   return { seq: 1, timestamp: 0, sessionId: "s1", eventType: type, data } as unknown as DashboardEvent;

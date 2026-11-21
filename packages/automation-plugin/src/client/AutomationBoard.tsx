@@ -36,9 +36,9 @@ import type { AutomationConfig, AutomationScope, DiscoveredAutomation, RunRecord
 import { nextFire } from "../shared/cron.js";
 import {
   deleteAutomation,
+  fetchAutomations,
   getAutomationDefinition,
   getRunResult,
-  fetchAutomations,
   listRuns,
   runAutomationNow,
   type StopRunResult,

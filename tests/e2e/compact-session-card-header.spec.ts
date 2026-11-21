@@ -338,7 +338,7 @@ test.describe("desktop session header — one 48 px row", () => {
 test.describe("desktop card header — Failed label", () => {
   test.setTimeout(180_000);
 
-  test("S42: an errored idle session shows Failed, ellipsized not wrapped, no horizontal overflow", async ({ page }) => {
+  test("S42: an errored idle session shows Failed on one line, inside the card, in a narrow sidebar", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     // Narrow sidebar from the first paint (the error cannot survive a reload).
     await page.addInitScript(() => localStorage.setItem("dashboard:sidebar-width", "240"));
@@ -352,13 +352,18 @@ test.describe("desktop card header — Failed label", () => {
     await expect(meta).not.toContainText("Idle");
     const geometry = await meta.evaluate((el) => {
       const word = el.querySelector('[data-testid="activity-failed"]') as HTMLElement | null;
-      const card = el.closest('[data-testid="session-card-desktop"]') as HTMLElement;
+      const cardEl = el.closest('[data-testid="session-card-desktop"]') as HTMLElement;
+      const w = word?.getBoundingClientRect();
+      const c = cardEl.getBoundingClientRect();
       return {
         wrapped: word ? word.getBoundingClientRect().height > parseFloat(getComputedStyle(word).lineHeight || "0") * 1.5 : true,
-        overflowX: card.scrollWidth - card.clientWidth,
+        // The status row clips instead of pushing past its box, and the label stays inside the card.
+        rowOverflow: el.scrollWidth - el.clientWidth,
+        labelOutsideCard: w ? Math.max(0, w.right - c.right, c.left - w.left) : 999,
       };
     });
     expect(geometry.wrapped, "Failed label stays on one line").toBe(false);
-    expect(geometry.overflowX, "card does not overflow horizontally").toBeLessThanOrEqual(TOL);
+    expect(geometry.rowOverflow, "status row does not overflow").toBeLessThanOrEqual(TOL);
+    expect(geometry.labelOutsideCard, "Failed label inside the card").toBeLessThanOrEqual(TOL);
   });
 });

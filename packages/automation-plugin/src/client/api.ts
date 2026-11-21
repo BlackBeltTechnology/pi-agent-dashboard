@@ -4,9 +4,9 @@
  */
 import type {
   ActionDescriptor,
-  DiscoveredAutomation,
   AutomationConfig,
   AutomationScope,
+  DiscoveredAutomation,
   RunRecord,
   StopOutcome,
   TriggerCategoryDescriptor,

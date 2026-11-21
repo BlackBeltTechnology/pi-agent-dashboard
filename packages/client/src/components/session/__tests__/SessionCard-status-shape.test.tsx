@@ -15,8 +15,8 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import { useMobile } from "../../../hooks/useMobile.js";
+import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import { ActivityIndicator, SessionCard, TokenStats } from "../SessionCard.js";
 
 vi.mock("../../../hooks/useMobile.js", () => ({
