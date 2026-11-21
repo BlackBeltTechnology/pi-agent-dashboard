@@ -142,11 +142,11 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
   // install window is no longer needed.
 
   // POST /api/session/:id/prompt
-  fastify.post<IdParams & { Body: { text?: string; images?: any[] } }>(
+  fastify.post<IdParams & { Body: { text?: string; images?: any[]; delivery?: unknown } }>(
     "/api/session/:id/prompt",
     async (request, reply) => {
       const { id } = request.params;
-      const { text, images } = request.body ?? {};
+      const { text, images, delivery } = request.body ?? {};
       // Untrusted input: a bare truthiness check accepted objects and numbers,
       // which then reached the bridge as a `send_prompt.text`.
       // See change: fix-spawn-correlation-ttl-coupling.
@@ -157,6 +157,13 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
       if (images !== undefined && !Array.isArray(images)) {
         reply.code(400);
         return { success: false, error: "images must be an array" } satisfies ApiResponse;
+      }
+      // Input errors do not depend on server state: checked before the session
+      // lookup. Absent stays absent — the bridge treats it as `followUp`.
+      // See change: add-rest-prompt-delivery-mode.
+      if (delivery !== undefined && delivery !== "steer" && delivery !== "followUp") {
+        reply.code(400);
+        return { success: false, error: 'delivery must be "steer" or "followUp"' } satisfies ApiResponse;
       }
       const result = getSessionOrFail(sessionManager, id);
       if ("error" in result) {
@@ -173,6 +180,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         sessionId: id,
         text,
         images,
+        ...(delivery !== undefined ? { delivery } : {}),
         promptId,
       });
       if (!sent) {

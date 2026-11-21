@@ -14,7 +14,8 @@ import { registerSessionRoutes } from "../routes/session-routes.js";
 import { createServer, type DashboardServer } from "../server.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createSessionArchive } from "../session/session-archive.js";
-import { proofFetch } from "../test-support/local-credential-stamp.js";
+import { WebSocket } from "ws";
+import { proofFetch, proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 let httpPort: number;
 let piPort: number;
@@ -117,6 +118,116 @@ describe("Session Control REST API", () => {
     expect(body).not.toHaveProperty("promptId");
   });
 
+  // ── prompt delivery mode ────────────────────────────────────────
+  // Real bridge WS capture: the bridge receives exactly what REST forwards.
+  // See change: add-rest-prompt-delivery-mode.
+  async function connectBridge(id: string) {
+    const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
+    await new Promise<void>((resolve, reject) => {
+      ws.on("open", () => resolve());
+      ws.on("error", reject);
+    });
+    const prompts: Array<Record<string, unknown>> = [];
+    ws.on("message", (raw) => {
+      try {
+        const msg = JSON.parse(String(raw));
+        if (msg.type === "send_prompt") prompts.push(msg);
+      } catch { /* non-JSON frame */ }
+    });
+    ws.send(JSON.stringify({ type: "session_register", sessionId: id, cwd: "/tmp/test", source: "cli" }));
+    await vi.waitFor(() => expect(server.sessionManager.get(id)).toBeDefined());
+    await new Promise((r) => setTimeout(r, 100));
+    return { ws, prompts };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 150));
+  describe("prompt delivery", () => {
+    it("forwards delivery:steer with promptId (#S1) and response shape is unchanged (#S9)", async () => {
+      const { ws, prompts } = await connectBridge("deliv-steer");
+      const res = await postJson("/api/session/deliv-steer/prompt", { text: "focus on X", delivery: "steer" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as any;
+      expect(body).toMatchObject({ success: true, transmitted: true });
+      expect(typeof body.promptId).toBe("string");
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      expect(prompts[0]).toMatchObject({ type: "send_prompt", text: "focus on X", delivery: "steer", promptId: body.promptId });
+      const res2 = await postJson("/api/session/deliv-steer/prompt", { text: "no delivery" });
+      const body2 = (await res2.json()) as any;
+      expect(Object.keys(body2).sort()).toEqual(Object.keys(body).sort());
+      ws.close();
+    });
+    it("forwards delivery:followUp unchanged (#S2)", async () => {
+      const { ws, prompts } = await connectBridge("deliv-follow");
+      const res = await postJson("/api/session/deliv-follow/prompt", { text: "later", delivery: "followUp" });
+      expect(res.status).toBe(200);
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      expect(prompts[0].delivery).toBe("followUp");
+      ws.close();
+    });
+    it("does not default an absent delivery (#S3)", async () => {
+      const { ws, prompts } = await connectBridge("deliv-absent");
+      const res = await postJson("/api/session/deliv-absent/prompt", { text: "hello" });
+      expect(res.status).toBe(200);
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      expect("delivery" in prompts[0]).toBe(false);
+      ws.close();
+    });
+    it.each([
+      ["now"], [""], ["Steer"], ["STEER"], [5], [0], [null], [true], [["steer"]], [{}],
+    ])("rejects invalid delivery %j with 400 and sends nothing (#S4)", async (bad) => {
+      const { ws, prompts } = await connectBridge(`deliv-bad-${JSON.stringify(bad)}`.replace(/\W/g, "_"));
+      const id = `deliv-bad-${JSON.stringify(bad)}`.replace(/\W/g, "_");
+      const res = await postJson(`/api/session/${id}/prompt`, { text: "hi", delivery: bad });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ success: false, error: 'delivery must be "steer" or "followUp"' });
+      await settle();
+      expect(prompts).toHaveLength(0);
+      ws.close();
+    });
+    it("invalid delivery wins over an unknown session — 400 not 404 (#S5)", async () => {
+      const res = await postJson("/api/session/deliv-unknown/prompt", { text: "hi", delivery: "now" });
+      expect(res.status).toBe(400);
+    });
+    it("valid delivery + unknown session is still 404 (#S6)", async () => {
+      const res = await postJson("/api/session/deliv-unknown/prompt", { text: "hi", delivery: "steer" });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ success: false, error: "session not found" });
+    });
+    it("validation order is text → images → delivery (#S7)", async () => {
+      const a = await postJson("/api/session/deliv-unknown/prompt", { delivery: "now" });
+      expect(a.status).toBe(400);
+      expect((await a.json()).error).toBe("text is required");
+      const b = await postJson("/api/session/deliv-unknown/prompt", { text: "hi", images: "nope", delivery: "now" });
+      expect(b.status).toBe(400);
+      expect((await b.json()).error).toBe("images must be an array");
+    });
+    it("REST steer message equals the browser-WS steer message modulo promptId (#S8)", async () => {
+      const { ws, prompts } = await connectBridge("deliv-equal");
+      const images = [{ type: "image", data: "AAAA", mimeType: "image/png" }];
+      await postJson("/api/session/deliv-equal/prompt", { text: "same", images, delivery: "steer" });
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      const browser = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
+      await new Promise<void>((resolve, reject) => {
+        browser.on("open", () => resolve());
+        browser.on("error", reject);
+      });
+      browser.send(JSON.stringify({ type: "send_prompt", sessionId: "deliv-equal", text: "same", images, delivery: "steer" }));
+      await vi.waitFor(() => expect(prompts).toHaveLength(2));
+      const { promptId: _a, ...rest } = prompts[0];
+      const { promptId: _b, ...wsMsg } = prompts[1];
+      expect(rest).toEqual(wsMsg);
+      browser.close();
+      ws.close();
+    });
+    // #X1 — transmit failure unchanged with delivery set.
+    it("502 transmitted:false when no bridge, even with delivery:steer (#X1)", async () => {
+      registerSession("deliv-no-bridge");
+      const res = await postJson("/api/session/deliv-no-bridge/prompt", { text: "hello", delivery: "steer" });
+      expect(res.status).toBe(502);
+      const body = (await res.json()) as any;
+      expect(body.transmitted).toBe(false);
+      expect(body).not.toHaveProperty("promptId");
+    });
+  });
   // ── abort ───────────────────────────────────────────────────────
 
   it("POST /api/session/:id/abort — 404 for unknown", async () => {
