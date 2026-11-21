@@ -4038,6 +4038,21 @@ The rejected alternative, `within(realpath(resolved), realpath(grant))`, was a *
 
 **The store.** `packages/server/src/access/access-grants.ts`. Persisted at `~/.pi/dashboard/access-grants.json` (`PI_ACCESS_GRANTS_STORE` overrides; schema `{ version: 1, grants }`). One grant carries `subject` (realpath), `scope` (`"session"` — in-memory until server restart — or `"project"` — persisted), `grantedAt`, `origin` (the session whose denial produced it), and optional `widenedFrom` (the denied subject when the grant came from an offered ancestor). Invariants: absent/malformed store → empty, never throws; **cap 200 per scope**, oldest-`grantedAt` evicted within that scope only (a union cap would let an ephemeral session grant delete a persisted project grant); writes atomic (temp + rename) so a crash mid-write cannot truncate the store into its own malformed→empty rule; a failed write is non-fatal — the subject stays ungranted, the failure is logged **and returned to the caller** so the UI cannot claim a grant that does not exist. Recorded grants are audited (`[access-grant] granted subject=… scope=… site=… denialId=…`).
 
+**Write-mode grants** (change: fix-file-link-editor-routing, D2). Out-of-cwd text-doc save (`POST /api/file/write`) needs write grant. Read grant never admits write.
+
+- `AccessGrant.mode?: "read" | "write"`. Absent = read. Store stays `version: 1`; rollback-safe (old build reads entry as read grant).
+- `loadFromDisk` fail-closed: `mode` other than exact `"write"` → read.
+- One entry per `(subject, scope, mode)`. Write grant = second entry beside read grant. Revocable independently.
+- `grantedSubjects()` unchanged, includes write entries (write ⊃ read). `grantedWriteSubjects()` = `mode:"write"` only.
+- Write evaluation: `evaluateContainment(..., {action:"write"})`. Skips layer ② (`checkoutAnchors`): checkout roots never admit write. Grant layer uses write subjects only.
+- Denial side field = `action: "read" | "write"` (`PathDenial`, `DenialFacts`, `PendingGrant`). Not `mode`: `mode` already names held/deferred prompt plane.
+- Pending registry key = `plane \0 action \0 subject`. Read + write denial for same dir = separate entries.
+- Grant mode derived server-side from recorded denial/prompt `action`. Never from client field. `grant_response` carries verdict + rung only.
+- `allow-once` = transient real-path grant for this request, write predicate, never persisted. `performAtomicMdWrite` re-realpath must equal gated realpath, else refuse.
+- YOLO: write hold = filesystem-plane denial → auto allow-once, only within YOLO roots (default root = session cwd → outside write still prompts). No persisted grant.
+- Prompt before existence: nonexistent outside doc prompts, then `404`. Stat-first = existence oracle, refused.
+- Access page: write row shows "Write" badge. `DELETE /api/access/grants` optional `mode`; last-entry removal only un-mirrors pi-trust.
+
 `"session"` scope means the **server process**, not the pi session whose denial produced it (design D17): one grant widens the grant layer for every session and every connected client; `origin` is what the Access tab shows.
 
 **Read-once, cost-bounded on the hot path** (design D16). The store is loaded into memory once and invalidated on write; the containment path never reads the store synchronously. `isAllowed` is async by explicit design (one caller stalling would block every request), so a sync read on that path would regress it. With an empty store the predicate short-circuits with zero syscalls — that is what makes "empty store is byte-identical to today" true of **cost** as well as outcome. When grants exist, evaluation is a linear scan of distinct subjects with one `realpath` on the request side; `grep-routes.ts` awaits the predicate per match, so N matches x 200 grants x a `realpath` is the worst case the cap alone does not bound. `GET /api/access/store-stats` exposes the load count so a test can prove the hot path never re-reads the store. Rollback consequence: deleting the store file changes nothing until the process restarts — the supported rollback is **revoke through the Access tab** (which invalidates the in-memory set), or delete-then-restart.
