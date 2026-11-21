@@ -2395,7 +2395,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                       <p className="mt-1 text-xs text-red-400">{i18nT("common.mustBeAnIntegerBetween5000", undefined, "Must be an integer between 5000 and 120000.")}</p>
                     )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a new pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
+                      {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a new pi session to connect before reporting a failure and terminating the new pi process. Default 30000 (30s). Range 5000–120000.")}
                     </p>
                   </div>
                 </Section>

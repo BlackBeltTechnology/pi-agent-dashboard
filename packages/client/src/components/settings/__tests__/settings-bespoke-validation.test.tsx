@@ -231,3 +231,35 @@ describe("wrapper toggles forward their hint (D6)", () => {
     expect(document.getElementById(describedBy!)?.textContent).toBe("Forwarded description");
   });
 });
+
+// test-plan #E30 — honest hint: the watchdog terminates the new pi process.
+// See change: fix-session-bridge-registration.
+describe("spawnRegisterTimeoutMs helper text says the new pi process is terminated", () => {
+  const original = mockConfig.spawnRegisterTimeoutMs;
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    putBodies = [];
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    window.history.replaceState({}, "", "/settings/general");
+    mockConfig.spawnRegisterTimeoutMs = 45000;
+    global.fetch = mockFetchConfig();
+  });
+  afterEach(() => {
+    mockConfig.spawnRegisterTimeoutMs = original;
+    cleanup();
+  });
+
+  it("renders the new hint, keeps the label, and the bounds check still applies", async () => {
+    const input = await renderSessions();
+    expect(input.value).toBe("45000");
+    expect(
+      screen.getByText(
+        "How long to wait for a new pi session to connect before reporting a failure and terminating the new pi process. Default 30000 (30s). Range 5000–120000.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Session register timeout/i)).toBeTruthy();
+    fireEvent.change(input, { target: { value: "4999" } });
+    expect(screen.getByText(ERROR_TEXT)).toBeTruthy();
+  });
+});

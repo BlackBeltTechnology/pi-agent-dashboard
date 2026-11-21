@@ -77,6 +77,13 @@ export interface SpawnErrorDetail {
   pid?: number;
   /** Effective watchdog timeout in ms, for rendering "30s" in the timeout banner. */
   timeoutMs?: number;
+  /**
+   * The watchdog signalled the unregistered pi process. Left `undefined` (not
+   * coerced to `false`) when the server did not say. See change: fix-session-bridge-registration.
+   */
+  terminated?: boolean;
+  /** Pids the reclaim was signalled to; carried for evidence, only `pid` is rendered. */
+  terminatedPids?: number[];
 }
 
 import { applyPluginConfigUpdate, clearSessionEvents, getPluginConfig, intentStore, publishSessionData, publishSessionEvent, publishSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime/host";
@@ -1637,6 +1644,8 @@ export function useMessageHandler(
             pid: msg.pid,
             stderr: msg.stderrTail,
             timeoutMs: msg.timeoutMs,
+            terminated: msg.terminated,
+            terminatedPids: msg.terminatedPids,
           });
           return next;
         });

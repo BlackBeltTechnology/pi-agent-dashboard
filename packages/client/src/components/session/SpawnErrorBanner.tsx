@@ -111,13 +111,19 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
 }
 
 function TimeoutSurface({ detail, onDismiss }: Props) {
-  const { pid, stderr, timeoutMs } = detail;
+  const { pid, stderr, timeoutMs, terminated } = detail;
   // Use the timeout value carried in the message; fall back to 30s for legacy servers.
   const timeoutSecs = timeoutMs !== undefined ? timeoutMs / 1000 : 30;
 
-  const label = pid !== undefined
-    ? i18nT("err.spawnTimeoutWithPid", { pid, secs: timeoutSecs }, "Pi started (PID {pid}) but never connected to the dashboard within {secs}s.")
-    : i18nT("err.spawnTimeout", { secs: timeoutSecs }, "Pi started but never connected to the dashboard within {secs}s.");
+  // `terminated` only ever arrives as `true` (the watchdog omits it otherwise), so
+  // legacy servers and the nothing-signalled case keep the never-connected text.
+  const label = terminated
+    ? pid !== undefined
+      ? i18nT("err.spawnTimeoutTerminatedWithPid", { pid, secs: timeoutSecs }, "Pi started (PID {pid}) but never connected to the dashboard within {secs}s and was terminated.")
+      : i18nT("err.spawnTimeoutTerminated", { secs: timeoutSecs }, "Pi started but never connected to the dashboard within {secs}s and was terminated.")
+    : pid !== undefined
+      ? i18nT("err.spawnTimeoutWithPid", { pid, secs: timeoutSecs }, "Pi started (PID {pid}) but never connected to the dashboard within {secs}s.")
+      : i18nT("err.spawnTimeout", { secs: timeoutSecs }, "Pi started but never connected to the dashboard within {secs}s.");
 
   return (
     <div className="mx-2">

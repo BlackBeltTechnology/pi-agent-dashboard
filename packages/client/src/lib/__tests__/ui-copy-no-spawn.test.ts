@@ -260,3 +260,46 @@ describe("user-facing copy — keys and translations stable (E8)", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * Terminated-timeout banner wording (#1128): new keys sit next to err.spawnTimeout*
+ * in every locale and the English copy stays free of the word "spawn".
+ * See change: fix-session-bridge-registration (test-plan E29).
+ */
+describe("terminated-timeout banner copy (E29)", () => {
+  const NEW_KEYS = ["err.spawnTimeoutTerminated", "err.spawnTimeoutTerminatedWithPid"] as const;
+  const enSource = JSON.parse(readFileSync(join(PACKAGES, "client", "src", "lib", "i18n-en-source.json"), "utf8")) as Record<string, string>;
+  const zhSource = readFileSync(join(PACKAGES, "client", "src", "lib", "i18n", "i18n-zh-CN.ts"), "utf8");
+
+  it("both keys exist in en source, hu and zh-CN", () => {
+    for (const k of NEW_KEYS) {
+      expect(enSource[k], `en:${k}`).toBeTruthy();
+      expect(huCatalog[k], `hu:${k}`).toBeTruthy();
+      expect(zhSource.includes(`"${k}":`), `zh:${k}`).toBe(true);
+    }
+  });
+
+  it("the English strings never say spawn and carry the {secs}/{pid} placeholders", () => {
+    for (const k of NEW_KEYS) expect(SPAWN.test(enSource[k]!), k).toBe(false);
+    expect(enSource["err.spawnTimeoutTerminated"]).toContain("{secs}");
+    expect(enSource["err.spawnTimeoutTerminatedWithPid"]).toContain("{pid}");
+    expect(enSource["err.spawnTimeoutTerminatedWithPid"]).toContain("{secs}");
+  });
+
+  it("the hu strings keep every placeholder", () => {
+    expect(huCatalog["err.spawnTimeoutTerminated"]).toContain("{secs}");
+    expect(huCatalog["err.spawnTimeoutTerminatedWithPid"]).toContain("{pid}");
+    expect(huCatalog["err.spawnTimeoutTerminatedWithPid"]).toContain("{secs}");
+  });
+
+  it("the settings hint says the new pi process is terminated, keeps its key, and never says spawn (E30)", () => {
+    expect(enSource["common.howLongToWaitForA"]).toBe(
+      "How long to wait for a new pi session to connect before reporting a failure and terminating the new pi process. Default 30000 (30s). Range 5000–120000.",
+    );
+    expect(SPAWN.test(enSource["common.howLongToWaitForA"]!)).toBe(false);
+    expect(zhSource).toContain('"common.howLongToWaitForA":');
+    expect(readFileSync(join(PACKAGES, "client", "src", "lib", "i18n", "i18n-legacy-aliases.ts"), "utf8")).toContain(
+      '"auto.how_long_to_wait_for_a": "common.howLongToWaitForA"',
+    );
+  });
+});

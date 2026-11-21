@@ -553,6 +553,14 @@ export interface SpawnRegisterTimeoutMessage {
   /** The effective watchdog timeout in ms — so the UI can render e.g. "30s". See change: spawn-failure-diagnostics (fix W2). */
   timeoutMs?: number;
   /**
+   * The watchdog dispatched its SIGTERM → SIGKILL reclaim to at least one pid
+   * (dispatched, not verified exited). Absent — never `false` — when nothing was
+   * signalled. See change: fix-session-bridge-registration (D3).
+   */
+  terminated?: boolean;
+  /** Pids the reclaim was dispatched to; present iff `terminated`. */
+  terminatedPids?: number[];
+  /**
    * The browser `requestId` of the spawn that timed out, when known (looked up
    * from the server's `spawnToken → requestId` map). Lets the folder home
    * re-enable Start for exactly its own spawn. See change: redesign-directory-home-split.

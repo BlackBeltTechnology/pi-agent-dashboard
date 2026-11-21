@@ -749,3 +749,239 @@ describe("SpawnRegisterWatchdog: recovery identity and observability", () => {
     expect(entry.strategy).toBe("tmux");
   });
 });
+
+/**
+ * Honest watchdog wording: the timeout message and failure record carry the
+ * reclaim evidence (`terminated`, `terminatedPids`). "Signalled" = termination
+ * dispatched without throwing — not a verified exit.
+ *
+ * See change: fix-session-bridge-registration (D3; test-plan E18-E22, X1-X5).
+ */
+describe("SpawnRegisterWatchdog: terminated evidence on the timeout", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(appendSpawnFailure).mockReset();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const TOKEN = "0f0f0f0f-aaaa-bbbb-cccc-1234567890ab";
+
+  function lastFailure() {
+    return vi.mocked(appendSpawnFailure).mock.calls.at(-1)![0];
+  }
+
+  // E18
+  it("reports terminated:true and the signalled pids on message and log entry", () => {
+    const { ws, messages } = makeMockWs();
+    const kill = vi.fn();
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: () => [4242], kill });
+    w.arm({ pid: 4242, cwd: "/p/e18", mechanism: "headless", ws, spawnToken: TOKEN });
+    vi.advanceTimersByTime(10001);
+
+    const msg = JSON.parse(messages[0]!);
+    expect(msg.terminated).toBe(true);
+    expect(msg.terminatedPids).toEqual([4242]);
+    const entry = lastFailure();
+    expect(entry.code).toBe("REGISTER_TIMEOUT");
+    expect(entry.terminated).toBe(true);
+    expect(entry.terminatedPids).toEqual([4242]);
+  });
+
+  // E19
+  it("omits terminated/terminatedPids when there is nothing to signal (tmux, no pid)", () => {
+    const { ws, messages } = makeMockWs();
+    const kill = vi.fn();
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: () => [], kill });
+    w.arm({ cwd: "/p/e19", mechanism: "tmux", ws });
+    vi.advanceTimersByTime(10001);
+
+    const msg = JSON.parse(messages[0]!);
+    expect("terminated" in msg).toBe(false);
+    expect("terminatedPids" in msg).toBe(false);
+    const entry = lastFailure();
+    expect("terminated" in entry).toBe(false);
+    expect("terminatedPids" in entry).toBe(false);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  // E20
+  it.each([
+    { name: "first throws", throwsFor: [1], expected: [2] },
+    { name: "second throws", throwsFor: [2], expected: [1] },
+  ])("a partial kill failure ($name) still kills every pid and reports the signalled ones", ({
+    throwsFor,
+    expected,
+  }) => {
+    const { ws, messages } = makeMockWs();
+    const kill = vi.fn((pid: number) => {
+      if (throwsFor.includes(pid)) throw new Error("EPERM");
+    });
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: () => [1, 2], kill });
+    w.arm({ cwd: "/p/e20", mechanism: "tmux", ws, spawnToken: TOKEN });
+    vi.advanceTimersByTime(10001);
+
+    expect(kill.mock.calls.map((c) => c[0])).toEqual([1, 2]);
+    const msg = JSON.parse(messages[0]!);
+    expect(msg.terminated).toBe(true);
+    expect(msg.terminatedPids).toEqual(expected);
+    expect(lastFailure().terminatedPids).toEqual(expected);
+  });
+
+  it("omits the fields when every kill throws, and still emits the message", () => {
+    const { ws, messages } = makeMockWs();
+    const kill = vi.fn(() => {
+      throw new Error("EPERM");
+    });
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: () => [1, 2], kill });
+    w.arm({ cwd: "/p/e20b", mechanism: "tmux", ws, spawnToken: TOKEN });
+    vi.advanceTimersByTime(10001);
+
+    expect(kill).toHaveBeenCalledTimes(2);
+    expect(messages).toHaveLength(1);
+    const msg = JSON.parse(messages[0]!);
+    expect("terminated" in msg).toBe(false);
+    expect("terminatedPids" in msg).toBe(false);
+    expect("terminated" in lastFailure()).toBe(false);
+  });
+
+  // E21
+  it("(a) reports all token pids in kill order", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: () => [18163, 18674],
+      kill: vi.fn(),
+    });
+    w.arm({ cwd: "/p/e21a", mechanism: "tmux", ws, spawnToken: TOKEN });
+    vi.advanceTimersByTime(10001);
+    expect(JSON.parse(messages[0]!).terminatedPids).toEqual([18163, 18674]);
+  });
+
+  it("(b) reports the headless pid when there is no token", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: () => [],
+      kill: vi.fn(),
+    });
+    w.arm({ pid: 77, cwd: "/p/e21b", mechanism: "headless", ws });
+    vi.advanceTimersByTime(10001);
+    expect(JSON.parse(messages[0]!).terminatedPids).toEqual([77]);
+  });
+
+  it("(c) never kills nor reports our own or our parent pid", () => {
+    const { ws, messages } = makeMockWs();
+    const kill = vi.fn();
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: () => [process.pid, process.ppid, 18163],
+      kill,
+    });
+    w.arm({ cwd: "/p/e21c", mechanism: "tmux", ws, spawnToken: TOKEN });
+    vi.advanceTimersByTime(10001);
+
+    expect(kill.mock.calls.map((c) => c[0])).toEqual([18163]);
+    expect(JSON.parse(messages[0]!).terminatedPids).toEqual([18163]);
+    expect(lastFailure().terminatedPids).toEqual([18163]);
+  });
+
+  // E22
+  it("counts a pid as signalled when the kill seam returns without throwing (no liveness probe)", () => {
+    const { ws, messages } = makeMockWs();
+    // Mirrors killProcess resolving `ok:false` for an already-dead pid: the
+    // seam is fire-and-forget, so it simply returns.
+    const kill = vi.fn(() => undefined);
+    const findPids = vi.fn(() => [9001]);
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: findPids, kill });
+    w.arm({ cwd: "/p/e22", mechanism: "tmux", ws, spawnToken: TOKEN });
+    vi.advanceTimersByTime(10001);
+
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(findPids).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(messages[0]!).terminatedPids).toEqual([9001]);
+  });
+
+  // X1
+  it("a synchronously throwing kill for the only pid leaks no exception and emits no evidence", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: () => [],
+      kill: () => {
+        throw new Error("EPERM");
+      },
+    });
+    w.arm({ pid: 31, cwd: "/p/x1", mechanism: "headless", ws });
+    expect(() => vi.advanceTimersByTime(10001)).not.toThrow();
+
+    expect(appendSpawnFailure).toHaveBeenCalledTimes(1);
+    expect(messages).toHaveLength(1);
+    const msg = JSON.parse(messages[0]!);
+    expect("terminated" in msg).toBe(false);
+    expect("terminatedPids" in msg).toBe(false);
+    expect("terminated" in lastFailure()).toBe(false);
+    expect("terminatedPids" in lastFailure()).toBe(false);
+  });
+
+  // X2
+  it("a failing appendSpawnFailure (disk full) after a successful reclaim still emits the message", () => {
+    const { ws, messages } = makeMockWs();
+    const kill = vi.fn();
+    vi.mocked(appendSpawnFailure).mockImplementationOnce(() => {
+      throw new Error("ENOSPC");
+    });
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: () => [4242], kill });
+    w.arm({ pid: 4242, cwd: "/p/x2", mechanism: "headless", ws });
+    expect(() => vi.advanceTimersByTime(10001)).not.toThrow();
+
+    expect(kill).toHaveBeenCalledWith(4242);
+    expect(messages).toHaveLength(1);
+    const msg = JSON.parse(messages[0]!);
+    expect(msg.terminated).toBe(true);
+    expect(msg.terminatedPids).toEqual([4242]);
+  });
+
+  // X3
+  it("reclaims strictly before appending the failure record, which already carries the pids", () => {
+    const { ws } = makeMockWs();
+    const kill = vi.fn();
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: () => [4242], kill });
+    w.arm({ pid: 4242, cwd: "/p/x3", mechanism: "headless", ws });
+    vi.advanceTimersByTime(10001);
+
+    const killOrder = kill.mock.invocationCallOrder[0]!;
+    const appendOrder = vi.mocked(appendSpawnFailure).mock.invocationCallOrder[0]!;
+    expect(killOrder).toBeLessThan(appendOrder);
+    expect(lastFailure().terminatedPids).toEqual([4242]);
+  });
+
+  // X4
+  it("a closed browser socket still kills and records the evidence, but sends nothing", () => {
+    const { ws, messages } = makeMockWs(WebSocket.CLOSED);
+    const kill = vi.fn();
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: () => [4242], kill });
+    w.arm({ pid: 4242, cwd: "/p/x4", mechanism: "headless", ws });
+    vi.advanceTimersByTime(10001);
+
+    expect(kill).toHaveBeenCalledWith(4242);
+    expect(lastFailure().terminated).toBe(true);
+    expect(lastFailure().terminatedPids).toEqual([4242]);
+    expect(messages).toHaveLength(0);
+  });
+
+  // X5
+  it("a throwing findPidsBySpawnToken still logs and emits, with no terminated evidence", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: () => {
+        throw new Error("ps unavailable");
+      },
+      kill: vi.fn(),
+    });
+    w.arm({ cwd: "/p/x5", mechanism: "tmux", ws, spawnToken: TOKEN });
+    expect(() => vi.advanceTimersByTime(10001)).not.toThrow();
+
+    expect(appendSpawnFailure).toHaveBeenCalledTimes(1);
+    expect(messages).toHaveLength(1);
+    expect("terminated" in JSON.parse(messages[0]!)).toBe(false);
+    expect("terminated" in lastFailure()).toBe(false);
+  });
+});

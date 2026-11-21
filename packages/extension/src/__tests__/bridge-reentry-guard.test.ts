@@ -9,21 +9,44 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// The real bridge builds its `ConnectionManager` in `initBridge`; swap it for a recording fake so no
+// socket opens and the `session_register` frames the bridge sends are observable (E6).
+const fakeConnections = vi.hoisted(() => ({ instances: [] as Array<{ sent: Array<Record<string, unknown>> }> }));
+vi.mock("../connection.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../connection.js")>();
+  class FakeConnectionManager {
+    sent: Array<Record<string, unknown>> = [];
+    constructor() {
+      fakeConnections.instances.push(this);
+      // Every other member the bridge touches is an inert stub.
+      return new Proxy(this, {
+        get: (t, prop) => (prop in t ? (t as never)[prop] : prop === "isConnected" ? false : vi.fn()),
+      });
+    }
+    send(m: Record<string, unknown>) {
+      this.sent.push(m);
+    }
+  }
+  return { ...actual, ConnectionManager: FakeConnectionManager };
+});
+
 const BRIDGE_KEY = "__pi_dashboard_bridge__";
 const g = process as unknown as Record<string, unknown>;
 
 /** A `pi` whose every method is a recording stub; `on` calls are inspectable. */
 function recordingPi() {
   const calls: Array<{ method: string; args: unknown[] }> = [];
+  const handlers = new Map<string, (e: unknown, c: unknown) => unknown>();
   const pi = new Proxy({} as Record<string, unknown>, {
     get(_t, prop: string) {
       if (prop === "events") return { on: vi.fn(), emit: vi.fn() };
       return (...args: unknown[]) => {
         calls.push({ method: prop, args });
+        if (prop === "on") handlers.set(String(args[0]), args[1] as (e: unknown, c: unknown) => unknown);
       };
     },
   });
-  return { pi, calls };
+  return { pi, calls, handlers };
 }
 
 describe("X4: subagent re-entry guard is unchanged", () => {
@@ -58,6 +81,75 @@ describe("X4: subagent re-entry guard is unchanged", () => {
     );
     expect(bridgeRegistrations).toEqual([]);
   });
+});
+
+// #1175 / test-plan #E6: when pi replaces the session (new / resume / fork) it loads a FRESH
+// `ExtensionAPI` into the same process. The shutdown of the outgoing owner must release the guard so
+// the replacement initialises and registers the NEW session. The existing bridge-resume-disconnect
+// suite reuses one `pi` object and so cannot see this.
+describe("E6: a distinct pi loaded after session_shutdown{new|resume|fork} re-initialises", () => {
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    prevEnv = process.env.PI_DASHBOARD_BRIDGE;
+    process.env.PI_DASHBOARD_BRIDGE = "on";
+    fakeConnections.instances.length = 0;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) delete process.env.PI_DASHBOARD_BRIDGE;
+    else process.env.PI_DASHBOARD_BRIDGE = prevEnv;
+    delete g[BRIDGE_KEY];
+    vi.restoreAllMocks();
+  });
+
+  function makeCtx(sessionId: string) {
+    return {
+      cwd: process.cwd(),
+      hasUI: false,
+      model: { provider: "anthropic", id: "claude-sonnet-4-6" },
+      sessionManager: {
+        getSessionId: () => sessionId,
+        getSessionFile: () => undefined,
+        getSessionDir: () => undefined,
+        getCwd: () => process.cwd(),
+        getBranch: () => [],
+        getEntries: () => [],
+      },
+      ui: {},
+    };
+  }
+
+  for (const reason of ["new", "resume", "fork"] as const) {
+    it(`${reason}: generation bumps, handlers land on pi2, session_register carries the new session id`, async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const pi1 = recordingPi();
+      const pi2 = recordingPi();
+      const { default: bridge } = await import("../bridge.js");
+
+      // Owner pi1 is live, then pi shuts it down for a session replacement.
+      bridge(pi1.pi as never);
+      const state = g[BRIDGE_KEY] as { generation: number; pi: unknown };
+      expect(state.pi).toBe(pi1.pi);
+      expect(state.generation).toBe(1);
+      await pi1.handlers.get("session_shutdown")?.({ type: "session_shutdown", reason }, makeCtx("old-session"));
+      expect(state.pi).toBeUndefined();
+
+      // pi then loads a DISTINCT ExtensionAPI for the replacement session.
+      bridge(pi2.pi as never);
+      expect(state.generation).toBe(2);
+      expect(state.pi).toBe(pi2.pi);
+      expect(pi2.handlers.has("session_start")).toBe(true);
+      expect(pi2.handlers.has("session_shutdown")).toBe(true);
+
+      await pi2.handlers.get("session_start")?.({ type: "session_start", reason }, makeCtx("new-session"));
+      const conn = fakeConnections.instances[fakeConnections.instances.length - 1];
+      const registers = conn.sent.filter((m) => m.type === "session_register");
+      expect(registers.map((m) => m.sessionId)).toContain("new-session");
+    });
+  }
 });
 
 // The dashboard extension registers the Claude subscription compat rewrite on

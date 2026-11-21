@@ -145,3 +145,14 @@ describe("pairing dialog remedy keys (E55)", () => {
     for (const [key, text] of referenced) expect(text, key).not.toMatch(/\{(code|confirm)/i);
   });
 });
+
+/** See change: fix-session-bridge-registration (E29). */
+describe("terminated-timeout banner keys (E29)", () => {
+  it("are catalogued in en source, hu and zh-CN, next to err.spawnTimeout*", () => {
+    for (const key of ["err.spawnTimeoutTerminated", "err.spawnTimeoutTerminatedWithPid"]) {
+      for (const [label, source] of catalogs.filter(([l]) => l !== "i18n-legacy-aliases.ts")) {
+        expect(source.includes(`"${key}"`), `${label} has ${key}`).toBe(true);
+      }
+    }
+  });
+});
