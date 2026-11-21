@@ -160,7 +160,7 @@ const isReservedPath = (subPath: string): boolean => {
 const schemeOf = (request: FastifyRequest): "http" | "https" => (request.protocol === "https" ? "https" : "http");
 
 /**
- * APPEND our CSP (and `Reporting-Endpoints` entry) to the upstream's response headers —
+ * APPEND our CSP to the upstream's response headers —
  * never replacing or stripping the upstream's: browsers enforce every header, so the
  * result is the stricter intersection.
  */
@@ -168,10 +168,6 @@ function appendCsp(headers: Record<string, unknown>, csp: LiveCspResult): void {
   const upstreamCsp = headers["content-security-policy"];
   const existing = upstreamCsp === undefined ? [] : Array.isArray(upstreamCsp) ? upstreamCsp : [upstreamCsp];
   headers["content-security-policy"] = [...existing, csp.csp];
-  if (!csp.reportingEndpoints) return;
-  const re = headers["reporting-endpoints"];
-  headers["reporting-endpoints"] =
-    typeof re === "string" && re.length > 0 ? `${re}, ${csp.reportingEndpoints}` : csp.reportingEndpoints;
 }
 
 /** localhost/::1 resolve to 127.0.0.1 for the upstream TCP connect. */
@@ -240,7 +236,6 @@ export function registerLiveServerProxy(
     if (!csp) return notFoundReply(reply);
     manager.use(target.id);
     const extra: Record<string, string> = { "content-security-policy": csp.csp };
-    if (csp.reportingEndpoints) extra["reporting-endpoints"] = csp.reportingEndpoints;
     return serveStatic(request, reply, target, subPath, extra, {
       gate: deps.staticGate ?? (async () => false),
       onHtmlServed: (real) => deps.onStaticHtmlServed?.(grant, real),

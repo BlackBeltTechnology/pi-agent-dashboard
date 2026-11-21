@@ -28,17 +28,18 @@
  *
  * Strict policy (S3b): identical to the baseline except `script-src 'self' 'nonce-<n>'` (no
  * `'unsafe-inline'`/`'unsafe-eval'`). `report` mode emits baseline + strict as two Report-Only headers;
- * `enforce` emits strict enforcing only. Each carries `report-uri`/`report-to` for its own label (the TT-only
- * header: `trusted-types`) plus a `Reporting-Endpoints` header. The nonce is minted per HTML response by
+ * `enforce` emits strict enforcing only. Each carries `report-uri` for its own label (the TT-only
+ * header: `trusted-types`); never `report-to` / `Reporting-Endpoints` (Chromium and Firefox never deliver
+ * those on plain http, and `report-to` suppresses `report-uri`). The nonce is minted per HTML response by
  * `cspNonceFor(reply)` (memoized; non-HTML responses carry none). A response proxied to Vite
  * (`markViteProxied`) is a dev response: baseline only (legacy `script-src`), no strict, no nonce, no report
- * destination. Default mode stays `report`. See change: harden-cors-and-csp-reporting (D9, D10).
+ * destination. Default mode stays `report`. See change: harden-cors-and-csp-reporting (D9, D10), fix-csp-report-delivery (D1).
  *
  * See change: improve-content-editor (baseline CSP §7).
  */
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { type CspReportPolicy, cspReportEndpointName, cspReportPath } from "./csp-report-paths.js";
+import { type CspReportPolicy, cspReportPath } from "./csp-report-paths.js";
 
 // One resolver for the server and the dev plugin; re-exported so the server's callers keep one import site.
 export { resolveTrustedTypesMode } from "@blackbelt-technology/pi-dashboard-shared/trusted-types-mode.js";
@@ -145,19 +146,11 @@ export function registerCsp(fastify: FastifyInstance, mode: CspMode, ttMode: Csp
     const url = request.url;
     if (SKIP_PREFIXES.some((p) => url.startsWith(p))) return payload;
     const dev = viteProxied.has(reply);
-    const used = new Set<CspReportPolicy>();
     // Each header kind is added only when absent (a route-level policy stands).
     for (const [kind, entries] of plan(mode, ttMode, dev, nonces.get(reply))) {
       if (reply.getHeader(kind)) continue;
-      const values = entries.map(({ value, label }) => {
-        if (!label) return value;
-        used.add(label);
-        return `${value}; report-uri ${cspReportPath(label)}; report-to ${cspReportEndpointName(label)}`;
-      });
+      const values = entries.map(({ value, label }) => (label ? `${value}; report-uri ${cspReportPath(label)}` : value));
       reply.header(kind, values.length === 1 ? values[0] : values);
-    }
-    if (used.size > 0 && !reply.getHeader("reporting-endpoints")) {
-      reply.header("reporting-endpoints", [...used].map((l) => `${cspReportEndpointName(l)}="${cspReportPath(l)}"`).join(", "));
     }
     return payload;
   });

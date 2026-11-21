@@ -84,7 +84,8 @@ describe("E19 — CSP builder (design D3/D4)", () => {
     }
     expect(directive(csp, "frame-ancestors")).toBe("frame-ancestors 'self'");
     expect(directive(csp, "report-uri")).toBe("report-uri /live/abc12345/~c/TOKEN_TOKEN_TOKEN_TOKEN_1/__pi/csp-report");
-    expect(r!.reportingEndpoints).toBe('csp="/live/abc12345/~c/TOKEN_TOKEN_TOKEN_TOKEN_1/__pi/csp-report"');
+    expect(csp).not.toContain("report-to");
+    expect(r).not.toHaveProperty("reportingEndpoints");
     // No dashboard-origin source anywhere: every `'self'` is the frame-ancestors one.
     expect(csp.match(/'self'/g)).toHaveLength(1);
     expect(csp).not.toContain("https://dash.example:8000 ");
@@ -107,7 +108,8 @@ describe("E19 — CSP builder (design D3/D4)", () => {
     expect(on.csp).toBe(
       "sandbox allow-scripts allow-forms allow-popups allow-downloads; object-src 'none'; frame-ancestors 'self'",
     );
-    expect(on.reportingEndpoints).toBeUndefined();
+    expect(on.csp).not.toMatch(/report-uri|report-to/);
+    expect(on).not.toHaveProperty("reportingEndpoints");
     const off = buildLiveCsp({ ...base, policy: { egress: "open", scripts: false } })!;
     expect(off.csp).toBe("sandbox; object-src 'none'; frame-ancestors 'self'");
   });

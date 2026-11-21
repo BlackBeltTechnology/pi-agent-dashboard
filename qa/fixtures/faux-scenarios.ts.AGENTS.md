@@ -37,3 +37,5 @@ See change: fix-chat-transcript-layout — adds `burst-large` (40 distinct quick
 `slow-tool-steer`: slow `tool-chunk-N` text + `bash` tool call turn, then `SLOW_TOOL_FINAL` text turn (steer hand-off at a real completed `turn_end`, e2e #F4). See change: bridge-owned-cancellable-steer.
 
 Adds `text-outside-links`: assistant text linking five absolute text docs under `/fixtures/__grant-e2e__/lk-{deny,missing,write,readonly,revoke}/` (one dir each: grant subject = dir, D9 backoff); drives the outside-link read/write grant L3 specs. See change: fix-file-link-editor-routing.
+
+Adds `canvas-html-egress-report` (writes `mockups/egress-report/index.html` whose inline script fetches `https://example.invalid/x`, then `canvas` kind:file; the violation report must reach the preview sink). See change: fix-csp-report-delivery.
