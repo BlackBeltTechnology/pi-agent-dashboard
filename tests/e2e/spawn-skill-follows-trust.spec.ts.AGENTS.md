@@ -6,5 +6,5 @@ Reads the loaded skill list via `GET /api/pi-resources?cwd=&refresh=true` (scan 
 `contributingSession` must name a new session every leg: proves the join ran and that the session registered (no stall on the trust prompt).
 Waits on the dashboard trust snapshot (`~/.pi/dashboard/pi-trust-mirror.json`) before each spawn.
 Real-pi half: `packages/server/src/__tests__/pi-headless-trust-outcome.test.ts`. Marker-extension loop: `qa/tests/58-spawn-no-auto-trust.sh`.
-No harness seam needed. Authored without a runnable docker harness: first run in CI.
+Switches the container `config.json` `spawnStrategy` to `headless` (harness default `tmux` = interactive pi whose trust prompt waits for a keypress, so the unpinned leg never registers) and restores it in `afterAll`. Authored without a runnable docker harness: first run in CI.
 See change: harden-agent-tool-guards.

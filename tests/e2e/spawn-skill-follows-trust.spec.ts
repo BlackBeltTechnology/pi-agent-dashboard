@@ -29,12 +29,18 @@ import { harnessProject } from "./lifecycle.js";
  * legs independent of whether the scan lists a skill pi did not load; `contributingSession` proves the
  * join really ran, so a missing status cannot pass vacuously.
  *
+ * SPAWN STRATEGY: the harness default is `tmux` (an interactive pi, whose trust prompt waits for a keypress),
+ * so the spec switches the container's `spawnStrategy` to `headless` (read live per spawn) and restores the
+ * original config afterwards. The first CI run failed with "no session reported" on the unpinned leg: that
+ * was the tmux TUI waiting at pi's trust prompt, not the rule under test.
+ *
  * Authored WITHOUT a runnable docker harness: first run happens in CI (browser E2E shards).
  */
 
 const TOKEN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const CWD = `/fixtures/spawn-skill-trust-${TOKEN}`;
 const SKILL_DIR = `${CWD}/.pi/skills/s`;
+const CONFIG = "$HOME/.pi/dashboard/config.json";
 
 function container(): string {
   const id = execFileSync("docker", ["ps", "-q", "--filter", `label=com.docker.compose.project=${harnessProject()}`], {
@@ -91,16 +97,18 @@ async function readSkill(page: Page): Promise<SkillView> {
 /** Wait until the folder's ONE live session has reported its commands; return what it loaded. */
 async function sessionSkill(page: Page, leg: string): Promise<Required<Pick<SkillView, "sessionId">> & SkillView> {
   let last: SkillView = { raw: "(never read)" };
-  await expect
-    .poll(
-      async () => {
-        last = await readSkill(page);
-        return last.sessionId ?? "";
-      },
-      { timeout: 120_000, intervals: [2_000], message: `${leg}: the session never registered and reported its commands (a stall on the trust prompt?)` },
-    )
-    .not.toBe("");
-  return last as Required<Pick<SkillView, "sessionId">> & SkillView;
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    last = await readSkill(page);
+    if (last.sessionId) return last as Required<Pick<SkillView, "sessionId">> & SkillView;
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+  const sessions = await page.request.get("/api/sessions").then((r) => r.text()).catch(() => "(unreadable)");
+  const here = sessions.split(CWD).length - 1;
+  throw new Error(
+    `${leg}: no live session reported its commands within 120 s (a stall on the trust prompt?). ` +
+      `last /api/pi-resources: ${last.raw}; /api/sessions mentions the fixture ${here}x`,
+  );
 }
 
 async function endSession(sessionId: string): Promise<void> {
@@ -117,8 +125,22 @@ async function restSpawn(page: Page): Promise<void> {
   expect(res.ok(), `spawn ${CWD}: HTTP ${res.status()} ${await res.text().catch(() => "")}`).toBe(true);
 }
 
+/** Base64 keeps the JSON intact through `sh -c`; `loadConfig()` re-reads the file on every call. */
+function writeConfig(text: string): void {
+  const b64 = Buffer.from(text, "utf8").toString("base64");
+  inContainer(`echo '${b64}' | base64 -d > ${CONFIG}`);
+}
+
+let originalConfig: string | undefined;
+
 test.describe("spawned session skill follows dashboard trust (L3)", () => {
   test.beforeAll(() => {
+    // The harness spawns with `tmux` (an interactive pi): with `defaultProjectTrust: ask` an untrusted
+    // folder makes pi's TUI wait for a keypress, so the unpinned leg could never register. The rule under
+    // test covers the HEADLESS (no-TUI) road; switch to it for this spec and restore the config after.
+    originalConfig = inContainer(`cat ${CONFIG}`);
+    const cfg = JSON.parse(originalConfig) as Record<string, unknown>;
+    writeConfig(JSON.stringify({ ...cfg, spawnStrategy: "headless" }));
     inContainer(
       [
         `mkdir -p '${SKILL_DIR}'`,
@@ -130,6 +152,7 @@ test.describe("spawned session skill follows dashboard trust (L3)", () => {
 
   test.afterAll(() => {
     inContainer(`rm -rf '${CWD}'`);
+    if (originalConfig !== undefined) writeConfig(originalConfig);
   });
 
   test("#F13 skill absent unpinned, present once pinned, absent again after unpin; the session registers every time", async ({ page }) => {
