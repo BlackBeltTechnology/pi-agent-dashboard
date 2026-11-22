@@ -1,7 +1,8 @@
 /**
  * Pure atlas client helpers + the d3-force simulation.
  * add-skill-atlas-screen: #E26 (mutual merge), #E30 (top by degree), hop focus.
- * add-skill-atlas-forest-aura: #E1 #E2 #E3 #E4 #E5 #E7 #E8 #E9 #X1 #X2 #P1
+ * add-skill-atlas-forest-aura: #E1 #E2 #E3 #E4 #E5 #E7 #E8 #E9 #X1 #X2
+ * (#P1, the presettle time budget, lives in graph-layout.budget.test.ts — budget lane)
  * #F5 #F6 #F13 (#E5 replaces the old layoutGraph determinism test E29).
  * See change: add-skill-atlas-forest-aura.
  */
@@ -33,27 +34,12 @@ import {
   topByDegree,
 } from "../graph-layout.js";
 import fixtureJson from "./fixtures/graph.fixture.json";
+import { link, node, pairs } from "./helpers/atlas-fixtures.js";
 
-const node = (id: string, degree = 0): SkillNode => ({ id, description: "", filePath: "", origin: "global", degree });
-const link = (source: string, target: string, type: SkillLink["type"] = "references"): SkillLink => ({ source, target, type, why: "" });
 const hit = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 const inside = (b: Box, f: Box) => b.x >= f.x && b.y >= f.y && b.x + b.w <= f.x + f.w && b.y + b.h <= f.y + f.h;
 
 const fixture = fixtureJson as unknown as { skills: SkillNode[]; links: SkillLink[] };
-
-/** `n` disjoint two-skill forests (references), plus `extra` singletons. */
-function pairs(n: number, extra = 0) {
-  const skills: SkillNode[] = [];
-  const links: SkillLink[] = [];
-  for (let i = 0; i < n; i++) {
-    const a = `p${String(i).padStart(3, "0")}a`;
-    const b = `p${String(i).padStart(3, "0")}b`;
-    skills.push(node(a, 1), node(b, 1));
-    links.push(link(a, b));
-  }
-  for (let i = 0; i < extra; i++) skills.push(node(`s${String(i).padStart(3, "0")}`));
-  return { skills, links };
-}
 
 /** Separation disc per drawn forest: centroid, max dist + 20 + node r (test-plan #E4). */
 function drawnDiscsDisjoint(skills: readonly SkillNode[], links: readonly SkillLink[], sim: ReturnType<typeof createAtlasSimulation>) {
@@ -259,7 +245,7 @@ describe("placeLabels (#E7 #E8 #E9 #X1)", () => {
   });
 });
 
-describe("atlas simulation (#E4 #E5 #P1 #F5 #F6 #F13)", () => {
+describe("atlas simulation (#E4 #E5 #F5 #F6 #F13)", () => {
   it("presettle is deterministic for the 49-skill fixture (#E5)", () => {
     const a = createAtlasSimulation({ skills: fixture.skills, links: fixture.links });
     const b = createAtlasSimulation({ skills: fixture.skills, links: fixture.links });
@@ -276,24 +262,6 @@ describe("atlas simulation (#E4 #E5 #P1 #F5 #F6 #F13)", () => {
     const sim2 = createAtlasSimulation(p);
     presettle(sim2);
     expect(drawnDiscsDisjoint(p.skills, p.links, sim2)).toBe(true);
-  });
-
-  it("presettle at 300 skills / 300 links stays in budget (#P1)", () => {
-    const p = pairs(150);
-    // 150 more links inside the pair set's id space keep 300 links total but add chains.
-    const extra: SkillLink[] = [];
-    for (let i = 0; i < 150; i++) extra.push(link(`p${String(i).padStart(3, "0")}b`, `p${String(i).padStart(3, "0")}a`, "shares-tool"));
-    const times: number[] = [];
-    for (let run = 0; run < 3; run++) {
-      const sim = createAtlasSimulation({ skills: p.skills, links: [...p.links, ...extra] });
-      const t0 = performance.now();
-      presettle(sim);
-      times.push(performance.now() - t0);
-    }
-    times.sort((a, b) => a - b);
-    // 350 ms is the dev-machine budget; loaded CI forks measured 360-381 ms, so
-    // CI gets contention headroom (parallel-test-execution spec).
-    expect(times[1]).toBeLessThan(process.env.CI ? 700 : 350);
   });
 
   /** a — b, a — c, optionally plus an unrelated pair x — y. */

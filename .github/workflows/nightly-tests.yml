@@ -8,6 +8,19 @@ name: Nightly tests
 # job with no report, and the develop range since the last green scheduled run
 # (the bisect range). A dispatch run reports in its summary only and never
 # anchors a range. Independent of the land-dark nightly.yml.
+#
+# Rerun once (change: stabilize-blocking-test-lanes, D7): the first attempt of a
+# red scheduled night writes `attempt-1.json` and defers the issue;
+# nightly-tests-rerun.yml reruns the failed jobs once and the second attempt
+# reports (a test that passes on the rerun is listed as flaky).
+# nightly-tests-watchdog.yml reports a night that nothing reported.
+#
+# No `concurrency` group, at workflow or job level, on purpose: GitHub keeps at
+# most one PENDING run per group and cancels it when another run queues, so a
+# group here would let a dispatch at 03:00 displace the scheduled run and leave
+# that night with no report and no rerun (D7 "Concurrency"). A dispatch or a
+# manual re-run may run alongside a scheduled run: jobs run on separate VMs,
+# only `schedule` events write the issue and `test-timings` is per run.
 
 on:
   schedule:
@@ -18,10 +31,6 @@ on:
 # dependency could otherwise use the checkout credential to edit issues).
 permissions:
   contents: read
-
-concurrency:
-  group: nightly-tests
-  cancel-in-progress: false
 
 jobs:
   select:
@@ -45,6 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-selection
+          overwrite: true
           path: selection.json
           retention-days: 14
           if-no-files-found: error
@@ -100,6 +110,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vitest-report-unit-${{ matrix.shard }}
+          overwrite: true
           path: test-results/vitest.json
           retention-days: 14
           if-no-files-found: warn
@@ -134,6 +145,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vitest-report-real-process
+          overwrite: true
           path: test-results/vitest-real-process.json
           retention-days: 14
           if-no-files-found: warn
@@ -164,12 +176,75 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vitest-report-ci-scenarios
+          overwrite: true
+          path: test-results/vitest.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  # The timing/size-budget lane (change: stabilize-blocking-test-lanes, D3).
+  # `*.budget.test.*` files run ONLY here, serially (`--no-file-parallelism`),
+  # alone on their runner, so a wall-clock assertion never competes with another
+  # test for CPU. No skip step: vitest also runs on an empty assignment
+  # (`--passWithNoTests` writes an empty report), so the job always uploads one
+  # and the reporter never reads "budget: no report" on a night without files.
+  # `verify-executed` is strict for this key (no skipped assertion): a missing
+  # blender runtime must turn the lane red, not green.
+  budget:
+    needs: select
+    runs-on: ubuntu-latest
+    # Provisional until task 3.8 sizes it from a measured run; a value above 50
+    # moves DEFER_DEADLINE_UTC_MINUTE and the watchdog cron (nightly-tests-
+    # workflow-contract.test.ts enforces the timing inequalities).
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-selection
+      - name: Read assignment
+        id: files
+        run: node scripts/test-selection/assigned.mjs selection.json budget assigned.txt
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      # Scripts ON: packages/client's `prepare` builds dist/ (bundle-budget files need it).
+      - run: pnpm install --frozen-lockfile
+      - name: Install chromium
+        run: npx playwright install chromium --with-deps
+      - name: Assert the built client exists (bundle-budget tests need it)
+        run: test -f packages/client/dist/index.html || { echo "::error::packages/client/dist/index.html missing — bundle-budget tests would pass vacuously"; exit 1; }
+      # Same runtime cache as ci.yml `blender-real`: key = OS + the pin's sha512 integrity.
+      - name: Locate the blender runtime cache
+        id: blender-cache
+        run: |
+          echo "dir=$(node -p "require('path').join(require('os').tmpdir(), 'pi-blender-wasm-test-cache')")" >> "$GITHUB_OUTPUT"
+          node -e "const m=/integrity:\s*\"(sha512-[^\"]+)\"/.exec(require('fs').readFileSync('packages/blender/src/pin.ts','utf8'));if(!m){console.error('pin integrity not found');process.exit(1)}console.log('key='+require('crypto').createHash('sha256').update(m[1]).digest('hex').slice(0,16))" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.blender-cache.outputs.dir }}
+          key: blender-wasm-${{ runner.os }}-${{ steps.blender-cache.outputs.key }}
+      - name: vitest budget lane (serial, BLENDER_WASM_E2E=1)
+        env:
+          BLENDER_WASM_E2E: "1"
+        run: |
+          mapfile -t FILES < assigned.txt
+          pnpm run test:budget "${FILES[@]}"
+      - name: Verify every assigned file executed (strict, no skipped assertion)
+        run: node scripts/test-selection/verify-executed.mjs selection.json budget test-results/vitest.json
+      - name: Upload vitest JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-budget
+          overwrite: true
           path: test-results/vitest.json
           retention-days: 14
           if-no-files-found: warn
 
   report:
-    needs: [select, unit, real-process, ci-scenarios]
+    needs: [select, unit, real-process, ci-scenarios, budget]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -192,16 +267,37 @@ jobs:
         with:
           pattern: vitest-report-*
           path: reports
+      # Attempt >= 2 reads the first attempt's record. A failed download leaves
+      # no file, which the reporter turns into a red run (D7).
+      - uses: actions/download-artifact@v4
+        if: github.run_attempt > 1
+        continue-on-error: true
+        with:
+          name: nightly-attempt-1
+          path: previous
       - name: Report (issue on a red scheduled run, close on green)
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: node scripts/test-selection/nightly-report.mjs --reports reports --expected unit-1,unit-2,unit-3,unit-4,real-process,ci-scenarios
+        run: node scripts/test-selection/nightly-report.mjs --reports reports --expected unit-1,unit-2,unit-3,unit-4,real-process,ci-scenarios,budget --defer-first-attempt --previous previous
+      # The first attempt's record, read by nightly-tests-rerun.yml (`deferred`)
+      # and by attempt 2. Kept 30 days to cover a late manual re-run.
+      - name: Upload the first-attempt record
+        if: always() && github.run_attempt == 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-attempt-1
+          overwrite: true
+          path: reports/attempt-1.json
+          retention-days: 30
+          if-no-files-found: ignore
       - name: Upload refreshed timings
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-timings
+          overwrite: true
           path: reports/timings.json
           retention-days: 30
           if-no-files-found: warn

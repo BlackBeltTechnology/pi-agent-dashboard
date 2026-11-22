@@ -17,9 +17,9 @@ import { fileURLToPath } from "node:url";
 import { assignedFor } from "./verify-executed.mjs";
 
 export function assignment(selection, jobKey) {
-  // The packaging-scenario files are found by a plain source scan, so they are
-  // listed even when vitest could not enumerate the suite.
-  if (selection.enumerated === false && jobKey !== "ci-scenarios") return { files: [], empty: false, enumerated: false };
+  // The packaging-scenario and budget files are found by plain source / filename scans, so they
+  // are listed even when vitest could not enumerate the suite.
+  if (selection.enumerated === false && jobKey !== "ci-scenarios" && jobKey !== "budget") return { files: [], empty: false, enumerated: false };
   const files = assignedFor(selection, jobKey);
   return { files, empty: files.length === 0, enumerated: true };
 }

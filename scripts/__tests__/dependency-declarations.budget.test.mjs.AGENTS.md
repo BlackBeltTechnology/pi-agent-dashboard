@@ -1,0 +1,3 @@
+# __tests__/dependency-declarations.budget.test.mjs — index
+
+Budget-lane file (`*.budget.test.*`, test-plan #E30/#P5): runs `verify-published-imports.mjs` over every non-private workspace and asserts the wall-clock stays within `30 + 3 * N` s via `withinBudget`/`budgetMessage`/`budgetedWorkspaceCount` from `helpers/publish-budget.mjs` (P1/P2). No env gate, no `RUN_CI_SCENARIOS` read: `BUDGET_TEST_EXCLUDE` in `scripts/vitest.config.ts` keeps it out of blocking runs; the nightly `budget` job sets `RUN_BUDGET_TESTS=1`. The formula itself is asserted blocking by E26-E28/E33/E34 in `dependency-declarations.test.mjs`. See change: stabilize-blocking-test-lanes.

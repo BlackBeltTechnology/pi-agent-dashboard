@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { processStartTime, serializeBaseline, snapshotId } from "../codeql-local.mjs";
+import { processStartTime, resolveTimeout, serializeBaseline, snapshotId } from "../codeql-local.mjs";
 import {
   analyzes,
   baselineOf,
@@ -22,6 +22,7 @@ import {
   makeRepo,
   PACKS,
   run,
+  SCRIPT,
   sarifOf,
   stateDirOf,
   write,
@@ -701,5 +702,105 @@ describe("run record (#E15)", () => {
     write(repo.dir, "untracked.js", "x\n");
     expect(run(repo, [], { plan: bothLanguages([]) }).status).toBe(0);
     expect(recorded()).toMatchObject({ headCommit: head, clean: false });
+  });
+});
+
+/* stabilize-blocking-test-lanes D8: PI_CODEQL_RESOLVE_TIMEOUT_MS bounds only `resolve extensions` (test-plan #E109–#E114, #X1, #X2). */
+describe("resolve-extensions timeout (D8)", () => {
+  const VAR = "PI_CODEQL_RESOLVE_TIMEOUT_MS";
+  const resolveCalls = (cs) => cs.filter((c) => c.argv[0] === "resolve" && c.argv[1] === "extensions");
+
+  it.each(["0", "-5", "abc", "", "01", "1e5", " 300000"])("#E109 %j is exit 2 naming the variable before any CodeQL command", (value) => {
+    const repo = modelRepo();
+    const r = run(repo, [], { plan: bothLanguages([]), env: { [VAR]: value } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/^CODEQL ERROR:.*PI_CODEQL_RESOLVE_TIMEOUT_MS/m);
+    expect(r.calls).toEqual([]);
+  });
+
+  it("#E110 a 1 ms bound passes validation and times out the resolve, never a skip", () => {
+    const repo = modelRepo();
+    const r = run(repo, [], { plan: bothLanguages([]), env: { [VAR]: "1" } });
+    expect(r.calls.some((c) => c.argv[0] === "version")).toBe(true); // validation passed: CodeQL commands ran
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("timed out after 1 ms (raise PI_CODEQL_RESOLVE_TIMEOUT_MS)");
+    expect(r.stderr).not.toContain("CODEQL SKIPPED:");
+  });
+
+  it("#E111 no CodeQL binary and an invalid value still skips", () => {
+    const repo = modelRepo();
+    const gitDir = dirname(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim());
+    const r = run(repo, [], { env: { CODEQL_BIN: null, PATH: `${gitDir}:/bin`, [VAR]: "abc" } });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toMatch(/^CODEQL SKIPPED:/m);
+  });
+
+  it("#E112 an invalid value is reported before a live lock refuses the run", () => {
+    const repo = modelRepo();
+    const lock = join(stateDirOf(repo), "lock");
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(join(lock, "owner.json"), JSON.stringify({ pid: process.pid, start: processStartTime(process.pid) }));
+    const r = run(repo, [], { plan: bothLanguages([]), env: { [VAR]: "abc" } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(VAR);
+    expect(r.stderr).not.toMatch(/lock/i);
+  });
+
+  it("#E113 (a) the default is 300000 ms", () => {
+    const saved = process.env[VAR];
+    delete process.env[VAR];
+    try {
+      expect(resolveTimeout()).toBe(300_000);
+    } finally {
+      if (saved !== undefined) process.env[VAR] = saved;
+    }
+  });
+
+  it("#E113 (b) a slow but in-bound resolve ends as the run without the delay does", () => {
+    const repo = modelRepo();
+    const plain = run(repo, ["--json"], { plan: bothLanguages([]), env: { [VAR]: "5000" } });
+    const slow = run(repo, ["--json"], { plan: { ...bothLanguages([]), resolveExtensions: { sleepMs: 1000 } }, env: { [VAR]: "5000" } });
+    expect(plain.status).toBe(0);
+    expect(slow.status).toBe(plain.status);
+    expect(slow.stderr).not.toContain("CODEQL ERROR:");
+    expect(analyzes(slow.calls)).toHaveLength(analyzes(plain.calls).length);
+    expect(resolveCalls(slow.calls)).toHaveLength(1);
+  });
+
+  it.each([
+    ["rowCountDelta", { rowCountDelta: 1 }],
+    ["omitFile", { omitFile: "a.model.yml" }],
+  ])("#E114 under 300000 the %s check still fails the model pack", (_name, resolveExtensions) => {
+    const repo = modelRepo();
+    const r = run(repo, [], { plan: { ...bothLanguages([]), resolveExtensions }, env: { [VAR]: "300000" } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(MODEL_PACK);
+    expect(r.stderr).not.toContain("timed out");
+    expect(analyzes(r.calls)).toHaveLength(0);
+  });
+
+  it("#X1 a resolve slower than the bound is exit 2 with the raise hint", () => {
+    const repo = modelRepo();
+    const r = run(repo, [], { plan: { ...bothLanguages([]), resolveExtensions: { sleepMs: 2000 } }, env: { [VAR]: "200" } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/^CODEQL ERROR:.*codeql resolve extensions timed out after 200 ms \(raise PI_CODEQL_RESOLVE_TIMEOUT_MS\)/m);
+    expect(r.stderr).not.toContain("CODEQL SKIPPED:");
+    expect(analyzes(r.calls)).toHaveLength(0);
+  });
+
+  it("#X2 (a) the download bound stays 60 s on resolve queries and pack download", () => {
+    const src = readFileSync(SCRIPT, "utf8");
+    expect(src).toMatch(/const PACK_DOWNLOAD_TIMEOUT_MS = 60_000;/);
+    expect(src).toMatch(/"resolve", "queries"[^\n]*timeout: PACK_DOWNLOAD_TIMEOUT_MS/);
+    expect(src).toMatch(/"pack", "download"[^\n]*timeout: PACK_DOWNLOAD_TIMEOUT_MS/);
+  });
+
+  it("#X2 (b) uncached, undownloadable packs skip whatever the variable holds", () => {
+    const repo = modelRepo();
+    const r = run(repo, [], { plan: { resolveExit: 1, downloadExit: 1 }, env: { [VAR]: "200" } });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toMatch(/^CODEQL SKIPPED:/m);
+    expect(r.stderr).not.toContain("CODEQL ERROR:");
+    expect(resolveCalls(r.calls)).toHaveLength(0);
   });
 });

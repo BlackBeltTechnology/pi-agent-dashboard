@@ -1,6 +1,6 @@
 import path from "node:path";
 import { configDefaults, defineConfig } from "vitest/config";
-import { PARALLEL_MAX_WORKERS } from "../../vitest.workers";
+import { BUDGET_TEST_EXCLUDE, PARALLEL_MAX_WORKERS } from "../../vitest.workers";
 import { REAL_PROCESS_TESTS } from "./vitest.real-process-files";
 
 export default defineConfig({
@@ -14,7 +14,9 @@ export default defineConfig({
     // `configDefaults.exclude` spread back in: setting `exclude` REPLACES the
     // vitest defaults (node_modules, dist, ...), which today only the `src/**`
     // include keeps harmless.
-    exclude: [...configDefaults.exclude, ...REAL_PROCESS_TESTS],
+    // `BUDGET_TEST_EXCLUDE`: budget files run only in the nightly lane (design.md D1); a server
+    // budget file is in neither phase by design, the lane check refuses one the lane would not run.
+    exclude: [...configDefaults.exclude, ...REAL_PROCESS_TESTS, ...BUDGET_TEST_EXCLUDE],
     environment: "node",
     pool: "forks",
     maxWorkers: PARALLEL_MAX_WORKERS,

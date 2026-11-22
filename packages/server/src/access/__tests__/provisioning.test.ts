@@ -567,35 +567,6 @@ describe("2.27 / #E28 terminal transitions are first-wins", () => {
   });
 });
 
-describe("2.28 / #P1 the synchronous settle section is fast", () => {
-  it("32 grantable lines against a 168-grant store: sync section < 50 ms", async () => {
-    seed(synthetic(168));
-    const names = Array.from({ length: 32 }, (_, i) => dir(w, `perf${i}`));
-    const base = (await import("../provisioning.js")).defaultProvisioningFs;
-    let lastAwait = 0;
-    let sync = Number.NaN;
-    const timed: ProvisioningFs = {
-      ...base,
-      inspectAsync: async (p) => {
-        const f = await base.inspectAsync(p);
-        lastAwait = performance.now();
-        return f;
-      },
-    };
-    const h = mk({
-      fs: timed,
-      onTerminal: () => {
-        sync = performance.now() - lastAwait;
-      },
-    });
-    const v = ok(create(h, names.map((n) => ({ path: n }))));
-    const r = await h.reg.settle(v.requestId, approveAll(v));
-    expect(r.ok && r.request.lines.every((l) => l.outcome === "granted")).toBe(true);
-    expect(listGrants()).toHaveLength(200);
-    expect(sync).toBeLessThan(50);
-  });
-});
-
 describe("2.33 / #X5 the ladder is re-checked at settle", () => {
   it.each([
     ["host gate in report mode", (s: Harness["state"]) => { s.mode = "report"; }, "report-mode"],

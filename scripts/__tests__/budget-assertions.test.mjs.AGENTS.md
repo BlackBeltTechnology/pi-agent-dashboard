@@ -1,0 +1,3 @@
+# __tests__/budget-assertions.test.mjs — index
+
+Tests for `check-budget-assertions.mjs` (warn-only guard; test-plan E27, E35-E58, X3): sources/forms (memory, relative bound, split statement, same-file function, helpers, `Map.set`/`push` taint), exclusions (file/describe/case fake clocks, ordering check, `setSystemTime`, lower bound, byte sizes), scope + path prefix over `mkdtemp` fixture trees (`--root`), liveness allow-list (exempt, normalization, empty reason, stale, ambiguous, mockup-loop entry), `--warn` annotations + job summary, `--list`/no-flag exit codes, no-wiring contract, fault injection (chmod 000, injected throwing analyzer → warning, exit 0). E27 needs group 3 (real-binary split) landed. See change: stabilize-blocking-test-lanes.

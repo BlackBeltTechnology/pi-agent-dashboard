@@ -1,12 +1,14 @@
 import path from "node:path";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
-import { PARALLEL_MAX_WORKERS } from "../../vitest.workers";
+import { configDefaults, defineConfig } from "vitest/config";
+import { BUDGET_TEST_EXCLUDE, PARALLEL_MAX_WORKERS } from "../../vitest.workers";
 
 export default defineConfig({
   plugins: [react()],
   test: {
     include: ["src/**/__tests__/**/*.test.{ts,tsx}"],
+    // Budget files run only in the nightly lane (RUN_BUDGET_TESTS=1); see vitest.workers.ts, design.md D1.
+    exclude: [...configDefaults.exclude, ...BUDGET_TEST_EXCLUDE],
     environment: "jsdom",
     pool: "forks",
     maxWorkers: PARALLEL_MAX_WORKERS,

@@ -10,12 +10,18 @@
  * Style: `check-pi-settings-paths.test.mjs` (pure fn, no shell-out).
  * test-plan rows E1–E19, E22–E27.
  */
-import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
 
+import { scanBudgetFiles, scanGatedFiles, unenumeratedFull } from "../select-affected-tests.mjs";
 import {
   assignShards,
   decide,
   extractLocations,
+  isBudgetFile,
   isGatedSource,
   SHARD_COUNT,
 } from "../test-selection/decide.mjs";
@@ -27,8 +33,9 @@ const t = (deps = [], extra = {}) => ({ deps, phase: "parallel", locations: [], 
 
 const EMPTY_DATA = { triggers: {}, coveredElsewhere: ["docs", "openspec", ".github", "AGENTS.md"], slowTier: [] };
 
-function run({ changed, tests, openModules = [], globalInputs = [], data = {}, forceFull = null, timings = {} }) {
+function run({ changed, tests, openModules = [], globalInputs = [], data = {}, forceFull = null, timings = {}, budgetFiles }) {
   return decide({
+    ...(budgetFiles ? { budgetFiles } : {}),
     changed,
     forceFull,
     index: { tests, openModules, globalInputs, leafErrors: [] },
@@ -481,5 +488,90 @@ describe("determinism (E27)", () => {
       tm: "trigger-map",
     });
     expect(sel.counts).toMatchObject({ graph: 1, openEdge: 1, always: 1, pathLiteral: 1, packageFallback: 1, triggerMap: 1 });
+  });
+});
+
+describe("budget lane routing (E13–E16, change: stabilize-blocking-test-lanes D2)", () => {
+  const BUDGET = "packages/kb-plugin/src/server/__tests__/kb-search-perf.budget.test.ts";
+  const tmpDirs = [];
+  afterAll(() => {
+    for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  it("E13: isBudgetFile matches a code-extension `.budget.test.` name only", () => {
+    for (const f of ["a.budget.test.ts", "a.budget.test.tsx", "a.budget.test.mts", "a.budget.test.mjs", "a.budget.test.js"]) {
+      expect(isBudgetFile(f), f).toBe(true);
+    }
+    for (const f of ["a.budget.spec.ts", "a.test.ts", "budget.test.ts", "a.budgettest.ts", "a.budget.test.ts.snap"]) {
+      expect(isBudgetFile(f), f).toBe(false);
+    }
+  });
+
+  it("E14: an index that wrongly holds a budget file never routes it to a shard, real-process or ci-scenarios", () => {
+    const other = "packages/kb-plugin/src/server/__tests__/other.test.ts";
+    const tests = {
+      [BUDGET]: t(["packages/kb-plugin/src/server/search.ts"], { gated: true, phase: "real-process" }),
+      [other]: t(["packages/kb-plugin/src/server/search.ts"]),
+    };
+    for (const input of [
+      { changed: ["packages/kb-plugin/src/server/search.ts"] }, // affected: the graph layer selects it
+      { changed: [], forceFull: "ci:full" }, // full
+    ]) {
+      const sel = run({ ...input, tests, budgetFiles: [BUDGET] });
+      expect(sel.mode).toBe(input.forceFull ? "full" : "affected");
+      expect(sel.shards.flat()).not.toContain(BUDGET);
+      expect(sel.realProcess).not.toContain(BUDGET);
+      expect(sel.ciScenariosFiles).not.toContain(BUDGET);
+      expect(sel.budgetFiles).toEqual([BUDGET]);
+    }
+    // The defensive filter must not hide ordinary files.
+    expect(run({ changed: [], forceFull: "ci:full", tests, budgetFiles: [BUDGET] }).shards.flat()).toContain(other);
+  });
+
+  it("decide returns budgetFiles sorted in every mode, and an empty list when none is given", () => {
+    const tests = { a: t(["x"]) };
+    expect(run({ changed: [], forceFull: "dispatch", tests, budgetFiles: ["z.budget.test.ts", "a.budget.test.ts"] }).budgetFiles).toEqual([
+      "a.budget.test.ts",
+      "z.budget.test.ts",
+    ]);
+    expect(run({ changed: ["x"], tests, budgetFiles: ["b.budget.test.ts"] }).budgetFiles).toEqual(["b.budget.test.ts"]);
+    expect(run({ changed: ["x"], tests }).budgetFiles).toEqual([]);
+  });
+
+  it("E15: when the selector cannot enumerate, budgetFiles is the sorted `git ls-files` budget set, outside ciScenariosFiles", () => {
+    const sel = unenumeratedFull("x");
+    const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+      .split("\n")
+      .filter((f) => f && isBudgetFile(f))
+      .sort();
+    expect(sel.budgetFiles).toEqual(tracked);
+    expect(sel.ciScenariosFiles.filter((f) => f.includes(".budget.test."))).toEqual([]);
+  });
+
+  it("E16: a budget file that reads the packaging-scenarios variable is only a budget file", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "budget-sel-"));
+    tmpDirs.push(root);
+    fs.mkdirSync(path.join(root, "scripts", "__tests__"), { recursive: true });
+    const gated = "scripts/__tests__/pack.test.mjs";
+    const budget = "scripts/__tests__/pack-perf.budget.test.mjs";
+    fs.writeFileSync(path.join(root, gated), 'if (process.env.RUN_CI_SCENARIOS) {}\n');
+    fs.writeFileSync(path.join(root, budget), 'if (process.env.RUN_CI_SCENARIOS) {}\n');
+    fs.writeFileSync(path.join(root, "scripts/__tests__/pack-perf.budget.test.mjs.snap"), "x\n");
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["add", "-A"], { cwd: root });
+
+    expect(scanGatedFiles(root)).toEqual([gated]);
+    expect(scanBudgetFiles(root)).toEqual([budget]);
+    const sel = run({
+      changed: [],
+      forceFull: "dispatch",
+      tests: { [gated]: t([], { gated: true }), [budget]: t([], { gated: true }) },
+      budgetFiles: scanBudgetFiles(root),
+    });
+    expect(sel.ciScenariosFiles).toEqual([gated]);
+    expect(sel.budgetFiles).toEqual([budget]);
+    const fallback = unenumeratedFull("x", root);
+    expect(fallback.ciScenariosFiles).toEqual([gated]);
+    expect(fallback.budgetFiles).toEqual([budget]);
   });
 });

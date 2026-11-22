@@ -15,7 +15,8 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `chat-gateway.agent.md` | Pull-only condensed map/companion for `chat-gateway.md`. Setup, boundaries, team controls, config keys, dashboard-session `!sessions`/`!attach`/`!close` + auto-mirror. → see `chat-gateway.md`. See change: harden-agent-tool-guards (guard contract/readiness line). |
 | `chat-gateway.md` | Operator setup guide for `@blackbelt-technology/pi-dashboard-chat-gateway-plugin`. → see `chat-gateway.md.AGENTS.md`. See change: harden-agent-tool-guards (Guard contract: readiness handshake, held message, 30 s refusal, fail-closed host). |
 | `chat-motion.md` | Fluid chat motion. `chatMotion` pref (rollback PATCH). Arrival entry, paced reveal, trailing edge, glide follow-scroll attributed as `pin-bottom`, idle/energy bound. See change: add-fluid-chat-motion. |
-| `ci.md` | Affected-test CI. ci.yml parallel jobs (`select`, `ci`, `unit` ×4, `real-process`, `ci-scenarios`, `docker-plugin-load`, `music-pytest`, `ci-result`); `decide()` selection layers; fail-safes; nightly full-suite net. See change: speed-up-ci-affected-tests. |
+| `ci.md` | Affected-test CI, budget lane, nightly rerun-once. ci.yml jobs; `decide()` layers; fail-safes. → see `ci.agent.md`. See change: speed-up-ci-affected-tests, stabilize-blocking-test-lanes. |
+| `ci.agent.md` | Pull-only map for `ci.md`: selection, budget lane, rerun-once. → see `ci.md`. |
 | `code-quality.md` | Biome ratchet. Rules graduate one-way off→warn→error; cleanup lands first, severity flip second. CodeQL ratchet section. → see `code-quality.md.AGENTS.md` |
 | `codeql-baseline.json` | (repo root) CodeQL ratchet baseline; edit via `scripts/codeql-local.mjs`. → see `codeql-baseline.json.AGENTS.md` |
 | `context-mode-roi-report.md` | ROI analysis. context-mode MCP plugin vs kb extension. Verdict: trim not drop. → see `context-mode-roi-report.md.AGENTS.md` |

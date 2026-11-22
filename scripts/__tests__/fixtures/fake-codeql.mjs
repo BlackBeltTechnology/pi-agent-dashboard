@@ -11,9 +11,12 @@
  *   { argv, env: { LGTM_INDEX_FILTERS }, sourceRoot?: { "<relpath>": "<content>" },
  *     modelPack?: { "<file>": "<content>" } }   // the --additional-packs dir, at call time
  *
- * `resolve extensions` (plan.resolveExtensions: { exit, stderr, stdout, rowCountDelta, omitFile }) answers
+ * `resolve extensions` (plan.resolveExtensions: { exit, stderr, stdout, rowCountDelta, omitFile, sleepMs }) answers
  * with the CAPTURED real-CLI shape (fixtures/codeql-resolve-extensions.json): one entry per
  * (predicate, model file) with `rowCount` = the file's real data rows, so a test can break it on purpose.
+ * `sleepMs` delays that answer (after the call is logged, so a caller that times out still leaves its
+ * `resolve extensions` line) — drives the D8 timeout paths with short bounds, no real wait
+ * (stabilize-blocking-test-lanes task 7.2).
  *
  * See change: add-local-codeql-ratchet.
  */
@@ -37,8 +40,14 @@ function listFiles(root, rel = "") {
 }
 
 const record = { argv, env: { LGTM_INDEX_FILTERS: process.env.LGTM_INDEX_FILTERS ?? null } };
-const done = (code = 0) => {
+let logged = false;
+const flushLog = () => {
+  if (logged) return;
+  logged = true;
   appendFileSync(plan.log, `${JSON.stringify(record)}\n`);
+};
+const done = (code = 0) => {
+  flushLog();
   process.exit(code);
 };
 
@@ -69,6 +78,10 @@ if (cmd === "resolve" && sub === "extensions") {
     done(opts.exit);
   }
   record.modelPack = flag("--additional-packs") ? listFiles(flag("--additional-packs")) : null;
+  if (opts.sleepMs) {
+    flushLog();
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, opts.sleepMs);
+  }
   process.stdout.write(opts.stdout ?? resolveExtensions(opts));
   done();
 } else if (cmd === "version") {

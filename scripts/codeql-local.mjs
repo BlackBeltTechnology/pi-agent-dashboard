@@ -67,6 +67,8 @@ const PRESET_RULES = ["js/path-injection", "js/command-line-injection", "js/shel
 const BASELINE_COMMENT =
   "Local CodeQL ratchet baseline (debt ceiling). Edit only via `node scripts/codeql-local.mjs --prune|--accept|--triage`; see change add-local-codeql-ratchet.";
 const PACK_DOWNLOAD_TIMEOUT_MS = 60_000;
+/** Bound for the cached, offline `resolve extensions` (a hung JVM, not a download); override with PI_CODEQL_RESOLVE_TIMEOUT_MS. */
+export const MODEL_PACK_RESOLVE_TIMEOUT_DEFAULT_MS = 300_000;
 const NO_SOURCE_EXIT = 32;
 
 /** An expected failure: message goes to stderr, process exits with `code`. */
@@ -758,12 +760,14 @@ const realPath = (p) => {
  * Prove the CLI resolves the wrapper pack and loads every copied file: per file the summed `rowCount`
  * must equal its data rows. A presence check only — matching is proven by the spike. Any failure is
  * exit 2, never a skip (a skip would disarm the whole JavaScript gate). The exit code alone is
- * meaningless (`resolve extensions` exits 0 with no data), so the JSON is the verdict.
+ * meaningless (`resolve extensions` exits 0 with no data), so the JSON is the verdict. A timeout of the
+ * resolve (`timeoutMs`, from `resolveTimeout()`) is the same exit 2 — never the download-skip.
  */
-function verifyModelPack(bin, modelPack, packs) {
+function verifyModelPack(bin, modelPack, packs, timeoutMs) {
   const { pack, suite } = LANGUAGES["javascript-typescript"];
   const fail = (why) => new CodeqlError(`model pack ${MODEL_PACK} is not usable: ${why}`);
-  const res = runCodeql(bin, ["resolve", "extensions", ...modelPackFlags(modelPack), "--", `${pack}@${packs[pack]}:${suite}`], { timeout: PACK_DOWNLOAD_TIMEOUT_MS, label: "resolve extensions" });
+  const res = runCodeql(bin, ["resolve", "extensions", ...modelPackFlags(modelPack), "--", `${pack}@${packs[pack]}:${suite}`], { timeout: timeoutMs, label: "resolve extensions" });
+  if (res.error?.code === "ETIMEDOUT") throw fail(`codeql resolve extensions timed out after ${timeoutMs} ms (raise PI_CODEQL_RESOLVE_TIMEOUT_MS)`);
   if (res.error || res.status !== 0) throw fail(`codeql resolve extensions failed (${res.error ? res.error.message : `exit ${res.status}`}): ${tail(res.stderr, 3) || tail(res.stdout, 3)}`);
   let entries;
   try {
@@ -839,6 +843,8 @@ function analyse(cwd, { packs, baseline, seed }) {
     if (seed) throw new CodeqlError("CodeQL is required for --write-baseline (set CODEQL_BIN or put `codeql` on PATH)");
     throw new Skip("`codeql` not found (set CODEQL_BIN or put it on PATH)");
   }
+  // Read only on the path that uses CodeQL (like ghSettings): a machine without CodeQL still skips.
+  const resolveTimeoutMs = resolveTimeout();
   const dir = acquireLock(cwd);
   const warnings = [];
 
@@ -851,7 +857,7 @@ function analyse(cwd, { packs, baseline, seed }) {
   mkdirSync(run, { recursive: true });
   const tree = materializeSnapshot(cwd, top, run);
   const modelPack = prepareModelPack(run);
-  if (modelPack) verifyModelPack(bin, modelPack, packs);
+  if (modelPack) verifyModelPack(bin, modelPack, packs, resolveTimeoutMs);
 
   const sarifs = Object.entries(LANGUAGES)
     .map(([language, cfg]) => analyseLanguage(bin, run, language, cfg, packs, globs, modelPack))
@@ -1011,6 +1017,14 @@ function parseAlertList(value) {
   const nums = parts.map(Number);
   if (new Set(nums).size !== nums.length) throw new CodeqlError("--alert lists a number twice");
   return nums.sort((a, b) => a - b);
+}
+
+/** `PI_CODEQL_RESOLVE_TIMEOUT_MS` (positive integer) or the default; anything else is exit 2. */
+export function resolveTimeout() {
+  const raw = process.env.PI_CODEQL_RESOLVE_TIMEOUT_MS;
+  if (raw === undefined) return MODEL_PACK_RESOLVE_TIMEOUT_DEFAULT_MS;
+  if (!/^[1-9][0-9]*$/.test(raw)) throw new CodeqlError(`PI_CODEQL_RESOLVE_TIMEOUT_MS must be a positive integer (got ${JSON.stringify(raw)})`);
+  return Number(raw);
 }
 
 /** The `gh` binary and call timeout. `PI_CODEQL_GH_BIN` is an explicit path trusted like `CODEQL_BIN`. */
