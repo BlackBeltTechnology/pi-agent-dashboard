@@ -6,7 +6,9 @@
  */
 import type { PluginReplyMessage, PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { describe, expect, it, vi } from "vitest";
+import type { BridgeAdmission, BridgeChannel } from "../pi/bridge-channel.js";
 import { createPluginRequestLane, PLUGIN_LANE_MAX_BYTES } from "../plugin-request-lane.js";
+import { UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 
 function setup() {
   const sent: Array<{ sessionId: string; msg: PluginReplyMessage }> = [];
@@ -84,5 +86,79 @@ describe("plugin request lane", () => {
     lane.register("a", "circ", () => { const o: Record<string, unknown> = {}; o.self = o; return o; });
     await lane.handle("S1", req("a", "circ"));
     expect(sent[0].msg).toMatchObject({ ok: false, error: "reply_not_serializable" });
+  });
+});
+
+/**
+ * D3: the lane carries the SENDING socket's origin + channel; a `hubLocalOnly` handler runs only for a
+ * hub-local, locally admitted socket. See change: harden-bridge-session-claim (test-plan LA*).
+ */
+describe("plugin request lane: hub-local-only handlers", () => {
+  const chan = (admission: BridgeAdmission): BridgeChannel => ({ admission, provenTls: false, ticketTls: false });
+  const ADMISSIONS: BridgeAdmission[] = ["unix", "local-proof", "in-process", "device-ticket", "local-ticket", "legacy-token", "grace"];
+  const LOCAL = new Set<BridgeAdmission>(["unix", "local-proof", "in-process"]);
+
+  it("passes { sessionId, origin, channel } from the sending socket to any handler", async () => {
+    const { lane, req } = setup();
+    const h = vi.fn(() => "ok");
+    lane.register("a", "t", h);
+    await lane.handle("S1", req("a", "t"), { originDeviceId: "dev-1", channel: chan("device-ticket") });
+    expect(h).toHaveBeenCalledWith({}, { sessionId: "S1", origin: { local: false, deviceId: "dev-1" }, channel: chan("device-ticket") });
+  });
+
+  it.each(ADMISSIONS)("hub-local origin + %s admission: runs only when locally admitted", async (admission) => {
+    const { lane, sent, req } = setup();
+    const h = vi.fn(() => ({ token: "T" }));
+    lane.register("gmail", "lease", h, { hubLocalOnly: true });
+    await lane.handle("S1", req("gmail", "lease"), { originDeviceId: undefined, channel: chan(admission) });
+    if (LOCAL.has(admission)) {
+      expect(h).toHaveBeenCalledTimes(1);
+      expect(sent[0].msg).toMatchObject({ ok: true });
+    } else {
+      expect(h).not.toHaveBeenCalled();
+      expect(sent[0].msg).toMatchObject({ ok: false });
+      expect((sent[0].msg as { error: string }).error).toMatch(/^origin_denied: /);
+    }
+  });
+
+  it.each(["dev-1", UNATTRIBUTED_REMOTE])("a remote origin (%s) is refused even on a locally admitted channel", async (originDeviceId) => {
+    const { lane, sent, req } = setup();
+    const h = vi.fn();
+    lane.register("gmail", "lease", h, { hubLocalOnly: true });
+    await lane.handle("S1", req("gmail", "lease"), { originDeviceId, channel: chan("unix") });
+    expect(h).not.toHaveBeenCalled();
+    expect((sent[0].msg as { error: string }).error).toMatch(/^origin_denied: /);
+  });
+
+  it("fails closed when the dispatch carried no conn (a hop dropped it) or no channel", async () => {
+    const { lane, sent, req } = setup();
+    const h = vi.fn();
+    lane.register("gmail", "lease", h, { hubLocalOnly: true });
+    await lane.handle("S1", req("gmail", "lease"));
+    await lane.handle("S1", req("gmail", "lease"), { originDeviceId: undefined });
+    expect(h).not.toHaveBeenCalled();
+    expect(sent.map((s) => (s.msg as { error: string }).error)).toEqual([expect.stringMatching(/^origin_denied/), expect.stringMatching(/^origin_denied/)]);
+  });
+
+  it("a handler registered without the option stays reachable from a remote origin (additive seam)", async () => {
+    const { lane, req } = setup();
+    const h = vi.fn(() => 1);
+    lane.register("browser", "open", h);
+    await lane.handle("S1", req("browser", "open"), { originDeviceId: "dev-1", channel: chan("device-ticket") });
+    expect(h).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs origin_denied once per (plugin,type) per window, never the payload", async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => { lines.push(a.join(" ")); });
+    const { lane, req } = setup();
+    lane.register("gmail", "lease", () => 1, { hubLocalOnly: true });
+    for (let i = 0; i < 3; i++) {
+      await lane.handle("S1", req("gmail", "lease", { secret: "PAYLOAD" }, `r${i}`), { originDeviceId: "0123456789abcdef", channel: chan("device-ticket") });
+    }
+    spy.mockRestore();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBe("[plugin-request] origin_denied: gmail/lease session=S1 origin=01234567 admission=device-ticket");
+    expect(lines[0]).not.toContain("PAYLOAD");
   });
 });

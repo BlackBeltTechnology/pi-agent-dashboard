@@ -9,6 +9,7 @@ import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackb
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import type { LocalCredentialVerifier } from "../auth/local-credential.js";
+import { auditPrefix } from "../auth/audit-log.js";
 import { isProvenTls } from "../auth/proven-tls.js";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 import { classifyCarrierLoss } from "../session/death-reason.js";
@@ -25,8 +26,11 @@ import {
   createContentionTracker,
   decideClaim,
   formatContentionLine,
+  formatOriginRefusalLine,
   formatPid,
   isSocketAlive,
+  originClass,
+  originMismatch,
   type ProbeableSocket,
   resolveProbe,
 } from "./bridge-contention.js";
@@ -43,9 +47,23 @@ import { createProvisionalRegistry } from "./provisional-registration.js";
  */
 const MAX_CLAIM_ATTEMPTS = 3;
 
+/** A socket is closed after this many origin-refused first frames (anti id-probing). */
+const MAX_ORIGIN_REFUSED_FIRST_FRAMES = 3;
+
 export const HEARTBEAT_TIMEOUT = 180_000;
 export const WS_PING_INTERVAL = 60_000;
 export { CONTENTION_PROBE_WINDOW };
+
+/**
+ * The SENDING socket's own origin and admission channel, handed to `onEvent` for
+ * `plugin_request` and `sessions_list` only. Never the session record's origin
+ * or `channelOf(sessionId)`, which follow the routing entry / the victim's record.
+ * See change: harden-bridge-session-claim (D3).
+ */
+export interface GatewayConn {
+  originDeviceId?: string;
+  channel: BridgeChannel;
+}
 
 export interface PiGatewayOptions {
   heartbeatTimeout?: number;
@@ -237,7 +255,7 @@ export interface PiGateway {
    * this. See change: fix-duplicate-bridge-registration (D5).
    */
   findLiveSessionBySessionFile(sessionFile: string): string | undefined;
-  onEvent?: (sessionId: string, msg: ExtensionToServerMessage) => void;
+  onEvent?: (sessionId: string, msg: ExtensionToServerMessage, conn?: GatewayConn) => void;
   onEmpty?: () => void;
   onConnection?: () => void;
   onDisconnect?: (sessionId: string) => void;
@@ -331,7 +349,7 @@ export function createPiGateway(
     unresponsiveMs: options?.hostPressureUnresponsiveMs,
   });
 
-  let onEvent: ((sessionId: string, msg: ExtensionToServerMessage) => void) | undefined;
+  let onEvent: ((sessionId: string, msg: ExtensionToServerMessage, conn?: GatewayConn) => void) | undefined;
   let onEmpty: (() => void) | undefined;
   let onConnection: (() => void) | undefined;
   let onDisconnect: ((sessionId: string) => void) | undefined;
@@ -603,6 +621,8 @@ export function createPiGateway(
         // Set once this socket has been terminally refused; it must never
         // influence gateway state again, even for in-flight frames.
         let refused = false;
+        // Origin-refused first frames on this socket (per socket, not per id).
+        let originRefusedFirstFrames = 0;
         aliveMisses.set(ws, 0);
         ws.on("pong", () => { aliveMisses.set(ws, 0); });
 
@@ -637,19 +657,58 @@ export function createPiGateway(
           });
         }
 
-        /** Terminally refuse this socket: tell it why, then close it. */
-        function refuse(sessionId: string, incumbentPid?: number, newcomerPid?: number) {
-          refused = true;
-          const emit = contention.record(sessionId, incumbentPid, newcomerPid);
+        /**
+         * Count + (rate-limited) log one origin refusal, on every path that takes a
+         * routing entry. No pids, no payload, no full device id.
+         * See change: harden-bridge-session-claim (D1).
+         */
+        function noteOriginRefusal(sessionId: string, recordedOrigin: string | undefined) {
+          const emit = contention.record(sessionId);
           if (emit) {
-            console.error(formatContentionLine(sessionId, incumbentPid, newcomerPid));
+            console.error(
+              formatOriginRefusalLine(
+                sessionId,
+                originClass(recordedOrigin, auditPrefix),
+                originClass(originDeviceId, auditPrefix),
+              ),
+            );
+          }
+        }
+
+        /**
+         * The shared origin decision for the first-frame and move-commit paths (the
+         * register path reaches it through `decideClaim` in `claim()`). True = refused:
+         * the caller must return before ANY side effect.
+         */
+        function originRefused(sessionId: string): boolean {
+          const recorded = sessionManager.get(sessionId);
+          if (!originMismatch(recorded, originDeviceId)) return false;
+          noteOriginRefusal(sessionId, recorded?.originDeviceId);
+          return true;
+        }
+
+        /** Terminally refuse this socket: tell it why, then close it. */
+        function refuse(
+          sessionId: string,
+          incumbentPid?: number,
+          newcomerPid?: number,
+          reason = "another live bridge already serves this session id",
+          originRefusal = false,
+        ) {
+          refused = true;
+          // An origin refusal was already counted + logged by `noteOriginRefusal`.
+          if (!originRefusal) {
+            const emit = contention.record(sessionId, incumbentPid, newcomerPid);
+            if (emit) {
+              console.error(formatContentionLine(sessionId, incumbentPid, newcomerPid));
+            }
           }
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(
               JSON.stringify({
                 type: "register_rejected",
                 sessionId,
-                reason: "another live bridge already serves this session id",
+                reason,
               }),
             );
           }
@@ -668,6 +727,8 @@ export function createPiGateway(
           const decision = decideClaim({
             incumbent,
             newcomer: ws,
+            recorded: session,
+            newcomerOriginDeviceId: originDeviceId,
             incumbentSource: incumbent ? session?.source : undefined,
             incumbentPid: session?.pid,
             newcomerPid,
@@ -678,6 +739,29 @@ export function createPiGateway(
               serverPlatform: pidCtx().platform,
             },
           });
+
+          if (decision.outcome === "refuse" && decision.reason === "origin-mismatch") {
+            noteOriginRefusal(sessionId, session?.originDeviceId);
+            if (currentSessionId && connections.get(currentSessionId) === ws) {
+              // Id change on a socket that already owns a session: the refusal must
+              // not silence the owned session, so the socket stays open and keeps it.
+              // Detail-free, non-terminal reply (the bridge ignores it outside a move).
+              ws.send(
+                JSON.stringify(
+                  provisionalRegistry.refuseForWire({ sessionId, cause: "origin-mismatch" }),
+                ),
+              );
+              return false;
+            }
+            refuse(
+              sessionId,
+              undefined,
+              newcomerPid,
+              "session id belongs to another origin; archive or remove the session record to re-register it from here",
+              true,
+            );
+            return false;
+          }
 
           if (decision.outcome === "accept") {
             // A same-pid displacement replaces a LIVE incumbent with no probe
@@ -832,6 +916,18 @@ export function createPiGateway(
                   );
                   return;
                 }
+                // Origin binding (D1/D4): the commit takes the routing entry, so it is
+                // bound to the record's origin like a register. Refused BEFORE any side
+                // effect (no heartbeat reset, no routing change, no ack). A target that
+                // never heard of the session (no record) still adopts it.
+                if (originRefused(movedId)) {
+                  ws.send(
+                    JSON.stringify(
+                      provisionalRegistry.refuseForWire({ sessionId: movedId, cause: "origin-mismatch" }),
+                    ),
+                  );
+                  return;
+                }
                 // Hand over the routing entry. The previous holder is NOT probed or
                 // refused — this is a cooperative handover the origin asked for,
                 // not contention.
@@ -878,6 +974,18 @@ export function createPiGateway(
               // Only observable across two instances: on a single gateway the
               // origin's ownership gate absorbed the frame and hid it.
               if (sid === provisionalSessionId) return;
+              // Origin binding (D1/D4): a first frame naming an existing record of
+              // ANOTHER origin claims nothing. The frame is dropped with none of a
+              // refused register's side effects (no currentSessionId, heartbeat,
+              // callbacks or event); the socket stays open but unrouted, and is closed
+              // after 3 such frames so one socket cannot probe ids.
+              if (originRefused(sid)) {
+                if (++originRefusedFirstFrames >= MAX_ORIGIN_REFUSED_FIRST_FRAMES) {
+                  refused = true;
+                  ws.close();
+                }
+                return;
+              }
               const incumbent = connections.get(sid);
               if (incumbent && incumbent !== ws && incumbent.readyState === WebSocket.OPEN) {
                 // Held by a live socket: this socket never becomes the entry.
@@ -890,6 +998,8 @@ export function createPiGateway(
               if (!sessionManager.get(sid)) {
                 sessionManager.register({
                   id: sid,
+                  // The placeholder records its creator's origin, so it no longer reads hub-local.
+                  originDeviceId,
                   cwd: "",
                   source: "unknown",
                 });
@@ -912,7 +1022,7 @@ export function createPiGateway(
             // identity. The connection must still own its own entry, which
             // keeps refused/displaced sockets out.
             // See change: add-dashboard-mcp-server.
-            if (msg.type === "plugin_pi_message") {
+            if (msg.type === "plugin_pi_message" || msg.type === "plugin_request") {
               if (!currentSessionId || connections.get(currentSessionId) !== ws) return;
               handleOwnedMessage(msg);
               return;
@@ -1028,6 +1138,9 @@ export function createPiGateway(
               currentSessionId = msg.sessionId;
               connections.set(msg.sessionId, ws);
 
+              // The origin overwrite below is reached only after `claim()` passed the
+              // origin binding (a mismatching record is refused there), so it never
+              // rewrites another origin's record. See change: harden-bridge-session-claim.
               sessionManager.register({
                 id: msg.sessionId,
                 // Derived from the credential, not from the payload.
@@ -1156,7 +1269,14 @@ export function createPiGateway(
                 : "sessionId" in msg
                   ? (msg as any).sessionId
                   : undefined;
-            onEvent?.(eventSessionId ?? currentSessionId ?? "", msg);
+            // Only `plugin_request` and `sessions_list` carry the sending socket's own
+            // origin + channel; every other message keeps the two-argument form.
+            const conn: GatewayConn | undefined =
+              msg.type === "plugin_request" || msg.type === "sessions_list"
+                ? { originDeviceId, channel }
+                : undefined;
+            if (conn) onEvent?.(eventSessionId ?? currentSessionId ?? "", msg, conn);
+            else onEvent?.(eventSessionId ?? currentSessionId ?? "", msg);
         }
 
         ws.on("close", () => {
@@ -1346,7 +1466,7 @@ export function createPiGateway(
   };
 
   return {
-    set onEvent(handler: ((sessionId: string, msg: ExtensionToServerMessage) => void) | undefined) {
+    set onEvent(handler: ((sessionId: string, msg: ExtensionToServerMessage, conn?: GatewayConn) => void) | undefined) {
       onEvent = handler;
     },
 

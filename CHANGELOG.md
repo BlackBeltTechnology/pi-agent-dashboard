@@ -64,6 +64,37 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Security
 
+- **Bridge session claims are bound to the session's recorded origin (WS-02, WS-03).** A claim on any
+  non-placeholder session record (every status: live, in reconnect grace, ended, restored) from a different
+  origin is refused with a terminal `origin-mismatch` before the unheld / closed / placeholder / same-pid rules,
+  on every path that takes a routing entry: register, first-frame auto-claim and the session-move commit. A
+  refused first frame or move commit has none of a refused register's side effects; an id change refused for
+  origin keeps the socket and its own session. The first-frame placeholder records its creator's origin, and a
+  `sessions_list` history record is seeded with (and rewritten only by) the reporting socket's origin. One
+  rate-limited line per refusal: `[bridge-claim] origin-refused session=<id> recorded=<class> presented=<class>`
+  (counted in `/api/health` `bridgeContentionCount`; no pids, no full device id).
+  - **BREAKING:** a session id recorded for one origin cannot be re-registered from another until the record is
+    archived or removed (a transcript copied to another machine and resumed under the same id; a device
+    re-paired after revoke). The refusal names the reason.
+  - **BREAKING:** records the hub creates from its own disk (bootstrap, directory scan, scanner) bind as
+    hub-local, so a remote-attributed bridge on the same host or a shared/synced `HOME` resuming such a session is
+    refused; archive the record or fork the session from the hub.
+- **The plugin request lane carries the sender's origin and channel, and credential handlers opt in (WS-05).**
+  A `plugin_request` is attributed only to the socket that owns its session. Handlers receive
+  `{ sessionId, origin, channel }`; `registerPiRequestHandler(type, handler, { hubLocalOnly: true })` makes the
+  host refuse a session that is not hub-local and locally admitted (`unix` / `local-proof` / in-process) with
+  `origin_denied: …`. `gmail/lease`, `gmail/accounts` and the flows file report register hub-local-only;
+  the `browser/*` and craft-web handlers are deferred (register row WS-05b).
+  - **BREAKING:** remote sessions (a paired device, or `grace` / `legacy-token` / `local-ticket` /
+    `device-ticket` admissions) lose Gmail (`gmail_accounts` lists nothing) until they reconnect hub-local.
+  - **BREAKING:** flow-file previews for remote sessions disappear (they read the hub's same-path file and never
+    worked correctly).
+- **Bridge-ticket mint enforces `operate` itself (D2).** `decideBridgeTicketMint` reads the bearer's tier; a
+  below-operate bearer falls through to the genuinely-local branch or is refused. The `/api/ws-ticket` route
+  tier is unchanged.
+  - **BREAKING:** an `observe` / `control` device of a `legacy`-mode trusted network can no longer mint a bridge
+    ticket.
+
 - **BREAKING — pi-agent credential files are always refused (DEP-01).** `~/.pi/agent/auth.json`, `mcp-auth.json`,
   `providers.json`, `plugin-credentials.json`, `models.json`, `mcp.json` and `system-one/auth.json` (plus same-dir
   `<name>.*` siblings, symlinks and hard links to them) can no longer be opened through the file, grep, session-file,

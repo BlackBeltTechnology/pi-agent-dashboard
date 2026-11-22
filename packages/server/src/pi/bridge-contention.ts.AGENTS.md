@@ -9,3 +9,5 @@ Constants: `CONTENTION_PROBE_WINDOW` 5s, `CONTENTION_RECORD_TTL` 60s, `CONTENTIO
 See change: fix-duplicate-bridge-registration.
 
 `ClaimInput.pidTargets`: same-pid fast-accept only when incumbent and newcomer both `host`, or both `unknown` on win32 (S3). See change: scope-pids-to-namespace.
+
+Origin binding (D1/D4): `ClaimInput.recorded` + `newcomerOriginDeviceId`; `originMismatch()` / `isPlaceholderRecord()` (placeholder = `source:"unknown"` and no `sessionFile`); `decideClaim` returns `{refuse, origin-mismatch}` right after the `provisional` short-circuit, before `unheld`/`incumbent-closed`/`placeholder`/`same-pid` (same-pid only within one origin). `originClass()` + `formatOriginRefusalLine()` render `[bridge-claim] origin-refused session=<id> recorded=<class> presented=<class>` (no pids, no full device id). See change: harden-bridge-session-claim.

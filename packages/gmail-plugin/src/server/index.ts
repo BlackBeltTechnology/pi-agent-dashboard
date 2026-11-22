@@ -19,9 +19,16 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
   }
   const endpoints = resolveGoogleEndpoints(process.env, (m) => ctx.logger.warn(m));
   const store = new AccountStore(ctx.credentials);
-  ctx.registerPiRequestHandler?.(LEASE_TYPE, createLeaseHandler({ store, endpoints, logger: ctx.logger }));
+  // Both handlers are hub-local-only: `gmail/lease` returns a live OAuth access token and
+  // `gmail/accounts` lists mailbox identities. The host refuses them (`origin_denied`) for a
+  // remote-origin session or a deprecated admission. See change: harden-bridge-session-claim (D3).
+  ctx.registerPiRequestHandler?.(LEASE_TYPE, createLeaseHandler({ store, endpoints, logger: ctx.logger }), {
+    hubLocalOnly: true,
+  });
   // Secret-free account list for `gmail_accounts` and account-required errors.
-  ctx.registerPiRequestHandler?.(ACCOUNTS_TYPE, async () => (await store.list()).map(summarize));
+  ctx.registerPiRequestHandler?.(ACCOUNTS_TYPE, async () => (await store.list()).map(summarize), {
+    hubLocalOnly: true,
+  });
   await mountGmailRoutes(ctx.fastify, {
     store,
     oauth: ctx.oauth,

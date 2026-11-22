@@ -35,7 +35,8 @@ type ProvisionalRefusalCause =
   | "session-live-elsewhere"
   | "expired"
   | "unknown-token"
-  | "already-committed";
+  | "already-committed"
+  | "origin-mismatch";
 
 interface ProvisionalEntry {
   sessionId: string;

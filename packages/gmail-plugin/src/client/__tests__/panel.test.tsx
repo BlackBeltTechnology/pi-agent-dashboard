@@ -373,7 +373,7 @@ describe("test-plan #E10 / #E11 — level descriptions and add-account guidance"
     const rows = await screen.findAllByTestId("gmail-account-row");
     const help = screen.getByTestId("gmail-level-help").textContent ?? "";
     expect(help).toMatch(/not by Google/);
-    expect(help).toMatch(/any session on this dashboard can use every account within its level/i);
+    expect(help).toMatch(/any hub-local dashboard session can use every account within its level/i);
     const opts = [...within(rows[0] as HTMLElement).getByTestId("gmail-account-level").querySelectorAll("option")];
     for (const o of opts) expect(o.textContent).toMatch(/^(readonly|draft|send) — \S.+/);
   });

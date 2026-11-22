@@ -175,7 +175,11 @@ interface RouteDeps {
    * See change: close-security-map-high-findings (D1, H1).
    */
   readFileGuarded?: ServerPluginContext["readFileGuarded"];
-  registerPiRequestHandler?: (type: string, h: (payload: unknown, meta: { sessionId: string }) => unknown) => void;
+  registerPiRequestHandler?: (
+    type: string,
+    h: (payload: unknown, meta: { sessionId: string }) => unknown,
+    opts?: { hubLocalOnly?: boolean },
+  ) => void;
   sessionManager: { listActive(): unknown[]; getSession(id: string): unknown };
   emitEventToSession: (sessionId: string, eventType: string, data: Record<string, unknown>) => boolean;
   registry?: FlowFileRegistry;
@@ -224,7 +228,10 @@ export async function registerFlowFileRoutes(deps: RouteDeps): Promise<void> {
     const cwd = typeof session?.cwd === "string" ? session.cwd : undefined;
     registry.report(meta.sessionId, payload as FlowFilesReport, cwd);
     return { ok: true };
-  });
+    // The report stores absolute paths the bridge CLAIMS, which the hub later reads from its own disk:
+    // a remote session's paths name its own disk. Hub-local sessions only.
+    // See change: harden-bridge-session-claim (D3).
+  }, { hubLocalOnly: true });
 
   // Routes live in an encapsulated scope carrying a request rate limit
   // (recognized by CodeQL js/missing-rate-limiting; same pattern as

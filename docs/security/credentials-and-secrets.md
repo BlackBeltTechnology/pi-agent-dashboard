@@ -69,7 +69,7 @@ Dir legend: `~/.pi/dashboard` created without explicit mode (`packages/shared/sr
 | Passkey invite / phone approval | `/auth/invite#<t>`, `/auth/phone#<t>` | URL **fragment** (not sent to server) | — | `auth/passkey/passkey-pages.ts:16`; `passkey-routes.ts:173` |
 | MCP bearer | server → bridge WS `mcp_token_minted` → `pi.registerMcpServer(... headers Authorization)` | WS (bridge socket) + HTTP header | never in `process.env`/logs/`pi.events` | `extension/src/mcp-token-delivery.ts.AGENTS.md`; `mcp-server-plugin/src/server/tokens.ts:101` |
 | Vault values | hub `vault_snapshot` over bridge socket → bridge sets `process.env` | WS (loopback/unix) + env | remote sessions refused (`transport-insecure`) | `vault-delivery-hub.ts:37-41,212`; `extension/src/vault-delivery.ts:168` |
-| Gmail access token | `gmail/lease` lane → bridge tool | WS lane | refresh token never leaves server | `gmail-plugin/src/server/lease.ts:5,164` |
+| Gmail access token | `gmail/lease` lane → bridge tool | WS lane, hub-local only (`hubLocalOnly`; non-local session → `origin_denied`, see `websocket-and-bridge.md` C7b) | refresh token never leaves server | `gmail-plugin/src/server/lease.ts:5,164`; `gmail-plugin/src/server/index.ts:25`. See change: harden-bridge-session-claim. |
 | Service secrets | child env / OCI file mount | env / file | never `-e`/`--env-file` | `services/secret-delivery.ts:1-9` |
 | OAuth client secret | server → IdP token endpoint body | HTTPS | — | `auth/auth.ts:458` |
 | Git remote userinfo | origin stripped before vault keying; git text redacted before client | — | — | `vault-delivery-hub.ts:253`; `git-worktree/redact-git-text.ts:4-6,101` |

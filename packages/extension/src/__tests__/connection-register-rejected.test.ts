@@ -128,3 +128,36 @@ describe("terminal registration refusal (X8)", () => {
     cm.disconnect();
   });
 });
+
+/**
+ * An origin-refused id change on a socket that already owns a session is answered with the detail-free,
+ * NON-terminal `provisional_rejected` (not `register_rejected`, which tears the connection down). The bridge
+ * must keep the connection and its session. See change: harden-bridge-session-claim (D1, task 1.5).
+ */
+describe("a provisional_rejected outside a move is not terminal", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("keeps the connection, does not reconnect and does not surface a rejection", () => {
+    const rejected: unknown[] = [];
+    const cm = new ConnectionManager({
+      url: "ws://localhost:9999",
+      WebSocketImpl: MockWebSocket as any,
+      onRegisterRejected: (...a: unknown[]) => rejected.push(a),
+    });
+    cm.connect();
+    MockWebSocket.instances[0].simulateOpen();
+
+    MockWebSocket.instances[0].simulateMessage(JSON.stringify({ type: "provisional_rejected" }));
+    vi.advanceTimersByTime(2_000);
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(MockWebSocket.instances[0].readyState).toBe(1);
+    expect(rejected).toEqual([]);
+    cm.disconnect();
+  });
+});
+

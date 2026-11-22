@@ -19,7 +19,10 @@ import {
   createContentionTracker,
   decideClaim,
   formatContentionLine,
+  formatOriginRefusalLine,
+  isPlaceholderRecord,
   isSocketAlive,
+  originClass,
   type ProbeableSocket,
   resolveProbe,
   WS_OPEN,
@@ -296,5 +299,155 @@ describe("contention tracker", () => {
     const tracker = createContentionTracker();
     expect(tracker.isContended("quiet")).toBe(false);
     expect(tracker.count()).toBe(0);
+  });
+});
+
+/**
+ * Origin binding (D1/D4): a claim on a non-placeholder record is refused terminally when the
+ * newcomer's credential-derived origin differs from the record's, before every accept reason.
+ * See change: harden-bridge-session-claim (test-plan BE1-BE11).
+ */
+describe("decideClaim — origin binding", () => {
+  const H = undefined; // hub-local
+  const D1 = "device-1";
+  const D2 = "device-2";
+  const U = "unattributed-remote";
+  const rec = (originDeviceId: string | undefined, extra: { source?: string; sessionFile?: string } = {}) => ({
+    originDeviceId,
+    source: "tui",
+    sessionFile: "/h/s.jsonl",
+    ...extra,
+  });
+  const MISMATCH = { outcome: "refuse", reason: "origin-mismatch" };
+
+  it("BE1: refuses a foreign origin against a live, pong-answering incumbent with no probe", () => {
+    const pings: number[] = [];
+    const incumbent = { ...liveSocket(), ping: () => pings.push(1) } as ProbeableSocket;
+    expect(
+      decideClaim({ incumbent, newcomer: liveSocket(), recorded: rec(H), newcomerOriginDeviceId: D1 }),
+    ).toEqual(MISMATCH);
+    expect(pings).toHaveLength(0);
+  });
+
+  it("BE2: refuses device -> other device", () => {
+    expect(
+      decideClaim({ incumbent: liveSocket(), newcomer: liveSocket(), recorded: rec(D1), newcomerOriginDeviceId: D2 }),
+    ).toEqual(MISMATCH);
+  });
+
+  it("BE3: a closed incumbent does not make a foreign origin acceptable", () => {
+    const closed = { readyState: CLOSED } as ProbeableSocket;
+    expect(
+      decideClaim({ incumbent: closed, newcomer: liveSocket(), recorded: rec(H), newcomerOriginDeviceId: D1 }),
+    ).toEqual(MISMATCH);
+  });
+
+  it("BE4: an unheld id with a restored record of another origin is refused, not accepted", () => {
+    expect(
+      decideClaim({ incumbent: undefined, newcomer: liveSocket(), recorded: rec(D1), newcomerOriginDeviceId: H }),
+    ).toEqual(MISMATCH);
+  });
+
+  it.each([
+    ["no incumbent", undefined, { outcome: "accept", reason: "unheld" }],
+    ["closed incumbent", { readyState: CLOSED } as ProbeableSocket, { outcome: "accept", reason: "incumbent-closed" }],
+    ["live incumbent", liveSocket(), { outcome: "probe" }],
+  ])("BE5/BE6: the same origin keeps the existing rules (%s)", (_n, incumbent, expected) => {
+    for (const origin of [D1, H]) {
+      expect(
+        decideClaim({ incumbent, newcomer: liveSocket(), recorded: rec(origin), newcomerOriginDeviceId: origin }),
+      ).toEqual(expected);
+    }
+  });
+
+  it("BE7: unattributed remotes are one class only among themselves", () => {
+    const d = (r: string | undefined, n: string | undefined) =>
+      decideClaim({ incumbent: undefined, newcomer: liveSocket(), recorded: rec(r), newcomerOriginDeviceId: n });
+    expect(d(U, U)).toEqual({ outcome: "accept", reason: "unheld" });
+    expect(d(U, D1)).toEqual(MISMATCH);
+    expect(d(U, H)).toEqual(MISMATCH);
+    expect(d(D1, U)).toEqual(MISMATCH);
+    expect(d(H, U)).toEqual(MISMATCH);
+  });
+
+  it("BE8: a placeholder is never origin-refused", () => {
+    for (const newcomerOriginDeviceId of [H, D2, U]) {
+      expect(
+        decideClaim({
+          incumbent: liveSocket(),
+          newcomer: liveSocket(),
+          incumbentSource: "unknown",
+          recorded: { originDeviceId: D1, source: "unknown" },
+          newcomerOriginDeviceId,
+        }),
+      ).toEqual({ outcome: "accept", reason: "placeholder" });
+    }
+  });
+
+  it("BE9: only source=unknown without a sessionFile is a placeholder", () => {
+    expect(isPlaceholderRecord({ source: "unknown" })).toBe(true);
+    expect(isPlaceholderRecord({ source: "unknown", sessionFile: "/h/s.jsonl" })).toBe(false);
+    expect(isPlaceholderRecord({ source: "pi" })).toBe(false);
+    for (const recorded of [
+      { originDeviceId: D1, source: "unknown", sessionFile: "/h/s.jsonl" },
+      { originDeviceId: D1, source: "pi" },
+    ]) {
+      expect(decideClaim({ incumbent: undefined, newcomer: liveSocket(), recorded, newcomerOriginDeviceId: H })).toEqual(MISMATCH);
+    }
+    expect(
+      decideClaim({ incumbent: undefined, newcomer: liveSocket(), recorded: { originDeviceId: D1, source: "unknown" }, newcomerOriginDeviceId: H }),
+    ).toEqual({ outcome: "accept", reason: "unheld" });
+  });
+
+  it("BE10: a foreign origin reporting the incumbent's pid is refused, not same-pid accepted", () => {
+    const host = { kind: "host" } as never;
+    const pidTargets = { incumbent: host, newcomer: host, serverPlatform: "linux" };
+    const base = {
+      incumbent: liveSocket(),
+      newcomer: liveSocket(),
+      recorded: rec(H),
+      incumbentPid: 4242,
+      newcomerPid: 4242,
+      pidTargets,
+    };
+    expect(decideClaim({ ...base, newcomerOriginDeviceId: D1 })).toEqual(MISMATCH);
+    expect(decideClaim({ ...base, newcomerOriginDeviceId: H })).toEqual({ outcome: "accept", reason: "same-pid" });
+  });
+
+  it("BE11: same-pid still needs one pid namespace within one origin", () => {
+    const k = (kind: string) => ({ kind }) as never;
+    const run = (inc: string, nw: string, serverPlatform: string) =>
+      decideClaim({
+        incumbent: liveSocket(),
+        newcomer: liveSocket(),
+        recorded: rec(D1),
+        newcomerOriginDeviceId: D1,
+        incumbentPid: 4242,
+        newcomerPid: 4242,
+        pidTargets: { incumbent: k(inc), newcomer: k(nw), serverPlatform },
+      }).outcome;
+    expect(run("host", "host", "linux")).toBe("accept");
+    expect(run("unknown", "unknown", "win32")).toBe("accept");
+    expect(run("remote", "remote", "linux")).toBe("probe");
+    expect(run("host", "remote", "linux")).toBe("probe");
+    expect(run("unknown", "unknown", "linux")).toBe("probe");
+  });
+
+  it("a provisional claim claims nothing for any origin pair, even a foreign one", () => {
+    for (const newcomerOriginDeviceId of [H, D1]) {
+      expect(
+        decideClaim({ incumbent: liveSocket(), newcomer: liveSocket(), provisional: true, recorded: rec(D2), newcomerOriginDeviceId }),
+      ).toEqual({ outcome: "provisional" });
+    }
+  });
+
+  it("formats the origin-refusal line with classes only (no pid, no full device id)", () => {
+    const prefix = (id: string) => id.slice(0, 8);
+    expect(originClass(undefined, prefix)).toBe("hub");
+    expect(originClass(U, prefix)).toBe("unattributed");
+    expect(originClass("0123456789abcdef", prefix)).toBe("device:01234567");
+    const line = formatOriginRefusalLine("S", "hub", "device:01234567");
+    expect(line).toBe("[bridge-claim] origin-refused session=S recorded=hub presented=device:01234567");
+    expect(line).not.toMatch(/pid/i);
   });
 });

@@ -1068,7 +1068,7 @@ export function GmailSettings() {
           {t(
             "levelHelp",
             undefined,
-            "Levels are enforced by this plugin, not by Google: a token carries every scope Google granted (draft-level compose access could technically send), so a level limits what the agent's tools may do. Any session on this dashboard can use every account within its level.",
+            "Levels are enforced by this plugin, not by Google: a token carries every scope Google granted (draft-level compose access could technically send), so a level limits what the agent's tools may do. Any hub-local dashboard session can use every account within its level; remote-origin sessions cannot lease.",
           )}
         </p>
         {state.accounts.length === 0 && <div className={muted}>{t("noAccounts", undefined, "No accounts connected.")}</div>}

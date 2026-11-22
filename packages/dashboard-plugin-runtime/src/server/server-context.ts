@@ -1049,19 +1049,50 @@ export type PluginFlowStartResult =
 
 // ── Bridge request/reply lane ────────────────────────────────────────────────
 
+/** Host-observed origin of the SENDING socket (never claimed by the bridge). */
+export interface PluginRequestOrigin {
+  /** True when the session's files live on the hub's own host. */
+  local: boolean;
+  /** Paired-device id for an attributable remote session. */
+  deviceId?: string;
+}
+
+/** Host-observed admission of the SENDING socket (structurally the host's `BridgeChannel`). */
+export interface PluginRequestChannel {
+  admission: string;
+  provenTls: boolean;
+  ticketTls: boolean;
+  ticketDeviceId?: string;
+}
+
 /**
  * Answers one `plugin_request` from a plugin bridge entry. `sessionId` is the
- * host's socket key, never the payload's. The request is from "some session of
- * this user" — authorize on the payload. A throw replies `{ok:false,error:message}`.
- * See change: expose-plugin-credential-and-oauth-seams (D7).
+ * host's socket key, never the payload's; `origin` and `channel` are what the
+ * host observed about the SENDING socket. The lane does not authenticate the
+ * caller: a handler that returns a credential, secret or path-trusted value MUST
+ * register with `{ hubLocalOnly: true }`, which makes the host refuse it
+ * (`origin_denied`) for any session that is not hub-local and locally admitted.
+ * A throw replies `{ok:false,error:message}`.
+ * See change: expose-plugin-credential-and-oauth-seams (D7),
+ * harden-bridge-session-claim (D3).
  */
 export type PluginRequestHandler = (
   payload: unknown,
-  meta: { sessionId: string },
+  meta: { sessionId: string; origin?: PluginRequestOrigin; channel?: PluginRequestChannel },
 ) => unknown | Promise<unknown>;
 
+/** Per-handler policy declared at registration. */
+export interface PluginRequestHandlerOptions {
+  /** Run only for a hub-local, locally admitted session. Required for credential-bearing handlers. */
+  hubLocalOnly?: boolean;
+}
+
 /** Register the single owner of `(this plugin, type)`; a duplicate throws. */
-export type RegisterPiRequestHandlerFn = (type: string, handler: PluginRequestHandler) => void;
+export type RegisterPiRequestHandlerFn = (
+  type: string,
+  handler: PluginRequestHandler,
+  opts?: PluginRequestHandlerOptions,
+) => void;
 
 /** Subset of pi-ai's streamSimple (as adapted by the server) a plugin consumes. */
 export type PluginStreamSimpleFn = (opts: {
@@ -1485,7 +1516,12 @@ export interface ServerContextDeps {
   /** Plugin OAuth flow start (optional). See change: expose-plugin-credential-and-oauth-seams. */
   startPluginOAuthFlow?: (pluginId: string, opts: PluginOAuthStartOptions) => Promise<PluginFlowStartResult>;
   /** Plugin request-lane registration (optional). See change: expose-plugin-credential-and-oauth-seams. */
-  registerPiRequestHandler?: (pluginId: string, type: string, handler: PluginRequestHandler) => void;
+  registerPiRequestHandler?: (
+    pluginId: string,
+    type: string,
+    handler: PluginRequestHandler,
+    opts?: PluginRequestHandlerOptions,
+  ) => void;
   /**
    * Host-bound `serveApp` (trust gate + package root + mount registry). Absent hosts
    * give plugins a call that throws. `env.dataDir` is the plugin's data directory.
@@ -1630,7 +1666,7 @@ export function createServerPluginContext(
         }
       : undefined,
     registerPiRequestHandler: deps.registerPiRequestHandler
-      ? (type, handler) => deps.registerPiRequestHandler!(pluginId, type, handler)
+      ? (type, handler, opts) => deps.registerPiRequestHandler!(pluginId, type, handler, opts)
       : undefined,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
     getPiResources: deps.getPiResources,

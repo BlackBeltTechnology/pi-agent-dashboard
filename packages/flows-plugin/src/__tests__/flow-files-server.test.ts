@@ -93,6 +93,7 @@ describe("FlowFileRegistry", () => {
 describe("flow file routes", () => {
   let fastify: FastifyInstance;
   let report: (payload: unknown, meta: { sessionId: string }) => unknown;
+  let reportOpts: { hubLocalOnly?: boolean } | undefined;
   const emitEventToSession = vi.fn(() => true);
   let live: Array<{ id: string; cwd: string; status?: string }>;
 
@@ -104,14 +105,29 @@ describe("flow file routes", () => {
       fastify: fastify as never,
       networkGuard: async () => {},
       readFileGuarded: (p) => fs.promises.readFile(p, "utf8"),
-      registerPiRequestHandler: (type, h) => {
-        if (type === FLOW_FILES_REPORT) report = h;
+      registerPiRequestHandler: (type, h, opts) => {
+        if (type === FLOW_FILES_REPORT) {
+          report = h;
+          reportOpts = opts;
+        }
       },
       sessionManager: { listActive: () => live, getSession: (id) => live.find((s) => s.id === id) },
       emitEventToSession,
       registry: new FlowFileRegistry(),
     });
     await fastify.ready();
+  });
+
+  // The report stores bridge-claimed absolute paths the hub later reads from its own disk: hub-local sessions only.
+  // See change: harden-bridge-session-claim (D3).
+  it("registers the report handler hub-local-only", () => {
+    expect(reportOpts).toEqual({ hubLocalOnly: true });
+  });
+
+  it("a session that never reported (e.g. denied origin_denied) gets the unreported answer and no file read", async () => {
+    const res = await getFile(flowFile);
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.payload).retry).toBe(true);
   });
   afterEach(async () => fastify.close());
 

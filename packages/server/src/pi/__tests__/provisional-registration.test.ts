@@ -174,3 +174,14 @@ describe("provisional refusals are indistinguishable to the caller (#X10)", () =
     expect(wire.type).not.toBe("register_rejected");
   });
 });
+
+describe("origin-mismatch provisional refusal (harden-bridge-session-claim, D1)", () => {
+  it("answers the same constant wire reply as every other cause, recording the true cause server-side", () => {
+    const lines: string[] = [];
+    const reg = createProvisionalRegistry({ log: (l) => lines.push(l) });
+    expect(reg.refuseForWire({ sessionId: "S", cause: "origin-mismatch" })).toEqual(
+      reg.refuseForWire({ sessionId: "S", cause: "unknown-token" }),
+    );
+    expect(lines.some((l) => l.includes("cause=origin-mismatch"))).toBe(true);
+  });
+});

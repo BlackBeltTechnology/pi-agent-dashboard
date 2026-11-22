@@ -80,6 +80,7 @@ import { stopAllLocalAcpSessions } from "./acp-bridge/local-host.js";
 import { createAgentEventHub } from "./agent-events/agent-event-hub.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
+import { auditPrefix } from "./auth/audit-log.js";
 import { authorizeWsUpgrade, buildLoginAvailable, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
 import { beginFlow, pluginFlowProvider } from "./auth/begin-flow.js";
@@ -88,7 +89,7 @@ import {
   formatBindReachabilityWarning,
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
-import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
+import { decideBridgeTicketMint, formatBridgeTicketRefusalLine } from "./auth/bridge-ticket-eligibility.js";
 import {
   CORS_ALLOWED_METHODS,
   type CorsOriginOptions,
@@ -284,7 +285,8 @@ import { createPreferencesStore } from "./persistence/preferences-store.js";
 import { loadHostProjectTrustService } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
-import { createPiGateway } from "./pi/pi-gateway.js";
+import { CONTENTION_RATE_LIMIT } from "./pi/bridge-contention.js";
+import { createPiGateway, type GatewayConn } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
 import { createPackageCompletionHandler, createPluginDiscoveryWiring, type PluginDiscoveryWiring } from "./plugin-discovery-wiring.js";
 import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
@@ -831,6 +833,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
   // The proof cookie is bound to the listener's port; `0` until `listen` runs (inject() in tests).
   let httpListenPort = 0;
+  /** Per-device last-emit time for the below-operate bridge-ticket refusal line (D2). */
+  const bridgeTicketRefusalLog = new Map<string, number>();
   const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof, () => httpListenPort);
   const localProofCodes = new LocalProofCodeStore();
   const pairingManager = new PairingManager({
@@ -1860,8 +1864,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const pluginRequestLane = createPluginRequestLane((sessionId, msg) =>
     piGateway.sendToSession(sessionId, msg),
   );
-  function dispatchPluginRequest(sessionId: string, msg: PluginRequestMessage): void {
-    pluginRequestLane.handle(sessionId, msg).catch((err) => {
+  // Forward the SENDING socket's own origin + channel (never `originOf(sessionManager.get(id))` /
+  // `channelOf(id)`, which follow the routing entry and the recorded session, not the sender).
+  // See change: harden-bridge-session-claim (D3).
+  function dispatchPluginRequest(sessionId: string, msg: PluginRequestMessage, conn?: GatewayConn): void {
+    pluginRequestLane.handle(sessionId, msg, conn).catch((err) => {
       console.error("[plugin-request]", err);
     });
   }
@@ -3661,6 +3668,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           localTrust,
           verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token, bearerChannelOf(request.raw)),
         });
+        if (verdict.belowOperate) {
+          // Rate-limited per device (one window with the contention limiter); never the token or full id.
+          const key = verdict.belowOperate.deviceId;
+          const now = Date.now();
+          const last = bridgeTicketRefusalLog.get(key);
+          if (last === undefined || now - last >= CONTENTION_RATE_LIMIT) {
+            bridgeTicketRefusalLog.set(key, now);
+            console.error(formatBridgeTicketRefusalLine(verdict.belowOperate.tier, auditPrefix(key)));
+          }
+        }
         if (!verdict.allow) {
           reply.code(403);
           return { success: false as const, error: verdict.reason };
@@ -4757,8 +4774,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 });
                 return res.ok ? { ok: true, flowId: res.flow.id } : res;
               },
-              registerPiRequestHandler: (id, type, handler) =>
-                pluginRequestLane.register(id, type, handler),
+              registerPiRequestHandler: (id, type, handler, opts) =>
+                pluginRequestLane.register(id, type, handler, opts),
               // First-party scope gate shared with the `/api/plugins` `firstParty`
               // projection. See change: promote-model-roles-settings.
               providerAuth: createGatedProviderAuth(plugin.packageName, readAuthJson),
