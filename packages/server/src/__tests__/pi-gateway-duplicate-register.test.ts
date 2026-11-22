@@ -897,6 +897,7 @@ describe("pi-gateway origin binding", () => {
     errSpy?.mockRestore();
     lines.length = 0;
     delete options.peerAddressForTest;
+    delete options.onRoutingChanged;
   });
 
   async function start() {
@@ -1030,11 +1031,11 @@ describe("pi-gateway origin binding", () => {
   });
 
   it("BX4/R3: a move commit onto a record of another origin is refused with the detail-free reply and no side effect", async () => {
+    const routed: string[] = [];
+    options.onRoutingChanged = (sid: string) => routed.push(sid);
     const { sessionManager, port } = await start();
     // A record restored after a restart: no routing entry, hub-local origin.
     sessionManager.register({ id: "S", cwd: "/w", source: "tui", sessionFile: "/h/S.jsonl" } as never);
-    const routed: string[] = [];
-    gateway.onRoutingChanged = (sid) => routed.push(sid);
 
     const b = await as(port, "dev-aaaaaaaa-1");
     register(b, "S", { provisional: true });
