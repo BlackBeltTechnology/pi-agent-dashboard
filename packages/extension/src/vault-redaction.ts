@@ -116,7 +116,8 @@ export interface VaultRedaction {
   masker: Masker;
   toolResult: (event: ToolResultLike) => Promise<ToolResultLike | undefined>;
   messageEnd: (event: { message?: unknown }) => { message: unknown } | undefined;
-  userBash: () => Promise<{ operations: BashOperationsLike } | undefined>;
+  /** `always: true` wraps even while no value is held (a value may be registered mid-command). */
+  userBash: (opts?: { always?: boolean }) => Promise<{ operations: BashOperationsLike } | undefined>;
 }
 
 export function createVaultRedaction(deps: VaultRedactionDeps): VaultRedaction {
@@ -172,8 +173,8 @@ export function createVaultRedaction(deps: VaultRedactionDeps): VaultRedaction {
       const message = masker.maskDeep(event.message, { skipLiterals: DISCRIMINATORS });
       return message === event.message ? undefined : { message };
     },
-    async userBash() {
-      if (!masker.active()) return undefined;
+    async userBash(opts) {
+      if (!opts?.always && !masker.active()) return undefined;
       const local = await deps.createLocalBashOperations();
       return local ? { operations: wrapOperations(local) } : undefined;
     },

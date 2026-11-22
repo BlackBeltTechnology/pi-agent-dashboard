@@ -402,7 +402,7 @@ export function MinimalChatView({
         <span className="text-[11px] text-[var(--text-muted)] ml-auto whitespace-nowrap">
           {meta?.tokens && (
             <>
-              ↑{formatTokens(meta.tokens.input ?? 0)} ↓{formatTokens(meta.tokens.output ?? 0)}
+              ↓{formatTokens(meta.tokens.input ?? 0)} ↑{formatTokens(meta.tokens.output ?? 0)}
               {(meta.cost !== undefined || meta.durationMs !== undefined) && " · "}
             </>
           )}

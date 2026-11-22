@@ -7,7 +7,40 @@
  *
  * See change: test-trust-audit (design D2: the guard stays in the entry point).
  */
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The real bridge builds its `ConnectionManager` in `initBridge`; swap it for a recording fake so no
+// socket opens and the `session_register` frames the bridge sends are observable (E6).
+const fakeConnections = vi.hoisted(() => ({ instances: [] as Array<{ sent: Array<Record<string, unknown>> }> }));
+vi.mock("../connection.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../connection.js")>();
+  class FakeConnectionManager {
+    sent: Array<Record<string, unknown>> = [];
+    constructor() {
+      fakeConnections.instances.push(this);
+      // Every other member the bridge touches is an inert stub.
+      return new Proxy(this, {
+        get: (t, prop) => (prop in t ? (t as never)[prop] : prop === "isConnected" ? false : vi.fn()),
+      });
+    }
+    send(m: Record<string, unknown>) {
+      this.sent.push(m);
+    }
+  }
+  return { ...actual, ConnectionManager: FakeConnectionManager };
+});
+
+// `devBuildOnReload` is a dev-only config flag: the re-init teardown (`state.cleanup`) must run the client
+// build + server shutdown for `/reload` ONLY, never for an ordinary new/resume/fork session switch.
+const devBuild = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("../dev-build.js", () => ({ runDevBuild: () => { devBuild.calls++; } }));
+vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-shared/config.js")>();
+  return { ...actual, loadConfig: () => ({ ...actual.loadConfig(), devBuildOnReload: true }) };
+});
 
 const BRIDGE_KEY = "__pi_dashboard_bridge__";
 const g = process as unknown as Record<string, unknown>;
@@ -15,15 +48,17 @@ const g = process as unknown as Record<string, unknown>;
 /** A `pi` whose every method is a recording stub; `on` calls are inspectable. */
 function recordingPi() {
   const calls: Array<{ method: string; args: unknown[] }> = [];
+  const handlers = new Map<string, (e: unknown, c: unknown) => unknown>();
   const pi = new Proxy({} as Record<string, unknown>, {
     get(_t, prop: string) {
       if (prop === "events") return { on: vi.fn(), emit: vi.fn() };
       return (...args: unknown[]) => {
         calls.push({ method: prop, args });
+        if (prop === "on") handlers.set(String(args[0]), args[1] as (e: unknown, c: unknown) => unknown);
       };
     },
   });
-  return { pi, calls };
+  return { pi, calls, handlers };
 }
 
 describe("X4: subagent re-entry guard is unchanged", () => {
@@ -57,6 +92,99 @@ describe("X4: subagent re-entry guard is unchanged", () => {
         (c.method === "on" && ["turn_end", "session_shutdown", "agent_start", "tool_call"].includes(String(c.args[0]))),
     );
     expect(bridgeRegistrations).toEqual([]);
+  });
+});
+
+// #1175 / test-plan #E6: when pi replaces the session (new / resume / fork) it loads a FRESH
+// `ExtensionAPI` into the same process. The shutdown of the outgoing owner must release the guard so
+// the replacement initialises and registers the NEW session. The existing bridge-resume-disconnect
+// suite reuses one `pi` object and so cannot see this.
+describe("E6: a distinct pi loaded after session_shutdown{new|resume|fork} re-initialises", () => {
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    prevEnv = process.env.PI_DASHBOARD_BRIDGE;
+    process.env.PI_DASHBOARD_BRIDGE = "on";
+    fakeConnections.instances.length = 0;
+    devBuild.calls = 0;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) delete process.env.PI_DASHBOARD_BRIDGE;
+    else process.env.PI_DASHBOARD_BRIDGE = prevEnv;
+    // Stop the live bridge's timers, then leave a bare state with a `timers` array rather than
+    // deleting it: an in-flight async git probe (vcs-info → git-tracker) can still resolve after
+    // teardown and registers a timer on `getBridgeState().timers`, which would otherwise be
+    // undefined and surface as an unhandled rejection that fails the whole vitest run (CI unit(3)).
+    for (const t of (g[BRIDGE_KEY] as { timers?: ReturnType<typeof setInterval>[] } | undefined)?.timers ?? []) clearInterval(t);
+    g[BRIDGE_KEY] = { timers: [] };
+    vi.restoreAllMocks();
+  });
+
+  // A non-git temp dir: the bridge's async git probe then resolves to nothing and never re-enters
+  // the bridge after the test ends (process.cwd() is this repo, so it would).
+  const noGitCwd = mkdtempSync(join(tmpdir(), "bridge-e6-"));
+
+  function makeCtx(sessionId: string) {
+    return {
+      cwd: noGitCwd,
+      hasUI: false,
+      model: { provider: "anthropic", id: "claude-sonnet-4-6" },
+      sessionManager: {
+        getSessionId: () => sessionId,
+        getSessionFile: () => undefined,
+        getSessionDir: () => undefined,
+        getCwd: () => noGitCwd,
+        getBranch: () => [],
+        getEntries: () => [],
+      },
+      ui: {},
+    };
+  }
+
+  for (const reason of ["new", "resume", "fork"] as const) {
+    it(`${reason}: generation bumps, handlers land on pi2, session_register carries the new session id`, async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const pi1 = recordingPi();
+      const pi2 = recordingPi();
+      const { default: bridge } = await import("../bridge.js");
+
+      // Owner pi1 is live, then pi shuts it down for a session replacement.
+      bridge(pi1.pi as never);
+      const state = g[BRIDGE_KEY] as { generation: number; pi: unknown };
+      expect(state.pi).toBe(pi1.pi);
+      expect(state.generation).toBe(1);
+      await pi1.handlers.get("session_shutdown")?.({ type: "session_shutdown", reason }, makeCtx("old-session"));
+      expect(state.pi).toBeUndefined();
+
+      // pi then loads a DISTINCT ExtensionAPI for the replacement session.
+      bridge(pi2.pi as never);
+      expect(state.generation).toBe(2);
+      expect(state.pi).toBe(pi2.pi);
+      expect(pi2.handlers.has("session_start")).toBe(true);
+      expect(pi2.handlers.has("session_shutdown")).toBe(true);
+
+      await pi2.handlers.get("session_start")?.({ type: "session_start", reason }, makeCtx("new-session"));
+      const conn = fakeConnections.instances[fakeConnections.instances.length - 1];
+      const registers = conn.sent.filter((m) => m.type === "session_register");
+      expect(registers.map((m) => m.sessionId)).toContain("new-session");
+      // Generic teardown ran for the replacement, but the dev build + server shutdown did not.
+      expect(devBuild.calls).toBe(0);
+    });
+  }
+
+  it("reload: the dev build + server shutdown still run on the re-init teardown", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const pi1 = recordingPi();
+    const pi2 = recordingPi();
+    const { default: bridge } = await import("../bridge.js");
+    bridge(pi1.pi as never);
+    await pi1.handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "reload" }, makeCtx("old-session"));
+    bridge(pi2.pi as never);
+    expect(devBuild.calls).toBe(1);
   });
 });
 

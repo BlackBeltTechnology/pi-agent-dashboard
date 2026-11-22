@@ -10,7 +10,7 @@ import type { GroupByMode, GroupByPrefs, LaneId, StatusLaneId } from "@blackbelt
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useDndContext, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiArchiveOutline, mdiBroom, mdiCheck, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiEyeOffOutline, mdiFileDocumentOutline, mdiFilterVariant, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
+import { mdiArchiveOutline, mdiBroom, mdiCheck, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiEyeOffOutline, mdiFileDocumentOutline, mdiFilterVariant, mdiFolder, mdiFolderOpen, mdiFolderRemoveOutline, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -45,6 +45,7 @@ import {
   inferPlatform,
   pathKey,
   resolveSessionGroupPath,
+  sessionsInGroup,
   sortSessionsByOrder,
 } from "../../lib/session/session-grouping.js";
 import {
@@ -61,7 +62,8 @@ import {
   type StatusLaneFlags,
 } from "../../lib/session/session-lanes.js";
 import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
-import { useCardSectionPrefs } from "../../lib/state/CardSectionsContext.js";
+import { initializeSpawnOpts, siblingSpawnOpts } from "../../lib/spawn/spawn-opts.js";
+import { useCardSectionPrefs, useFocusState } from "../../lib/state/CardSectionsContext.js";
 import { type SessionMenuScope, SessionMenuScopeContext, type SessionMenuState, sessionScopeKey } from "../../lib/state/SessionMenuScopeContext.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
@@ -69,9 +71,9 @@ import { useYoloAppBar, YoloBarLink } from "../access-grant/YoloIndicators.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
-import { initializeSpawnOpts, siblingSpawnOpts } from "../../lib/spawn/spawn-opts.js";
 import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsule.js";
 import { isProjectSetupOutdated, projectSetupLabel } from "../folder/folder-menu-labels.js";
+import { RemoveFromSidebarConfirm } from "../folder/RemoveFromSidebarConfirm.js";
 import { SignedInUserBar } from "../identity/UserBar.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
@@ -515,6 +517,23 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   const [worktreeDialogCwd, setWorktreeDialogCwd] = useState<string | null>(null);
   // Manage-worktrees surface (change: manage-worktrees-filter-cleanup).
   const [manageWorktreesCwd, setManageWorktreesCwd] = useState<string | null>(null);
+  // "Remove from sidebar" confirm (live sessions present). Held here, not in the
+  // menu, so it outlives the menu closing / the folder leaving the list; the
+  // pin + workspace context is captured at open for the same reason.
+  // See change: sidebar-folder-ux.
+  const [removeFromSidebar, setRemoveFromSidebar] = useState<{ cwd: string; workspaceId?: string; pinned: boolean } | null>(null);
+  const refocusTriggerCwd = useRef<string | null>(null);
+  // Return focus to the folder's menu trigger once the confirm has unmounted
+  // (the menu item that opened it is gone, so the focus trap has nowhere to
+  // restore to). A trigger that no longer exists is simply skipped.
+  useEffect(() => {
+    if (removeFromSidebar !== null || refocusTriggerCwd.current === null) return;
+    const id = `folder-actions-menu-${refocusTriggerCwd.current}`;
+    refocusTriggerCwd.current = null;
+    Array.from(document.querySelectorAll<HTMLElement>("[data-testid]"))
+      .find((el) => el.getAttribute("data-testid") === id)
+      ?.focus();
+  }, [removeFromSidebar]);
   // Per-change worktree spawn state. When set, render the dialog prefilled
   // with `os/<changeName>` + `attachProposal=<changeName>`. Reuses the
   // existing `WorktreeSpawnDialog` component to avoid duplicate state.
@@ -707,6 +726,8 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   }, [archiveSearchKey, getArchivedPage, archiveKey]);
   // Directory-card block visibility (add-focus-mode-and-card-block-toggles D4).
   const cardSectionPrefs = useCardSectionPrefs();
+  // Focus mode suppresses the folder compact chip (#1134). See change: sidebar-folder-ux.
+  const { enabled: focusEnabled } = useFocusState();
   const folderBlockVisible = useCallback(
     (cwd: string, id: string) => resolveCardSectionVisible(cardSectionPrefs, cardSectionFolderKey(cwd), id),
     [cardSectionPrefs],
@@ -1899,6 +1920,37 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     };
   }
 
+  /** Live (status ≠ ended) sessions in the folder card's group — unfiltered, hidden included. */
+  function liveSessionsInFolder(cwd: string): DashboardSession[] {
+    return sessionsInGroup(sessions, cwd, pinnedGroupKeys, collapsePlatform).filter((s) => s.status !== "ended");
+  }
+
+  /** The D1 removal messages: leave the workspace, then unpin — each as applicable, each isolated. */
+  function sendFolderRemoval(cwd: string, workspaceId: string | undefined, pinned: boolean) {
+    if (workspaceId) {
+      try { onRemoveFolderFromWorkspace?.(workspaceId, cwd); } catch { /* best-effort: unpin still runs */ }
+    }
+    if (pinned) {
+      try { onUnpinDirectory?.(cwd); } catch { /* best-effort, no client ack to retry on */ }
+    }
+  }
+
+  function closeRemoveFromSidebar() {
+    refocusTriggerCwd.current = removeFromSidebar?.cwd ?? null;
+    setRemoveFromSidebar(null);
+  }
+
+  function confirmRemoveFromSidebar() {
+    if (!removeFromSidebar) return;
+    const { cwd, workspaceId, pinned } = removeFromSidebar;
+    // Recomputed NOW (not at open): a session may have gone live or ended meanwhile.
+    for (const s of liveSessionsInFolder(cwd)) {
+      try { onShutdown?.(s.id); } catch { /* best-effort: keep ending the rest */ }
+    }
+    sendFolderRemoval(cwd, workspaceId, pinned);
+    closeRemoveFromSidebar();
+  }
+
   function folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction, initStatus }: {
     group: DirectoryGroup;
     isPinned: boolean;
@@ -1941,6 +1993,29 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           else onPinDirectory?.(group.cwd);
         },
       });
+    }
+    // One-step removal: leave the workspace AND unpin (#1118). Live sessions need
+    // a confirm (they are ended first), which needs `onShutdown`; without it the
+    // item is withheld only for a folder that has live sessions.
+    // See change: sidebar-folder-ux.
+    const canLeaveWorkspace = inWorkspace && !!workspaceId && !!onRemoveFolderFromWorkspace;
+    const canUnpin = isPinned && !!onUnpinDirectory;
+    if (canLeaveWorkspace || canUnpin) {
+      const hasLive = liveSessionsInFolder(group.cwd).length > 0;
+      if (!hasLive || onShutdown) {
+        items.push({
+          id: "remove-from-sidebar",
+          group: "directory",
+          label: t("sessionList.removeFromSidebar", undefined, "Remove from sidebar"),
+          icon: mdiFolderRemoveOutline,
+          onSelect: () => {
+            // Re-evaluate at activation (the menu item's closure may be stale).
+            const ctx = { cwd: group.cwd, workspaceId: canLeaveWorkspace ? workspaceId : undefined, pinned: canUnpin };
+            if (liveSessionsInFolder(group.cwd).length > 0) setRemoveFromSidebar(ctx);
+            else sendFolderRemoval(ctx.cwd, ctx.workspaceId, ctx.pinned);
+          },
+        });
+      }
     }
     // Manage worktrees: gated on the folder being a git repository, and
     // deliberately INDEPENDENT of live sessions — the surface exists to clean
@@ -2341,6 +2416,28 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
                 and the hidden/filtered degrade notices — a bespoke
                 expand-then-rAF would no-op against a body that has not mounted.
                 See change: unify-folder-status-capsule. */}
+            {accordionMode === "compactEmpty" && !isStub && accordionSessions.length > 0 && (() => {
+              const n = accordionSessions.length;
+              const label = n === 1
+                ? t("sessionList.compactCountOne", undefined, "1 session")
+                : t("sessionList.compactCountMany", { count: n }, `${n} sessions`);
+              return (
+                // Sibling of the name link (never inside its accessible name). It
+                // only focuses this folder — the row's own click would also open
+                // the folder home — hence stopPropagation. Painted --text-secondary
+                // (never --text-muted: it fails contrast on the card surface).
+                <button
+                  type="button"
+                  aria-label={label}
+                  title={label}
+                  onClick={(e) => { e.stopPropagation(); activateFolder(group.cwd); }}
+                  className="focus-ring shrink-0 rounded px-1 text-[11px] tabular-nums text-[var(--text-secondary)] hover:text-[var(--text-primary)] min-h-[44px] md:min-h-0"
+                  data-testid={`folder-compact-count-${group.cwd}`}
+                >
+                  {n}
+                </button>
+              );
+            })()}
             <FolderStatusCapsule
               cwd={group.cwd}
               sessions={group.sessions}
@@ -2382,11 +2479,14 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               (git · action bar · plugin sections · OpenSpec proposal state ·
               spawn buttons) are hidden — the header keeps only name + status.
               The Group-by chip stays visible on its own secondary row so a
-              collapsed folder still says how it opens (session-list-group-by).
+              collapsed folder still says how it opens (session-list-group-by) —
+              EXCEPT in the accordion compact modes, which are a single header
+              row (grouping stays in the folder menu; see change:
+              sidebar-folder-ux).
               A STUB group never renders them at all (D9).
               See change: condense-collapsed-folder-header,
               fix-connect-snapshot-frame-loss. */}
-          {(isCollapsed || isStub) && groupMode !== "none" && (
+          {(isCollapsed || isStub) && !isCompact && groupMode !== "none" && (
             <div className="mt-0.5 flex min-w-0 items-center" data-testid={`folder-group-by-row-${group.cwd}`}>
               {groupByChip}
             </div>
@@ -2403,6 +2503,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, initializeSpawnOpts(c, PROJECT_INIT_PROMPT)) : undefined}
               onStatusChange={refetchInit}
               compact
+              suppressChip={focusEnabled}
             />
           )}
           {!isCollapsed && !isStub && (<>
@@ -2449,6 +2550,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, initializeSpawnOpts(c, PROJECT_INIT_PROMPT)) : undefined}
             onStatusChange={refetchInit}
             compact={!showFolderBanner}
+            suppressChip={focusEnabled}
           />
           {/* Slot-pill grid: the plugin slot sections (Automations / Goals /
               KB) + OpenSpec render as single-concern pills in a 2-col grid that
@@ -2506,18 +2608,9 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               </div>
             );
           }
-          const n = accordionSessions.length;
-          if (n === 0) return null;
-          return (
-            <button
-              type="button"
-              onClick={() => activateFolder(group.cwd)}
-              className="focus-ring w-full text-left text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-3 py-1 select-none"
-              data-testid={`folder-compact-row-${group.cwd}`}
-            >
-              {t("sessionList.compactCount", { count: n }, `${n} sessions — click to view`)}
-            </button>
-          );
+          // Compact-empty: the count lives in the header row (see the count
+          // button beside the name link) — no second row. See change: sidebar-folder-ux.
+          return null;
         })()}
         {/* Stub group body (D9): ended expander only — no Create tray, no
             spawn buttons, no session cards, no section slots. The label
@@ -3386,6 +3479,14 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           allSessions={sessions}
           onShutdownSession={(id) => onShutdown?.(id)}
           onClose={() => setManageWorktreesCwd(null)}
+        />
+      )}
+      {removeFromSidebar && (
+        <RemoveFromSidebarConfirm
+          cwd={removeFromSidebar.cwd}
+          sessions={liveSessionsInFolder(removeFromSidebar.cwd)}
+          onConfirm={confirmRemoveFromSidebar}
+          onClose={closeRemoveFromSidebar}
         />
       )}
       {cleanupCwd && (() => {

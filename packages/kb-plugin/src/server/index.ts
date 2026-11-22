@@ -22,6 +22,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { KbJobRegistry } from "./job-registry.js";
 import { applyConfigPatchAndTrust, mountKbRoutes, preflightWrite, reindexAll } from "./kb-routes.js";
+import { outcomeOf } from "./reindex-runner.js";
 
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
 const HOST_CWD_ADMISSION_LOG = "host.cwdAdmissionOnIndeterminate";
@@ -57,22 +58,24 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const onIndeterminate = ctx.consume<(info: IndeterminateInfo) => void>(HOST_CWD_ADMISSION_LOG);
   const admitOptions = { onIndeterminate };
 
-  mountKbRoutes(ctx.fastify, { knownCwds, registry, holdCwdDenial: ctx.holdCwdDenial, admitOptions });
+  mountKbRoutes(ctx.fastify, { knownCwds, registry, holdCwdDenial: ctx.holdCwdDenial, admitOptions, logger: ctx.logger });
 
   /** Start a background reindex unless one is running or a precondition refuses it
-   *  (design D9: same preconditions as REST — refuse, log, create nothing). */
+   *  (design D9: same preconditions as REST — refuse, log, create nothing). A job that is
+   *  cancelling does not count as running: the request queues behind it (kb-plugin-index-jobs). */
   const startReindex = (cwd: string, refusalPrefix: string): void => {
-    if (registry.isRunning(cwd)) return;
+    if (registry.willCoalesce(cwd)) return;
     const refused = preflightWrite(cwd, { needsSources: true });
     if (refused) {
       ctx.logger.warn(`${refusalPrefix} cwd=${cwd}: ${refused}`);
       return;
     }
     registry
-      .start(cwd, async () => reindexAll(cwd, ctx.logger))
-      .promise.catch((err) =>
-        ctx.logger.error(`kb reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`),
-      );
+      .start(cwd, (job) => reindexAll(cwd, ctx.logger, { signal: job.signal, onProgress: job.progress, onFolderGone: () => registry.cancel(cwd) }))
+      .promise.catch((err) => {
+        if (outcomeOf(err) === "cancelled") return; // the registry restored the pre-start state: not a failure
+        ctx.logger.error(`kb reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`);
+      });
   };
 
   const handleConfigSet = (cwd: string, payload: Record<string, unknown>): void => {

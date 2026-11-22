@@ -3376,7 +3376,7 @@ The dashboard derives one per-directory readiness state (`OpenSpecData.readiness
 
 - `BROKEN` · `missing-changes-dir` — Repair on the folder card (confirm, then re-runs init).
 - `BROKEN` · `cli-failed` — fix the openspec CLI itself. Error text shown; no Repair — init would auto-clean files in a directory that may hold real proposals.
-- `STALE` · `missing-skills` — Update on the folder card. Runs `openspec update --tools pi`, writes `.pi/skills/openspec-*`.
+- `STALE` · `missing-skills` — Update on the folder card. Runs `openspec update --tools pi`, writes `.pi/skills/openspec-*`. Skill counts only if `<configRoot>/.pi/skills/openspec-explore/` OR `<configRoot>/.agents/skills/openspec-explore/` exists. Other `openspec-*` dirs (e.g. `openspec-propose/`) alone do not count.
 - `STALE` · `profile-stale` — Settings → OpenSpec Workflow Profile → Update.
 - `ABSENT` — Initialize on the folder card. Or dismiss (adds cwd to `openspec.optOutDirectories`), or set `openspec.offerInitialization: false` to hide the offer fleet-wide.
 - `OPTED_OUT` — cwd listed in `openspec.optOutDirectories`. Re-enable via folder `⋯` menu → Enable OpenSpec for this folder.
@@ -4040,6 +4040,17 @@ Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
 
 See change: improve-kb-settings-sources-and-search.
 
+## How do I run dashboard reindex in-process or cancel it?
+
+Dashboard reindex runs in worker thread (`packages/kb-plugin/src/server/reindex-worker.mjs`).
+
+- Kill-switch: `PI_DASHBOARD_KB_REINDEX_WORKER=0` → in-process. Read per job.
+- Worker load failure before ready → in-process fallback automatically.
+- Cancel: `POST /api/kb/reindex/cancel?cwd=` (operator tier) → `200 {cancelled:true|false}`.
+- Log: grep `reindex mode=` (one line per job; `outcome=` field).
+
+Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
+
 ## Why is a new worktree's kb index fast / how do I disable seeding?
 
 First kb index in linked git worktree seeds from main checkout snapshot. Measured this repo: ~4 s seeded vs ~104 s cold. Result equals cold first index.
@@ -4055,13 +4066,14 @@ Source reuse gate. Source reused only when main recorded:
 
 - same schema version.
 - same index-options hash.
-- same kb engine fingerprint (`engine:<root>` in `kb_meta`, from `packages/kb/engine-fingerprint.json` `srcHash`).
+- same kb engine fingerprint (`engine:<root>` in `kb_meta`, from `packages/kb/engine-fingerprint.json` `rowsHash`; hash of `indexer.ts`, `chunker.ts`, `adoc-chunker.ts`, `frontmatter.ts`, `gitignore.ts`).
 
 Else that source builds from scratch.
 
 Upgrade:
 
-- First pass after kb upgrade re-chunks every source once (engine record absent).
+- First pass after kb upgrade re-chunks every source once (`rowsHash` record absent).
+- Non-row kb edits (docs, config, other kb files) do not force full reindex.
 - Until main finishes that pass, worktree seeds 0 sources.
 
 Log. Every first index prints ONE stderr line:

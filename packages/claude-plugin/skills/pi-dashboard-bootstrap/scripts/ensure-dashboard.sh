@@ -311,6 +311,11 @@ live_wait() { # a server is recorded alive/unknown: wait for it, never launch
 
 # --- lock ---------------------------------------------------------------------------------
 
+# Test-mode lock trace (stderr): X5 "two concurrent bootstraps launch exactly once" fails
+# intermittently in nightly CI only, with both runs launching. Not reproducible locally; the
+# trace lands in the test's failure message so the next occurrence names the path taken.
+ltrace() { [ "${PIDB_TEST:-}" = 1 ] && log "[lock pid=$$ t=$(date +%s)] $*"; return 0; }
+
 lock_stale() {
   hp=""
   [ -f "$L/holder" ] && hp=$(head -n1 "$L/holder" 2>/dev/null | tr -d ' \t\r\n')
@@ -332,14 +337,17 @@ acquire_lock() {
     if mkdir "$L" 2>/dev/null; then
       HAVE_LOCK=1
       printf '%s\n' "$$" > "$L/holder"
+      ltrace "acquired"
       return 0
     fi
     if lock_stale; then
+      ltrace "reclaiming stale lock (holder='$hp')"
       rm -f "$L/holder"
       rmdir "$L" 2>/dev/null
       continue
     fi
     # Another bootstrap holds it: wait for the dashboard it is starting.
+    ltrace "held by '$hp', waited ${waited}s"
     settle "$PORT"
     case "$CLASS" in verified|recovery|conflict) report ;; esac
     if [ "$waited" -ge "$LOCK_WAIT_S" ]; then

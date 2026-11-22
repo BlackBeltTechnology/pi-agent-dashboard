@@ -101,10 +101,14 @@ async function boot(
     provide: (k: string, v: unknown) => provided.set(k, v),
     // Host lookup the registry's subset check uses: flows' real manifest emits.
     // See change: harden-git-terminal-plugin-boundaries (D16).
+    // `host.knownFolderCwds`: the WS `run` admits its cwd like the REST route
+    // (see change: harden-path-and-process-guards, #1104).
     consume: (k: string) =>
       k === "host.pluginManifestEmits"
         ? (id: string) => (id === "flows" ? ["flow:run", "dashboard-flows:report-files"] : [])
-        : provided.get(k),
+        : k === "host.knownFolderCwds"
+          ? () => [repo]
+          : provided.get(k),
     // The host records the provider per key: the test publishes on flows' behalf.
     consumeAll: (prefix: string) =>
       [...provided.entries()]

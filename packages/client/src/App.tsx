@@ -63,6 +63,7 @@ import { WorktreeInitStack } from "./components/worktree/WorktreeInitStack.js";
 import { useAppHidden } from "./hooks/useAppHidden.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
+import { useDraftSweep } from "./hooks/useDraftSweep.js";
 import { useHistoryLoadState } from "./hooks/useHistoryLoadState.js";
 import { useIdleFx } from "./hooks/useIdleFx.js";
 import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
@@ -78,8 +79,6 @@ import { useRemoteAccessIndicator } from "./hooks/useRemoteAccessIndicator.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
-import { setSpawnDefaults as mirrorSpawnDefaults } from "./lib/spawn/spawn-choice-memory.js";
-import { siblingSpawnOpts } from "./lib/spawn/spawn-opts.js";
 import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
 import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
@@ -93,6 +92,7 @@ import { applyPromptTimeout, carryInteractiveRequests, createInitialState, deriv
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
 import { createProjectAndPin } from "./lib/create-project.js";
+import { currentModelState } from "./lib/current-model-state.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
 import { resolveWorktreeAvailability } from "./lib/git/folder-worktree-availability.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
@@ -149,10 +149,12 @@ import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
 import { deriveServerKey, replayCache } from "./lib/replay/replay-cache.js";
 import { createReplayPersister } from "./lib/replay/replay-persist.js";
 import { viewedSession } from "./lib/session/archived-read-only-session.js";
+import { setSpawnDefaults as mirrorSpawnDefaults } from "./lib/spawn/spawn-choice-memory.js";
+import { siblingSpawnOpts } from "./lib/spawn/spawn-opts.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
-import { currentModelState } from "./lib/current-model-state.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
+import { resetSudoCredentialBusForServerSwitch } from "./lib/state/sudo-credential-bus.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
 
 // Stable tracker facade for the depth-aware back action
@@ -170,6 +172,12 @@ const NAV_TRACKER = { predecessor, popNav };
 // See change: electron-runtime-overlay-updates.
 // Per-session View popover: its own chunk, off the entry gzip cap.
 // See change: add-set-global-view.
+// Sudo credential dialog host: its own chunk, off the entry gzip cap (mdi-chunk-size).
+// The request/cache bus stays in the entry (useMessageHandler); only the UI is lazy.
+// See change: add-sudo-credential-prompt.
+const SudoCredentialHost = lazy(() =>
+  import("./components/SudoCredentialDialog.js").then((m) => ({ default: m.SudoCredentialHost })),
+);
 const ChatViewMenu = lazy(() =>
   import("./components/chat/ChatViewMenu.js").then((m) => ({ default: m.ChatViewMenu })),
 );
@@ -1077,6 +1085,9 @@ export default function App() {
           // stale offer from server A can't reopen IDs on server B.
           // See change: reopen-sessions-after-shutdown.
           clearRecoveryOffer();
+          // Pending sudo prompts / cache metadata belong to server A; they must
+          // not render (or answer) through server B's socket. Subscribers stay.
+          resetSudoCredentialBusForServerSwitch();
         },
         setWsUrl,
         persistLastServer: (h, p) => {
@@ -1283,6 +1294,8 @@ export default function App() {
   // tool-result route. Session-scoped (survives transcript virtualization).
   // See change: fix-stuck-tool-card-on-dropped-event.
   useStaleToolReconcile(sessionStates, setSessionStates, apiBase);
+  // Drop prompt-answer drafts once their request leaves `pending` (state-driven). See change: fix-input-state-consistency.
+  useDraftSweep(sessionStates);
   // Runtime plugins (design D10/D21): load the admitted listing once the API base is known (a remote
   // server or a page without an import map loads nothing), and re-fetch on every `plugins_changed`.
   // See change: decouple-plugins-from-core (tasks 6.14, 6.17).
@@ -3368,6 +3381,9 @@ export default function App() {
         <WorktreeInitStack />
         <SpawnErrorToastHost />
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
+        <Suspense fallback={null}>
+          <SudoCredentialHost send={send} connected={status === "connected"} sessionLabel={(id) => sessions.get(id)?.name} />
+        </Suspense>
         {firstLaunchModal}
         {grantPromptHost}
         {provisionPromptHost}
@@ -3476,6 +3492,9 @@ export default function App() {
         )}
         {connectionBanner}
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
+        <Suspense fallback={null}>
+          <SudoCredentialHost send={send} connected={status === "connected"} sessionLabel={(id) => sessions.get(id)?.name} />
+        </Suspense>
         {/* Folder-scoped editor pane (hosts terminal tabs via the keep-alive
             TerminalPaneLayer — single <TerminalView> mount per id). See change:
             terminals-in-tabbed-panes, fix-terminal-half-height-dual-mount. */}

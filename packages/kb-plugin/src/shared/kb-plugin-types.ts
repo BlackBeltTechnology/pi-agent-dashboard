@@ -12,6 +12,14 @@ export const KB_PLUGIN_ID = "kb";
 /** Reindex job lifecycle state exposed to the client via `/stats`. */
 export type KbJobStatus = "idle" | "running" | "error";
 
+/** Files done/total for the source root a running reindex is indexing; transient (never persisted).
+ *  See change: throttle-kb-reindex. */
+export interface KbReindexProgress {
+  root: string;
+  done: number;
+  total: number;
+}
+
 /** Response shape of `GET /api/kb/stats?cwd=`. */
 export interface KbStats {
   files: number;
@@ -33,6 +41,8 @@ export interface KbStats {
   /** Source specs in the resolved (defaults + global + project) config; `0` when
    *  `folderMissing`. Optional on the wire: absent = unknown. */
   sourceCount?: number;
+  /** Present only while a job runs and after its first batch commit (absent when idle / before the first commit). */
+  progress?: KbReindexProgress;
 }
 
 /** Result of a completed reindex walk — the registry's `done` record (from

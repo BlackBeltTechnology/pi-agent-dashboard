@@ -3,7 +3,9 @@
 ## Purpose
 
 Provide a portal-mounted modal dialog primitive that renders above all page content with an overlay, contains keyboard focus, exposes correct modal ARIA semantics, and supports size and intent variants. Two presets build on it: a Confirm dialog for title/message/confirm-cancel decisions and a SearchableSelect dialog for filtering and picking from an option list.
+
 ## Requirements
+
 ### Requirement: Portal Mounting and Body Scroll Lock
 
 The dialog SHALL render into a portal attached to the document body and prevent background page scrolling while open.
@@ -71,7 +73,7 @@ A flush child that renders NO focusable element of its own SHALL set `showClose`
 
 ### Requirement: Focus Containment
 
-The dialog SHALL move focus into itself on open, trap Tab and Shift+Tab within its focusable elements, and restore focus to the previously focused element on close.
+The dialog SHALL move focus into itself on open — to the first focusable descendant marked `data-autofocus` when one exists, otherwise to the first focusable descendant — trap Tab and Shift+Tab within its focusable elements, and restore focus to the previously focused element on close.
 
 When the dialog has no focusable descendant at the moment it opens, it SHALL keep watching its own subtree and move focus to the first focusable descendant that appears, at most once, and only while focus is still on the dialog container. A child that renders its controls asynchronously would otherwise strand focus on a non-interactive box: the built-in ✕ used to guarantee a non-empty focusable set, and suppressing it under `flush` removes that guarantee.
 
@@ -80,6 +82,12 @@ When the dialog has no focusable descendant at the moment it opens, it SHALL kee
 - **WHEN** the dialog transitions to open
 - **THEN** focus moves to the first focusable descendant (matching links, enabled buttons/inputs/textareas/selects, or elements with a non-negative tabindex)
 - **AND** if no focusable descendant exists, focus moves to the dialog container itself
+
+#### Scenario: Marked control receives initial focus
+
+- **GIVEN** a dialog whose Cancel button carries `data-autofocus` and whose first focusable element is the built-in ✕
+- **WHEN** the dialog opens
+- **THEN** focus SHALL be on the Cancel button
 
 #### Scenario: Focus moves to a late-arriving focusable descendant
 
@@ -270,4 +278,3 @@ The SearchableSelect dialog SHALL let the user filter a list of options by text 
 
 - **WHEN** the user dismisses the dialog via overlay click or Escape
 - **THEN** `onCancel` is called
-

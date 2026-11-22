@@ -102,7 +102,11 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       // Bounded, filterable, cursor-paged (change: paginate-mcp-list-sessions).
       listSessions(ctx.sessionManager.listAll() as DashboardSession[], args as ListSessionsArgs),
     send_prompt: async ({ args }) => ({
-      delivered: ctx.sendToSession(args.sessionId as string, args.text as string),
+      delivered: ctx.sendToSession(
+        args.sessionId as string,
+        args.text as string,
+        args.delivery === undefined ? undefined : { delivery: args.delivery as "steer" | "followUp" },
+      ),
     }),
     // Full input incl. model / @role / thinkingLevel; see change: add-spawn-model-choice.
     spawn_session: async ({ args }) => runSpawnSessionTool(ctx.spawnSession, args as Record<string, unknown>),

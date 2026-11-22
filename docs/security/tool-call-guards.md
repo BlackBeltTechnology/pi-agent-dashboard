@@ -10,6 +10,7 @@
 - `bash`, `grep`, `find`, `ls`, MCP and custom tools are NOT covered by the path gate (`handler.ts:40`; `docs/architecture.md:4003`).
 - Opt-in hard guards exist but only on specific spawn paths: `path-containment-guard` (plugin spawn scope, no in-repo consumer), chat-gateway L3 guard (only when operator sets `toolPolicy` + `guardExtension`), team guard (team sessions).
 - Untrusted-content guard (taint → confirm sensitive tools) is a recommended pi package, **not installed by default** (`strongly-suggested` since change `harden-agent-tool-guards`); active in `strip` mode once installed, and the project layer is tighten-only (`packages/shared/src/recommended-extensions.ts:647-673`; `packages/untrusted-content-guard/src/settings.ts:40-44,106-130`).
+- Sudo askpass prompt (default on): operator-typed sudo password masked as `[REDACTED:SUDO_PASSWORD]` on exact echo. Helper→bridge checks are anti-accident only, not security. See C9a.
 - Credential-vault redaction masks exact vault values in `tool_result` / `message_end` / `user_bash` / forwarded events; values live in `process.env` of pi, so `bash` sees them; encoded forms not masked (`packages/extension/src/vault-delivery.ts:205`, `vault-masker.ts:5`).
 - Every bridge-connected pi session receives a `control`-tier dashboard MCP bearer (`packages/mcp-server-plugin/src/server/tokens.ts:46,123`). That surface includes `send_prompt`, `spawn_session` against OTHER sessions. `prompt_response` + `extension_ui_response` no longer on the surface (TOOL-01, closed by close-security-map-high-findings). Prompt answers still reachable by other roads — TOOL-20.
 - `ctx.hasUI` is `true` in pi RPC mode (pi `docs/rpc-extension-ui.md:25`), so dashboard-spawned headless sessions prompt via dashboard; unanswered prompts fail closed on timeout.
@@ -28,6 +29,7 @@
 | Chat-gateway L3 guard | `packages/chat-gateway/src/guard/` | pi `tool_call` in gateway-SPAWNED sessions | all tools by name | `allow` / `approve` (`ctx.ui.confirm`, 60 s) / `deny` (deny-first) | OFF unless gateway config has BOTH `toolPolicy` and `guardExtension`; policy via env `PI_EXT_CHAT_GATEWAY_GUARD_POLICY` | closed: missing/unparseable env → deny-all; confirm timeout/throw → deny | attached sessions never guarded; config without guard → no guard | `guard/index.ts:49,55-110,125-143`; `policy.ts:46-56`; `server/gateway.ts:634,650-656`; `server/config.ts:97-111` |
 | Team guard | `packages/team-plugin/src/extension/` | pi `tool_call`, `before_agent_start`, `input` | preset allowlist `chat`/`files`/`full`; path check on `read`,`write`,`edit`,`grep`,`find`,`ls` (`path`,`file_path`) | hard block; `.git`/`.pi`/`.claude` write-protected | ON for team-plugin sessions; env `PI_EXT_TEAM_TOOLS`/`_ROOT`/`_SKILLS` | closed: no/garbage policy → block all; `~`/scheme paths refused | preset `full` includes `bash` (unconfined) | `guard.ts:13-17,21,68,113-138`; `index.ts:47-54` |
 | ~~Subagent fan-out admission~~ | removed (change: subagent-queue-visibility) | — | — | queue now producer `maxConcurrent` (resource, not security) | — | — | — | — |
+| Sudo askpass gate + masking | `packages/extension/src/sudo-askpass/`, `packages/server/src/sudo-credential/relay.ts` | `SUDO_ASKPASS` helper → bridge unix socket; bridge masker (`tool_result`, `message_end`, `user_bash`, `event_forward`) | `sudo` no-tty fallback in bash / `!` calls | operator modal per request; cache window reuse | anti-accident only (not security): bash call in flight, single pending, sticky Cancel | ON (`sudoCredentialPrompt.enabled`); `win32` no-op | same-user process can open socket; transformed echo unmasked | C9a |
 | Pi trust mirror (`project_trust`) | `packages/extension/src/project-trust.ts`, `project-trust-live.ts`, `bridge-handlers/lifecycle.ts` | pi `project_trust` (before project resources load) | gates loading of project `.pi/` extensions/settings | `yes` (this run) only when dashboard trust covers the cwd (pinned / workspace / grant / YOLO), else `undecided` | `piTrustMirror.enabled:true`, `coverInteractive:false`, `liveQuery:true` | `undecided` on any error/timeout (pi default) | nothing covering the folder → pi decides (`trust.json`, then `defaultProjectTrust`; RPC has no prompt); YOLO + workspace sources mirror trust | `project-trust.ts:128-195`; `lifecycle.ts:197-231`; `config.ts:929-934` |
 | Vault redaction | `packages/extension/src/vault-redaction.ts`, `vault-masker.ts`, `vault-forwarder.ts`, `vault-delivery.ts` | `tool_result`, `message_end`, `user_bash`, `ConnectionManager.outboundFilter` | all tool results + assistant text/tool-call args + forwarded events | exact-value `[REDACTED:<NAME>]` | ON when vault values delivered | closed: masking throw → output withheld | encoded/transformed values; values in `process.env` for `bash` | `bridge.ts:1132-1175`; `vault-redaction.ts:1-21,122`; `vault-masker.ts:1-19`; `vault-delivery.ts:205` |
 | Gmail write confirm + level + lease | `packages/gmail-plugin/src/bridge/tools.ts`, `server/lease.ts`, `shared/scopes.ts` | tool `execute` + plugin request lane `gmail/lease` | `gmail_draft`,`gmail_send`,`gmail_reply`,`gmail_modify`,`gmail_trash`,`gmail_filter_create`,`gmail_filter_delete` | `ctx.ui.confirm` per write; server tier check per call | account tier default `readonly`; filters opt-in | closed: no UI → `blocked`; confirm false/throw → `denied`; `tier_denied` | tier raised by operator | `tools.ts:160-175`; `lease.ts:147-148`; `scopes.ts:7-10,70`; `server/routes.ts:249` |
@@ -114,6 +116,26 @@ sequenceDiagram
   S-->>G: "path_grant_result ok"
 ```
 
+Order (`handler.ts:300-337`). Applies to grantable, non-sensitive paths with live YOLO link (`path-yolo` advertised, same grant store). See change: harden-path-and-process-guards (#1115).
+- YOLO verdict asked BEFORE recent-denial check (120 s, `suppression.ts:8`).
+- `auto-allow` → `yolo-allowed` (allow).
+- `refused` → `yolo-refused` (block). Clear in Settings ▸ Access.
+- `decline` / error / timeout → falls through to recent-denial check.
+- Recent-denial check → `recently-denied` (block). Sole gate when YOLO skipped (sensitive, ungrantable, no link, non-YOLO session) or declined.
+- In-mutex re-check (`handler.ts:122`) unchanged.
+- Cost: suppressed retry by YOLO-supported session = one server round-trip. ≤ `YOLO_ASK_TIMEOUT_MS` 1500 ms (`yolo-link.ts:18`) if server silent. Was immediate.
+
+Remembered Deny (server answers `refused`):
+- Operator Deny or dismiss at select step, YOLO supported + same grant store.
+- Bridge reports via `reportRefusal` (fire-and-forget, `handler.ts:211-217`). Server persists refusal.
+
+Not remembered (live YOLO overrides; without YOLO still `recently-denied`):
+- Timeout: no operator answer.
+- Unrecognised answer: denied, never reported.
+- Declined or dismissed always-allow confirmation: never reported.
+- Report lost before next call, or not persisted.
+- Deny while YOLO link down or not same host: never reported.
+
 ### Cross-session approval path (TOOL-01 — closed)
 
 Status: **closed by close-security-map-high-findings** (D2). Original High premise wrong. Re-rated Low 2026-10-22. Both answer tools then removed from MCP.
@@ -145,7 +167,7 @@ flowchart LR
 - Default: `{enabled:true, timeoutSeconds:120}` `config.ts:979`. Config error → fallback enabled `handler.ts:270-272`. Env override `config.ts:993-1001`.
 - Fail-closed: no UI `handler.ts:290-296`; suppression 120 s `suppression.ts:8`; no PromptBus → `undefined` answer → deny `index.ts:88`; unknown answer → deny `handler.ts:211`; any throw → `error` `handler.ts:343-346`.
 - Fail-open: disabled `handler.ts:274`; missing/empty `path` `handler.ts:278` (pi rejects call itself); stale bridge instance `bridge.ts:1966`.
-- Bypass: YOLO (C3) before mutex `handler.ts:303-325` — only non-sensitive, grantable, `path-yolo` advertised, same grant store.
+- Bypass: YOLO (C3) before recent-denial check and mutex `handler.ts:300-337` — only non-sensitive, grantable, `path-yolo` advertised, same grant store.
 - Sensitive (prompt w/o Always allow): `~/.ssh`, `~/.pi` only `packages/shared/src/forbidden-subjects.ts:112-113`.
 - Log: `[path-gate] <outcome> …` control-chars stripped `handler.ts:96-102`.
 - Tests: `packages/extension/src/path-gate/__tests__/` (per `path-gate/AGENTS.md`).
@@ -203,6 +225,28 @@ flowchart LR
 - Delivery writes values into `process.env` `vault-delivery.ts:205` → inherited by `bash` children.
 - Exact-occurrence only `vault-masker.ts:5`. Residual (documented): another extension registering earlier can see raw text `vault-redaction.ts:15-17`.
 
+### C9a Sudo askpass prompt — gate, masking, cache
+- Files: `packages/extension/src/sudo-askpass/` (`controller.ts`, `install.ts`, `in-flight.ts`, `password-cache.ts`, `prompt-text.ts`, `sudo-mask-registry.ts`); `packages/server/src/sudo-credential/relay.ts`; `packages/client/src/components/SudoCredentialDialog.tsx`; `packages/shared/src/sudo-credential.ts`.
+- Trigger: bash has no tty → sudo calls `$SUDO_ASKPASS` as `argv[1]`=prompt, no `-A`. Verified sudo 1.9.17p2 macOS only. Linux sudo / sudo-rs unverified (QA task 6.5 open). Flavour ignoring fallback → helper never runs, sudo fails as before.
+- Install: bridge installs wrapper only on `dashboard_identity.features` contains `sudo-credential`, `enabled`, non-`win32`, no operator `SUDO_ASKPASS`. Wrapper + socket dir `mkdtemp` 0700, file 0700, `sun_path` ≤104 (macOS) / 108 (Linux). Operator `SUDO_ASKPASS` never touched.
+- Helper: `execPath` absolute interpreter (no `env node`). Sends `{promptText, ppid}` over socket. Password only on socket → helper stdout. Never argv, env, stderr. Crash → fixed stderr message.
+- Removal: downgrade identity, server loss, `session_shutdown`, live disable → remove own wrapper (only if still ours), zero cache, dismiss pending (helper exit 1).
+- Gate (anti-accident, NOT security, `in-flight.ts`): bash / `user_bash` call must be in flight. One pending prompt per session; second request refused exit 1, no queue. Cancel sticky for tool calls in flight. `ppid` self-reported, used only to count retries; peer-process checks dropped (D7).
+- Modal: session, every in-flight command (full, scrollable), sudo prompt text (escaped, labelled "text supplied by the command", 500-char cap, first 250 + last 250).
+- Transport: `sudo_credential_request` (bridge → server → browsers), `_response` / `_cancel` / `_forget` / `_shown` / `_dismiss`. Dedicated road: not `prompt_*`, not `QuestionStore`, not event store, not replay. WS tier `control`. Any authenticated session-owner browser incl. plain-HTTP LAN. First answer wins; rest get `_dismiss`.
+- Ack: dialog sends `_shown` on render. No ack in 2 000 ms → `_cancel {reason:"unanswerable"}`. Timeout (`timeoutMs`, default 120 000) → `reason:"timeout"`. Both non-sticky.
+- Answer validation: empty or >1 024 chars → dropped (dialog, relay, bridge). Late, wrong-`callId` or post-`tool_execution_end` answers dropped, never cached.
+- Masking (C): answer registered in `sudo-mask-registry.ts` (append-only, name `SUDO_PASSWORD`) before delivery and caching. `bridge.ts:1159-1163` merges sudo entries into masker state (`version: vault + sudo`).
+- Mask scope: exact occurrence → `[REDACTED:SUDO_PASSWORD]` in `tool_result`, `message_end`, `user_bash`, `event_forward`. Rejected passwords stay registered. Never unregistered (process lifetime).
+- Not masked: base64 / hex / split / reversed echo. No min length: 1–3 char password garbles output.
+- `user_bash`: `vaultRedaction.userBash({always: sudoFeatureInstalled()})`. Ops wrapped by in-flight tracker. Fail closed: feature installed, no ops → `undefined`, command untracked, sudo refused.
+- Cache (`password-cache.ts`): bridge memory only, `Buffer`, zeroed on clear (best-effort). TTL `cacheMinutes` (default 5, clamp 0–60; 0 = off). Fixed window from entry; cache read does not extend.
+- Per-sudo-pid invocation counter (max 1 000 pids, oldest evicted). Invocation 1: cache hit → deliver, no modal. Invocation ≥2: cache cleared, modal shown. Entry on invocation ≥3 (`SUDO_FINAL_INVOCATION`, sudo `passwd_tries` default) → not cached.
+- Cache clear: `session_shutdown` (incl. reload), server connection loss, `sudo_credential_forget` (Forget chip via `sudo_credential_cache {expiresAt|null}`), TTL expiry, disable, sudo re-invoke same pid. Masker registration NOT cleared.
+- Logs: event name + `callId` only. No command text, prompt text or password.
+- Residuals: same-user process gets plaintext (socket, or child of sudo). Accepted: default-on injected prompt; plain-HTTP LAN plaintext; cache window sudo without prompt. Heap / crash-dump residue (`Buffer` zero not reaching `ws` / JSON / masker strings). Lowered `passwd_tries` (1–2) can cache a wrong final entry. Pre-install `!` command untracked + unmasked.
+- Not a sandbox.
+
 ### C10 Gmail writes
 - Confirm per write, no UI → `blocked` `tools.ts:160-175`.
 - Server lease re-checks tier every call `lease.ts:147-148`; tiers `readonly|draft|send` `scopes.ts:7-10`; new account default `readonly` `routes.ts:249`.
@@ -245,6 +289,9 @@ flowchart LR
 ## Config & env knobs
 | Key | Default | Effect | path:line |
 |---|---|---|---|
+| `sudoCredentialPrompt.enabled` | `true` | askpass helper install / modal on or off; live | `packages/shared/src/config.ts:1267,1774,2805` |
+| `sudoCredentialPrompt.timeoutMs` | `120000` | per-prompt answer window; clamp 5 000–600 000 | `shared/src/sudo-credential.ts` |
+| `sudoCredentialPrompt.cacheMinutes` | `5` | bridge-memory cache window; clamp 0–60; 0 = off | `shared/src/sudo-credential.ts` |
 | `agentPathGate.enabled` | `true` | path gate on/off, read per call (signature) | `packages/shared/src/config.ts:979`; `path-gate/index.ts:64-80` |
 | `agentPathGate.timeoutSeconds` | `120` | one budget for both prompts | `config.ts:979` |
 | `PI_DASHBOARD_AGENT_PATH_GATE` | unset | `off`/`on` per process override | `config.ts:993-1001` |

@@ -49,6 +49,8 @@ import type { VaultDelivery } from "../vault-delivery.js";
 
 export interface BridgeState {
   cleanup?: () => void;
+  /** Reason of the `session_shutdown` that released ownership (`reload|new|resume|fork`). */
+  shutdownReason?: string;
   sessionId?: string;
   ctx?: any;
   modelRegistry?: any;

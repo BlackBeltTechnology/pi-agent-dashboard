@@ -3101,7 +3101,7 @@ One server-derived per-cwd readiness state gates every OpenSpec affordance — f
 
 **Reconfiguration re-broadcast.** `reconfigurePolling` diffs readiness-affecting keys (`enabled`, `optOutDirectories`, `offerInitialization`) against the previous config; poll-tuning writes (interval, concurrency, jitter, worker flag) never trigger a readiness broadcast. `optOutDirectories` membership change re-broadcasts only the affected cwds; `enabled`/`offerInitialization` change re-broadcasts every cached cwd.
 
-**`hasOpenSpecSkills`.** Stat `<configRoot>/.pi/skills/openspec-explore/`. Config root via `resolveConfigRoot` (git-worktree/git-operations.ts): a worktree answers from its main checkout, because `.pi/skills/openspec-*` is gitignored and never checks out into a worktree. Root resolution memoized per cwd (stat-pass budget, P4); unresolvable → fall back to the cwd.
+**`hasOpenSpecSkills`.** Stat `<configRoot>/.pi/skills/openspec-explore/`, then `<configRoot>/.agents/skills/openspec-explore/`. Legacy first, short-circuit (common case 1 stat). Either layout → `true`. `.agents/skills/` = committed shared layout. Config root only, no ancestor walk. Config root via `resolveConfigRoot` (git-worktree/git-operations.ts): worktree answers from main checkout, because `.pi/skills/openspec-*` is gitignored and never checks out into a worktree. Root memoized per cwd (P4); `null` re-probed after 60s TTL. Unresolvable (`null`) root → `false`, NOT cwd fallback (probing cwd adopts stray tree). Presence recomputed every poll in `finalizeOpenSpecData` (not carried from unchanged-`openspec/` gate), so relocation/removal shows next poll. Source: packages/server/src/directory-service.ts `hasOpenSpecSkillsFor`.
 
 **Config keys** (`OpenSpecPollConfig`): `openspec.optOutDirectories: string[]` (default `[]`; pathKey-normalized at parse, trailing-slash spellings collapse to one entry), `openspec.offerInitialization: boolean` (default `true`; `false` suppresses only the ABSENT offer — `BROKEN`/`STALE`/`READY` unaffected; distinct from `openspec.enabled`, which disables the feature). Both writable via `PUT /api/config` partial `{ openspec: {...} }` — deep-merged, every other key preserved.
 
@@ -8529,12 +8529,16 @@ Settings page `packages/kb-plugin/src/client/KbSettingsPanel.tsx`. Add via `KbSo
 
 `reindexAll` (`packages/kb-plugin/src/server/kb-routes.ts`) walks `cfg.allSourceSpecs` — all kinds (filesystem/git/https/npm) via engine resolvers. Each source isolated: failure → `error` outcome, job `jobStatus:"error"`, `lastError` `"N source(s) failed: …"` (≤500 chars); untrusted → skipped, job stays idle; failed/skipped source keeps prior chunks. `git`/`https` resolution async (`execFile`, 120 s timeout) — never blocks server event loop. Reindex gate = saved `allSourceSpecs.length > 0`.
 
+Worker: job runs in `worker_threads` worker `reindex-worker.mjs` (`reindex-runner.ts`, core `reindex-core.ts`). Kill-switch `PI_DASHBOARD_KB_REINDEX_WORKER=0` → in-process. Read per job. Worker load failure before ready → in-process fallback. Crash after ready → job fails. Cancel → `cancel` msg, `terminate()` after `REINDEX_CANCEL_GRACE_MS` (5 s). Batch loop yields after `INDEX_BATCH_MAX_MS` (50 ms). One `[kb-plugin] reindex mode=worker|inprocess … outcome=…` log line per job.
+
 Trust = TOFU, global. Store `~/.pi/dashboard/kb-source-trust.json`, keyed sha256 of `{kind,ref,subdir,pin}`. One grant covers identical spec in every folder. Revoke under Access → `DELETE /api/kb/source-trust`. Grant path: UI trust dialog (`Trust & add` / `Add without trusting` / `Cancel`) → `PUT /api/kb/config` `trustRefs`, or `POST /api/kb/source-trust {ref}`. Server records SAVED spec matched by exact `ref` (404 none, 409 duplicate refs, 400 filesystem, 500 persist failure). `untrustedRefs` in PUT response lists grants that failed. Trust-store write atomic (`tmp`+rename); `recordTrust` returns boolean. Fetch-side SSRF/zip-slip guards from change `harden-untrusted-content-ingestion` (`net-guard.ts`, `archive-guard.ts`).
 
 ### KB source & search routes
 
 - `GET /api/kb/sources?cwd=` — per-source kind, files, trusted, outside, last outcome.
 - `GET /api/kb/search?cwd=&q=&limit=&docType=` — read-only test search over SAVED index. Opens existing store only — no init, no migrate, no create. `q` 1–512, `limit` 1–50 (default 10), `docType` `doc|agents|source-md`. No reindex, no verdicts. Stale schema → `needsReindex:true`.
+- `POST /api/kb/reindex/cancel?cwd=` — operator tier. Asks running job to stop. `200 {cancelled:true|false}`. Shares reindex admission. Job still `running` in `/stats` until settled. Repeat during grace → `cancelled:true`, no second stop.
+- `GET /api/kb/stats?cwd=` — adds transient `progress {root,done,total}` while running.
 
 All cwd-guarded (`isAllowedCwd`).
 

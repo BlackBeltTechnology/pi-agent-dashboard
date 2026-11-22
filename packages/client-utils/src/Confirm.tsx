@@ -12,6 +12,8 @@ interface ConfirmProps {
   confirmLabel?: string;
   cancelLabel?: string;
   onConfirm: () => void;
+  /** `"cancel"` puts initial focus on Cancel (use for destructive confirms). Unset = unchanged. */
+  defaultFocus?: "cancel";
   testId?: string;
 }
 
@@ -32,6 +34,7 @@ export function Confirm({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   onConfirm,
+  defaultFocus,
   testId,
 }: ConfirmProps) {
   return (
@@ -41,6 +44,7 @@ export function Confirm({
       <Dialog.Footer>
         <Dialog.Cancel
           onClick={onClose}
+          autoFocus={defaultFocus === "cancel"}
           testId={testId ? `${testId}-cancel` : undefined}
         >
           {cancelLabel}

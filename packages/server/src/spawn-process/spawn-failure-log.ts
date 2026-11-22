@@ -36,6 +36,15 @@ export interface SpawnFailureEntry {
    * See change: fix-spawn-correlation-ttl-coupling (D5).
    */
   spawnToken?: string;
+  /**
+   * `REGISTER_TIMEOUT` only: the watchdog dispatched its SIGTERM → SIGKILL
+   * reclaim to at least one pid. "Dispatched", not "verified exited". Absent
+   * (never `false`) when nothing was signalled, and on legacy lines.
+   * See change: fix-session-bridge-registration (D3).
+   */
+  terminated?: boolean;
+  /** Pids the reclaim was dispatched to without throwing; present iff `terminated`. */
+  terminatedPids?: number[];
 }
 
 const LOG_MAX_BYTES = 10 * 1024 * 1024; // 10 MB

@@ -1,7 +1,7 @@
 /**
  * Application menu for all platforms.
  * - macOS: App menu (About, Doctor), Edit, View, Window
- * - Windows/Linux: top-level About, Doctor, View (reload, devtools, zoom)
+ * - Windows/Linux: grouped Dashboard (servers, runtime, quit), Edit, View, Help (doctor, updates, about)
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -162,6 +162,65 @@ function runtimeSubmenu(): MenuItemConstructorOptions {
   };
 }
 
+/**
+ * Windows/Linux application menu: four top-level menus (Dashboard, Edit, View,
+ * Help) instead of a flat row. Pure — builds a fresh template each call and
+ * never touches `Menu`, so the structure is unit-testable.
+ * `isDev` defaults to `isDevMode()`. See change: electron-menu-submenus.
+ */
+export function buildWinLinuxMenuTemplate(opts: { isDev?: boolean } = {}): MenuItemConstructorOptions[] {
+  const isDev = opts.isDev ?? isDevMode();
+  return [
+    {
+      label: "Dashboard",
+      submenu: [
+        serversMenuItem(),
+        { label: "Connect to Remote Dashboard…", click: () => openRemoteConnectWindow() },
+        { label: "Use Local Dashboard", click: () => useLocalDashboard() },
+        runtimeSubmenu(),
+        buildBrowserRelayMenuItem(),
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { label: "Reload", accelerator: "CmdOrCtrl+R", click: () => BrowserWindow.getFocusedWindow()?.webContents.reload() },
+        { label: "Force Reload", accelerator: "CmdOrCtrl+Shift+R", click: () => BrowserWindow.getFocusedWindow()?.webContents.reloadIgnoringCache() },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Help",
+      submenu: [
+        { label: "Doctor", click: () => showDoctorDialog() },
+        ...(isDev ? [] : [{ label: "Check for Updates…", click: () => handleCheckForUpdates() }]),
+        { label: "View Update Log", click: () => handleViewUpdateLog() },
+        { type: "separator" },
+        { label: "About", click: () => showAboutDialog() },
+      ],
+    },
+  ];
+}
 let serversMenuWired = false;
 
 export function setupAppMenu(): void {
@@ -235,46 +294,6 @@ export function setupAppMenu(): void {
     return;
   }
 
-  // Windows / Linux — flat top-level items
-  const template: MenuItemConstructorOptions[] = [
-    {
-      label: "View",
-      submenu: [
-        { label: "Reload", accelerator: "CmdOrCtrl+R", click: () => BrowserWindow.getFocusedWindow()?.webContents.reload() },
-        { label: "Force Reload", accelerator: "CmdOrCtrl+Shift+R", click: () => BrowserWindow.getFocusedWindow()?.webContents.reloadIgnoringCache() },
-        { role: "toggleDevTools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
-    },
-    ...(isDevMode() ? [] : [{ label: "Check for Updates…", click: () => handleCheckForUpdates() }]),
-    {
-      label: "View Update Log",
-      click: () => handleViewUpdateLog(),
-    },
-    {
-      label: "About",
-      click: () => showAboutDialog(),
-    },
-    {
-      label: "Doctor",
-      click: () => showDoctorDialog(),
-    },
-    serversMenuItem(),
-    {
-      label: "Connect to Remote Dashboard…",
-      click: () => openRemoteConnectWindow(),
-    },
-    {
-      label: "Use Local Dashboard",
-      click: () => useLocalDashboard(),
-    },
-    runtimeSubmenu(),
-    buildBrowserRelayMenuItem(),
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  // Windows / Linux — grouped Dashboard / Edit / View / Help
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildWinLinuxMenuTemplate()));
 }

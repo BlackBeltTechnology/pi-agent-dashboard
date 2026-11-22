@@ -324,3 +324,39 @@ describe("Dialog contract recipe (#E10)", () => {
     expect(baseElement.querySelector("[data-testid='n-close']")).toBeTruthy();
   });
 });
+
+// See change: sidebar-folder-ux (test-plan #S21, #S44).
+describe("Dialog.Cancel autoFocus", () => {
+  it("renders data-autofocus only when the prop is set", () => {
+    const { getByText } = render(
+      <Dialog open onClose={() => {}} title="t">
+        <Dialog.Footer>
+          <Dialog.Cancel onClick={() => {}} autoFocus>
+            Marked
+          </Dialog.Cancel>
+          <Dialog.Cancel onClick={() => {}}>Plain</Dialog.Cancel>
+        </Dialog.Footer>
+      </Dialog>,
+    );
+    expect(getByText("Marked").hasAttribute("data-autofocus")).toBe(true);
+    expect(getByText("Plain").hasAttribute("data-autofocus")).toBe(false);
+  });
+});
+
+describe("Dialog — accessible semantics for a confirm", () => {
+  it("exposes role=dialog, aria-modal and a non-empty labelled title; Esc closes", () => {
+    const onClose = vi.fn();
+    const { baseElement } = render(
+      <Dialog open onClose={onClose} title="Remove folder?" testId="d">
+        <p>body</p>
+      </Dialog>,
+    );
+    const el = baseElement.querySelector("[data-testid='d']")!;
+    expect(el.getAttribute("role")).toBe("dialog");
+    expect(el.getAttribute("aria-modal")).toBe("true");
+    const labelId = el.getAttribute("aria-labelledby")!;
+    expect(baseElement.ownerDocument.getElementById(labelId)?.textContent).toBe("Remove folder?");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
+  });
+});

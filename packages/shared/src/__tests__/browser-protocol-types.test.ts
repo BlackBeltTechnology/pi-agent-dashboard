@@ -29,6 +29,7 @@ import type {
   SessionsPageMessage,
   SessionsPageResultMessage,
   SessionsSnapshotMessage,
+  SpawnRegisterTimeoutMessage,
 } from "../browser-protocol.js";
 import {
   BROWSER_HOST_CLIENT_TYPES,
@@ -626,5 +627,26 @@ describe("terminal_error type", () => {
     // @ts-expect-error code must be one of the three refusal codes
     const bad: ServerToBrowserMessage = { type: "terminal_error", code: "nope", cwd: "/w", inline: false, message: "x" };
     expect([a.type, b.type, bad.type]).toEqual(["terminal_error", "terminal_error", "terminal_error"]);
+  });
+});
+
+// ─── fix-session-bridge-registration (D3, test-plan E24) ─────────────────────
+describe("SpawnRegisterTimeoutMessage reclaim evidence", () => {
+  it("accepts optional terminated/terminatedPids, and a message without them still type-checks", () => {
+    const withEvidence: SpawnRegisterTimeoutMessage = {
+      type: "spawn_register_timeout",
+      cwd: "/p",
+      pid: 4242,
+      timeoutMs: 30000,
+      terminated: true,
+      terminatedPids: [4242],
+    };
+    const without: SpawnRegisterTimeoutMessage = { type: "spawn_register_timeout", cwd: "/p" };
+    // @ts-expect-error terminatedPids must be a number[]
+    const bad: SpawnRegisterTimeoutMessage = { type: "spawn_register_timeout", cwd: "/p", terminatedPids: ["4242"] };
+    const asUnion: ServerToBrowserMessage = withEvidence;
+    expect(asUnion.type).toBe("spawn_register_timeout");
+    expect("terminated" in without).toBe(false);
+    expect(bad.type).toBe("spawn_register_timeout");
   });
 });

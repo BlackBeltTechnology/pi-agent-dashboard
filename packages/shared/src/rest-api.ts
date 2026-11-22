@@ -42,6 +42,8 @@ export interface SendPromptRequest {
   sessionId: string;
   text: string;
   images?: unknown[];
+  /** "steer" = mid-turn after the current step; "followUp"/absent = after the agent finishes. */
+  delivery?: "steer" | "followUp";
 }
 
 /**

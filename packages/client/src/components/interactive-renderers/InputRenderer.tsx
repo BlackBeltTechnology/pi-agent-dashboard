@@ -1,21 +1,48 @@
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCheckCircle, mdiFormTextbox, mdiImageMultiple } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useState } from "react";
+import { useMemo, useState } from "react";
+import { usePromptDraft, usePromptDraftSync } from "../../hooks/usePromptDraft.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { getPromptDraftImages, setPromptDraftImages } from "../../lib/state/prompt-draft-storage.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { InputComposer } from "./InputComposer.js";
 import type { InteractiveRendererProps } from "./types.js";
 
-export function InputRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
+/** Persisted text of an `input` prompt. Pasted images are memory-only (see prompt-draft-storage). */
+interface InputDraft {
+  text: string;
+}
+
+function parseInputDraft(raw: unknown): InputDraft | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  return typeof r.text === "string" ? { text: r.text } : undefined;
+}
+
+/** Re-keyed per (session, prompt) so a reused element re-initialises from that prompt's draft. */
+export function InputRenderer(props: InteractiveRendererProps) {
+  return <InputRendererBody key={`${props.sessionId ?? ""}\u0000${props.requestId}`} {...props} />;
+}
+
+function InputRendererBody({ params, status, result, onRespond, onCancel, sessionId, requestId, restoreImages = true }: InteractiveRendererProps) {
   const title = params.title as string;
   const message = params.message as string | undefined;
   const placeholder = params.placeholder as string | undefined;
   const enteredValue = (result as any)?.value as string | undefined;
   const imageCount = ((result as any)?.images as ImageContent[] | undefined)?.length ?? 0;
-  const [value, setValue] = useState("");
-  const [images, setImages] = useState<ImageContent[]>([]);
+  const draftSession = status === "pending" ? sessionId : undefined;
+  const draft = usePromptDraft(draftSession, requestId, parseInputDraft);
+  const [value, setValue] = useState(draft?.text ?? "");
+  const imageStore = restoreImages && draftSession && requestId ? { sessionId: draftSession, promptId: requestId } : undefined;
+  const [images, setImagesState] = useState<ImageContent[]>(() => (imageStore ? getPromptDraftImages(imageStore.sessionId, imageStore.promptId) : []));
+  const setImages = (next: ImageContent[]) => {
+    setImagesState(next);
+    if (imageStore) setPromptDraftImages(imageStore.sessionId, imageStore.promptId, -1, next);
+  };
+  const draftState = useMemo<InputDraft>(() => ({ text: value }), [value]);
+  usePromptDraftSync(draftSession, requestId, draftState);
   const submit = () => onRespond({ value, images: images.length > 0 ? images : undefined });
 
   if (status === "cancelled" || status === "dismissed") {

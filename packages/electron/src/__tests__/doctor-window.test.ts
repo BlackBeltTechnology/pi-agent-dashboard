@@ -13,7 +13,8 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DOCTOR_IPC_CHANNELS } from "../lib/doctor-bridge-contract.js";
 
-const { created, openExternal } = vi.hoisted(() => ({
+const { created, openExternal, winState } = vi.hoisted(() => ({
+  winState: { minimized: false, restore: vi.fn(), focus: vi.fn() },
   created: [] as Array<{
     options: { webPreferences: Record<string, unknown> };
     openHandler?: (d: { url: string }) => { action: string };
@@ -48,10 +49,14 @@ vi.mock("electron", () => {
       return false;
     }
     isMinimized() {
-      return false;
+      return winState.minimized;
     }
-    restore() {}
-    focus() {}
+    restore() {
+      winState.restore();
+    }
+    focus() {
+      winState.focus();
+    }
   }
   return {
     app: {},
@@ -94,6 +99,24 @@ describe("Doctor IPC channel names", () => {
   });
 });
 
+describe("Doctor window is idempotent (S19, see change: electron-menu-submenus)", () => {
+  it("a second open focuses (and restores if minimized) the existing window instead of creating another", async () => {
+    vi.resetModules();
+    created.length = 0;
+    winState.minimized = false;
+    winState.restore.mockClear();
+    winState.focus.mockClear();
+    const mod = await import("../lib/doctor-window.js");
+    mod.openDoctorWindow();
+    expect(created).toHaveLength(1);
+    winState.minimized = true;
+    mod.openDoctorWindow();
+    expect(created).toHaveLength(1);
+    expect(winState.restore).toHaveBeenCalledTimes(1);
+    expect(winState.focus).toHaveBeenCalledTimes(1);
+    winState.minimized = false;
+  });
+});
 describe("Doctor window hardening (BE34/BE35/BF3/BF4)", () => {
   async function open() {
     vi.resetModules();

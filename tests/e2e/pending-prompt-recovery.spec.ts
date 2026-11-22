@@ -986,3 +986,72 @@ test.describe("pending-question stack — restart durability (add-pending-questi
     expect(counters.fallbacks).toBe(0);
   });
 });
+
+/**
+ * S74 (change: fix-input-state-consistency, #1136): an image-only send under a
+ * transport outage behaves like a text send — the pending bubble (with its
+ * image) enters the honest failure state and the composer is not silently
+ * cleared before an ack. Same cut as session-state-honesty Q1: a wrapped
+ * `WebSocket` that throws once `__cutDashboardWs` is set.
+ */
+test.describe("image-only send under outage (#1136)", () => {
+  test("S74: image-only send while the connection is down fails honestly, image kept on the bubble", async ({ page }) => {
+    test.setTimeout(120_000);
+
+    await page.addInitScript(() => {
+      const Real = window.WebSocket;
+      const w = window as unknown as { __dashSockets: WebSocket[]; __cutDashboardWs?: boolean; WebSocket: typeof WebSocket };
+      w.__dashSockets = [];
+      const Wrapped = function (url: string, protocols?: string | string[]) {
+        if (w.__cutDashboardWs) throw new Error("simulated offline");
+        const socket = protocols === undefined ? new Real(url) : new Real(url, protocols);
+        w.__dashSockets.push(socket);
+        return socket;
+      } as unknown as typeof WebSocket;
+      Wrapped.prototype = Real.prototype;
+      Object.assign(Wrapped, Real);
+      w.WebSocket = Wrapped;
+    });
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 30_000 });
+
+    // Paste before cutting the transport (the paste itself is local).
+    await page.evaluate(() => {
+      const b64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const file = new File([bytes], "tiny.png", { type: "image/png" });
+      const ta = Array.from(document.querySelectorAll("textarea")).find((t) => /message/i.test(t.getAttribute("placeholder") ?? ""));
+      if (!ta) throw new Error("composer textarea not found");
+      ta.focus();
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      ta.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await expect(page.locator("img[class*='h-16'][src^='data:image/']").first()).toBeVisible({ timeout: 15_000 });
+
+    await page.evaluate(() => {
+      const w = window as unknown as { __dashSockets: WebSocket[]; __cutDashboardWs?: boolean };
+      w.__cutDashboardWs = true;
+      for (const s of w.__dashSockets) {
+        try {
+          s.close();
+        } catch {
+          // already gone
+        }
+      }
+    });
+    await expect(page.getByText(/Connecting\.\.\.|Server offline/).first()).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId("send-button").click();
+
+    const bubble = byTestId(page, "pendingPromptCard");
+    await expect(bubble).toHaveAttribute("data-status", "failed", { timeout: 25_000 });
+    await expect(page.getByTestId("pending-prompt-failed")).toBeVisible();
+    // The failed bubble still carries the image — nothing was silently dropped.
+    await expect(bubble.locator("img").first()).toBeVisible();
+  });
+});

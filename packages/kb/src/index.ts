@@ -19,7 +19,7 @@ export { BUILDING_LINE, installIndex, isFirstIndexLive, makeHeartbeat, runIndexA
 export type { FetchResult, FetchRoot, FetchStore, RenderedFetch } from "./fetch-resolve.js";
 export { buildFetchRoots, renderFetch, resolveFetch } from "./fetch-resolve.js";
 export type { IndexOptions, IndexSource, IndexStats } from "./indexer.js";
-export { headingNodeName, indexSource } from "./indexer.js";
+export { headingNodeName, indexSource, KbIndexAborted } from "./indexer.js";
 export type { InitOptions, InitResult } from "./init.js";
 export { kbInit } from "./init.js";
 export type { RenderOpts } from "./render.js";

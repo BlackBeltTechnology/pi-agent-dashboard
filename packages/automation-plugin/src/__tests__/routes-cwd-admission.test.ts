@@ -521,10 +521,20 @@ describe("SP3 — every admission token is released, no request is left pending"
 
 describe("SX4 — admission runner failure / deadline → 503 with Retry-After, recovery admits", () => {
   const failingRunner: GitProbeRunner = async () => ({ ok: false, error: { kind: "spawn-failure", message: "EAGAIN" } });
+  // Slow probes still running. admitCwd's own deadline can answer 503 a tick BEFORE the shared
+  // derivation's deadline aborts its probe; a request in that gap JOINS the in-flight derivation
+  // (per-cwd dedupe) and inherits its 30 ms deadline. Recovery must wait for the drain.
+  let liveSlow = 0;
   const slowRunner: GitProbeRunner = (_recipe, _input, ctx) =>
     new Promise((resolve) => {
       const fail = { ok: false, error: { kind: "spawn-failure", message: "slow" } } as const;
+      liveSlow++;
+      let ended = false;
       const done = () => {
+        if (!ended) {
+          ended = true;
+          liveSlow--;
+        }
         ctx.onClose?.();
         resolve(fail as never);
       };
@@ -580,7 +590,12 @@ describe("SX4 — admission runner failure / deadline → 503 with Retry-After, 
     expect(touchedUnder(W)).toEqual([]);
     expect(execLog.calls).toEqual([]);
 
-    // Recovery: the very next request (real git runner, no deadline) is admitted.
+    // Recovery: the next request (real git runner, no deadline) is admitted once no slow
+    // derivation is left to join (flaked on a loaded CI fork, nightly 11-22).
+    // (The derivation's own deadline timer is due by the time the last 503 answered; one 50 ms
+    // turn lets it fire even if it had not started a probe yet.)
+    await new Promise((r) => setTimeout(r, 50));
+    await vi.waitFor(() => expect(liveSlow).toBe(0), { timeout: 5_000 });
     delete admitOptions.runner;
     delete admitOptions.deadlineMs;
     const ok = await app.inject({ method: "GET", url: `/api/plugins/automation/list?${qs({ cwd: W })}` });

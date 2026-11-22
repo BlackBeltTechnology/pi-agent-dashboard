@@ -9,7 +9,7 @@ Append-only NDJSON log capturing every failed pi-session spawn (preflight refusa
 ### Requirement: Append-only NDJSON failure log with single rotation
 The module `packages/server/src/spawn-failure-log.ts` SHALL export `appendSpawnFailure(entry: SpawnFailureEntry): void` and `readSpawnFailures(limit: number): SpawnFailureEntry[]`. The on-disk file SHALL live at `~/.pi/dashboard/sessions/spawn-failures.log` (co-located with per-session `pi-spawn-*.log` captures). The directory SHALL be created with `mkdirSync({ recursive: true })` if missing. Each entry SHALL be one JSON object per line, terminated by `\n`. When `appendSpawnFailure` observes the file size to be greater than 10485760 bytes (10 MB) before its write, the existing `sessions/spawn-failures.log` SHALL be renamed to `sessions/spawn-failures.log.1` (overwriting any prior `.log.1`), and the new entry SHALL be written to a fresh `.log`. There SHALL be no `.log.2` or higher.
 
-`SpawnFailureEntry` SHALL contain: `ts: string` (ISO 8601 UTC), `cwd: string`, `strategy: string`, `code: string`, `message: string`, and optional `stderrTail?: string`, `pid?: number`, `reasons?: PreflightReason[]`.
+`SpawnFailureEntry` SHALL contain: `ts: string` (ISO 8601 UTC), `cwd: string`, `strategy: string`, `code: string`, `message: string`, and optional `stderrTail?: string`, `pid?: number`, `reasons?: PreflightReason[]`, and, on `REGISTER_TIMEOUT` entries only, optional `terminated?: true` and `terminatedPids?: number[]` (the pids the watchdog reclaim signalled).
 
 #### Scenario: append below threshold
 - **WHEN** `appendSpawnFailure(entry)` is called and the existing log is under 10 MB

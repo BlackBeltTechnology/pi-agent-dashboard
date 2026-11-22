@@ -2,13 +2,14 @@
  * Pure utility functions for grouping, sorting, and filtering sessions.
  * Extracted from SessionList.tsx for reuse and testability.
  */
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+
 import {
   inferPlatform,
   pathKey,
   resolveSessionGroupPath,
 } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // `inferPlatform`, `pathKey`, and `resolveSessionGroupPath` now live in
 // packages/shared so the server keys its order map by the SAME resolved
@@ -69,6 +70,22 @@ export function getUnifiedOrder(sessions: DashboardSession[], terminals: Termina
   const ordered = order.filter((id) => allIds.has(id));
   const unordered = [...allIds].filter((id) => !new Set(ordered).has(id));
   return [...ordered, ...unordered];
+}
+
+/**
+ * Every session (unfiltered — hidden ones included) that the folder card for
+ * `groupCwd` contains: same key derivation as `groupSessionsByDirectory`
+ * (pin > `gitWorktree.mainPath` > `cwd`, canonicalised by `pathKey`), never a
+ * raw `cwd` compare. See change: sidebar-folder-ux.
+ */
+export function sessionsInGroup(
+  sessions: ReadonlyArray<DashboardSession>,
+  groupCwd: string,
+  pinnedKeys: Set<string>,
+  platform: NodeJS.Platform,
+): DashboardSession[] {
+  const key = pathKey(groupCwd, platform);
+  return sessions.filter((s) => pathKey(resolveSessionGroupPath(s, pinnedKeys, platform), platform) === key);
 }
 
 /**

@@ -170,6 +170,11 @@ export interface VaultDeliveryHub {
   /** Immediate recompute-and-send for every known session. */
   pushNow(): Promise<void>;
   getSessionState(sessionId: string): SessionBindingView | undefined;
+  /**
+   * Does `decideVaultTrust` pass for this session's bridge right now? Independent of the delivery
+   * switch (a separate axis). See change: add-sudo-credential-prompt.
+   */
+  isBridgeTrusted(sessionId: string): boolean;
   /** Projects of the sessions connected now (never values): delivered ones grouped, refused ones listed by `cwd`. */
   listOpenProjects(): ProjectView[];
   forget(sessionId: string): void;
@@ -400,6 +405,16 @@ export function createVaultDeliveryHub(deps: VaultDeliveryHubDeps): VaultDeliver
         ...(rec.trustDetail ? { trustDetail: rec.trustDetail } : {}),
         project: rec.project && { ...rec.project },
       };
+    },
+    isBridgeTrusted(sessionId) {
+      return decideVaultTrust({
+        origin: deps.getOrigin(sessionId),
+        channel: deps.getChannel(sessionId),
+        deviceTrust: deps.getDeviceTrust,
+        bridgeCertCheck: declaredCert.get(sessionId),
+        tlsBridgesLive: deps.isTlsBridgesLive(),
+        exposurePending: deps.exposurePending?.() === true,
+      }).allow;
     },
     listOpenProjects() {
       const groups = { open: new Map<string, ProjectView>(), blocked: new Map<string, ProjectView>() };

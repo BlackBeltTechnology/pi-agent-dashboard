@@ -25,6 +25,8 @@ export const REAL_PROCESS_TESTS: readonly string[] = [
   // exec — `service exec` spawns a real node child; X6 times heartbeats against it.
   // See change: add-service-registry-core.
   "src/__tests__/cli-service.test.ts",
+  // exec — SIGKILLs a real SIGTERM-ignoring child after the grace. See change: harden-path-and-process-guards.
+  "src/__tests__/cli-service-exec-signal.test.ts",
   // signal — SIGTERMs a real wrapper → jiti-loaded server, reads boot-state.
   "src/__tests__/cli-signal-forwarding.test.ts",
   "src/__tests__/cli-stop-real.test.ts",

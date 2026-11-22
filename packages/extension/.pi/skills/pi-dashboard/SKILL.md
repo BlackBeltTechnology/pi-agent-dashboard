@@ -102,7 +102,8 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 
 | Action | Command |
 |--------|---------|
-| Send prompt | `pi-dashboard api POST /api/session/ID/prompt --data '{"text":"your message"}'` |
+| Send prompt | `pi-dashboard api POST /api/session/ID/prompt --data '{"text":"your message"}'` (optional `delivery`: `"steer"` = mid-turn after the current step, `"followUp"`/absent = after the agent finishes; other values → 400) |
+| Steer a running session | `pi-dashboard api POST /api/session/ID/prompt --data '{"text":"focus on X","delivery":"steer"}'` |
 | Abort | `pi-dashboard api POST /api/session/ID/abort --data '{}'` |
 | Shutdown session | `pi-dashboard api POST /api/session/ID/shutdown --data '{}'` |
 | Rename | `pi-dashboard api POST /api/session/ID/rename --data '{"name":"my-name"}'` |

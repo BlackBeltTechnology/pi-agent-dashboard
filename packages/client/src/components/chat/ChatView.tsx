@@ -383,14 +383,16 @@ function MessageBubble({ content, className, timestamp, entryId, onFork, context
   );
 }
 
-function InteractiveUiCard({ request, onRespondToUi }: {
+function InteractiveUiCard({ request, sessionId, onRespondToUi }: {
   request: InteractiveUiRequest;
+  sessionId?: string;
   onRespondToUi?: (requestId: string, result?: unknown, cancelled?: boolean) => void;
 }) {
   const Renderer = getInteractiveRenderer(request.method);
   const card = (
     <Renderer
       requestId={request.requestId}
+      sessionId={sessionId}
       method={request.method}
       params={request.params}
       status={request.status}
@@ -2529,6 +2531,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             <InteractiveUiCard
               key={msg.id}
               request={request}
+              sessionId={sessionId}
               onRespondToUi={onRespondToUi}
             />
           );
@@ -2667,7 +2670,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           Hidden inline (isRowVisible) while pending; reappears inline as an
           answered/history card once resolved. See change:
           surface-concurrent-ask-user-prompts. */}
-      <MultiAskPanel requests={pendingFreeFloating} onRespondToUi={onRespondToUi} />
+      <MultiAskPanel requests={pendingFreeFloating} sessionId={sessionId} onRespondToUi={onRespondToUi} />
 
       {/* Optimistic pending-prompt card (idle-scoped). Re-wired write site in
           useSessionActions.handleSend / handleSendPromptToSession. Two progress
@@ -2684,7 +2687,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             )}
             <div className="flex items-start gap-2">
               <div className="flex-1">
-                <MarkdownContent content={state.pendingPrompt.text} />
+                {state.pendingPrompt.text && <MarkdownContent content={state.pendingPrompt.text} />}
               </div>
               <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
                 {state.pendingPrompt.status === "sending" ? (
