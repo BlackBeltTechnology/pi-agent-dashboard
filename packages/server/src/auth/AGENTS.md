@@ -11,7 +11,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `bearer-auth.ts` | Bearer device-auth branch (D5/D7). `registerBearerAuth(fastify,{registry})` adds an `onRequest` hook… → see… → see `bearer-auth.ts.AGENTS.md` |
 | `begin-flow.ts` | `beginFlow(params)` — shared OAuth start robustness for `POST /api/provider-auth/start` + plugin seam:… → see `begin-flow.ts.AGENTS.md` |
 | `bind-reachability-service.ts` | Server inputs to the shared reachability predicate. `initBindReachability({resolvedBindHost, hostFlag})`… → see `bind-reachability-service.ts.AGENTS.md` |
-| `bridge-ticket-eligibility.ts` | WHO may mint a `bridge`-scoped WS ticket.… → see `bridge-ticket-eligibility.ts.AGENTS.md` |
+| `bridge-ticket-eligibility.ts` | WHO may mint a `bridge`-scoped WS ticket.… → see `bridge-ticket-eligibility.ts.AGENTS.md` | Mint requires `operate` itself (D2). See change: harden-bridge-session-claim
 | `bypass-urls.ts` | Import-free leaf: `isBypassed(url, bypassUrls)` — `auth.bypassUrls` prefix match (`startsWith`). → see `bypass-urls.ts.AGENTS.md` |
 | `cors-origin.ts` | Pure CORS origin allow-decision extracted from the `@fastify/cors` callback in `server.ts` so it is… Adds… → see `cors-origin.ts.AGENTS.md` |
 | `credential-envelope.ts` | AES-256-GCM whole-file envelope (magic line + 1 JSON line). `encodeEnvelope`/`decodeEnvelope`/`classify`/`deriveKid`, `createEnvelopeCodec(fileId,getKey)` → `JsonFileCodec`, `CredentialLockedError`. → see `credential-envelope.ts.AGENTS.md` |

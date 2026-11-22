@@ -128,3 +128,62 @@ describe("terminal registration refusal (X8)", () => {
     cm.disconnect();
   });
 });
+
+/**
+ * An origin-refused id change on a socket that already owns a session is answered with the detail-free,
+ * NON-terminal `provisional_rejected` (not `register_rejected`, which tears the connection down). The bridge
+ * must keep the connection and its session. See change: harden-bridge-session-claim (D1, task 1.5).
+ */
+describe("a provisional_rejected outside a move is not terminal", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("keeps the connection, does not reconnect and does not surface a rejection", () => {
+    const rejected: unknown[] = [];
+    const cm = new ConnectionManager({
+      url: "ws://localhost:9999",
+      WebSocketImpl: MockWebSocket as any,
+      onRegisterRejected: (...a: unknown[]) => rejected.push(a),
+    });
+    cm.connect();
+    MockWebSocket.instances[0].simulateOpen();
+
+    MockWebSocket.instances[0].simulateMessage(JSON.stringify({ type: "provisional_rejected" }));
+    vi.advanceTimersByTime(2_000);
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(MockWebSocket.instances[0].readyState).toBe(1);
+    expect(rejected).toEqual([]);
+    cm.disconnect();
+  });
+});
+
+describe("origin refusal is terminal and surfaced (BE20)", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("does not reconnect and hands the reason to the hook", () => {
+    const seen: Array<{ sessionId: string; reason: string }> = [];
+    const cm = new ConnectionManager({
+      url: "ws://localhost:9999",
+      WebSocketImpl: MockWebSocket as any,
+      onRegisterRejected: (sessionId: string, reason: string) => seen.push({ sessionId, reason }),
+    });
+    cm.connect();
+    MockWebSocket.instances[0].simulateOpen();
+    const reason = "session id belongs to another origin; archive or remove the session record to re-register it from here";
+    MockWebSocket.instances[0].simulateMessage(JSON.stringify({ type: "register_rejected", sessionId: "S", reason }));
+    MockWebSocket.instances[0].simulateClose();
+    vi.advanceTimersByTime(120_000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(seen).toEqual([{ sessionId: "S", reason }]);
+    cm.disconnect();
+  });
+});
+

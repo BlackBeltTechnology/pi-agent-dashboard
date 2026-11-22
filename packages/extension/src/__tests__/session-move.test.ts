@@ -570,3 +570,18 @@ describe("identity staging (CodeRabbit follow-up)", () => {
     expect(forwarded).toEqual([]);
   });
 });
+
+/**
+ * A stray `provisional_rejected` (the detail-free reply to an origin-refused id change) outside a move is
+ * ignored: `inbound` is wired only while a move is open. See change: harden-bridge-session-claim (BE30).
+ */
+describe("provisional_rejected outside a move (BE30)", () => {
+  it("does not disturb the origin: it keeps serving and no move starts", () => {
+    const { coord, origin } = setup();
+    coord.send({ n: 1 });
+    expect(origin.sent).toContainEqual({ n: 1 });
+    expect(origin.inbound).toBeUndefined();
+    expect(origin.closed).toBe(false);
+  });
+});
+

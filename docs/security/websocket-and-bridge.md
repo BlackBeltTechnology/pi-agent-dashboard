@@ -168,18 +168,44 @@ flowchart LR
 - Wiring: `server.ts:1299-1308` sets `requireTicketOnLoopback: false`; only `startLoopbackFallback` forces it (`pi-gateway.ts:1147`, `:1314`). Win32 primary listener started with `kind:"loopback"` without `requireLocalCredential` (`gateway-listeners.ts:33-35`).
 - Local credential verifier: `acceptLegacyToken: true` (`server.ts:768`). Proof = HMAC bound to connection's own local addr:port, ±30 s, replay cache (see `packages/server/src/auth/local-credential.ts`).
 - Counter-proof for proof admissions: `pi-gateway.ts:1166-1168`, `:1178-1183`. Bridge verifies before open (`packages/extension/src/connection.ts:1046-1066`); opt-out `PI_DASHBOARD_ALLOW_UNPROVEN_LOCAL_SERVER` (`packages/extension/src/local-token-header.ts:53`).
+- Ticket mint (`decideBridgeTicketMint`, `packages/server/src/auth/bridge-ticket-eligibility.ts:82-96`): device bearer must reach tier `operate` (`rank`). Decider enforces it itself.
+- Route tier (`POST /api/ws-ticket`, `shared/src/route-tiers.ts:512`) is exempt for `legacy` trusted-network and genuinely-local callers. Mint cannot rely on it.
+- Below `operate`: genuinely-local branch allowed; otherwise refuse. Log `[auth] bridge ticket refused: tier=<tier> device=<8-char>`. Route tier unchanged.
 - Refusal: 401, cause logged server-side only (`pi-gateway.ts:1156-1162`).
 - Tests: `packages/server/src/__tests__/bridge-upgrade-auth.test.ts`, `gateway-transport-policy.test.ts`, `gateway-socket-bind.test.ts`, `pi-gateway-socket-transport.test.ts`, `packages/extension/src/__tests__/local-token-header.test.ts`.
 
 ### C7 Session origin attribution
 - `attributeOrigin` (`packages/server/src/session/session-origin.ts:57`) from transport + peer loopback + ticket deviceId (`pi-gateway.ts:477-493`). Remote w/o device → `UNATTRIBUTED_REMOTE` (`session-origin.ts:26`). Origin derived from credential, never payload (`pi-gateway.ts:908-909`). Consumers: vault trust `decideVaultTrust` (`packages/server/src/vault/vault-delivery-hub.ts:37-42`).
 
+### C7b Lane meta (`plugin_request`, D3)
+- Gateway passes sending socket's own `{ originDeviceId, channel }` (`pi-gateway.ts:1272-1276`). Never session record's origin.
+- Lane passes handler `{ sessionId, origin, channel }` (`packages/server/src/plugin-request-lane.ts:103-122`).
+- `registerPiRequestHandler(type, h, { hubLocalOnly: true })` (`dashboard-plugin-runtime/src/server/server-context.ts:1087`).
+- `hubLocalOnly` admits only if `origin.local` AND `isLocallyAdmitted(channel.admission)`: `unix`, `local-proof`, in-process.
+- Not local: `grace`, `legacy-token`, `local-ticket`, `device-ticket`.
+- Refusal: reply `ok:false`, `error: "origin_denied: <plugin>/<type> ..."`. Log `[plugin-request] origin_denied: <plugin>/<type> session=<id> origin=<kind> admission=<...>`.
+- Hub-local-only: `gmail/accounts`, `gmail/lease` (`packages/gmail-plugin/src/server/index.ts:25-30`); flows file report (`packages/flows-plugin/src/server/flow-files.ts:226-234`).
+- Browser/* and craft-web control: no flag. Deferred (WS-05b).
+- See change: harden-bridge-session-claim (D3).
+
 ### C8 Bridge session claim / contention
-- `decideClaim` (`bridge-contention.ts:82-103`): unheld/closed/placeholder → accept; same self-reported pid → accept (displace live); else probe → `resolveProbe` (`:112-119`). Gateway `claim()` loop, max attempts (`pi-gateway.ts:564-631`).
-- Auto-claim: first message with `sessionId` on unclaimed socket claims an unheld id + creates placeholder session (`pi-gateway.ts:764-791`).
-- Ownership gate: named `sessionId` must map to this socket (`pi-gateway.ts:815`); `plugin_pi_message` attributed to connection's `currentSessionId` (`pi-gateway.ts:808-811`, `:1024-1029`).
-- Move: provisional claims nothing; commit uses token's id, refuses live incumbent (`pi-gateway.ts:666-757`, `:834-870`).
-- Tests: `bridge-contention.test.ts`, `pi-gateway-duplicate-register.test.ts`, `contention-refusal-side-effects.test.ts`.
+- `decideClaim` (`bridge-contention.ts:142`): origin binding first (`:148-150`). Then unheld (`:153`), incumbent-closed (`:155`), placeholder accept. Same-pid fast accept (`:158-169`) only within one origin. Else probe → `resolveProbe`. Gateway `claim()` (`pi-gateway.ts:722`).
+- Origin binding (D1, D4): every non-placeholder record, any status. Mismatch → terminal `refuse` `origin-mismatch`. Record untouched. Helper `originMismatch` (`bridge-contention.ts:134`).
+- Origin source: credential-derived `originDeviceId`. Absent = hub-local (`pi-gateway.ts:602-606`). Never payload.
+- Placeholder = first-frame-created record only (`source:"unknown"`, no `sessionFile`). Records creator origin.
+- `sessions_list` seed (has `sessionFile`): bound. Seeded with reporter origin. `sessionFile`/`sessionDir` rewritten only by same origin (`event-wiring.ts:2759-2780`).
+- Routing-taking paths, all origin-bound:
+  - `session_register` → `claim()` (`pi-gateway.ts:727-751`). Refuse → terminal `register_rejected`, socket closed.
+  - Id change (socket owns `S1`, registers `S2`; `claim()` `:964-976`). Refuse → non-terminal `provisional_rejected`. Socket open. Keeps `S1`.
+  - First frame with `sessionId` on unclaimed socket → auto-claim + placeholder (`pi-gateway.ts:982-1002`). Refuse → frame dropped, socket open, unrouted. Socket closed after 3 origin-refused first frames (`MAX_ORIGIN_REFUSED_FIRST_FRAMES`, `pi-gateway.ts:51`).
+  - Move commit (`pi-gateway.ts:923-942`). Refuse → `refuseForWire` `origin-mismatch` (`:926`). No watchdog clear, heartbeat reset, placeholder/ghost cleanup, event.
+- Log: `[bridge-claim] origin-refused session=<id> recorded=<class> presented=<class>`. `<class>` = `hub` | `device:<8-char>` | `unattributed` (`originClass` `bridge-contention.ts:211-215`; `formatOriginRefusalLine` `:218-219`). No pids, tokens, full device id.
+- Rate-limited per id (`CONTENTION_RATE_LIMIT`, `bridge-contention.ts:20`). Reuses contention counter (`/api/health`).
+- Ownership gate: named `sessionId` must map to this socket (`pi-gateway.ts:1032`). `plugin_pi_message` and `plugin_request` attributed to `currentSessionId` only if `connections.get(currentSessionId) === ws` (`pi-gateway.ts:1025-1026`).
+- Hub-disk-created records carry no origin → bind hub-local. Remote-attributed same-host bridge refused (residual WS-20).
+- Closes WS-02, WS-03, WS-05 (at ship; see `residual-risks.md`). WS-05b deferred.
+- Tests: `bridge-contention.test.ts`, `pi-gateway-duplicate-register.test.ts`, `provisional-registration.test.ts`, `contention-refusal-side-effects.test.ts`, `plugin-request-lane-gateway.test.ts`, `plugin-lane-handler-verdicts.test.ts`.
+- See change: harden-bridge-session-claim (D1, D2, D4).
 
 ### C9 Bridge-side identity of server (bridge → which server)
 - Remote: `gateRemoteRegistration` — no pins at all ⇒ allow `unpinned-legacy` (`packages/extension/src/remote-registration-gate.ts:70`); pins ⇒ challenge or refuse. Device bearer only to pinned endpoint (`packages/extension/src/pinned-endpoint.ts`; per `packages/extension/src/AGENTS.md` row). Ticket client re-mints per attempt, `redirect:"error"` (`packages/extension/src/bridge-ticket-client.ts.AGENTS.md`).
@@ -245,15 +271,15 @@ flowchart LR
 
 | Message type | Server effect | Check path:line |
 |---|---|---|
-| `session_register` | Claim id, register session (cwd, pid, sessionFile self-reported) | contention `pi-gateway.ts:872`; `bridge-contention.ts:82-103` |
-| any msg with `sessionId` (first frame) | Auto-claim unheld id + placeholder session | `pi-gateway.ts:764-791` |
+| `session_register` | Claim id, register session (cwd, pid, sessionFile self-reported) | origin-bound claim `pi-gateway.ts:727`; `bridge-contention.ts:142-170` |
+| any msg with `sessionId` (first frame) | Auto-claim unheld id + placeholder session (origin-bound) | `pi-gateway.ts:982-1002` |
 | `event_forward`, `notify`, `prompt_request`, `extension_ui_request` | Stored + fanned out to browsers | ownership `pi-gateway.ts:815`; `event-wiring.ts:2445`, `:2553` |
 | `asset_register` | Cache base64 asset in session, broadcast | non-empty strings only `event-wiring.ts:2622-2646` |
 | `spawn_new_session {cwd}` | Server spawns pi at cwd | none `event-wiring.ts:2734-2757` |
 | `sessions_list` | Register/update OTHER session ids' `sessionFile`/`sessionDir`; `broadcastToAll` | none on item ids `event-wiring.ts:2759-2790` |
 | `process_list` | Stored + broadcast | `event-wiring.ts:2792-2804` |
 | `vault_sync_request` | Vault values for self-reported cwd/origin | `decideVaultTrust` `vault-delivery-hub.ts:37-42` |
-| `plugin_request` | Plugin handler (e.g. `gmail/lease` returns access token) | lane `plugin-request-lane.ts:57-80`; `event-wiring.ts:1103`; `packages/gmail-plugin/src/server/lease.ts:1-16` |
+| `plugin_request` | Plugin handler (e.g. `gmail/lease` returns access token) | lane `plugin-request-lane.ts:103-122`; `event-wiring.ts:1128`; ownership gate `pi-gateway.ts:1025-1032`; `packages/gmail-plugin/src/server/lease.ts:1-16` |
 | `plugin_pi_message` (`mcp/mint-token`) | Mint `control` MCP token for connection's session | `pi-gateway.ts:808-811`; `mcp-server-plugin/src/server/index.ts:206` |
 | `path_grant_request`, `path_yolo_request` | Persist "always allow" for raised confirm | `event-wiring.ts:1111`, `:1132` |
 | `session_move_commit` | Routing transfer by token | `pi-gateway.ts:666-757` |
@@ -291,10 +317,10 @@ flowchart LR
 | ID | Sev | Title | Evidence (path:line) | Impact | Suggested remedy |
 |---|---|---|---|---|---|
 | WS-01 | High | Tokenless loopback bridge grace still open; default transport on win32 (and long-UDS-path hosts) | `server.ts:1301-1304`; `bridge-upgrade-auth.ts:167-175`; `gateway-listeners.ts:33-35` (`kind:"loopback"`, no `requireLocalCredential`); `dashboard-paths.ts:178-183`; origin local `pi-gateway.ts:477-493`; vault `vault-delivery-hub.ts:39`; MCP `index.ts:206`, `tokens.ts:123` | Any local process (on win32 any OS user — loopback is host-wide; or any L4 forwarder `ssh -L`/socat) registers sessions with LOCAL origin ⇒ receives vault values for self-reported cwd/origin, mints `control` MCP token (drive all sessions), Gmail leases, session hijack (WS-02). HTTP plane meanwhile requires proof by default (`config.ts:1839`). Needs verification on a win32 host | Set `requireTicketOnLoopback: true` (or tie to `requireLocalProof`); require `valid` proof on primary win32 listener; drop grace (comment promises "refused from 1.0.0") |
-| WS-02 | Medium | Self-reported `pid` displaces a LIVE bridge (session hijack) | `bridge-contention.ts:96-100`; `pi-gateway.ts:582-590`, `:903-904` | Any authenticated bridge peer that knows a session's id + pid (both visible to browsers / process list) takes the routing entry ⇒ receives user prompts, `vault_snapshot`, re-mints MCP token (old one dies), injects events. Same-uid on UDS = accepted risk; remote device bridge / WS-01 peers = real | Accept same-pid only when the incumbent fails the probe, or bind reconnect to a server-minted per-session secret issued at first register |
-| WS-03 | Medium | Session id is an unauthenticated name: any bridge claims unheld / disconnected ids | `pi-gateway.ts:764-791` (auto-claim + placeholder); `bridge-contention.ts:88-90` (`unheld`, `incumbent-closed`) | During reconnect grace or after restart, a rival bridge claims the victim id ⇒ prompts typed in UI routed to attacker; placeholder session spam | Per-session reconnect secret; refuse auto-claim of ids with a recorded session from a different origin/device |
+| WS-02 | Medium | Self-reported `pid` displaces a LIVE bridge (session hijack) | `bridge-contention.ts:158-169`; `pi-gateway.ts:722-731` | Any authenticated bridge peer that knows a session's id + pid (both visible to browsers / process list) takes the routing entry ⇒ receives user prompts, `vault_snapshot`, re-mints MCP token (old one dies), injects events. Same-uid on UDS = accepted risk; remote device bridge / WS-01 peers = real | Accept same-pid only when the incumbent fails the probe, or bind reconnect to a server-minted per-session secret issued at first register |
+| WS-03 | Medium | Session id is an unauthenticated name: any bridge claims unheld / disconnected ids | `pi-gateway.ts:982-1002` (auto-claim + placeholder), `:907-942` (move commit); `bridge-contention.ts:153`, `:155` (`unheld`, `incumbent-closed`) | During reconnect grace or after restart, a rival bridge claims the victim id ⇒ prompts typed in UI routed to attacker; placeholder session spam | Per-session reconnect secret; refuse auto-claim of ids with a recorded session from a different origin/device |
 | WS-04 | Medium | Paired-device revocation does not close open sockets | revoke `packages/server/src/routes/pairing-routes.ts:617-628` (no socket teardown); browser ticket carries no deviceId `server.ts:3506`; ticket sockets un-tiered `ws-tier-gate.ts:7-10` | Revoked phone / remote bridge keeps live `/ws`, terminal and bridge sockets indefinitely (inert era: no principal expiry). Planned fix only for vault withdrawal | Record deviceId on every ticket-admitted socket; on revoke/hold close sockets (4401) |
-| WS-05 | Medium | Plugin request lane has no origin gate — remote bridge leases Gmail access tokens | `plugin-request-lane.ts:1-12`, `:57`; `event-wiring.ts:1103-1106`; `packages/gmail-plugin/src/server/lease.ts:1-5` ("request lane is private but unauthenticated"); contrast vault `vault-delivery-hub.ts:37-42` | Remote-attributed bridge (paired device via `PI_GATEWAY_TCP`, plain `ws`) or WS-01 peer obtains OAuth access tokens held by hub; inconsistent with vault D3 remote refusal | Pass `SessionOrigin` in lane `meta`; plugins holding credentials refuse non-local / non-TLS origins by default |
+| WS-05 | Medium | Plugin request lane has no origin gate — remote bridge leases Gmail access tokens | `plugin-request-lane.ts:103-122`; `event-wiring.ts:1128`; `pi-gateway.ts:1025-1032`; `packages/gmail-plugin/src/server/lease.ts:1-5` ("request lane is private but unauthenticated"); contrast vault `vault-delivery-hub.ts:37-42` | Remote-attributed bridge (paired device via `PI_GATEWAY_TCP`, plain `ws`) or WS-01 peer obtains OAuth access tokens held by hub; inconsistent with vault D3 remote refusal | Pass `SessionOrigin` in lane `meta`; plugins holding credentials refuse non-local / non-TLS origins by default |
 | WS-06 | Low | No `maxPayload` on core WS servers (100 MiB default) | `browser-gateway.ts:658`; `terminal-gateway.ts:40`; `pi-gateway.ts:1174`, `:1273`; `ws-routes.ts:97-98`; `node_modules/ws/lib/websocket-server.js:74` | Any authenticated peer (incl. control-tier device, WS-01 peer) forces 100 MiB buffer + `JSON.parse` per frame ⇒ memory/CPU DoS. Unbounded `asset_register` cache `event-wiring.ts:2622-2635` | Set `maxPayload` per scope (e.g. 1–16 MiB); cap per-session asset cache |
 | WS-07 | Low | Bridge-initiated `spawn_new_session` spawns pi at arbitrary cwd, no gate | `event-wiring.ts:2734-2757` | Any bridge (incl. remote device) spawns processes on hub in any dir; no origin/folder/tier check (browser path has preflight + control tier) | Refuse for non-local origin; apply known-folder admission |
 | WS-08 | Low | `sessions_list` writes other sessions' `sessionFile`/`sessionDir` + broadcasts to all browsers | `event-wiring.ts:2759-2790` | Cross-session tampering of resume/transcript paths; spoofed session rows in every browser. Downstream file-read impact: Needs verification | Accept only items owned by connection / same cwd; never update existing session paths from a list |

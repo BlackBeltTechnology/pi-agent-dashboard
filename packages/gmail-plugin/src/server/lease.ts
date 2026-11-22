@@ -1,7 +1,8 @@
 /**
  * `gmail/lease` request handler (design D4/D5). Authorizes on the ACCOUNT LEVEL
- * only (the request lane is private but unauthenticated — any session of this
- * user may lease within the level). Returns exactly
+ * only; WHO may call is the host lane's job: this handler registers `hubLocalOnly`, so a
+ * remote-origin or deprecated-admission session is refused (`origin_denied`) before it runs
+ * (change: harden-bridge-session-claim). Returns exactly
  * `{accessToken, expiresAt, email, tier}` — the refresh token never leaves.
  *
  * - tier check (`tierAllows`) then granted-scope check (implication table);

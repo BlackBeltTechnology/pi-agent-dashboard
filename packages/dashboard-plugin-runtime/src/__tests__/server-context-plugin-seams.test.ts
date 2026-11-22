@@ -111,6 +111,15 @@ describe("ServerPluginContext registerPiRequestHandler", () => {
     const ctx = createServerPluginContext({ ...baseDeps(), registerPiRequestHandler: register }, "gmail");
     const handler = () => ({ t: 1 });
     ctx.registerPiRequestHandler!("lease", handler);
-    expect(register).toHaveBeenCalledWith("gmail", "lease", handler);
+    expect(register).toHaveBeenCalledWith("gmail", "lease", handler, undefined);
+  });
+
+  // See change: harden-bridge-session-claim (D3): the policy option rides through the host seam untouched.
+  it("threads the hubLocalOnly option through to the host", () => {
+    const register = vi.fn();
+    const ctx = createServerPluginContext({ ...baseDeps(), registerPiRequestHandler: register }, "gmail");
+    const handler = () => ({ t: 1 });
+    ctx.registerPiRequestHandler!("lease", handler, { hubLocalOnly: true });
+    expect(register).toHaveBeenCalledWith("gmail", "lease", handler, { hubLocalOnly: true });
   });
 });

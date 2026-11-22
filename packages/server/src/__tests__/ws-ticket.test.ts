@@ -181,3 +181,38 @@ describe("bridge ticket mint flags (E16)", () => {
     expect(r.ok && r.provenTls).toBeUndefined();
   });
 });
+
+/**
+ * The mint reads the REAL registry's tier (`verify` returns `{ id, tier }`). See change: harden-bridge-session-claim
+ * (BE66, BE67).
+ */
+describe("bridge-ticket mint with the real registry tier (D2)", () => {
+  it("BE66: the route tier stays operate; a manual-token (observe) or control device is refused by the decider where the route gate is exempt (legacy trusted network)", async () => {
+    const { ROUTE_TIERS } = await import("@blackbelt-technology/pi-dashboard-shared/route-tiers.js");
+    expect(ROUTE_TIERS.find((r: { path: string }) => r.path === "/api/ws-ticket")).toMatchObject({ tier: "operate" });
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "paired-")), "devices.json");
+    const registry = new PairedDeviceRegistry(file);
+    for (const tier of ["observe", "control"] as const) {
+      const { token } = registry.add(`dev-${tier}`, "manual", tier);
+      const v = decideBridgeTicketMint({ authorization: `Bearer ${token}`, ip: "192.168.1.50", headers: {}, verifyDeviceBearer: (t) => registry.verify(t, "tls") });
+      expect(v.allow, tier).toBe(false);
+      expect(v.belowOperate?.tier).toBe(tier);
+      expect(v.deviceId).toBeUndefined();
+    }
+  });
+
+  it("BE67: an operate-minted ticket carries the device id into the upgrade, is single-use and scope-bound", () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "paired-")), "devices.json");
+    const registry = new PairedDeviceRegistry(file);
+    const { device, token } = registry.add("remote-laptop");
+    const verdict = decideBridgeTicketMint({ authorization: `Bearer ${token}`, ip: "203.0.113.7", headers: {}, verifyDeviceBearer: (t) => registry.verify(t, "tls") });
+    expect(verdict).toMatchObject({ allow: true, deviceId: device.id });
+    const store = new WsTicketStore();
+    const ticket = mintBridgeTicket(store, verdict.deviceId, undefined as never);
+    expect(store.consumeDetailed(ticket, "browser")).toMatchObject({ ok: false, reason: "wrong-scope" });
+    const t2 = mintBridgeTicket(store, verdict.deviceId, undefined as never);
+    expect(store.consumeDetailed(t2, "bridge")).toMatchObject({ ok: true, deviceId: device.id });
+    expect(store.consumeDetailed(t2, "bridge")).toMatchObject({ ok: false });
+  });
+});
+

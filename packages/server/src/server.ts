@@ -8,7 +8,6 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createPiDefaultRemirror, setActivePiDefaultRemirror } from "./pi-default-remirror.js";
 import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createPluginSessionManager, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
@@ -79,6 +78,7 @@ import { scanAcpSessions } from "./acp-bridge/acp-restore.js";
 import { stopAllLocalAcpSessions } from "./acp-bridge/local-host.js";
 import { createAgentEventHub } from "./agent-events/agent-event-hub.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
+import { auditPrefix } from "./auth/audit-log.js";
 import { resolveRedirectBase } from "./auth/auth.js";
 import { authorizeWsUpgrade, buildLoginAvailable, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
@@ -88,7 +88,7 @@ import {
   formatBindReachabilityWarning,
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
-import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
+import { createTicketRefusalLog, decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import {
   CORS_ALLOWED_METHODS,
   type CorsOriginOptions,
@@ -281,17 +281,20 @@ import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore } from "./persistence/preferences-store.js";
+import { CONTENTION_RATE_LIMIT } from "./pi/bridge-contention.js";
 import { loadHostProjectTrustService } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
-import { createPiGateway } from "./pi/pi-gateway.js";
+import { createPiGateway, type GatewayConn } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
+import { createPiDefaultRemirror, setActivePiDefaultRemirror } from "./pi-default-remirror.js";
 import { createPackageCompletionHandler, createPluginDiscoveryWiring, type PluginDiscoveryWiring } from "./plugin-discovery-wiring.js";
 import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
 import { getRuntimeClientRegistry, installRuntimeClientRegistry, logRuntimeAdmissions } from "./plugin-runtime-clients.js";
+import { configureProjectSeed, resolveAutoSeedEnabled, sweepKnownProjects } from "./project-seed.js";
 import { createPushService, type PushService } from "./push/push-service.js";
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
@@ -301,7 +304,6 @@ import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAcmeRoutes } from "./routes/acme-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
 import { registerAddonsRoutes } from "./routes/addons-routes.js";
-import { configureProjectSeed, resolveAutoSeedEnabled, sweepKnownProjects } from "./project-seed.js";
 import { registerAgentEventStreamRoutes } from "./routes/agent-event-stream-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
@@ -400,6 +402,7 @@ import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createSessionTerminator } from "./spawn-process/session-terminator.js";
 import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
+import { createSudoCredentialRelay } from "./sudo-credential/relay.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
 import { createAcmeCredentials } from "./tls/sources/acme/credentials.js";
@@ -415,7 +418,6 @@ import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureR
 import { collectEndpoints } from "./tunnel/tunnel-endpoints.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 import { startDeviceExpirySweep } from "./vault/device-expiry-sweep.js";
-import { createSudoCredentialRelay } from "./sudo-credential/relay.js";
 import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
 import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
 import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
@@ -831,6 +833,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
   // The proof cookie is bound to the listener's port; `0` until `listen` runs (inject() in tests).
   let httpListenPort = 0;
+  /** Rate-limited (per device) below-operate bridge-ticket refusal line (D2). */
+  const logTicketRefusal = createTicketRefusalLog({ windowMs: CONTENTION_RATE_LIMIT, prefix: (id) => auditPrefix(id) });
   const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof, () => httpListenPort);
   const localProofCodes = new LocalProofCodeStore();
   const pairingManager = new PairingManager({
@@ -1857,11 +1861,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Private plugin request/reply lane: one handler per (pluginId, type), reply
   // sent host-internally on the requesting socket (not the priority-gated
   // sendExtensionMessage). See change: expose-plugin-credential-and-oauth-seams (D7).
-  const pluginRequestLane = createPluginRequestLane((sessionId, msg) =>
-    piGateway.sendToSession(sessionId, msg),
+  const pluginRequestLane = createPluginRequestLane(
+    (sessionId, msg) => piGateway.sendToSession(sessionId, msg),
+    // A hub-local-only reply is delivered only to the socket that passed the gate (see the lane).
+    { currentChannel: (sessionId) => piGateway.channelOf(sessionId) },
   );
-  function dispatchPluginRequest(sessionId: string, msg: PluginRequestMessage): void {
-    pluginRequestLane.handle(sessionId, msg).catch((err) => {
+  // Forward the SENDING socket's own origin + channel (never `originOf(sessionManager.get(id))` /
+  // `channelOf(id)`, which follow the routing entry and the recorded session, not the sender).
+  // See change: harden-bridge-session-claim (D3).
+  function dispatchPluginRequest(sessionId: string, msg: PluginRequestMessage, conn?: GatewayConn): void {
+    pluginRequestLane.handle(sessionId, msg, conn).catch((err) => {
       console.error("[plugin-request]", err);
     });
   }
@@ -3661,6 +3670,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           localTrust,
           verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token, bearerChannelOf(request.raw)),
         });
+        logTicketRefusal(verdict);
         if (!verdict.allow) {
           reply.code(403);
           return { success: false as const, error: verdict.reason };
@@ -4757,8 +4767,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 });
                 return res.ok ? { ok: true, flowId: res.flow.id } : res;
               },
-              registerPiRequestHandler: (id, type, handler) =>
-                pluginRequestLane.register(id, type, handler),
+              registerPiRequestHandler: (id, type, handler, opts) =>
+                pluginRequestLane.register(id, type, handler, opts),
               // First-party scope gate shared with the `/api/plugins` `firstParty`
               // projection. See change: promote-model-roles-settings.
               providerAuth: createGatedProviderAuth(plugin.packageName, readAuthJson),

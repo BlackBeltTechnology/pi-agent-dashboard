@@ -3,9 +3,6 @@
  * Extracted from server.ts for clarity.
  */
 
-import { buildPreferencesUpdate } from "./preferences-relay.js";
-import { SUDO_CREDENTIAL_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/sudo-credential.js";
-import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
@@ -13,16 +10,19 @@ import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-te
 import type { ExtensionToServerMessage, PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { mergeSessionMeta, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats, type StatsData } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
-import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
+import { SUDO_CREDENTIAL_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/sudo-credential.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
+import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import { createAgentConfirmRegistry } from "./access/agent-confirm-registry.js";
-import { handlePathGateRefusal, handlePathYoloRequest } from "./access/agent-yolo.js";
-import { recordRefusal } from "./access/refusal-ledger.js";
 import { handlePathGrantRequest } from "./access/agent-grant.js";
+import { handlePathGateRefusal, handlePathYoloRequest } from "./access/agent-yolo.js";
 import { announceableGrantStoreId } from "./access/grant-store-id.js";
+import { recordRefusal } from "./access/refusal-ledger.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
+import { choiceToSpawnOptions, resolveSpawnChoice } from "./browser-handlers/spawn-choice.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
 import type { DirectoryService } from "./directory-service.js";
@@ -30,18 +30,18 @@ import { captureLifecycleTimestamp } from "./embed-lifecycle/lifecycle-event-cap
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
-import { buildAutoNameRestore, guardBridgeNameClaim, systemRenameUpdates } from "./session/name-provenance.js";
 import { invalidateCatalogue, setCatalogueForSession } from "./package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "./pairing/browser-gateway.js";
 import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
-import type { PiGateway } from "./pi/pi-gateway.js";
+import type { GatewayConn, PiGateway } from "./pi/pi-gateway.js";
 import { computePiBelowFloor, serverPiMinimum } from "./pi/pi-version-skew.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
-import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
+import { buildPreferencesUpdate } from "./preferences-relay.js";
 import { scheduleProjectSeed } from "./project-seed.js";
+import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
 import {
   customEventTypeOfEvent,
   isGroupableCustomEvent,
@@ -49,10 +49,10 @@ import {
 } from "./session/custom-event-group-annotation.js";
 import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, reconcileAgentLiveness } from "./session/event-status-extraction.js";
+import { createReplayState, decideSkipWipe, type ReplayState, validLeafEntryId } from "./session/hydration-state.js";
 import { createInFlightToolCalls, type InFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
-import { seedDiscoveredHistory } from "./session/seed-discovered-history.js";
-import { applyPluginRef } from "./session/plugin-refs.js";
+import { buildAutoNameRestore, guardBridgeNameClaim, systemRenameUpdates } from "./session/name-provenance.js";
 import {
   findOpenSubagents,
   findOpenToolCalls,
@@ -63,25 +63,25 @@ import {
   attachedStillExistsInCandidateRoots,
   localityGateAllows,
 } from "./session/openspec-locality.js";
+import { resolvePidTarget, sanitizePidNamespace } from "./session/pid-target.js";
+import { applyPluginRef } from "./session/plugin-refs.js";
 import type { RemoteTranscriptStore } from "./session/remote-transcript-store.js";
+import type { ReplayExitCause } from "./session/replay-exit-controller.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
+import { seedDiscoveredHistory } from "./session/seed-discovered-history.js";
+import { getServerPidContext } from "./session/server-pid-context.js";
 import type { SessionOrderManager } from "./session/session-order-manager.js";
 import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
+import { linkRegisterToSpawn } from "./spawn-process/link-register.js";
 import { buildPidIndex, classifyProcesses } from "./spawn-process/process-classifier.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
-import { choiceToSpawnOptions, resolveSpawnChoice } from "./browser-handlers/spawn-choice.js";
-import { createReplayState, decideSkipWipe, type ReplayState, validLeafEntryId } from "./session/hydration-state.js";
-import type { ReplayExitCause } from "./session/replay-exit-controller.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import {
   buildEmptyActionableLogLine,
   buildModelErrorLogLine,
   extractModelTurnError,
 } from "./spawn-process/spawned-turn-log.js";
-import { resolvePidTarget, sanitizePidNamespace } from "./session/pid-target.js";
-import { getServerPidContext } from "./session/server-pid-context.js";
-import { linkRegisterToSpawn } from "./spawn-process/link-register.js";
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll
@@ -253,7 +253,7 @@ export interface EventWiringDeps {
    */
   dispatchPluginPiMessage?: (messageType: string, msg: unknown, sessionId: string) => void;
   /** Private plugin request lane. See change: expose-plugin-credential-and-oauth-seams (D7). */
-  dispatchPluginRequest?: (sessionId: string, msg: PluginRequestMessage) => void;
+  dispatchPluginRequest?: (sessionId: string, msg: PluginRequestMessage, conn?: GatewayConn) => void;
   /**
    * Optional raw pi-event fan-out. When provided, every forwarded
    * `event_forward` event is delivered to plugin-server subscribers
@@ -1107,7 +1107,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     };
   }
 
-  const coreGatewayEventHandler = (sessionId: string, msg: ExtensionToServerMessage): void => {
+  const coreGatewayEventHandler = (sessionId: string, msg: ExtensionToServerMessage, conn?: GatewayConn): void => {
     // Any processed bridge message keeps a replaying session out of the idle
     // exit (prompt re-sends count, not only event_forward).
     // See change: fix-large-session-resume-replay (D2).
@@ -1126,7 +1126,9 @@ export function wireEvents(deps: EventWiringDeps): void {
     // Private request/reply lane: answered with `plugin_reply` on this socket.
     // See change: expose-plugin-credential-and-oauth-seams (D7).
     if (msg.type === "plugin_request") {
-      dispatchPluginRequest?.(sessionId, msg);
+      // `conn` is the SENDING socket's own origin + channel (never the session record's).
+      // See change: harden-bridge-session-claim (D3).
+      dispatchPluginRequest?.(sessionId, msg, conn);
       return;
     }
 
@@ -2780,11 +2782,15 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "sessions_list") {
-      for (const piSession of msg.sessions) {
+      // Origin binding (D1): a history record is bound to the REPORTING socket's origin.
+      // Without `conn` (a hop that dropped it) nothing is seeded or rewritten.
+      for (const piSession of conn ? msg.sessions : []) {
         const existing = sessionManager.get(piSession.id);
         if (!existing) {
           sessionManager.register({
             id: piSession.id,
+            // Hub-local stays undefined; a remote reporter's origin is recorded.
+            originDeviceId: conn?.originDeviceId,
             cwd: piSession.cwd,
             name: piSession.name,
             source: "unknown",
@@ -2795,7 +2801,8 @@ export function wireEvents(deps: EventWiringDeps): void {
           // Historical sessions pi reported; their endings were never observed.
           // See change: fix-ended-session-missing-endedat.
           sessionManager.unregister(piSession.id, { witnessed: false });
-        } else if (existing.sessionFile !== piSession.path) {
+        } else if (existing.sessionFile !== piSession.path && existing.originDeviceId === conn?.originDeviceId) {
+          // Rewritten only by a reporter of the SAME origin as the record.
           sessionManager.update(piSession.id, {
             sessionFile: piSession.path,
             sessionDir: piSession.cwd,
@@ -2869,7 +2876,7 @@ export function wireEvents(deps: EventWiringDeps): void {
   // Ordering trade-off (D3): events ingested during a first-sight round trip
   // take lower store sequences — bounded at once per distinct customType per
   // process (~a dozen types), and only near a server's first sight of each.
-  piGateway.onEvent = (sessionId, msg) => {
+  piGateway.onEvent = (sessionId, msg, conn) => {
     if (
       customEventGroupResolver &&
       msg.type === "event_forward" &&
@@ -2886,13 +2893,13 @@ export function wireEvents(deps: EventWiringDeps): void {
         // Exactly once, and OUTSIDE the try: the ingest tail is not
         // re-entrant — a throw after insertEvent must never re-run the
         // insert on the same (half-handled) event.
-        coreGatewayEventHandler(sessionId, msg);
+        coreGatewayEventHandler(sessionId, msg, conn);
       };
       void annotateAndIngest().catch((err) => {
         console.error(`[custom-event-groups] ingest failed for session ${sessionId}:`, err);
       });
       return;
     }
-    coreGatewayEventHandler(sessionId, msg);
+    coreGatewayEventHandler(sessionId, msg, conn);
   };
 }

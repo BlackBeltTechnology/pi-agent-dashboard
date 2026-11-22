@@ -218,6 +218,13 @@
       "reason": "accepted-risk: ctx.serveApp static handler for a trusted plugin's public build (extension allowlist, realpath confinement, no data); a per-request limit would break the legitimate 40 MB wasm + asset fan-out of an app load; hash taken from the PR-985 CodeQL analysis (codeql CLI unavailable locally)"
     },
     {
+      "ruleId": "js/insufficient-password-hash",
+      "file": "packages/extension/src/provider-model-cache.ts",
+      "lineHash": "837f6c52b0776f20:1",
+      "count": 1,
+      "reason": "accepted-risk: sha256 of provider name+key is a non-secret cache-invalidation fingerprint truncated to 16 hex chars, not password storage; pre-existing on develop, untouched by harden-bridge-session-claim"
+    },
+    {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/access/access-grants.ts",
       "lineHash": "a665e5926eac32fd:1",
@@ -437,6 +444,13 @@
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/lib/dashboard-state-guard.ts",
+      "lineHash": "57e7252ec899cba4:1",
+      "count": 1,
+      "reason": "accepted-risk: pre-existing on develop, not touched by harden-bridge-session-claim; baseline line-hash drift, containment re-check code itself"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/lib/dashboard-state-guard.ts",
       "lineHash": "a99281b862dd2912:1",
       "count": 1,
       "reason": "false-positive: realpathLoose only RESOLVES a path to decide whether it lies inside the dashboard state dir; it never reads content and its result is compared, not opened (the guard exists to refuse, on REAL paths, exactly the paths a request names)"
@@ -450,10 +464,24 @@
     },
     {
       "ruleId": "js/path-injection",
-      "file": "packages/server/src/lib/path-containment.ts",
-      "lineHash": "15965871f904b078:1",
+      "file": "packages/server/src/lib/office-preview.ts",
+      "lineHash": "58dcd92b9a8f733a:1",
+      "count": 2,
+      "reason": "accepted-risk: pre-existing on develop, not touched by harden-bridge-session-claim; baseline line-hash drift, containment re-check code itself"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/lib/office-preview.ts",
+      "lineHash": "59ad073afc1b3b03:1",
       "count": 1,
-      "reason": "github-dismissed (#332, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
+      "reason": "accepted-risk: pre-existing on develop, not touched by harden-bridge-session-claim; baseline line-hash drift, containment re-check code itself"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/lib/path-containment.ts",
+      "lineHash": "40376616aea8acc7:1",
+      "count": 1,
+      "reason": "accepted-risk: pre-existing on develop, not touched by harden-bridge-session-claim; baseline line-hash drift, containment re-check code itself"
     },
     {
       "ruleId": "js/path-injection",
