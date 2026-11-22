@@ -48,8 +48,18 @@ function isHiddenWithin(el: HTMLElement, container: HTMLElement): boolean {
  * focusable. Tab containment still walks the full focusable list.
  * See change: sidebar-folder-ux.
  */
-function pickInitialFocus(focusable: HTMLElement[]): HTMLElement | undefined {
-  return focusable.find((el) => el.hasAttribute("data-autofocus")) ?? focusable[0];
+function pickInitialFocus(focusable: HTMLElement[], container: HTMLElement): HTMLElement | undefined {
+  return focusable.find((el) => el.hasAttribute("data-autofocus") && isRendered(el, container)) ?? focusable[0];
+}
+
+/** False when the element or an ancestor inside the container is CSS-hidden (`display: none`), so it cannot take focus. */
+function isRendered(el: HTMLElement, container: HTMLElement): boolean {
+  let node: HTMLElement | null = el;
+  while (node && node !== container) {
+    if (getComputedStyle(node).display === "none") return false;
+    node = node.parentElement;
+  }
+  return true;
 }
 
 export function useFocusTrap(
@@ -75,7 +85,7 @@ export function useFocusTrap(
     // See change: fix-flush-dialog-scroll-and-close-collision.
     let observer: MutationObserver | undefined;
     if (focusable.length > 0) {
-      pickInitialFocus(focusable)?.focus();
+      pickInitialFocus(focusable, container)?.focus();
     } else {
       container.focus();
       if (typeof MutationObserver !== "undefined") {
@@ -87,7 +97,7 @@ export function useFocusTrap(
           const late = getFocusable(container);
           if (late.length === 0) return;
           observer?.disconnect();
-          pickInitialFocus(late)?.focus();
+          pickInitialFocus(late, container)?.focus();
         });
         // Attributes matter as much as insertion: `getFocusable` keys on
         // `:not([disabled])`, `[hidden]` and `aria-hidden`, so a button that is

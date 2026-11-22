@@ -42,8 +42,9 @@ async function withBus<T>(fn: (client: BusClient) => Promise<T>): Promise<T> {
 async function spawnInCwd(): Promise<string> {
   return withBus(async (client) => {
     const before = new Set(client.read.sessions().map((s) => s.id));
-    const result = client.await<SpawnResultBrowserMessage>({ type: "spawn_result" }, { timeout: 45_000 });
-    client.send({ type: "spawn_session", cwd: CWD, requestId: crypto.randomUUID() });
+    const requestId = crypto.randomUUID();
+    const result = client.await<SpawnResultBrowserMessage>({ type: "spawn_result", requestId }, { timeout: 45_000 });
+    client.send({ type: "spawn_session", cwd: CWD, requestId });
     const res = await result;
     expect(res.success, res.message).toBe(true);
     const deadline = Date.now() + 30_000;

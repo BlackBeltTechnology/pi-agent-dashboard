@@ -7,6 +7,7 @@
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -20,10 +21,13 @@ vi.mock("../../folder/FolderActionBanner.js", async (orig) => {
   const Real = real.FolderActionBanner;
   return {
     ...real,
-    FolderActionBanner: (props: React.ComponentProps<typeof Real>) => {
-      counter.renders += 1;
-      return <Real {...props} />;
-    },
+    // Profiler counts commits of the real banner subtree, including renders caused by its OWN state updates
+    // (a wrapper-body counter would miss those).
+    FolderActionBanner: (props: React.ComponentProps<typeof Real>) => (
+      <Profiler id="folder-action-banner" onRender={() => { counter.renders += 1; }}>
+        <Real {...props} />
+      </Profiler>
+    ),
   };
 });
 

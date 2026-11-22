@@ -188,6 +188,24 @@ describe("useFocusTrap — data-autofocus", () => {
     expect(document.activeElement).toBe(getByTestId("cancel"));
   });
 
+  it("skips a marked control inside a CSS-hidden ancestor and focuses the first visible focusable", () => {
+    const { getByTestId } = render(
+      <MarkedHarness
+        markup={
+          <>
+            <button data-testid="close">✕</button>
+            <div style={{ display: "none" }}>
+              <button data-testid="cancel" data-autofocus>
+                Cancel
+              </button>
+            </div>
+          </>
+        }
+      />,
+    );
+    expect(document.activeElement).toBe(getByTestId("close"));
+  });
+
   it("falls back to the first focusable when nothing is marked", () => {
     const { getByTestId } = render(
       <MarkedHarness
