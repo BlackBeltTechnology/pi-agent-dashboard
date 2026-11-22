@@ -54,7 +54,8 @@ When no focus profile is stored, Focus mode SHALL apply a built-in minimalist pr
 #### Scenario: Safety cues survive
 - **GIVEN** Focus mode on with the built-in profile
 - **WHEN** a folder requires re-trust and a session with `process` hidden has a background process
-- **THEN** the folder banner safety chip and the PROCESS safety chip SHALL render
+- **THEN** the PROCESS safety chip SHALL render
+- **AND** the folder banner compact chip SHALL NOT render (Focus is an explicit opt-in to a minimal sidebar; see `session-card-section-visibility`)
 
 ### Requirement: Save current as focus profile
 

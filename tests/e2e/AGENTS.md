@@ -12,6 +12,7 @@ One row per file.
 | `acp-spawn-picker.spec.ts` | → `acp-spawn-picker.spec.ts.AGENTS.md` |
 | `agent-credential-refusal.spec.ts` | → `agent-credential-refusal.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → `agent-path-gate.spec.ts.AGENTS.md` |
+| `agent-secret-guards.spec.ts` | → `agent-secret-guards.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → `archived-attachment.spec.ts.AGENTS.md` |
@@ -21,6 +22,7 @@ One row per file.
 | `canvas-loopback-url-chip.spec.ts` | L3 |
 | `canvas-static-mockup.spec.ts` | L3 |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
+| `chat-gateway-guard-readiness.spec.ts` | → `chat-gateway-guard-readiness.spec.ts.AGENTS.md` |
 | `chat-motion.spec.ts` | → `chat-motion.spec.ts.AGENTS.md` |
 | `claude-subscription-compat.spec.ts` | #F1 sign-in prompt → Turn on → row on after reload (real compat route, staged auth reads); #F3 Landing Step ① notice → Turn on → row on. See change: retire-anthropic-messages-bridge. |
 | `composer-dock-collapse.spec.ts` | L3 composer dock collapse/peek/file open (synthetic bridge, stubbed diff/quota): 44 px one-line bar at 375 px… → see `composer-dock-collapse.spec.ts.AGENTS.md` |
@@ -67,6 +69,7 @@ One row per file.
 | `provider-models-refresh.spec.ts` | → `provider-models-refresh.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | → `push-webhook-settings.spec.ts.AGENTS.md` |
 | `README.md` | → `README.md.AGENTS.md` |
+| `access-credential-dirs.spec.ts` | → `access-credential-dirs.spec.ts.AGENTS.md` |
 | `fixtures/severity-baseline.json` | → `fixtures/severity-baseline.json.AGENTS.md` |
 | `fixtures/trusted-types-budget.json` | → `fixtures/trusted-types-budget.json.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | → `access-grants-revoke.spec.ts.AGENTS.md` |
@@ -261,6 +264,7 @@ One row per file.
 | `skill-provenance.spec.ts` | → `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | → `smoke.spec.ts.AGENTS.md` |
 | `spawn-correlation-recovery.spec.ts` | → `spawn-correlation-recovery.spec.ts.AGENTS.md` |
+| `spawn-skill-follows-trust.spec.ts` | → `spawn-skill-follows-trust.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | → `split-composer-overflow.spec.ts.AGENTS.md` |
 | `split-divider-drag.spec.ts` | #F1-F4 divider drag |
 | `steer-cancel.spec.ts` | → `steer-cancel.spec.ts.AGENTS.md` |
@@ -315,4 +319,6 @@ One row per file.
 | `card-visual-effects.spec.ts` | → `card-visual-effects.spec.ts.AGENTS.md` |
 | `focus-mode.spec.ts` | → `focus-mode.spec.ts.AGENTS.md` |
 | `folder-accordion.spec.ts` | → `folder-accordion.spec.ts.AGENTS.md` |
+| `untrusted-content-guard-posture.spec.ts` | → `untrusted-content-guard-posture.spec.ts.AGENTS.md` |
+| `untrusted-content-guard-project-layer.spec.ts` | → `untrusted-content-guard-project-layer.spec.ts.AGENTS.md` |
 | `prompt-draft-persistence.spec.ts` | #1117 prompt-answer drafts: Other text survives a session switch (S40), batch step+answers survive a reload (S43), card↔dialog share one draft (S49), second tab starts empty and localStorage stays clean (S55). Faux scenarios `ask-select-other`, `ask-batch-steps`. See change: fix-input-state-consistency. |

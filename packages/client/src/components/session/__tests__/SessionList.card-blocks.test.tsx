@@ -9,17 +9,25 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import type { WorktreeInitStatus } from "../../../lib/git/git-api.js";
+import { fetchWorktreeInitStatus, type WorktreeInitStatus } from "../../../lib/git/git-api.js";
+import { initStore } from "../../../lib/git/worktree-init-store.js";
 import { CardSectionsProvider } from "../../../lib/state/CardSectionsContext.js";
 import { FolderActionBanner } from "../../folder/FolderActionBanner.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import { SessionList } from "../SessionList.js";
 
 const CWD = "/home/user/project";
+
+// The init-status probe is what puts a folder into a banner rung; drive it per test.
+const probe = vi.hoisted(() => ({ status: { hasHook: false } as { hasHook: boolean; trusted?: boolean; needsInit?: boolean } }));
+vi.mock("../../../lib/git/git-api.js", async (orig) => ({
+  ...(await orig<typeof import("../../../lib/git/git-api.js")>()),
+  fetchWorktreeInitStatus: vi.fn(async () => probe.status),
+}));
 
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -38,7 +46,11 @@ beforeEach(() => {
     key: (i: number) => Object.keys(store)[i] ?? null,
   });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  initStore.__resetForTests();
+  probe.status = { hasHook: false };
+});
 
 const live: DashboardSession = {
   id: "s1", cwd: CWD, source: "tui", status: "active", startedAt: Date.now() - 60_000,
@@ -175,8 +187,78 @@ describe("Focus mode overlay on the directory card (spec focus-mode)", () => {
     expect(stored).toEqual({ global: { "pill-goal": true }, folders: { [CWD]: { "folder-create": true } } });
   });
 
-  it("safety chip survives: Focus hides the banner, the compact chip still shows", () => {
+  it("outside Focus: the banner is hidden by prefs, the compact chip still shows", () => {
     render(<FolderActionBanner cwd={CWD} isProjectRoot status={{ hasHook: true, trusted: false }} compact />);
     expect(has(`folder-banner-chip-${CWD}`)).toBe(true);
+  });
+});
+
+// Focus mode suppresses the folder compact chip on every path (#1134).
+// See change: sidebar-folder-ux (test-plan #S27, #S28, #S29).
+describe("Focus mode × folder banner chip (#1134)", () => {
+  const OTHER = "/home/user/other";
+  const otherLive: DashboardSession = { ...live, id: "s3", cwd: OTHER };
+  const FOCUS_ON: CardSectionPrefs = { focus: { enabled: true } };
+  const FOCUS_OFF: CardSectionPrefs = { focus: { enabled: false } };
+  const SHOWS_BANNER: CardSectionPrefs = {
+    focus: { enabled: true, profile: { sections: { "folder-banner": true }, folderListMode: "accordion" } },
+  };
+
+  function tree(prefs: CardSectionPrefs) {
+    const { hook } = memoryLocation({ path: "/", static: true });
+    return (
+      <Router hook={hook}>
+        <ThemeProvider>
+          <CardSectionsProvider value={{ prefs }}>
+            <SessionList
+              sessions={[live, otherLive]}
+              selectedId="s1"
+              onSelect={() => {}}
+              openspecMap={new Map([[CWD, openspec]])}
+              onSpawnSession={() => {}}
+            />
+          </CardSectionsProvider>
+        </ThemeProvider>
+      </Router>
+    );
+  }
+  const mount = (prefs: CardSectionPrefs) => {
+    const r = render(tree(prefs));
+    return (next: CardSectionPrefs) => r.rerender(tree(next));
+  };
+  /** Wait for the init-status probe to be requested, then flush its resolution into state. */
+  const settleProbe = async () => {
+    await waitFor(() => expect(vi.mocked(fetchWorktreeInitStatus)).toHaveBeenCalled());
+    await act(async () => {});
+  };
+  const anyBanner = () => document.querySelectorAll("[data-testid^='folder-banner-']").length;
+
+  it("S29: Focus (built-in profile) renders no folder chip/banner on a blocked folder — focused or compact", async () => {
+    probe.status = { hasHook: true, trusted: false };
+    mount(FOCUS_ON);
+    await waitFor(() => expect(has(`folder-header-name-${CWD}`)).toBe(true));
+    await settleProbe();
+    expect(anyBanner()).toBe(0);
+  });
+
+  it("S27: Focus with a profile that shows folder-banner renders the full banner, no chip", async () => {
+    probe.status = { hasHook: true, trusted: false };
+    mount(SHOWS_BANNER);
+    await waitFor(() => expect(has(`folder-banner-retrust-${CWD}`)).toBe(true));
+    expect(has(`folder-banner-chip-${CWD}`)).toBe(false);
+  });
+
+  it("S28: init run running → failed shows nothing in Focus; Focus off brings the banner back with Retry", async () => {
+    probe.status = { hasHook: true, trusted: true };
+    initStore.startRun(CWD);
+    const setPrefs = mount(FOCUS_ON);
+    await settleProbe();
+    expect(anyBanner()).toBe(0);
+    act(() => initStore.markFailed(CWD, "exit_1", "boom"));
+    await act(async () => {});
+    expect(anyBanner()).toBe(0);
+    setPrefs(FOCUS_OFF);
+    await waitFor(() => expect(has(`folder-banner-failed-${CWD}`)).toBe(true));
+    expect(screen.queryByText("Retry")).not.toBeNull();
   });
 });

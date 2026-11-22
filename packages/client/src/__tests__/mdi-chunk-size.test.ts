@@ -147,7 +147,12 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // index chunk, plus the image-only-send guards. +1,950 B gz measured locally against the same develop base
 // (624,927 CI -> 626,877 B). 612 KiB (626,688 B) would still be 189 B short, so 613 KiB (627,712 B, ~835 B
 // headroom for CI's compressor variance). Smallest KiB step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 613 * 1024;
+// sidebar-folder-ux (2026-11-22): 613 -> 615 KiB. Unavoidably eager: the folder-card header lives in SessionList
+// (index chunk) and now carries the Remove-from-sidebar item, the live-session confirm dialog, the compact count
+// button and the Focus chip suppression. +~1.5 KB gz measured locally (626,877 B develop -> 628,405 B). 614 KiB
+// (628,736 B) would leave only ~330 B for CI's compressor variance, so 615 KiB (629,760 B, ~1.3 KB headroom).
+// Smallest KiB step with CI headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 615 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

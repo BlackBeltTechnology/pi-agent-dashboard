@@ -94,6 +94,43 @@ see [`docs/release-process.md`](docs/release-process.md).
   tier is unchanged.
   - **BREAKING:** an `observe` / `control` device of a `legacy`-mode trusted network can no longer mint a bridge
     ticket.
+- **BREAKING — agent reads of pi provider secrets are blocked, other pi state asks (TOOL-04).** The credential guard now
+  hard-blocks every agent tool on `~/.pi/agent/{auth,mcp-auth,providers}.json` and `system-one/auth.json` (and the same
+  files under `PI_CODING_AGENT_DIR`, `<name>.*` siblings, symlinks) with no operator override. An agent `read` of
+  `models.json`, `mcp.json` and another project's `sessions/**` transcripts now asks (`Allow once` / `Deny` only, marked
+  sensitive, never `Always allow`); a session without a UI is blocked. The session's own session dir, skills, prompts and
+  `settings.json` stay silent. Legacy plain keys in `settings.json` remain a residual (see `pi-legacy-credentials`).
+- **BREAKING — a dashboard spawn no longer auto-trusts a folder dashboard trust does not cover (TOOL-08).** A session
+  started (UI, MCP `spawn_session`, REST, WebSocket, automation, goal, `/new`, worktree) into an unpinned, non-workspace,
+  ungranted folder runs without its project `.pi/` resources (extensions, skills, MCP) unless pi's `trust.json` or
+  `defaultProjectTrust: "always"` trusts it. **Remedy:** pin the folder, add it to a workspace, or record trust with
+  `/trust` in a terminal pi. `piTrustMirror.enabled: false` now also disables the activation-cwd auto-trust. A folder
+  you pinned, added to a workspace or granted stays trusted for every spawner (a clone inside a pinned folder included).
+- **BREAKING — credential directories and browser profiles cannot be granted or YOLO-admitted (TOOL-05).** `~/.aws`,
+  `~/.config/gh`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.netrc` and the Chrome / Chromium / Edge / Brave / Firefox user-data
+  roots are sensitive everywhere the shared list is used: no `Always allow`, no grant, no ladder rung, no YOLO auto-allow
+  (operator-activated unscoped YOLO now asks for them). A directory that contains one (`~/.config`, macOS
+  `~/Library/Application Support`, Windows `%LOCALAPPDATA%`) is no longer a grant / YOLO root or ladder rung; persisted
+  grants that now match are not admitted but are kept in the store file (a rollback restores them). Non-local file browse
+  of those directories is refused, and `~/.config`-like roots outside `$HOME` stop being shared browse roots. A grant store
+  that is invalid or written by a newer build is moved aside to `<file>.corrupt-<UTC ts>` on the next grant; a store over
+  1 MiB is neither loaded nor rewritten. Residual: only the exact `~/.netrc` (not `~/.netrc.*` or Windows `_netrc`) and no
+  snap / flatpak profile locations.
+- **BREAKING — a project's settings can no longer lower the untrusted-content guard (TOOL-09).** In
+  `@blackbelt-technology/pi-untrusted-content-guard` the project `.pi/settings.json` layer is tighten-only: `mode` can
+  only rise (`off < warn < strip < block`), `untrustedTools` / `sensitiveTools` are unioned, `taintScope` can only become
+  `session`, `allowHosts` is ignored, `preset: "strict"` is honoured. Each ignored lowering logs one line (field name
+  only). The guard is now **strongly suggested** in the recommended-extensions list but is still not installed by default.
+  Still open: non-default taint sources, ungated sinks (`write`, `edit`, `read`, MCP control tools), any-input taint reset
+  in `run` scope, unattributed `selfConfirming`.
+- **BREAKING — a custom chat `guardExtension` must announce readiness (TOOL-07).** The chat-gateway guard announces
+  `chat_gateway_guard_ready` (with the spawn's token) at `session_start`; the gateway delivers the triggering message
+  through `send_prompt` only after the announcement from the session the spawn resolved to, and ends a session whose guard
+  does not announce within 30 s ("session refused: its tool guard did not start"). A host without plugin-message handlers
+  refuses guarded chat spawns instead of starting an unverified session. No `toolPolicy` still means the full tool set
+  (documented). A second message while a guarded spawn awaits readiness is answered "A session is already starting for
+  this channel".
+- Documented, no code change: guard self-disable through `bash` (TOOL-03) adds no capability while `bash` is ungated.
 
 - **BREAKING — pi-agent credential files are always refused (DEP-01).** `~/.pi/agent/auth.json`, `mcp-auth.json`,
   `providers.json`, `plugin-credentials.json`, `models.json`, `mcp.json` and `system-one/auth.json` (plus same-dir

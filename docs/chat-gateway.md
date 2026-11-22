@@ -88,6 +88,7 @@ Precedence ladder:
 ### Spawn / Resume Prompt Delivery & Correlation
 
 - Fresh spawn and resume pass triggering message text to host as `initialPrompt`; `steerPrefix` stripped via `stripSteerPrefix` (fresh session has no turn to steer).
+- Exception: guard configured (`toolPolicy` + `guardExtension`) → message held, delivered via `send_prompt` after guard readiness. See [Guard contract](#guard-contract-readiness-handshake).
 - Host queues `initialPrompt` per cwd (`pendingInitialPromptRegistry`); dispatches it as the session's first turn once session registers.
 - Spawn reply: `Starting a session in <cwd>… your message will run once it is up.`
 - Resume reply: `Resuming the session… your message will run once it is up.`
@@ -226,6 +227,24 @@ Optional in-session execution boundary. Protects host from unreviewed tool execu
   - `defaultAction`: disposition for unlisted tools. Values: `"deny"` (default) or `"approve"`.
 - Decision precedence: explicit `allow` > explicit `approval` > `defaultAction`.
 - Hard enforcement: guard returns `{ block: true }` on pi `tool_call` event; prevents model bypassing prompt checks.
+
+### Guard contract: readiness handshake
+
+Bounds the spawn to a guard that PROVES it loaded. Blocks a typo'd `guardExtension` from running ungated (pi treats unresolvable `-e <ref>` as non-fatal).
+
+- Guard announces at `session_start`: `dashboard:plugin-message` `{pluginId:"chat-gateway", messageType:"chat_gateway_guard_ready", payload:{token}}` (`packages/chat-gateway/src/guard/index.ts`). Repeats at 250 ms, 1 s, 3 s, 8 s, 15 s after `session_start` (`READY_REANNOUNCE_MS`): pi runs `-e` extension `session_start` BEFORE bridge `session_start`; bridge listens for `dashboard:plugin-message` only inside its own `session_start`; one emit is lost. Gateway ignores duplicates.
+- `token` = env `PI_EXT_CHAT_GATEWAY_GUARD_TOKEN` = the spawn token the gateway writes to `extensionConfig["chat-gateway-guard"].token` (`packages/chat-gateway/src/shared/guard-ready.ts`). No token in env → no announcement.
+- Gateway holds the triggering message while a guard is configured: `spawnCorrelated` omits `initialPrompt`; delivery goes through `send_prompt` after readiness (`packages/chat-gateway/src/server/gateway.ts`).
+- Release needs BOTH: own spawn token AND sender sessionId == the session the spawn resolved to (`onSessionResolved`, via `registerPiHandler`). Token alone never enough — it travels in the spawned process's env.
+- Channel→session binding persisted only on release. A second message during the wait cannot reach an unverified session, nor can a message after a gateway restart.
+- Fixed readiness window `GUARD_READY_TIMEOUT_MS` = 30 000 ms. Expiry → `shutdownSession` + reply "session refused: its tool guard did not start".
+- Second message while a guarded spawn awaits readiness → "A session is already starting for this channel — one moment." Not queued, never delivered.
+- `send_prompt` rejection after readiness → reply "message not delivered". Binding kept; next message retries.
+- Host without `registerPiHandler` → guarded spawns refused (fail closed). No fallback to an unverified spawn.
+- Resume follows the same rule, bound to the sessionId `onSessionResolved` reports for that spawn.
+- Custom `guardExtension` MUST announce readiness with its token, or its spawns are refused. **BREAKING** for operator-supplied guards.
+- No `toolPolicy` → no guard → no hold; full tool set by design. Attached sessions never gated.
+- Restart while awaiting readiness → spawned session idle and unbound (received no chat message). No cleanup; state is in memory.
 
 ## Inspection Endpoint
 

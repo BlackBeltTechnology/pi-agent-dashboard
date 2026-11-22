@@ -128,3 +128,65 @@ describe("E54: registration order and handler contract", () => {
     expect(log).toHaveBeenCalledWith("[credential-guard] error tool=read");
   });
 });
+
+// ── harden-agent-tool-guards D1: T.12 guard order, T.29 negatives ─────────────
+describe("T.12: provider secrets are blocked before any root, grant, YOLO or disabled gate", () => {
+  const agent = nodePath.join(home, ".pi", "agent");
+  const readAuth = { toolName: "read", toolCallId: "tc", input: { path: nodePath.join(agent, "auth.json") } };
+  const base = (selects: unknown[], over: Partial<PathGateDeps>): PathGateDeps =>
+    ({
+      getConfig: () => ({ enabled: true, timeoutSeconds: 120 }),
+      getRoots: async (grants: never) => ({ workspace: [nodePath.join(home, "repo")], readOnly: [agent], readWrite: [], grants }),
+      getGrants: () => [],
+      getSensitiveDirs: () => [],
+      isUngrantable: () => false,
+      prompter: { select: async (a: unknown) => (selects.push(a), "Allow once"), confirm: async () => true, cancel: () => {} },
+      grantStoreMatch: () => true,
+      requestGrant: async () => ({ ok: true }),
+      log: () => {},
+      sessionId: () => "S1",
+      suppression: new Suppression(),
+      ...over,
+    }) as PathGateDeps;
+  const ctx = { hasUI: true, cwd: nodePath.join(home, "repo") };
+
+  it.each([
+    ["unscoped YOLO", { yoloSupported: () => true, yoloDecide: async () => "auto-allow" as const }],
+    ["a grant containing the agent dir", { getRoots: async (grants: never) => ({ workspace: [home], readOnly: [], readWrite: [agent], grants }) }],
+    ["agentPathGate disabled", { getConfig: () => ({ enabled: false, timeoutSeconds: 120 }) }],
+  ])("%s: blocked with credential_guard, gate not consulted", async (_n, over) => {
+    const selects: unknown[] = [];
+    const gate = vi.fn(createPathGateHandler(base(selects, over as Partial<PathGateDeps>)));
+    const guard = createCredentialGuard({ env: {}, homedir: home, log: () => {} });
+    const r = await emit([createCredentialGuardToolCallHandler(guard, () => true) as never, ((e: never, c: never) => gate(e, c)) as never], readAuth, ctx);
+    expect(r).toMatchObject({ block: true });
+    expect(r?.reason?.startsWith("credential_guard")).toBe(true);
+    expect(gate).not.toHaveBeenCalled();
+    expect(selects).toHaveLength(0);
+  });
+});
+
+describe("T.29: settings.json and trust.json stay readable without a block or prompt", () => {
+  const agent = nodePath.join(home, ".pi", "agent");
+  it.each(["settings.json", "trust.json"])("%s", async (f) => {
+    const selects: unknown[] = [];
+    const gate = createPathGateHandler({
+      getConfig: () => ({ enabled: true, timeoutSeconds: 120 }),
+      getRoots: async (grants: never) => ({ workspace: [nodePath.join(home, "repo")], readOnly: [agent], readWrite: [], grants }),
+      getGrants: () => [],
+      getSensitiveDirs: () => [],
+      isUngrantable: () => false,
+      prompter: { select: async (a: unknown) => (selects.push(a), "Allow once"), confirm: async () => true, cancel: () => {} },
+      grantStoreMatch: () => true,
+      requestGrant: async () => ({ ok: true }),
+      log: () => {},
+      sessionId: () => "S1",
+      suppression: new Suppression(),
+    } as unknown as PathGateDeps);
+    const guard = createCredentialGuard({ env: {}, homedir: home, log: () => {} });
+    const ev = { toolName: "read", toolCallId: "tc", input: { path: nodePath.join(agent, f) } };
+    const r = await emit([createCredentialGuardToolCallHandler(guard, () => true) as never, ((e: never, c: never) => gate(e, c)) as never], ev, { hasUI: true, cwd: nodePath.join(home, "repo") });
+    expect(r).toBeUndefined();
+    expect(selects).toHaveLength(0);
+  });
+});

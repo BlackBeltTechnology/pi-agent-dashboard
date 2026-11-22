@@ -19,7 +19,7 @@ Files in this directory. One row per source file.
 | `__tests__/loopback-host.test.ts` | #E25 loopback predicate forms. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter,… → see `__tests__/pi-trust-mirror.test.ts.AGENTS.md` |
-| `__tests__/pi-trust-resource-digest.test.ts` | #E15 #E16 #P1 digest equality, fail-closed set, caps, abort, p95 budget. See change: mirror-dashboard-trust-live-remote. User-skills exclusion under home (#E32), win32 casing via mocked `node:fs/promises` + `path.win32` (#E33). See change: update-pi-core-1-5-adopt-apis. |
+| `__tests__/pi-trust-resource-digest.test.ts` | #E15 #E16 #P1 digest equality, fail-closed set, caps, abort, p95 budget → see `__tests__/pi-trust-resource-digest.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-resource-golden.test.ts` | #E17 our resource list vs installed pi `trust-manager.js`; verdict vs `hasTrustRequiringProjectResources`. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/project-root.test.ts` | `hasProjectRootMarker`: `.git` dir/file + `.pi` true; plain/missing false. See change: add-access-provisioning. |
 | `__tests__/session-ui-path.test.ts` | #E1: plain id with none/diff/editor view; `a/b c` percent-encoded. See change: add-session-ui-deep-links-for-agents. |
@@ -43,6 +43,7 @@ Files in this directory. One row per source file.
 | `__tests__/state-replay.test.ts` | L1 for the persisted `compaction` → `session_compact` replay arm (change: replay-compaction-boundary, E1–E7 +… → see `__tests__/state-replay.test.ts.AGENTS.md` |
 | `__tests__/workflow-token-cache-contract.test.ts` | Repo-lint: workflow token permissions + no release-job cache. → see `__tests__/workflow-token-cache-contract.test.ts.AGENTS.md` |
 | `__tests__/config-keeper-log.test.ts` | keeperLog parse boundaries (test-plan #E7): valid values pass; 0/−1/non-numeric/absent coerce to defaults; `capturePiOutput` unaffected. See change: fix-runaway-keeper-log-growth. |
+| `agent-credential-files.ts` | Import-free leaf: `PI_AGENT_SECRET_FILES` (hard block), `PI_AGENT_ASK_READ_FILES`/`_DIRS` (ask on read). → see `agent-credential-files.ts.AGENTS.md` |
 | `archive-types.ts` | `ArchiveEntry` interface — OpenSpec archive dir row (name, date, done artifacts). Shared server↔client. |
 | `bind-reachability.ts` | Bind-vs-trust reachability: the ONE predicate + well-known-range table, imported by both client and server so… → see `bind-reachability.ts.AGENTS.md` |
 | `boot-state.ts` | Exit-intent vocabulary for the server boot record. Exports `ExitIntent`… → see `boot-state.ts.AGENTS.md` |
@@ -93,7 +94,7 @@ Files in this directory. One row per source file.
 | `mdns-discovery.ts` | mDNS `_pi-dashboard._tcp` advertise + discover. Identity-derived names `pi-dashboard-<id12>-<port>`, TXT… → see `mdns-discovery.ts.AGENTS.md` |
 | `models-json-reader.ts` | ONE shared pure reader for user-authored `~/.pi/agent/models.json`, consumed by BOTH registry paths… → see `models-json-reader.ts.AGENTS.md` |
 | `nav-intent.ts` | Navigation-intent wire types + `navIntentRequestFor(view)`. See change: harden-client-sinks. |
-| `network-denial-signal.ts` | `NETWORK_NOT_ALLOWED`, `GENERIC_NETWORK_DENIED_HINT`, `HealthNetworkAccessField`: generic 403 body constants + additive `/api/health` `networkAccess` field. Dependency-free (client value-imports). See change: surface-network-denial-on-health. |
+| `network-denial-signal.ts` | `NETWORK_NOT_ALLOWED`, `GENERIC_NETWORK_DENIED_HINT`, `HealthNetworkAccessField`: generic 403 body constants… → see `network-denial-signal.ts.AGENTS.md` |
 | `node-version.ts` | Single source of Node-version floors (`MIN_SERVER_NODE` 26.0.0, `MIN_PI_SPAWN_NODE` 22.19.0) + predicates… → see `node-version.ts.AGENTS.md` |
 | `notify.ts` | `normalizeNotifyLevel(level)` — maps an unrecognized notify level to `"info"`. → see `notify.ts.AGENTS.md` |
 | `openspec-activity-detector.ts` | Detects OpenSpec activity from tool-execution events. `detectOpenSpecActivity(toolName, args, cwd)` — `cwd` REQUIRED, from server state — returns `{… → see `openspec-activity-detector.ts.AGENTS.md` |

@@ -3647,6 +3647,8 @@ export const zhCNCatalog: Record<string, string> = {
   "sessionList.filtersLabel": "筛选器,{count} 项已开启",
   "sessionList.clearFolderFilter": "清除文件夹筛选",
   "sessionList.clearSessionSearch": "清除会话搜索",
+  "sessionList.compactCountMany": "{count} 个会话",
+  "sessionList.compactCountOne": "1 个会话",
   "connection.offlineWord": "离线",
   "session.notFound.title": "未找到会话",
   "session.notFound.hint": "完整的会话 ID 来自 GET /api/sessions。已归档的会话需使用完整 ID 和 ?archived=1 打开。",

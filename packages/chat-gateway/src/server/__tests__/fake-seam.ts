@@ -60,6 +60,16 @@ export interface FakeSeam extends HostSeam {
   shutdowns: string[];
   /** Forward one session event as the host's `onEvent` stream would. */
   emitSessionEvent(sessionId: string): void;
+  /**
+   * Guard-readiness seam (harden-agent-tool-guards D6). `guardReadySupported:false` models a host
+   * without `registerPiHandler`; `guardReadyThrows` a registration that throws.
+   */
+  guardReadySupported: boolean;
+  guardReadyThrows: boolean;
+  /** Deliver a plugin-message envelope as the host would (default: the chat-gateway readiness message). */
+  emitGuardReady(sessionId: string, token: unknown, over?: Record<string, unknown>): void;
+  /** `sendPrompt` rejection / throw injection (T.125). */
+  sendPromptThrows: boolean;
 }
 
 export function createFakeSeam(): FakeSeam {
@@ -67,6 +77,7 @@ export function createFakeSeam(): FakeSeam {
   const frameHandlers = new Map<string, (frame: unknown) => void>();
   const resolvedHandlers: Array<(id: string, ref: Record<string, unknown>) => void> = [];
   const eventHandlers: Array<(id: string) => void> = [];
+  const guardReadyHandlers: Array<(sessionId: string, message: unknown) => void> = [];
 
   const seam: FakeSeam = {
     sessions: [],
@@ -86,6 +97,7 @@ export function createFakeSeam(): FakeSeam {
       return () => frameHandlers.delete(sessionId);
     },
     sendPrompt(sessionId, text, delivery) {
+      if (seam.sendPromptThrows) throw new Error("send_prompt failed");
       if (!seam.sessions.some((s) => s.id === sessionId)) return false;
       seam.sentPrompts.push({ sessionId, text, delivery });
       return true;
@@ -131,6 +143,22 @@ export function createFakeSeam(): FakeSeam {
         const i = resolvedHandlers.indexOf(handler);
         if (i >= 0) resolvedHandlers.splice(i, 1);
       };
+    },
+    guardReadySupported: true,
+    guardReadyThrows: false,
+    sendPromptThrows: false,
+    onGuardReady(handler) {
+      if (seam.guardReadyThrows) throw new Error("registerPiHandler failed");
+      if (!seam.guardReadySupported) return undefined;
+      guardReadyHandlers.push(handler);
+      return () => {
+        const i = guardReadyHandlers.indexOf(handler);
+        if (i >= 0) guardReadyHandlers.splice(i, 1);
+      };
+    },
+    emitGuardReady(sessionId, token, over = {}) {
+      const msg = { type: "plugin_pi_message", pluginId: "chat-gateway", messageType: "chat_gateway_guard_ready", payload: { token }, ...over };
+      for (const h of [...guardReadyHandlers]) h(sessionId, msg);
     },
     log: () => {},
     emitFrame(sessionId, frame) {

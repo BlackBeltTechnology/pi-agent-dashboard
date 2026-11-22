@@ -19,6 +19,9 @@
  * See change: isolate-real-process-tests.
  */
 export const REAL_PROCESS_TESTS: readonly string[] = [
+  // full-server — spawns the installed `pi --mode rpc` and observes whether a project extension loaded
+  // under each `defaultProjectTrust`. See change: harden-agent-tool-guards.
+  "src/__tests__/pi-headless-trust-outcome.test.ts",
   // exec — `service exec` spawns a real node child; X6 times heartbeats against it.
   // See change: add-service-registry-core.
   "src/__tests__/cli-service.test.ts",

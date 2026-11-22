@@ -3808,9 +3808,9 @@ NOT counted in snapshot: server-lifetime trust (session worktree trust, session 
 - Identity: canonical path + `dev` + `ino` (+ `birthtimeMs` when recorded). Entry applies only on identity match.
 - Identity mismatch → fail closed. Other machine, re-created folder, moved folder.
 
-**Deny rules** `mirrorDenyRules`. Separate from grant-subject `forbidden-subjects` (unchanged).
+**Deny rules** `mirrorDenyRules`. Builds on grant-subject `forbidden-subjects` (`grant.sensitive`), wider since change: harden-agent-tool-guards (D7).
 - Exact: `/`, `$HOME`, ancestors of `$HOME`, system dirs, broad parents (`/Users /home /Volumes /private /var/tmp /mnt /media`; win: drive root, `C:\Users`).
-- Subtree: `~/.ssh ~/.pi ~/.aws ~/.gnupg ~/.kube ~/.docker`, OS temp (`os.tmpdir`, `/tmp`, `/private/tmp`), `~/.cache`, `~/Downloads`.
+- Subtree: every grant-subject sensitive subject (`~/.ssh`, `~/.pi`, `~/.aws`, `~/.config/gh`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.netrc`, browser user-data roots) + OS temp (`os.tmpdir`, `/tmp`, `/private/tmp`), `~/.cache`, `~/Downloads`.
 
 **Decision order** `decidePiTrust` (shared by bridge, `host.isProjectTrusted`, toggle gate). First match wins.
 
@@ -3838,7 +3838,14 @@ flowchart TD
 - Per event: reads `config.json`, `trust.json` (lockless; BOM stripped; null = absent; bad shape/parse = undecided `store-unreadable`), snapshot.
 - Returns `{trusted:"yes", remember:false}` or undecided.
 - Dashboard-spawned headless sessions consult mirror always. Other sessions only if `coverInteractive`.
-- Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`, `identity-weak` + 7 `live-*` (see Live trust query).
+- **Activation cwd: no unconditional `yes`** (change: harden-agent-tool-guards D3). Activation cwd decided like any other cwd: recorded pi entry → snapshot mirror → live query. Auto-trusted only when dashboard trust covers it (pinned folder, workspace folder, covered grant, YOLO root via live query).
+- Nothing covers the activation cwd → `withheld("not-covered")`; pi decides (`trust.json`, then `defaultProjectTrust`; RPC has no prompt, `ask` = untrusted).
+- Road-independent: UI, MCP `spawn_session`, REST, WS, automation, goal, `/new`, worktree. No spawner cooperation, no flag, no state.
+- Forbidden/temporary activation folder (`/private/tmp`, `~/Downloads`, `~/.cache`, `$HOME`) → logs `forbidden-folder`. Never trusted **by the dashboard mirror**: no dashboard source covers a forbidden folder, bridge never returns `yes`.
+- pi still decides there: `piStoreBlocks` returns `recorded-entry` for a recorded pi entry; with none, bridge returns `undecided` → pi applies `trust.json`, then `defaultProjectTrust` (incl. `always`).
+- `piTrustMirror.enabled:false` also disables it (bridge returns undecided, pi decides).
+- Remedy for lost project `.pi/` resources: pin the folder, add it to a workspace, or `/trust` in a terminal pi.
+- Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`, `not-covered`, `identity-weak` + 7 `live-*` (see Live trust query).
 - Recorded-entry lookup `nearestRecordedEntry` (`packages/shared/src/pi-trust-mirror-snapshot.ts`) matches keys via `piPathsEqual`. Withholds yes for `/r/` or Windows case-different refusal.
 - p95 < 20 ms (1,000 entries, 20-deep cwd).
 - Spawn token: `PI_DASHBOARD_SPAWN_TOKEN` read + removed from env at bridge activation (`packages/extension/src/spawn-token.ts`). Process-global until first `session_register`. Agent-started nested pi never counts as dashboard-spawned.
@@ -3861,15 +3868,16 @@ flowchart TD
 
 **UI.**
 - Settings → Access → "Pi trust from the dashboard" (`packages/client/src/components/settings/PiTrustMirrorSection.tsx`): switches, effective list, per-entry choice, ignored rows (reason + label), pi `trust.json` entries + agent dir, disclosures.
-- Disclosures: precedence over `defaultProjectTrust` (incl `never`); scope; `--no-approve` / `--no-extensions` / pi CLI not covered; activation-cwd rule.
+- Disclosures: precedence over `defaultProjectTrust` (incl `never`); scope; `--no-approve` / `--no-extensions` / pi CLI not covered; no activation auto-trust outside dashboard trust.
 - Folder page banner: pi / dashboard (source + folder; "dashboard sessions, not terminal pi" unless `coverInteractive`) / neither (links Settings → Access).
 
 **Breaking bridge behaviour.** NOT reverted by `enabled:false`.
-- (a) Recorded pi entry beats activation-cwd auto-trust.
-- (b) Activation-cwd auto-trust no longer applies in forbidden/temporary folders (logged).
-- (c) Spawn token removed from env at activation (see Bridge).
+- (a) Recorded pi entry beats dashboard trust.
+- (b) No unconditional activation-cwd `yes` (harden-agent-tool-guards D3): a dashboard spawn in a folder dashboard trust does not cover gets `undecided` (`not-covered`) and pi decides.
+- (c) Bridge `yes` withheld in forbidden/temporary folders (logged `forbidden-folder`): dashboard trust never covers them, pi decides.
+- (d) Spawn token removed from env at activation (see Bridge).
 
-**Rollback.** `piTrustMirror.enabled: false`. Bridge reads config live. Works with server down. Does not revert (a)-(c).
+**Rollback.** `piTrustMirror.enabled: false`. Bridge reads config live. Works with server down. Does not revert (a)-(d).
 
 **Security residuals.**
 - Hook trust widened to full project trust for the subtree. Checkbox text states it.
@@ -3889,7 +3897,7 @@ sequenceDiagram
   participant B as bridge decideBridgeProjectTrust
   participant S as server POST /api/pi-trust/query
   P->>B: project_trust(cwd)
-  B->>B: store, recorded entry, activation rule, snapshot cover
+  B->>B: store, recorded entry, snapshot cover (activation cwd = any cwd)
   Note over B: snapshot miss, ask conditions hold
   B->>S: { cwd } + local proof OR Bearer PI_DASHBOARD_TOKEN
   S->>S: auth, rate limit, cap 8 KiB, deny rules, cover lookup
@@ -3957,9 +3965,10 @@ Bridge `decideBridgeProjectTrust` now async. Snapshot step stays sync (p95 < 20 
 - Bounds request + proof. `Promise.race([work, deadline→live-timeout])`. `AbortController` per call aborts `fetch` (`redirect:"error"`) + every `fs/promises` read.
 - After race: `inst.isActive()` re-check. Stale instance → undecided.
 
-**Reason codes** (`MirrorWithheldReason`, `packages/shared/src/pi-trust-mirror-types.ts`; 18, labels in `MIRROR_WITHHELD_LABELS`):
+**Reason codes** (`MirrorWithheldReason`, `packages/shared/src/pi-trust-mirror-types.ts`; 19, labels in `MIRROR_WITHHELD_LABELS`):
 - Parent (7): `forbidden-folder`, `not-project-root`, `hook-changed`, `source-off`, `source-not-installed`, `identity-mismatch`, `choice-unreadable`.
-- Bridge (4): `recorded-entry`, `store-unreadable`, `not-covered-session`, `identity-weak`.
+- Bridge (5): `recorded-entry`, `store-unreadable`, `not-covered-session`, `not-covered`, `identity-weak`.
+- `not-covered` = bridge log only (label "no dashboard trust source covers this folder"); never an Access-page ignored row, no source produced the folder.
 - Live (7): `live-timeout`, `live-unreachable`, `live-refused`, `live-unsupported`, `live-rate-limited`, `live-not-covered`, `live-error`.
 
 | Outcome | Code |
