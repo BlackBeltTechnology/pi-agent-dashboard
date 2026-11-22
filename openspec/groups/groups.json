@@ -405,7 +405,7 @@
     "add-trusted-types-shadow-enforce": "ui",
     "add-blender-wasm-mcp": "ui",
     "add-craft-live-control": "ui",
-    "enforce-strict-csp-default": "harden-security",
+    "enforce-strict-csp-default": "future",
     "encrypt-credentials-at-rest": "ui",
     "add-plugin-connector-kit": "ui",
     "add-drive-office-craft-handoff": "ui",
@@ -416,10 +416,10 @@
     "add-windows-process-identity": "ui",
     "group-aware-kill-process": "ui",
     "slim-windows-install-file-count": "ui",
-    "harden-http-auth-boundaries": "harden-security",
+    "harden-http-auth-boundaries": "customer-web-chat",
     "harden-bridge-session-claim": "harden-security",
     "harden-agent-tool-guards": "harden-security",
-    "flip-trusted-types-default-enforce": "harden-security",
+    "flip-trusted-types-default-enforce": "future",
     "add-spawn-model-choice": "ui",
     "fix-codeql-baseline-coverage": "ui",
     "fix-sidebar-folder-visibility": "ui",
@@ -451,37 +451,27 @@
     "fix-ui-status-indicators": "queue",
     "harden-path-and-process-guards": "queue",
     "sidebar-folder-ux": "queue",
-    "throttle-kb-reindex": "queue"
+    "throttle-kb-reindex": "queue",
+    "stabilize-blocking-test-lanes": "queue",
+    "schedule-release-rehearsal": "queue",
+    "rich-chat-links": "queue",
+    "update-pi-core-1-6-adopt-apis": "queue"
   },
   "changeOrder": {
     "__ungrouped__": [
-      "add-ship-batch-orchestrator",
       "implement-it",
       "retest-plain-language-hard-battery",
       "track-pi-anthropic-tool-removal-fix",
-      "update-pi-core-1-6-adopt-apis",
       "ab-test-rlm-delegation-claim",
-      "fix-npm12-remote-tarball-install"
+      "fix-npm12-remote-tarball-install",
+      "migrate-budget-assertions",
+      "rehearse-runtime-asset-matrix"
     ],
     "queue": [
-      "throttle-kb-reindex",
-      "add-rest-prompt-delivery-mode",
-      "sidebar-folder-ux",
-      "add-skill-atlas-forest-aura",
-      "harden-path-and-process-guards",
-      "fix-ui-status-indicators",
-      "fix-switch-source-empty-overlay",
-      "fix-session-bridge-registration",
-      "fix-openspec-readiness-shared-skills",
-      "fix-input-state-consistency",
-      "fix-flow-graph-engine-order",
-      "fix-file-link-editor-routing",
-      "fix-background-subagent-ghost-rows",
-      "fix-automation-board-scroll",
-      "electron-menu-submenus",
-      "bridge-owned-cancellable-steer",
-      "default-model-follows-role",
-      "add-sudo-credential-prompt"
+      "schedule-release-rehearsal",
+      "stabilize-blocking-test-lanes",
+      "update-pi-core-1-6-adopt-apis",
+      "rich-chat-links"
     ]
   }
 }
