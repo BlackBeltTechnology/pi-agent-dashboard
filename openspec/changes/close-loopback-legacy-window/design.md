@@ -188,6 +188,14 @@ sequenceDiagram
   S-->>O: refused (local-token-missing)
 ```
 
+## Dependencies
+
+Full `blocked_by` rationale. `dependencies.yaml` keeps a ≤500-char summary (schema limit).
+
+### close-container-loopback-impersonation
+
+close-container-loopback-impersonation flips requireLocalProof to default true and MODIFIES the same requirements (trust-and-credential-boundaries 'Opt-in local proof for loopback trust', bearer-device-auth 'Genuine-local trust…', 'Long-lived opaque bearer tokens…', 'Direct token issuance for a local operator'). This change still says 'defaulting to false'; rebase its deltas onto that change's archived text so archiving here cannot revert the default. It also builds the one-shot secret rotation (local/rotation.lock + local/rotation-epoch, epoch 1); this change's 1.0.0 token rotation must reuse that lock and require rotation-epoch >= 2 instead of its own token-epoch 1.
+
 ## Risks / Trade-offs
 
 - [Old bridges in long-running pi sessions are cut off] → BREAKING entry in the CHANGELOG; the refusal log says to reload; `npm run reload` fixes it.

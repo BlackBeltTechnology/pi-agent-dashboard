@@ -391,6 +391,14 @@ Rollback:
   - T1 `ship-it-orchestrator` "Boundary-reverse escape hatch" and "Steps 4.4 and 4.5 sit between the harness gate and the inline ship-change drive", `local-review-gate`: this change only refers to `SHIP_IT_BLOCKED.md` and the step-4.4b CodeQL stop as existing paths (tasks 1.1 and 4.5) and changes nothing in ship-it. False positive.
   - Post-fold re-scan (2026-11-22, `--top 200 --json`, after the test-plan.md fold into task group 6): T2 is the same 25 candidates, all recorded above; T1 has 158. The fold adds four identifiers: `test-plan.md`, `headSha`, `startedAt`, `createdAt`. T1 candidates carrying them: `plan-proposal-orchestrator` "Stop at the worktree boundary" (`test-plan.md`: this change writes the manifest that requirement expects); `command-executor` "platform/git.ts exports a Recipe-based API" (`headSha`: here a field of `gh run list --json` output read by manual row E79, not the git module); `startedAt`/`createdAt` matches in session, spawn, lock, goal and persona capabilities (`event-reducer`, `session-listing`, `instance-coordination`, `goals-folder-page`, `team-personas` and the rest of that tail): here they are fields of `gh run list --json` and `gh run view --json jobs` output read by manual rows E79 and E84. All verified false positives; no delta or correction.
 
+## Dependencies
+
+Full `blocked_by` rationale. `dependencies.yaml` keeps a ≤500-char summary (schema limit).
+
+### stabilize-blocking-test-lanes
+
+The tag gate (publish.yml ci-checks) excludes the budget lane only because stabilize-blocking-test-lanes makes plain pnpm test not collect *.budget.test.* unless RUN_BUDGET_TESTS=1 (BUDGET_TEST_EXCLUDE in the vitest configs, enforced by its blocking scripts/check-budget-lane.mjs); per that change only the test:budget script in package.json sets RUN_BUDGET_TESTS, and nothing npm test, PR ci.yml or publish.yml runs sets it; it leaves the release-path half to this change, which pins that publish.yml, the reusable workflows it calls and the root scripts they run never set RUN_BUDGET_TESTS or run test:budget (release-gate clause 6). Both edit main in scripts/test-selection/nightly-report.mjs: this change adds --label/--name/--jobs-only/--no-close-on-rerun on top of A's version.
+
 ## Open Questions
 
 - None. Owner trade-offs are recorded under "Accepted trade-offs (owner decision, 2026-11-22)".

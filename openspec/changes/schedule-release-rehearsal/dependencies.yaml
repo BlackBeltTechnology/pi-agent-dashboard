@@ -1,6 +1,6 @@
 blocked_by:
   - change: stabilize-blocking-test-lanes
-    reason: "The tag gate (publish.yml ci-checks) excludes the budget lane only because stabilize-blocking-test-lanes makes plain pnpm test not collect *.budget.test.* unless RUN_BUDGET_TESTS=1 (BUDGET_TEST_EXCLUDE in the vitest configs, enforced by its blocking scripts/check-budget-lane.mjs); per that change only the test:budget script in package.json sets RUN_BUDGET_TESTS, and nothing npm test, PR ci.yml or publish.yml runs sets it; it leaves the release-path half to this change, which pins that publish.yml, the reusable workflows it calls and the root scripts they run never set RUN_BUDGET_TESTS or run test:budget (release-gate clause 6). Both edit main in scripts/test-selection/nightly-report.mjs: this change adds --label/--name/--jobs-only/--no-close-on-rerun on top of A's version."
+    reason: "The tag gate excludes the budget lane only because stabilize-blocking-test-lanes stops plain pnpm test collecting *.budget.test.* unless RUN_BUDGET_TESTS=1; this change pins that the release path never sets it (release-gate clause 6). Both edit main in scripts/test-selection/nightly-report.mjs; this change's flags build on its version. Detail: design.md § Dependencies."
 related:
   - rehearse-runtime-asset-matrix
   - server-launch-smoke-suite
