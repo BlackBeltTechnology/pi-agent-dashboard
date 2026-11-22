@@ -1,0 +1,6 @@
+blocked_by:
+  - change: stabilize-blocking-test-lanes
+    reason: "Moves cases into the core's budget lane (*.budget.test.*, RUN_BUDGET_TESTS, nightly job budget) and turns the core's warn-only scripts/check-budget-assertions.mjs blocking; its inventory is rebuilt from that guard's --list output."
+related:
+  - harden-agent-tool-guards
+  - add-skill-atlas-forest-aura
