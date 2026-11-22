@@ -217,6 +217,11 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
   // item scrolls the panel → re-measure → focus snaps to the top).
   // See change: sidebar-folder-ux (#1153).
   const openFocusDone = React.useRef(false);
+  // A desktop/mobile switch remounts the panel and drops the focused radio, so the open-focus guard must re-arm.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `isMobile` is the trigger, not read in the body.
+  React.useEffect(() => {
+    openFocusDone.current = false;
+  }, [isMobile]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `triggerRect` / `isMobile` re-run the focus until the panel is visible and it lands.
   React.useEffect(() => {
     if (!open) {
