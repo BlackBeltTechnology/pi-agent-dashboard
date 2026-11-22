@@ -3668,7 +3668,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           localTrust,
           verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token, bearerChannelOf(request.raw)),
         });
-        if (verdict.belowOperate) {
+        if (verdict.belowOperate && !verdict.allow) {
           // Rate-limited per device (one window with the contention limiter); never the token or full id.
           const key = verdict.belowOperate.deviceId;
           const now = Date.now();
