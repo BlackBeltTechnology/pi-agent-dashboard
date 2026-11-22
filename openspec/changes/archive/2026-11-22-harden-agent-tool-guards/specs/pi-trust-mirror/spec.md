@@ -2,7 +2,7 @@
 
 ### Requirement: One decision order serves every consumer
 
-The folder decision SHALL be: a cwd with no trust-requiring project resources is implicitly trusted; otherwise pi's nearest recorded entry for the cwd or an ancestor (true or false), read from the trust store of the pi agent directory in use, decides; otherwise, when `piTrustMirror.enabled` is true, dashboard trust covering the cwd decides trusted — taking precedence over `defaultProjectTrust`, including `"never"`; otherwise `defaultProjectTrust` decides. Server-side consumers SHALL evaluate dashboard trust over the durable and the live entries, with no folder proof (they observe the server's own folders); a bridge SHALL evaluate it over the snapshot and the live trust query. The bridge's session gate (`coverInteractive`) applies after this folder decision and only in the bridge; server-side consumers do not apply it. Every decision SHALL carry its source: the recorded pi entry path, "implicit", the dashboard source kind with its entry, or the default. Implicit trust SHALL be determined with pi's own function for trust-requiring resources, not a reimplementation. A session's command-line `--approve`/`--no-approve` is applied by pi before any of this, and `--no-extensions` keeps the bridge from deciding at all; both are outside the folder decision and SHALL be disclosed wherever dashboard trust is shown. Nothing in this decision SHALL write pi's trust store. The guarantee that a recorded pi entry wins holds at the moment the bridge reads the store and when no other extension answers `project_trust` before the bridge, because pi applies the first yes/no among extension handlers.
+The folder decision SHALL be: pi's nearest recorded entry for the cwd or an ancestor (true or false), read from the trust store of the pi agent directory in use, decides — even for a cwd with no trust-requiring project resources; otherwise a cwd with no trust-requiring project resources is implicitly trusted; otherwise, when `piTrustMirror.enabled` is true, dashboard trust covering the cwd decides trusted — taking precedence over `defaultProjectTrust`, including `"never"`; otherwise `defaultProjectTrust` decides. Server-side consumers SHALL evaluate dashboard trust over the durable and the live entries, with no folder proof (they observe the server's own folders); a bridge SHALL evaluate it over the snapshot and the live trust query. The bridge's session gate (`coverInteractive`) applies after this folder decision and only in the bridge; server-side consumers do not apply it. Every decision SHALL carry its source: the recorded pi entry path, "implicit", the dashboard source kind with its entry, or the default. Implicit trust SHALL be determined with pi's own function for trust-requiring resources, not a reimplementation. A session's command-line `--approve`/`--no-approve` is applied by pi before any of this, and `--no-extensions` keeps the bridge from deciding at all; both are outside the folder decision and SHALL be disclosed wherever dashboard trust is shown. Nothing in this decision SHALL write pi's trust store. The guarantee that a recorded pi entry wins holds at the moment the bridge reads the store and when no other extension answers `project_trust` before the bridge, because pi applies the first yes/no among extension handlers.
 
 #### Scenario: Recorded pi refusal wins
 - **WHEN** `trust.json` records `/r: false`, `/r` has `.pi/settings.json`, and `/r` is pinned
@@ -35,6 +35,30 @@ The folder decision SHALL be: a cwd with no trust-requiring project resources is
 #### Scenario: Server consumer sees live trust
 - **WHEN** nothing is recorded for `/r`, `/r` has `.pi/mcp.json`, and `/r` is trusted "until dashboard restarts" only
 - **THEN** the server-side folder decision for `/r` SHALL be trusted with source "worktree-init (until dashboard restarts)"
+
+#### Scenario: Recorded refusal applies to a folder without project resources
+- **WHEN** `trust.json` records `/r: false` and `/r` has no trust-requiring project resources
+- **THEN** `/r` SHALL be untrusted with source `/r`
+- **AND** a dashboard trust entry covering `/r` SHALL NOT change that
+
+#### Scenario: Windows recorded refusal saved with different casing still wins
+- **WHEN** on Windows `trust.json` records `C:\Work\Repo: false`, the folder has `.pi/settings.json` and is pinned, and the bridge's key for the session cwd is `c:\work\repo`
+- **THEN** the folder decision SHALL be untrusted with source `C:\Work\Repo`
+- **AND** the bridge SHALL return undecided at `project_trust` and log the reason code `recorded-entry`
+
+#### Scenario: Non-normalised recorded refusal still wins
+- **WHEN** `trust.json` records `/r/: false` (a trailing separator), `/r` has `.pi/settings.json`, and `/r` is pinned
+- **THEN** `/r` SHALL be untrusted with source `/r/`
+- **AND** the bridge SHALL return undecided at `project_trust` and log the reason code `recorded-entry`
+
+#### Scenario: Nothing recorded and no project resources is implicit
+- **WHEN** `trust.json` records nothing for `/r` or any ancestor, `/r` has no trust-requiring project resources, and `defaultProjectTrust` is `never`
+- **THEN** `/r` SHALL be trusted with source "implicit"
+
+#### Scenario: Held trust lock fails closed within a bound
+- **WHEN** pi's trust lock file is held for the whole call and the server decides `/r`, which has no trust-requiring project resources
+- **THEN** `/r` SHALL be untrusted with no source
+- **AND** each server-side decision SHALL return within 250 ms
 
 ### Requirement: The bridge decides at project_trust from the snapshot
 

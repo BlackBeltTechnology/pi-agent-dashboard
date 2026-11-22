@@ -95,7 +95,7 @@ export function createBindingStore(deps: BindingStoreDeps): BindingStore {
  * Pending-spawn metadata: the binding identity to persist when the spawn
  * resolves.
  */
-interface SpawnMeta {
+export interface SpawnMeta {
   channelKey: string;
   /** Binding identity to persist on resolution (threadId preserved). */
   channelId: string;

@@ -25,7 +25,7 @@ It is active on install, in `strip` mode. To roll back, set `mode: "off"` or uni
 
 ## Settings
 
-Add settings under the key `untrusted-content-guard` in `~/.pi/agent/settings.json` or in the project's `.pi/settings.json`. Project settings apply **only when the project is trusted**, so an untrusted repository cannot switch the guard off.
+Add settings under the key `untrusted-content-guard` in `~/.pi/agent/settings.json` or in the project's `.pi/settings.json`. Project settings apply **only when the project is trusted**, and even then a project can only **tighten** the guard (see below): a repository, trusted or not, cannot switch the guard off or relax it.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -37,6 +37,22 @@ Add settings under the key `untrusted-content-guard` in `~/.pi/agent/settings.js
 | `preset` | — | `"strict"` adds `write` and `edit` to `sensitiveTools` and sets `taintScope: "session"`, unless `taintScope` is set explicitly. |
 
 `/guard-clear` resets the taint by hand, in either scope.
+
+### A project's settings can only tighten the guard
+
+The project layer (`.pi/settings.json`) is applied on top of your global settings, tighten-only:
+
+- `mode` can rise (`off < warn < strip < block`), never fall.
+- `untrustedTools` and `sensitiveTools` are **unioned** with yours; a project cannot remove a tool.
+- `taintScope` can become `session`, never `run` over a `session`.
+- `allowHosts` from a project is ignored.
+- `preset: "strict"` is honoured (it only tightens).
+
+A project field that would have lowered or relaxed the guard is ignored and logged once per load (field name only, never the value). Your own `~/.pi/agent/settings.json` is not restricted.
+
+### What stays open (known limits)
+
+The guard is not installed by default (it is "strongly suggested" in the dashboard) and its defaults are narrow. Not closed by this release: untrusted sources beyond the defaults (browser, MCP output, downloads), sinks it does not gate (`write`, `edit`, `read`, MCP control tools), taint reset by any input in `run` scope, and a tool's self-declared `selfConfirming` exemption (the shared registry carries no extension identity). Use `preset: "strict"` and `taintScope: "session"` for the strongest posture.
 
 The confirmation offers **Allow once**, **Always allow `<tool>` this session** and **Deny**. "Always allow" is per tool name, kept in memory only, and forgotten at the next session start. It is not written to settings.
 

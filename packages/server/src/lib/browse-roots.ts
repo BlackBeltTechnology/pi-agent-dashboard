@@ -50,6 +50,17 @@ export interface BrowseRoots {
   sensitive: string[];
 }
 
+/**
+ * `within` for two CANONICAL absolute paths (real paths from `fs.realpath` / the forbidden sets):
+ * a string-prefix test on POSIX, where `path.relative` is a case-sensitive resolve + split (the hot
+ * cost once the sensitive list grew to ~30 entries, harden-agent-tool-guards D7). Windows keeps
+ * `within` (its relative is case-insensitive and drive-aware).
+ */
+const underOrEqual: (p: string, base: string) => boolean =
+  path.sep === "/"
+    ? (p, base) => p === base || p.startsWith(base.endsWith("/") ? base : `${base}/`)
+    : within;
+
 const warnedSources = new Set<string>();
 function warnOnce(source: string, err: unknown): void {
   if (warnedSources.has(source)) return;
@@ -85,8 +96,8 @@ export async function resolveBrowseRoots(
   // sensitive dir, or is an ancestor of any forbidden subject.
   const forbidden = [...sets.whole, ...sets.sensitive];
   const ungrantable = (real: string): boolean =>
-    forbidden.some((f) => within(f, real)) || // real equals or contains a forbidden subject
-    sets.sensitive.some((f) => within(real, f)); // real is at/under a sensitive dir
+    forbidden.some((f) => underOrEqual(f, real)) || // real equals or contains a forbidden subject
+    sets.sensitive.some((f) => underOrEqual(real, f)); // real is at/under a sensitive dir
 
   const candidates: string[] = [];
   for (const [name, read] of named) {

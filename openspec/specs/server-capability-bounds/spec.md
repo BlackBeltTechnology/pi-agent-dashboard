@@ -108,8 +108,8 @@ nearest existing ancestor, lies outside every shared root. A locally trusted req
 The shared-root set SHALL be `os.homedir()` plus every pinned directory, session
 cwd, workspace folder, worktree-init trust root, and persisted project-scope
 access-grant subject that is grantable (`isUngrantableSubject` false), recomputed
-on every request. A path equal to or under `~/.ssh` or `~/.pi` SHALL be outside
-the set. A root source that fails to read SHALL contribute no roots.
+on every request. A path equal to or under `~/.ssh`, `~/.pi` or a directory of the requirement "Credential and browser-profile directories are sensitive grant subjects" of `path-anchor-grants` SHALL be outside
+the set, and a source root that equals or contains one (other than `os.homedir()`) SHALL be dropped. A root source that fails to read SHALL contribute no roots.
 
 #### Scenario: remote browse inside a pinned directory outside $HOME succeeds
 - **GIVEN** `/srv/work` is pinned
@@ -142,6 +142,19 @@ the set. A root source that fails to read SHALL contribute no roots.
 - **GIVEN** a persisted access grant for `/data/shared`
 - **WHEN** a non-local request browses `/data/shared/sub`
 - **THEN** the listing SHALL succeed
+
+#### Scenario: cloud credential directory refused
+- **WHEN** a non-local request browses `$HOME/.aws`
+- **THEN** the response SHALL be 403
+
+#### Scenario: browser profile directory refused
+- **WHEN** a non-local request browses the Chrome user-data directory of the platform below `$HOME`
+- **THEN** the response SHALL be 403
+
+#### Scenario: a pinned directory inside a credential directory is not a root
+- **GIVEN** `$HOME/.aws/cache` is pinned
+- **WHEN** the shared-root set is computed
+- **THEN** `$HOME/.aws/cache` SHALL NOT be in the set
 
 ### Requirement: Remote callers cannot widen the shared-root set
 A `pin_directory`, `add_folder_to_workspace`, or `move_folder_to_workspace` from

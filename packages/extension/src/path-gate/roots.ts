@@ -125,16 +125,28 @@ export class RootsProvider {
   }
 
   private staticRoots(): Omit<GateRoots, "grants" | "workspace"> {
-    const res = this.opts.getPiResources();
+    let res: PiResources;
+    try {
+      res = this.opts.getPiResources();
+    } catch {
+      // Resolver failure: the carve-out still holds (it needs no resolver); roots shrink (fail closed).
+      res = { agentDir: "", skillDirs: [], contextFiles: [] };
+    }
     const sessionDir = this.opts.getSessionDir();
-    const key = JSON.stringify([res, sessionDir]);
+    const envAgentDir = process.env.PI_CODING_AGENT_DIR;
+    const key = JSON.stringify([res, sessionDir, envAgentDir]);
     if (this.cachedStatic && key === this.cachedKey) return this.cachedStatic;
     const ro = [res.agentDir, res.docsDir, ...res.skillDirs, ...res.contextFiles]
       .filter((x): x is string => !!x)
       .map(realpathOr);
     const rw = [os.tmpdir(), ...(nodePath.sep === "/" ? ["/tmp"] : []), ...(sessionDir ? [sessionDir] : [])].map(realpathOr);
+    // Read carve-out dirs (models.json / mcp.json / sessions): union of every agent dir pi may use,
+    // built independently of the read-only root list; lexical and real-pathed forms.
+    const dirs = [nodePath.join(os.homedir(), ".pi", "agent"), envAgentDir, res.agentDir].filter((x): x is string => !!x);
+    const agentDirs = [...new Set(dirs.flatMap((d) => [d, realpathOr(d)]))];
+    const ownSessionDir = sessionDir ? realpathOr(sessionDir) : undefined;
     this.cachedKey = key;
-    this.cachedStatic = { readOnly: ro, readWrite: rw };
+    this.cachedStatic = { readOnly: ro, readWrite: rw, askRead: { agentDirs, ownSessionDir } };
     return this.cachedStatic;
   }
 }

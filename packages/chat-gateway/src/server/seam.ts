@@ -19,6 +19,7 @@
  * See change: add-chat-gateway.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { GUARD_READY_MESSAGE } from "../shared/guard-ready.js";
 
 export interface SeamSession {
   id: string;
@@ -90,6 +91,14 @@ export interface HostSeam {
   onSessionEvent(handler: (sessionId: string) => void): () => void;
   /** Subscribe to resolution of THIS plugin's own spawned sessions. */
   onSessionResolved(handler: (sessionId: string, pluginRef: Record<string, unknown>) => void): () => void;
+  /**
+   * Register for the in-session guard's readiness announcement (`chat_gateway_guard_ready`). The handler
+   * receives the SENDING session's id and the plugin-message envelope. Returns an unsubscribe, or
+   * `undefined` when the host cannot deliver plugin messages (older host: no `registerPiHandler`) -
+   * the gateway then refuses guarded spawns instead of falling back to an unverified one.
+   * See change: harden-agent-tool-guards (D6).
+   */
+  onGuardReady(handler: (sessionId: string, message: unknown) => void): (() => void) | undefined;
   log(level: "info" | "warn" | "error", message: string): void;
 }
 
@@ -185,6 +194,12 @@ export function createHostSeam(ctx: ServerPluginContext): HostSeam {
     },
     onSessionResolved(handler) {
       return ctx.onSessionResolved(handler);
+    },
+    onGuardReady(handler) {
+      if (typeof ctx.registerPiHandler !== "function") return undefined;
+      // Handlers cannot be removed on this host; the gateway ignores a stale/foreign announcement itself.
+      ctx.registerPiHandler(GUARD_READY_MESSAGE, (msg, sessionId) => handler(sessionId, msg));
+      return () => {};
     },
     log(level, message) {
       ctx.logger[level](message);

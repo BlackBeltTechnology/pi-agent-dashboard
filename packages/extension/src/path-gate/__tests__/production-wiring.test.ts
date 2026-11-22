@@ -6,8 +6,8 @@ import * as fs from "node:fs";
 import os from "node:os";
 import nodePath from "node:path";
 import { describe, expect, it } from "vitest";
-import { createTuiPromptAdapter } from "../../tui-prompt-adapter.js";
 import { PromptBus } from "../../prompt-bus.js";
+import { createTuiPromptAdapter } from "../../tui-prompt-adapter.js";
 import { createPathGate } from "../index.js";
 import { Suppression } from "../suppression.js";
 

@@ -42,6 +42,13 @@ export interface ResolveEnv {
   isSymlink?: (p: string) => boolean;
   /** `fs.readlinkSync(p)`. Optional, paired with `isSymlink`. */
   readlink?: (p: string) => string;
+  /**
+   * Non-throwing existence probe that does NOT follow symlinks (a dangling link exists). Optional: when
+   * present, `canonicalizeTarget` skips the throwing `realpathSync` for a path that is simply missing -
+   * the common case for the protected-file lists, where a thrown ENOENT per entry dominated the per-call
+   * cost of the gate and the credential guard.
+   */
+  lexists?: (p: string) => boolean;
 }
 
 export function defaultResolveEnv(): ResolveEnv {
@@ -73,6 +80,13 @@ export function defaultResolveEnv(): ResolveEnv {
       }
     },
     readlink: (p) => fs.readlinkSync(p),
+    lexists: (p) => {
+      try {
+        return fs.lstatSync(p, { throwIfNoEntry: false }) !== undefined;
+      } catch {
+        return false; // ENOTDIR / EACCES: realpath would fail too
+      }
+    },
   };
 }
 
@@ -155,6 +169,7 @@ function realOrSelf(next: string, env: ResolveEnv): string {
 }
 
 function tryRealpath(p: string, env: ResolveEnv): string | undefined {
+  if (env.lexists && !env.lexists(p)) return undefined;
   try {
     return env.realpathSync(p);
   } catch {
@@ -203,7 +218,7 @@ function fold(s: string, ci: boolean): string {
  * the volume on a real host (a case-sensitive APFS volume on macOS must not fold);
  * on an injected foreign flavour (tests) the platform default stands.
  */
-function defaultVolumeProbe(canonical: string, env: ResolveEnv): boolean {
+export function defaultVolumeProbe(canonical: string, env: ResolveEnv): boolean {
   const realHost = env.path === nodePath && env.platform === process.platform;
   if (realHost) return volumeCaseInsensitive(canonical);
   return env.platform === "win32" || env.platform === "darwin";

@@ -259,7 +259,7 @@ A grant request SHALL reference a recorded denial by its identifier, and the gra
 
 This binding applies to grant requests made through the dashboard's HTTP grant surfaces and dialog verdicts. A grant created from an agent path-gate verdict is instead bound as defined by the requirement "An agent path-gate verdict may create a grant bound to the gated path and its confirmation", because the gated call is observed by the session itself and produces no recorded HTTP denial. A grant created from an approved provisioning line is instead bound as defined by the requirement "A path grant may originate from an approved provisioning line", because it is created ahead of any denial. The forbidden-subject rules below apply to all three.
 
-The following SHALL be refused as grant subjects regardless of the denial that named them: the filesystem root, the user's home directory, `~/.ssh`, `~/.pi`, and the platform system directories (`/etc`, `/usr`, `/var`, `/Library` and their platform equivalents). Comparison SHALL be against **real paths**, because a system directory may be reached through a symlink (`/etc` resolves to `/private/etc` on macOS) and a home directory may itself be a symlink. The platform system directories SHALL be those of the running platform only: a system-directory literal of another platform SHALL NOT be resolved into a local path, and on Windows they SHALL be taken from the environment where set, so a system drive other than `C:` is covered. No entry outside this list SHALL be compared against.
+The following SHALL be refused as grant subjects regardless of the denial that named them: the filesystem root, the user's home directory, `~/.ssh`, `~/.pi`, the platform system directories (`/etc`, `/usr`, `/var`, `/Library` and their platform equivalents), and the credential directories of the requirement "Credential and browser-profile directories are sensitive grant subjects". Comparison SHALL be against **real paths**, because a system directory may be reached through a symlink (`/etc` resolves to `/private/etc` on macOS) and a home directory may itself be a symlink. The platform system directories SHALL be those of the running platform only: a system-directory literal of another platform SHALL NOT be resolved into a local path, and on Windows they SHALL be taken from the environment where set, so a system drive other than `C:` is covered. No entry outside this list and that requirement's list SHALL be compared against.
 
 The grant endpoint SHALL require authentication and SHALL NOT be invocable cross-origin.
 
@@ -830,3 +830,61 @@ A grant SHALL be a read grant unless it carries `mode: "write"`. A write grant S
 - **GIVEN** a store with a write grant opened by a build that predates write mode
 - **WHEN** that build loads it
 - **THEN** it SHALL treat the entry as a read grant and preserve its `mode` field when it rewrites the store
+
+### Requirement: Credential and browser-profile directories are sensitive grant subjects
+
+`~/.aws`, `~/.config/gh`, `~/.gnupg`, `~/.kube`, `~/.docker`, the file `~/.netrc` and the user-data roots of Chrome, Chromium, Edge, Brave and Firefox on the running platform (list: design D7) SHALL be sensitive like `~/.ssh`: refused as grant, ladder-rung and YOLO subjects when equal to, inside or containing one, and marked sensitive at the agent path gate. One shared constant SHALL serve all consumers.
+
+#### Scenario: A grant for a cloud credential directory is refused
+- **WHEN** a grant is requested for `~/.aws` or any directory inside it
+- **THEN** the request SHALL be refused and no grant SHALL be recorded
+
+#### Scenario: A directory containing a credential directory is refused
+- **WHEN** a grant or YOLO root is requested for `~/.config`
+- **THEN** it SHALL be refused and nothing SHALL be recorded
+
+#### Scenario: A rung containing a credential directory is not offered
+- **GIVEN** a denial naming `~/.config/app/x`
+- **WHEN** the ancestor ladder is computed
+- **THEN** no rung SHALL equal, lie inside or contain `~/.config/gh`, and `~/.config/app` SHALL stay offerable
+
+#### Scenario: A browser profile is sensitive
+- **WHEN** the agent path gate asks about a file under the Chrome user-data directory of the platform
+- **THEN** the prompt SHALL mark the location sensitive and offer only `Allow once` and `Deny`
+
+#### Scenario: The netrc file is sensitive
+- **WHEN** the agent path gate asks about `~/.netrc`
+- **THEN** the prompt SHALL mark the location sensitive and offer no always-allow
+
+#### Scenario: Netrc siblings are not covered
+- **WHEN** the agent path gate asks about `~/.netrc.bak` or, on Windows, `_netrc`
+- **THEN** the prompt SHALL NOT mark the location sensitive
+
+### Requirement: A grant store write never discards an entry it does not admit
+
+A persisted grant that is now forbidden SHALL stop admitting, and any write to the grant store file SHALL preserve every entry the load did not admit verbatim, so reverting the build restores them. An unreadable store (invalid JSON, no `grants` array, `version` other than 1) SHALL be moved aside to `<file>.corrupt-<UTC timestamp>` before a record writes a fresh store; a file over 1 MiB SHALL NOT be loaded or rewritten.
+
+#### Scenario: A persisted grant that now matches is neither admitted nor lost
+- **GIVEN** the grant store file holds a grant for `~/.aws` written by an older build and one for `/w/other`
+- **WHEN** the store is loaded, a new grant is recorded and a grant is revoked
+- **THEN** `~/.aws` SHALL NOT admit any path, and the file SHALL still contain the `~/.aws` entry byte-for-byte after each write
+
+#### Scenario: Unrecognised entries survive a write
+- **GIVEN** the grant store file holds an entry this build does not accept
+- **WHEN** any grant is recorded or revoked
+- **THEN** that entry SHALL be preserved in the file verbatim
+
+#### Scenario: An unreadable store is moved aside, not overwritten
+- **GIVEN** the grant store file is invalid JSON or has `version: 2`
+- **WHEN** a grant is recorded
+- **THEN** the old file SHALL exist byte-for-byte as `<file>.corrupt-<timestamp>` and the store SHALL hold the new grant only
+
+#### Scenario: A revoke never rewrites an unreadable store
+- **GIVEN** the grant store file is invalid JSON
+- **WHEN** a grant is revoked
+- **THEN** nothing SHALL be written and the file SHALL be unchanged
+
+#### Scenario: An oversized store is not rewritten
+- **GIVEN** the grant store file is larger than 1 MiB
+- **WHEN** a grant is recorded
+- **THEN** the write SHALL fail, the file SHALL be unchanged and one line SHALL be logged

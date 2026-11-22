@@ -53,6 +53,10 @@ import { realpathSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+  PI_AGENT_ASK_READ_FILES,
+  PI_AGENT_SECRET_FILES,
+} from "@blackbelt-technology/pi-dashboard-shared/agent-credential-files.js";
 import { getDashboardConfigDir, resolvePiAgentDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 type DashboardStateTier = "always" | "gated";
@@ -106,16 +110,15 @@ async function realDashboardDir(): Promise<string> {
 
 /**
  * Fixed, auditable set of pi-agent credential files (relative to an agent dir; `/` separates
- * path segments). No glob: `settings.json`, `trust.json` etc. stay readable.
+ * path segments). No glob: `settings.json`, `trust.json` etc. stay readable. Built from the
+ * shared `agent-credential-files.ts` constants (agent-side credential guard + path gate use
+ * the same names); this server list adds `plugin-credentials.json` and always refuses
+ * `models.json`/`mcp.json`. See change: harden-agent-tool-guards (task 1.9).
  */
 const AGENT_CREDENTIAL_NAMES: readonly string[] = [
-  "auth.json",
-  "mcp-auth.json",
-  "providers.json",
+  ...PI_AGENT_SECRET_FILES,
   "plugin-credentials.json",
-  "models.json",
-  "mcp.json",
-  "system-one/auth.json",
+  ...PI_AGENT_ASK_READ_FILES,
 ];
 
 /** Real, de-duplicated agent dirs (server env ∪ `<home>/.pi/agent`); recomputed per call, never cached. */

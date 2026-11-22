@@ -25,6 +25,7 @@ export type MirrorWithheldReason =
   | "recorded-entry"
   | "store-unreadable"
   | "not-covered-session"
+  | "not-covered"
   | "identity-weak"
   | "live-timeout"
   | "live-unreachable"
@@ -51,6 +52,7 @@ export const MIRROR_WITHHELD_LABELS: Record<MirrorWithheldReason, string> = {
   "recorded-entry": "pi already has a recorded decision for this folder",
   "store-unreadable": "pi's trust store could not be read",
   "not-covered-session": "dashboard trust does not cover this session kind",
+  "not-covered": "no dashboard trust source covers this folder",
   "identity-weak": "folder proof unavailable (empty, symlinked, referenced code outside it, or too large)",
   "live-timeout": "live query did not finish within the time budget",
   "live-unreachable": "dashboard server could not be reached",

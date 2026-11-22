@@ -176,15 +176,16 @@ No OS sandbox. `bash` runs as operator OS user. Every guard = pi `tool_call`/`to
 
 | Guard | Hook | Tools | Decision | Default | Fail mode | Evidence |
 |---|---|---|---|---|---|---|
-| Agent Path Gate | `tool_call` | `read`, `write`, `edit` | out-of-root → operator prompt (allow once / deny / always) | ON | closed (no UI, timeout, error → deny) | `packages/extension/src/path-gate/handler.ts:40,272-278,345`; `packages/shared/src/config.ts:979` |
+| Agent credential guard | `tool_call` (before the path gate) | every tool: built-in, extension, MCP | hard block on `PI_AGENT_SECRET_FILES` (path + text rules) | ON, no switch | closed | `packages/extension/src/credential-guard.ts`; `packages/shared/src/agent-credential-files.ts` |
+| Agent Path Gate | `tool_call` | `read`, `write`, `edit` | out-of-root → operator prompt (allow once / deny / always); carve-out read → `Allow once`/`Deny` | ON | closed (no UI, timeout, error → deny) | `packages/extension/src/path-gate/handler.ts:40,272-278,345`; `packages/shared/src/config.ts:979` |
 | Grant store + Always-allow redemption | bridge WS `path_grant_request` | path-gate tools | single-use confirm, realpath subject | ON with gate | refuse on mismatch | `packages/server/src/access/agent-grant.ts`; `event-wiring.ts:1111` |
 | YOLO (agent-path) | bridge WS `path_yolo_request` | path-gate asks | auto-allow in time window | OFF | decline → normal prompt | `yolo-session.ts:46,195-231`; `yolo-env.ts:26-40` |
 | path-containment-guard | `tool_call` (`-e` / `scope.extensions`) | `read`,`write`,`edit`,`grep`,`find`,`ls` + `deniedTools` | hard block | OFF (plugin opt-in) | closed | `packages/path-containment-guard/src/extension.ts:45-85`; `decide.ts:33,56-78` |
-| Untrusted-content guard | `tool_result`, `message_end`, `tool_call` | taint sources → sensitive tools (`bash`, `*_send`, …) | confirm while tainted | OFF unless package installed; then `strip` | closed | `packages/untrusted-content-guard/src/guard.ts:110-231`; `settings.ts:30-36` |
-| Chat-gateway L3 guard | `tool_call` (gateway-spawned) | all by name | allow / approve / deny | OFF unless `toolPolicy` + `guardExtension` | closed (deny-all) | `packages/chat-gateway/src/guard/index.ts:49,55-110,125-143` |
+| Untrusted-content guard | `tool_result`, `message_end`, `tool_call` | taint sources → sensitive tools (`bash`, `*_send`, …) | confirm while tainted | NOT installed by default (`strongly-suggested`); once installed, then `strip`; project layer tighten-only | closed | `packages/untrusted-content-guard/src/guard.ts:110-231`; `settings.ts:40-44,106-130` |
+| Chat-gateway L3 guard | `tool_call` (gateway-spawned) + `session_start` (readiness announce) | all by name | allow / approve / deny; message released on guard-ready proof | OFF unless `toolPolicy` + `guardExtension` | closed (deny-all; no announcement → spawn refused) | `packages/chat-gateway/src/guard/index.ts:49,55-110,125-143,160-170` |
 | Team guard | `tool_call`, `before_agent_start`, `input` | preset allowlist; path check on file tools | hard block | ON for team sessions | closed | `packages/team-plugin/src/extension/guard.ts:13-17,68,113-138` |
 | ~~Subagent fan-out admission~~ | removed (change: subagent-queue-visibility); queue limit = producer `maxConcurrent` | `Agent` | queue (not refuse) | — | — | — |
-| Pi trust mirror | `project_trust` | project `.pi/` loading | yes / undecided | on | `undecided` | `packages/extension/src/project-trust.ts:125-186` |
+| Pi trust mirror | `project_trust` | project `.pi/` loading | `yes` only when dashboard trust covers the cwd; else `undecided` (pi decides) | on | `undecided` | `packages/extension/src/project-trust.ts:128-195` |
 | Vault redaction | `tool_result`, `message_end`, `user_bash`, outbound filter | all results + forwarded events | exact-value `[REDACTED:<NAME>]` | ON when vault delivered | closed (output withheld) | `packages/extension/src/vault-redaction.ts:1-21,122`; `vault-masker.ts:1-19` |
 | Gmail write confirm + tier + lease | tool `execute` | `gmail_send`, `_reply`, `_draft`, `_modify`, `_trash`, filters | `ctx.ui.confirm` + tier | tier `readonly` | closed | `packages/gmail-plugin/src/bridge/tools.ts:160-175`; `server/lease.ts:147-148` |
 | `update_roles` confirm | tool `execute` | `update_roles` | `ctx.ui.confirm` | ON | closed | `packages/extension/src/role-model-tools.ts:248-294` |
@@ -194,7 +195,7 @@ No OS sandbox. `bash` runs as operator OS user. Every guard = pi `tool_call`/`to
 | ACP permission bridge | ACP `session/request_permission` | external ACP agent tools | dashboard select prompt | ON for ACP | dismiss → `cancelled` | `packages/server/src/acp-bridge/permission-bridge.ts:1-15,85-90` |
 
 Coverage gaps:
-- `bash`, `grep`, `find`, `ls`, MCP, custom tools NOT covered by path gate (`packages/extension/src/path-gate/handler.ts:40`).
+- `bash`, `grep`, `find`, `ls`, MCP, custom tools NOT covered by path gate (`packages/extension/src/path-gate/handler.ts:40`). Credential guard covers them only for the pi agent-dir secret paths.
 - Session MCP token = `control` tier → `send_prompt` to other sessions. MCP `prompt_response` + `extension_ui_response` removed (TOOL-01, Low, closed by close-security-map-high-findings). Other prompt-answer roads remain (TOOL-20).
 - ACP agents bypass pi guards (TOOL-15).
 - Matrix: [tool-call-guards § Tool × guard coverage](security/tool-call-guards.md).
@@ -223,7 +224,7 @@ High findings:
 | ELEC-04 | Desktop binaries unsigned | [plugins-client-electron](security/plugins-client-electron.md#findings) |
 | DEP-01 | File-read routes anchor `~/.pi`; provider credentials readable at `observe`. **closed by close-security-map-high-findings** | [deployment-process-supply-chain](security/deployment-process-supply-chain.md#findings) |
 
-TOOL-01 re-rated Low 2026-10-22, then closed by close-security-map-high-findings (see register Corrections). TOOL-04 NOT closed. 2026-10-26 re-verification: HTTP-02 → High; HTTP-03, CRED-03, NET-02, NET-03, NET-04, TOOL-03, TOOL-05, TOOL-07 → Low (see register Corrections). Counts are map-time; new residuals in [register](security/residual-risks.md#residuals-added-after-the-map). DEP-02, ELEC-01, NET-02, NET-03, NET-04 closed by close-local-listener-and-egress-gaps; new residuals DEP-18/19, NET-18…24, TOOL-22, ELEC-11. Closed statuses assume the changes ship in the same PR — see ship-time instructions in [register](security/residual-risks.md#closed-findings).
+TOOL-01 re-rated Low 2026-10-22, then closed by close-security-map-high-findings (see register Corrections). TOOL-04/05/07/08 closed by harden-agent-tool-guards; TOOL-03 documented only (no code). TOOL-09 stays Medium (design limitation) with narrowed residuals TOOL-32…TOOL-35 (see [register](security/residual-risks.md#residuals-added-by-harden-agent-tool-guards)). 2026-10-26 re-verification: HTTP-02 → High; HTTP-03, CRED-03, NET-02, NET-03, NET-04, TOOL-03, TOOL-05, TOOL-07 → Low (see register Corrections). Counts are map-time; new residuals in [register](security/residual-risks.md#residuals-added-after-the-map). DEP-02, ELEC-01, NET-02, NET-03, NET-04 closed by close-local-listener-and-egress-gaps; new residuals DEP-18/19, NET-18…24, TOOL-22, ELEC-11. Closed statuses assume the changes ship in the same PR — see ship-time instructions in [register](security/residual-risks.md#closed-findings).
 
 Also in the register:
 - Fix order: [Top priorities](security/residual-risks.md#top-priorities).

@@ -24,6 +24,7 @@
 import path from "node:path";
 import type { InteractiveResponse, PlatformAdapter, PlatformMessage } from "../adapters/base.js";
 import { chunkForDiscord } from "../adapters/discord-payload.js";
+import { CHAT_GATEWAY_PLUGIN_ID, GUARD_READY_MESSAGE, GUARD_READY_TIMEOUT_MS } from "../shared/guard-ready.js";
 import type { ResolvedConfig } from "../shared/types.js";
 import {
   type Binding,
@@ -41,7 +42,7 @@ import {
   type PromptControl,
   toPromptControl,
 } from "./prompts.js";
-import type { BindingStore, SpawnCorrelator } from "./routing.js";
+import type { BindingStore, SpawnCorrelator, SpawnMeta } from "./routing.js";
 import type { HostSeam, SeamSession, SpawnOutcome } from "./seam.js";
 import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
 import type { Grant } from "./team/authorize.js";
@@ -66,7 +67,37 @@ export interface ChatGatewayDeps {
   now?: () => number;
   /** The L1 pairing code state machine; a fresh one is minted by default. */
   pairing?: Pairing;
+  /** Guard readiness window (D6). Injectable for tests ONLY: no config key, fixed 30 000 ms in production. */
+  guardReadyTimeoutMs?: number;
 }
+
+/**
+ * A guarded spawn awaiting its tool guard's readiness announcement (harden-agent-tool-guards D6).
+ * The triggering message is held here (never in `initialPrompt`); it is delivered through
+ * `send_prompt` only once the announcement carries this spawn's token AND comes from the session
+ * the spawn resolved to. `waiting` → `delivering` (released) | `refused` (timeout).
+ */
+interface GuardedSpawn {
+  token: string;
+  channelKey: string;
+  channelId: string;
+  /** The stripped triggering message; empty when there is nothing to deliver. */
+  prompt: string;
+  state: "waiting" | "delivering" | "refused";
+  /** Set by `onSessionResolved` for this spawn's token. */
+  sessionId?: string;
+  meta?: SpawnMeta;
+  /** Sessions that announced readiness with this spawn's token. */
+  ready: Set<string>;
+  timer?: ReturnType<typeof setTimeout>;
+  /**
+   * Team layer only: re-runs the spawn authorization at release time. The window between the
+   * authorization and the delivery is up to the readiness timeout, so a `!disarm` (or any other
+   * policy change) inside it must still stop the held message.
+   */
+  recheck?: () => { kind: string; reason?: string };
+}
+
 
 interface GatewayStatus {
   running: boolean;
@@ -333,6 +364,13 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   let offSessionEvents: (() => void) | null = null;
   /** A spawn that never resolves must not block its channel forever. */
   const SPAWN_TTL_MS = 5 * 60_000;
+  /** token → guarded spawn awaiting readiness (D6). Empty when no guard is configured. */
+  const guardedSpawns = new Map<string, GuardedSpawn>();
+  /** Tokens of guarded spawns refused before their session resolved: a late resolution is shut down. */
+  const refusedTokens = new Set<string>();
+  let offGuardReady: (() => void) | null = null;
+  let guardReadyUnavailable = false;
+  const guardReadyTimeoutMs = deps.guardReadyTimeoutMs ?? GUARD_READY_TIMEOUT_MS;
 
   /**
    * Team-controls mirror lane (D9): STRUCTURED session activity posted into the
@@ -380,6 +418,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       const at = pendingSpawnAt.get(key);
       if (at === undefined || at < cutoff) {
         correlator.reject(token);
+        dropGuarded(token);
         pendingSpawns.delete(key);
         pendingSpawnAt.delete(key);
       }
@@ -495,16 +534,17 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   }
 
   async function ensureBinding(msg: InboundMessage, channelKey: string): Promise<Binding | null> {
-    const existing = store.get(channelKey);
-    if (existing) return existing;
-
-    // F7: a spawn takes seconds and the binding is written only at resolution.
-    // A second message inside that window must NOT start a second session.
+    // F7: a spawn takes seconds and the binding is written only at resolution (with a guard: only once
+    // the guard proved ready). A second message inside that window must NOT start a second session and
+    // must NEVER reach an unverified one - so a pending spawn is tested BEFORE an existing binding
+    // (a resumed session's old binding must not route the message either). Never queued.
     sweepStaleSpawns();
     if (pendingSpawns.has(channelKey)) {
       await reply(msg.channelId, "A session is already starting for this channel — one moment.");
       return null;
     }
+    const existing = store.get(channelKey);
+    if (existing) return existing;
 
     // L2: CREATING a binding is a privileged op. An allowlisted non-admin may
     // TALK on an already-bound channel but may not bind a new one; otherwise
@@ -613,6 +653,24 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           "L3 toolPolicy is configured but guardExtension is not — refusing to start an ungated session.",
       };
     }
+    // L3 (task 9): the companion guard is loaded into SPAWNED sessions only.
+    // Attached sessions never reach this code path, so they stay ungated by
+    // design — and no interceptor can be retrofitted into a running session
+    // anyway. The extension identifier is NEVER invented: an unresolvable
+    // reference would break every spawn, so it must be operator-supplied.
+    const guardRef = config.toolPolicy && config.guardExtension ? config.guardExtension : undefined;
+    // D6: a guarded spawn needs a host that can deliver the readiness announcement. Without one the
+    // guard cannot be proven loaded, so refuse (fail closed) instead of spawning an unverified session.
+    if (guardRef && !ensureGuardReadyListener()) {
+      seam.log(
+        "error",
+        "chat-gateway: the host cannot deliver plugin messages (no registerPiHandler) - refusing to start a guarded session it cannot verify",
+      );
+      return {
+        success: false,
+        message: "this host cannot verify the tool guard (no plugin-message support) - refusing to start an unverified session.",
+      };
+    }
     const initialPrompt = stripSteerPrefix(msg.text, config.steerPrefix).trim();
     const token = seam.mintSpawnToken();
     correlator.expect(token, {
@@ -626,12 +684,32 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     });
     pendingSpawns.set(channelKey, token);
     pendingSpawnAt.set(channelKey, now());
-    // L3 (task 9): the companion guard is loaded into SPAWNED sessions only.
-    // Attached sessions never reach this code path, so they stay ungated by
-    // design — and no interceptor can be retrofitted into a running session
-    // anyway. The extension identifier is NEVER invented: an unresolvable
-    // reference would break every spawn, so it must be operator-supplied.
-    const guardRef = config.toolPolicy && config.guardExtension ? config.guardExtension : undefined;
+    const guarded: GuardedSpawn | undefined = guardRef
+      ? {
+          token,
+          channelKey,
+          channelId: msg.channelId,
+          prompt: initialPrompt,
+          state: "waiting",
+          ready: new Set(),
+          ...(team
+            ? {
+                recheck: () =>
+                  team.authorizeRequest({
+                    author: authorOf(msg),
+                    channelId: msg.channelId,
+                    ...(msg.parentChannelId ? { parentChannelId: msg.parentChannelId } : {}),
+                    ...(msg.threadId ? { threadId: msg.threadId } : {}),
+                    verb: "spawn_session",
+                    // The cwd the session was actually spawned at: a workspace change during the readiness wait
+                    // must refuse the release (the spawn-time authorization above carries no target).
+                    targetCwd: cwd,
+                  }),
+              }
+            : {}),
+        }
+      : undefined;
+    if (guarded) guardedSpawns.set(token, guarded);
     const res = await seam.spawn({
       cwd,
       name: `chat:${channelKey}`,
@@ -642,8 +720,9 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       pluginRef: { kind: "chat-gateway", channelKey, chatSpawnToken: token, bindSource: source },
       // The message that caused the spawn is the session's first turn; without
       // it the operator's request was dropped and they had to repeat it. A
-      // fresh/resumed session has no in-flight turn, so a steer prefix is moot.
-      ...(initialPrompt ? { initialPrompt } : {}),
+      // fresh/resumed session has no in-flight turn, so a steer prefix is moot. With a guard the message
+      // is HELD BACK (delivered through `send_prompt` once the guard announces readiness, D6).
+      ...(initialPrompt && !guarded ? { initialPrompt } : {}),
       // Chat sessions stay off the board unless the operator opted in.
       ...(config.sessionVisibility === "hidden" ? { lifecycle: { hidden: true } } : {}),
       ...(resume ? { resume } : {}),
@@ -651,7 +730,8 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         ? {
             extensions: [guardRef],
             extensionConfig: {
-              "chat-gateway-guard": { policy: JSON.stringify(config.toolPolicy) },
+              // `token` is the spawn's readiness token (projected to PI_EXT_CHAT_GATEWAY_GUARD_TOKEN).
+              "chat-gateway-guard": { policy: JSON.stringify(config.toolPolicy), token },
             },
           }
         : {}),
@@ -659,10 +739,165 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     if (!res.success) {
       // X8: no dangling binding, no half-correlated spawn.
       correlator.reject(token);
+      dropGuarded(token);
       pendingSpawns.delete(channelKey);
       pendingSpawnAt.delete(channelKey);
+    } else if (guarded) {
+      startGuardTimer(guarded);
+      tryRelease(guarded); // the announcement and the resolution may both have arrived during the spawn call
     }
     return res;
+  }
+
+  /** Register (once) for the guard's readiness announcement. False = the host cannot deliver it. */
+  function ensureGuardReadyListener(): boolean {
+    if (offGuardReady) return true;
+    if (guardReadyUnavailable) return false;
+    try {
+      const off = seam.onGuardReady(handleGuardReady);
+      if (!off) {
+        guardReadyUnavailable = true;
+        return false;
+      }
+      offGuardReady = off;
+      return true;
+    } catch {
+      guardReadyUnavailable = true; // a throwing registration is an unsupported host
+      return false;
+    }
+  }
+
+  /** Forget a guarded spawn (timer + map entry). */
+  function dropGuarded(token: string): void {
+    const g = guardedSpawns.get(token);
+    if (g?.timer) clearTimeout(g.timer);
+    guardedSpawns.delete(token);
+  }
+
+  /**
+   * The readiness announcement. Honoured only with the spawn's OWN token from the session the spawn
+   * resolved to: the token travels in the spawned process's environment, so a token alone (any other
+   * process, any other session) proves nothing. Anything else is ignored.
+   */
+  function handleGuardReady(sessionId: string, message: unknown): void {
+    const m = message as { pluginId?: unknown; messageType?: unknown; payload?: { token?: unknown } } | null | undefined;
+    if (!m || m.pluginId !== CHAT_GATEWAY_PLUGIN_ID || m.messageType !== GUARD_READY_MESSAGE) return;
+    const token = m.payload?.token;
+    if (typeof token !== "string" || token === "" || typeof sessionId !== "string") return;
+    const g = guardedSpawns.get(token);
+    if (g?.state !== "waiting") return; // unknown, already released, or refused: ignored
+    g.ready.add(sessionId);
+    tryRelease(g);
+  }
+
+  function startGuardTimer(g: GuardedSpawn): void {
+    if (g.state !== "waiting" || g.timer) return;
+    g.timer = setTimeout(() => void refuseGuarded(g), guardReadyTimeoutMs);
+    (g.timer as { unref?: () => void }).unref?.();
+  }
+
+  /** Release: ready AND resolved AND the two agree. Persist the binding only now, then deliver. */
+  function tryRelease(g: GuardedSpawn): void {
+    if (g.state !== "waiting" || !g.sessionId || !g.meta || !g.ready.has(g.sessionId)) return;
+    const recheck = g.recheck?.();
+    if (recheck?.kind === "refusal") {
+      void refuseHeld(g, recheck.reason ?? "refused");
+      return;
+    }
+    g.state = "delivering";
+    if (g.timer) clearTimeout(g.timer);
+    g.timer = undefined;
+    bindSpawned(g.meta, g.sessionId);
+    void deliverHeld(g);
+  }
+
+  async function deliverHeld(g: GuardedSpawn): Promise<void> {
+    try {
+      if (g.prompt && g.sessionId) {
+        let ok = false;
+        try {
+          ok = (await Promise.resolve(seam.sendPrompt(g.sessionId, g.prompt, "followUp"))) !== false;
+        } catch {
+          ok = false;
+        }
+        if (!ok) {
+          seam.log("error", `chat-gateway: the held message could not be delivered to session ${g.sessionId}`);
+          // The binding stays and the session keeps running: the user simply retries.
+          await reply(g.channelId, "message not delivered");
+        }
+      }
+    } finally {
+      // The channel stops being pending only now, so a message that arrived while delivering was refused.
+      if (pendingSpawns.get(g.channelKey) === g.token) {
+        pendingSpawns.delete(g.channelKey);
+        pendingSpawnAt.delete(g.channelKey);
+      }
+      guardedSpawns.delete(g.token);
+    }
+  }
+
+  /** Re-authorization at release failed (e.g. disarmed meanwhile): end the session, send nothing, say why. */
+  async function refuseHeld(g: GuardedSpawn, reason: string): Promise<void> {
+    g.state = "refused";
+    if (g.timer) clearTimeout(g.timer);
+    g.timer = undefined;
+    correlator.reject(g.token);
+    guardedSpawns.delete(g.token);
+    if (pendingSpawns.get(g.channelKey) === g.token) {
+      pendingSpawns.delete(g.channelKey);
+      pendingSpawnAt.delete(g.channelKey);
+    }
+    if (g.sessionId) {
+      try {
+        await seam.shutdownSession(g.sessionId);
+      } catch (err) {
+        seam.log("error", `chat-gateway: could not shut down session ${g.sessionId}: ${String(err)}`);
+      }
+    }
+    await reply(g.channelId, `Refused: ${reason}.`);
+  }
+
+  /** Timeout: the guard never announced. End the session (if it resolved), tell the user, send nothing. */
+  async function refuseGuarded(g: GuardedSpawn): Promise<void> {
+    if (g.state !== "waiting") return; // (stop() clears every timer, so a stopped gateway never gets here)
+    g.state = "refused";
+    g.timer = undefined;
+    correlator.reject(g.token);
+    seam.log("error", `chat-gateway: the tool guard of channel ${g.channelKey} did not announce readiness - ending the session`);
+    guardedSpawns.delete(g.token);
+    if (pendingSpawns.get(g.channelKey) === g.token) {
+      pendingSpawns.delete(g.channelKey);
+      pendingSpawnAt.delete(g.channelKey);
+    }
+    if (g.sessionId) {
+      try {
+        await seam.shutdownSession(g.sessionId);
+      } catch (err) {
+        seam.log("error", `chat-gateway: could not shut down session ${g.sessionId}: ${String(err)}`);
+      }
+    } else {
+      // Not resolved yet: shut it down the moment it is (see the resolution handler).
+      refusedTokens.add(g.token);
+      if (refusedTokens.size > 100) refusedTokens.delete(refusedTokens.values().next().value as string);
+    }
+    await reply(g.channelId, "session refused: its tool guard did not start");
+  }
+
+  /** Persist the spawn's binding (exact binding identity: a thread spawn lands on the thread key, F3). */
+  function bindSpawned(meta: SpawnMeta, sessionId: string): void {
+    store.set({
+      platform,
+      channelId: meta.channelId,
+      threadId: meta.threadId,
+      parentChannelId: meta.parentChannelId,
+      sessionId,
+      cwd: meta.cwd,
+      boundBy: meta.by,
+      source: "spawn",
+      isDM: meta.isDM,
+      createdAt: now(),
+    });
+    subscribeSession(sessionId);
   }
 
   /** Spawn a fresh session in `cwd`; correlate it via the token echoed on resolution. */
@@ -1140,26 +1375,26 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       offResolved = seam.onSessionResolved((sessionId, pluginRef) => {
         const token = pluginRef?.chatSpawnToken;
         if (typeof token !== "string") return;
+        if (refusedTokens.delete(token)) {
+          // A guarded spawn refused before it resolved: end it now, never bind it.
+          void Promise.resolve()
+            .then(() => seam.shutdownSession(sessionId))
+            .catch((err) => seam.log("error", `chat-gateway: could not shut down refused session ${sessionId}: ${String(err)}`));
+          return;
+        }
         const meta = correlator.resolve(token, sessionId);
         if (!meta) return;
+        const guarded = guardedSpawns.get(token);
+        if (guarded) {
+          // D6: the channel stays pending and NO binding is persisted until the guard proves ready.
+          guarded.sessionId = sessionId;
+          guarded.meta = meta;
+          tryRelease(guarded);
+          return;
+        }
         pendingSpawns.delete(meta.channelKey);
         pendingSpawnAt.delete(meta.channelKey);
-        // F3: preserve the EXACT binding identity. A thread spawn must land on
-        // the thread key, not its parent — otherwise the thread binding never
-        // resolves and every follow-up message spawns ANOTHER session.
-        store.set({
-          platform,
-          channelId: meta.channelId,
-          threadId: meta.threadId,
-          parentChannelId: meta.parentChannelId,
-          sessionId,
-          cwd: meta.cwd,
-          boundBy: meta.by,
-          source: "spawn",
-          isDM: meta.isDM,
-          createdAt: now(),
-        });
-        subscribeSession(sessionId);
+        bindSpawned(meta, sessionId);
       });
       await adapter.start({
         onMessage: async (m: PlatformMessage) => {
@@ -1296,6 +1531,17 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       prompts.clear();
       sequences.clear();
       for (const token of correlator.pending()) correlator.reject(token);
+      // A restart while a guarded spawn awaits readiness leaves that session idle and unbound (it received
+      // no chat message); no cleanup, documented residual. Timers must not outlive the gateway.
+      for (const g of guardedSpawns.values()) {
+        if (g.timer) clearTimeout(g.timer);
+        g.state = "refused"; // a seam.spawn still pending must not arm a timer or release after the stop
+      }
+      guardedSpawns.clear();
+      refusedTokens.clear();
+      offGuardReady?.();
+      offGuardReady = null;
+      guardReadyUnavailable = false;
       pendingSpawns.clear();
       pendingSpawnAt.clear();
       lastInvoker.clear();

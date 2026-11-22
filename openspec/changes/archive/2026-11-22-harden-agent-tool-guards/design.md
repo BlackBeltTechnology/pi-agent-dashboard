@@ -300,6 +300,10 @@ unattributed `selfConfirming`. A follow-up change would need pi-side signals.
 ### D6 — TOOL-07: guard readiness handshake (Decision D6 (confirmed by operator 2026-10-26))
 
 **Choice.** The chat-gateway guard announces `chat_gateway_guard_ready` at `session_start`
+(and again at 250 ms, 1 s, 3 s, 8 s and 15 s: real pi runs a `-e` extension's `session_start` BEFORE the
+bridge's, and the bridge only listens for `dashboard:plugin-message` inside its own `session_start`, so a
+single emit is lost; the gateway ignores duplicates. Found by the L3 spec, pinned against the installed
+pi in `pi-headless-trust-outcome.test.ts`)
 over `dashboard:plugin-message`, carrying the spawn's `chatSpawnToken` (passed in
 `extensionConfig["chat-gateway-guard"]`, env `PI_EXT_CHAT_GATEWAY_GUARD_*`; the policy
 already travels this way). The gateway registers the handler through the plugin context's

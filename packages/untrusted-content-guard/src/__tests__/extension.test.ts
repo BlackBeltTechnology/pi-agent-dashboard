@@ -108,16 +108,19 @@ describe("extension wiring", () => {
     expect(out.content[0]?.text).toContain("[guard] 1 hidden span removed (html-display-none)");
   });
 
-  it("ignores project settings of an untrusted project", async () => {
-    writeSettings(path.join(cwd, ".pi"), { mode: "off" });
+  it("ignores project settings of an untrusted project, and a trusted project can no longer lower the guard (T.106 unit half)", async () => {
+    writeSettings(path.join(cwd, ".pi"), { mode: "off", sensitiveTools: [] });
     const untrusted = await boot(false);
     await untrusted.emit("message_end", webCall);
     expect(await untrusted.emit("tool_call", { toolName: "bash", input: {} }, { hasUI: false })).toEqual(
       expect.objectContaining({ block: true }),
     );
 
+    // harden-agent-tool-guards D4: trust no longer lets a project switch the guard off or empty its sinks.
     const trusted = await boot(true);
     await trusted.emit("message_end", webCall);
-    expect(await trusted.emit("tool_call", { toolName: "bash", input: {} }, { hasUI: false })).toBeUndefined();
+    expect(await trusted.emit("tool_call", { toolName: "bash", input: {} }, { hasUI: false })).toEqual(
+      expect.objectContaining({ block: true }),
+    );
   });
 });

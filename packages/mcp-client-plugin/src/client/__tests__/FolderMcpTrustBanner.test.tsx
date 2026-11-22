@@ -81,6 +81,17 @@ describe("#F3 folder trust banner", () => {
     expect(screen.queryByTestId("mcp-folder-trusted-pi")).toBeNull();
     expect(screen.queryByTestId("mcp-folder-trusted-dashboard")).toBeNull();
   });
+
+  it("T.136 not trusted: says servers stay inactive until trusted, no per-run / headless exception, editing still allowed", async () => {
+    serve({ trusted: false });
+    open();
+    const text = (await screen.findByTestId("mcp-folder-untrusted")).textContent ?? "";
+    expect(text).toContain("folder servers stay inactive until the project is trusted");
+    expect(text).toContain("Settings → Access");
+    expect(text).toContain("Editing <cwd>/.pi/mcp.json stays allowed");
+    expect(text).not.toMatch(/per run/i);
+    expect(text).not.toMatch(/headless/i);
+  });
 });
 
 describe("#F4 live dashboard entry names its lifetime", () => {
