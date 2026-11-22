@@ -14,7 +14,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { CONTENTION_RATE_LIMIT } from "../pi/bridge-contention.js";
+import { CONTENTION_RATE_LIMIT, createContentionTracker } from "../pi/bridge-contention.js";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
@@ -188,3 +188,23 @@ describe("contention performance", () => {
     expect(tracker.contendedIds()).toEqual(["S"]);
   }, 30000);
 });
+
+/**
+ * Origin-refusal flood: an old bridge ignoring `register_rejected` and looping cannot flood the log or grow
+ * the contention map. See change: harden-bridge-session-claim (BX6).
+ */
+describe("origin refusal flood (BX6)", () => {
+  it("1000 refusals over 60 s across 50 ids: count 1000, at most one line per id per window, record map <= 50", () => {
+    let t = 0;
+    const tracker = createContentionTracker(() => t);
+    let lines = 0;
+    for (let i = 0; i < 1000; i++) {
+      t = Math.floor((i / 1000) * 60_000);
+      if (tracker.record(`S${i % 50}`)) lines++;
+    }
+    expect(tracker.count()).toBe(1000);
+    expect(lines).toBeLessThanOrEqual(600);
+    expect(tracker.contendedIds().length).toBeLessThanOrEqual(50);
+  });
+});
+

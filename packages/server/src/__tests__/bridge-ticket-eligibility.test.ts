@@ -7,9 +7,10 @@
  *
  * See change: add-pi-gateway-transport-identity.
  */
-import { describe, expect, it } from "vitest";
+
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
-import { decideBridgeTicketMint, formatBridgeTicketRefusalLine } from "../auth/bridge-ticket-eligibility.js";
+import { describe, expect, it } from "vitest";
+import { createTicketRefusalLog, decideBridgeTicketMint, formatBridgeTicketRefusalLine } from "../auth/bridge-ticket-eligibility.js";
 
 const base = {
   ip: "192.168.1.50",
@@ -155,5 +156,69 @@ describe("bridge-ticket mint requires the operate tier (D2)", () => {
 
   it("the refusal line carries tier + prefix only, no full id", () => {
     expect(formatBridgeTicketRefusalLine("observe", "device-9")).toBe("[auth] bridge ticket refused: tier=observe device=device-9");
+  });
+});
+
+describe("bridge-ticket mint matrix (BE61-BE65)", () => {
+  const bearer = (tier: Tier | null) => ({
+    authorization: "Bearer b",
+    verifyDeviceBearer: () => (tier ? { id: "dev-1", tier } : null),
+  });
+  const LOCAL = { ip: "127.0.0.1", headers: {} as Record<string, unknown> };
+  const LAN = { ip: "192.168.1.50", headers: {} as Record<string, unknown> };
+
+  it.each([["genuinely-local", LOCAL], ["legacy trusted-network", LAN], ["remote", { ip: "203.0.113.9", headers: {} }]])(
+    "BE61: an operate bearer mints as its device from a %s caller",
+    (_n, caller) => {
+      expect(decideBridgeTicketMint({ ...caller, ...bearer("operate") })).toMatchObject({ allow: true, deviceId: "dev-1" });
+    },
+  );
+
+  it.each(["observe", "control"] as const)("BE62: a %s bearer from a genuinely-local caller gets a deviceless ticket", (tier) => {
+    const v = decideBridgeTicketMint({ ...LOCAL, ...bearer(tier) });
+    expect(v).toMatchObject({ allow: true, reason: "genuinely-local caller" });
+    expect(v.deviceId).toBeUndefined();
+  });
+
+  it.each(["observe", "control"] as const)("BE63/BE64: a %s bearer from a trusted-network or remote peer is refused naming the tier rule", (tier) => {
+    for (const caller of [LAN, { ip: "203.0.113.9", headers: {} }]) {
+      const v = decideBridgeTicketMint({ ...caller, ...bearer(tier) });
+      expect(v.allow).toBe(false);
+      expect(v.reason).toMatch(/operate/);
+    }
+  });
+
+  it("BE65: an unknown/revoked bearer or none keeps the old verdicts", () => {
+    expect(decideBridgeTicketMint({ ...LOCAL, ...bearer(null) })).toMatchObject({ allow: true });
+    expect(decideBridgeTicketMint({ ...LAN, ...bearer(null) }).allow).toBe(false);
+    expect(decideBridgeTicketMint({ ...LAN, authorization: undefined, verifyDeviceBearer: () => null }).allow).toBe(false);
+  });
+});
+
+describe("below-operate refusal log is rate-limited per device (BE68)", () => {
+  const refusal = (deviceId: string) =>
+    ({ allow: false, reason: "x", belowOperate: { tier: "observe", deviceId } }) as never;
+
+  it("emits at t0 and t0+W only, one budget per device, never the full id", () => {
+    let t = 1_000_000;
+    const lines: string[] = [];
+    const log = createTicketRefusalLog({ windowMs: 5_000, prefix: (id) => id.slice(0, 8), now: () => t, log: (l) => lines.push(l) });
+    for (const dt of [0, 4_999, 5_000, 5_001]) {
+      t = 1_000_000 + dt;
+      log(refusal("0123456789abcdef"));
+    }
+    expect(lines).toEqual(["[auth] bridge ticket refused: tier=observe device=01234567", "[auth] bridge ticket refused: tier=observe device=01234567"]);
+    t = 1_000_000;
+    log(refusal("fedcba9876543210"));
+    expect(lines).toHaveLength(3);
+    expect(lines.join("\n")).not.toContain("0123456789abcdef");
+  });
+
+  it("logs nothing for an allowed verdict, even one carrying belowOperate (local ticket path)", () => {
+    const lines: string[] = [];
+    const log = createTicketRefusalLog({ windowMs: 5_000, prefix: (id) => id, log: (l) => lines.push(l) });
+    log({ allow: true, reason: "genuinely-local caller", belowOperate: { tier: "observe", deviceId: "d" } });
+    log({ allow: false, reason: "no bearer" });
+    expect(lines).toEqual([]);
   });
 });

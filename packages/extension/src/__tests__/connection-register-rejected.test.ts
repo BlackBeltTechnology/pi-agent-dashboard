@@ -161,3 +161,29 @@ describe("a provisional_rejected outside a move is not terminal", () => {
   });
 });
 
+describe("origin refusal is terminal and surfaced (BE20)", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("does not reconnect and hands the reason to the hook", () => {
+    const seen: Array<{ sessionId: string; reason: string }> = [];
+    const cm = new ConnectionManager({
+      url: "ws://localhost:9999",
+      WebSocketImpl: MockWebSocket as any,
+      onRegisterRejected: (sessionId: string, reason: string) => seen.push({ sessionId, reason }),
+    });
+    cm.connect();
+    MockWebSocket.instances[0].simulateOpen();
+    const reason = "session id belongs to another origin; archive or remove the session record to re-register it from here";
+    MockWebSocket.instances[0].simulateMessage(JSON.stringify({ type: "register_rejected", sessionId: "S", reason }));
+    MockWebSocket.instances[0].simulateClose();
+    vi.advanceTimersByTime(120_000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(seen).toEqual([{ sessionId: "S", reason }]);
+    cm.disconnect();
+  });
+});
+

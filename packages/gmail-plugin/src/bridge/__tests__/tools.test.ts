@@ -598,3 +598,31 @@ describe("test-plan #X2 — Google refuses the filter scope", () => {
     expect(err.message).not.toContain("SECRET-BODY-TEXT");
   });
 });
+
+/**
+ * The host refuses a remote or deprecated-admission session with `origin_denied`. The tools fail with that
+ * code, never retry, and never touch the Gmail API. See change: harden-bridge-session-claim (BE105).
+ */
+describe("BE105 — origin_denied from the lane", () => {
+  const denied = () => {
+    const request = vi.fn<LaneRequest>(async () => ({ ok: false, error: "origin_denied: this handler is available to hub-local sessions only" }));
+    const gmail = fakeGmail();
+    const tools = createGmailTools({ leases: new LeaseClient(request), endpoints: TEST_ENDPOINTS, fetchImpl: gmail.fetchImpl });
+    return { request, gmail, tool: (n: string) => tools.find((t) => t.name === n) as GmailToolDef };
+  };
+
+  it("gmail_get fails with code origin_denied, one lane call, no Gmail API call", async () => {
+    const { request, gmail, tool } = denied();
+    const err = await tool("gmail_get").execute("id", { account: "work", id: "m1" }, undefined, undefined, undefined as never).catch((e) => e);
+    expect(err).toMatchObject({ code: "origin_denied" });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(gmail.calls).toHaveLength(0);
+  });
+
+  it("gmail_accounts surfaces the denial and returns no accounts", async () => {
+    const { tool } = denied();
+    const r = await tool("gmail_accounts").execute("id", {}, undefined, undefined, undefined as never).catch((e) => e);
+    expect(r).toMatchObject({ code: "origin_denied" });
+  });
+});
+

@@ -8,7 +8,8 @@ import {
   startFakeGoogle,
 } from "./helpers/fake-google.js";
 import { gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
-import { harnessProject } from "./lifecycle.js";
+import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
+import { BASE_URL, harnessProject } from "./lifecycle.js";
 
 /**
  * L3 — gmail-plugin end to end against an in-container fake Google
@@ -355,3 +356,37 @@ test.describe("gmail plugin", () => {
     await expect(section.getByTestId("gmail-setup-secret-help")).toContainText("pi-dashboard-2");
   });
 });
+
+/**
+ * harden-bridge-session-claim BE106 (L3): the REAL host lane refuses a session admitted as a paired device
+ * (remote origin on a `device-ticket` socket) with `origin_denied` and discloses nothing, without touching the
+ * DOM. The hub-local half (a unix-socket session leases) is the lane/gateway L1 suite; the harness spec runs
+ * on the host, where the gateway sees a docker address, so every socket here is remote by construction.
+ */
+test("harden-bridge-session-claim BE106: a paired-device session gets origin_denied from gmail/lease and gmail/accounts", async ({ request }) => {
+  const health = (await (await request.get("/api/health")).json()) as { piGatewayPort?: number | null };
+  test.skip(!health.piGatewayPort, "harness health does not expose the bound gateway port");
+  const bearer = await pairDeviceBearer(BASE_URL);
+  const url = await gatewayUrlWithTicket(BASE_URL, health.piGatewayPort as number, bearer);
+  const sessionId = `e2e-gmail-remote-${Date.now()}`;
+  const frames: Array<Record<string, unknown>> = [];
+  const ws = new WebSocket(url);
+  ws.addEventListener("message", (ev) => { try { frames.push(JSON.parse(String(ev.data))); } catch { /* ignore */ } });
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("open timeout")), 5000);
+    ws.addEventListener("open", () => { clearTimeout(t); resolve(); }, { once: true });
+    ws.addEventListener("error", () => { clearTimeout(t); reject(new Error("socket error")); }, { once: true });
+  });
+  ws.send(JSON.stringify({ type: "session_register", sessionId, cwd: "/tmp/e2e-gmail-remote", source: "tui", pid: 424242 }));
+  await new Promise((r) => setTimeout(r, 500));
+  ws.send(JSON.stringify({ type: "plugin_request", requestId: "lease-1", pluginId: "gmail", messageType: "gmail/lease", payload: { account: "any", op: "read" } }));
+  ws.send(JSON.stringify({ type: "plugin_request", requestId: "acct-1", pluginId: "gmail", messageType: "gmail/accounts", payload: {} }));
+  await expect.poll(() => frames.filter((f) => f.type === "plugin_reply").length, { timeout: 10_000 }).toBe(2);
+  for (const f of frames.filter((x) => x.type === "plugin_reply")) {
+    expect(f.ok).toBe(false);
+    expect(String(f.error)).toMatch(/^origin_denied: /);
+    expect(JSON.stringify(f)).not.toMatch(/accessToken|@/);
+  }
+  ws.close();
+});
+

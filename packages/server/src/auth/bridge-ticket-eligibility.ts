@@ -79,6 +79,31 @@ function bearerFrom(authorization: string | undefined): string | null {
   return token.length > 0 ? token : null;
 }
 
+/**
+ * Rate-limited audit logger for below-operate refusals: one line per device per `windowMs`
+ * (the contention window), keyed by the full device id but logging only an 8-char prefix.
+ * A `verdict` without `belowOperate`, or an allowed one, logs nothing.
+ */
+export function createTicketRefusalLog(opts: {
+  windowMs: number;
+  prefix: (deviceId: string) => string;
+  now?: () => number;
+  log?: (line: string) => void;
+}): (verdict: BridgeMintDecision) => void {
+  const last = new Map<string, number>();
+  const now = opts.now ?? Date.now;
+  const log = opts.log ?? ((line: string) => console.error(line));
+  return (verdict) => {
+    if (!verdict.belowOperate || verdict.allow) return;
+    const { tier, deviceId } = verdict.belowOperate;
+    const t = now();
+    const prev = last.get(deviceId);
+    if (prev !== undefined && t - prev < opts.windowMs) return;
+    last.set(deviceId, t);
+    log(formatBridgeTicketRefusalLine(tier, opts.prefix(deviceId)));
+  };
+}
+
 export function decideBridgeTicketMint(input: BridgeMintInput): BridgeMintDecision {
   const bearer = bearerFrom(input.authorization);
   const device = bearer ? input.verifyDeviceBearer(bearer) : null;

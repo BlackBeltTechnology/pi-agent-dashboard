@@ -3,9 +3,6 @@
  * Extracted from server.ts for clarity.
  */
 
-import { buildPreferencesUpdate } from "./preferences-relay.js";
-import { SUDO_CREDENTIAL_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/sudo-credential.js";
-import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
@@ -13,16 +10,19 @@ import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-te
 import type { ExtensionToServerMessage, PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { mergeSessionMeta, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats, type StatsData } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
-import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
+import { SUDO_CREDENTIAL_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/sudo-credential.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
+import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import { createAgentConfirmRegistry } from "./access/agent-confirm-registry.js";
-import { handlePathGateRefusal, handlePathYoloRequest } from "./access/agent-yolo.js";
-import { recordRefusal } from "./access/refusal-ledger.js";
 import { handlePathGrantRequest } from "./access/agent-grant.js";
+import { handlePathGateRefusal, handlePathYoloRequest } from "./access/agent-yolo.js";
 import { announceableGrantStoreId } from "./access/grant-store-id.js";
+import { recordRefusal } from "./access/refusal-ledger.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
+import { choiceToSpawnOptions, resolveSpawnChoice } from "./browser-handlers/spawn-choice.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
 import type { DirectoryService } from "./directory-service.js";
@@ -30,7 +30,6 @@ import { captureLifecycleTimestamp } from "./embed-lifecycle/lifecycle-event-cap
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
-import { buildAutoNameRestore, guardBridgeNameClaim, systemRenameUpdates } from "./session/name-provenance.js";
 import { invalidateCatalogue, setCatalogueForSession } from "./package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "./pairing/browser-gateway.js";
 import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
@@ -40,8 +39,9 @@ import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { GatewayConn, PiGateway } from "./pi/pi-gateway.js";
 import { computePiBelowFloor, serverPiMinimum } from "./pi/pi-version-skew.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
-import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
+import { buildPreferencesUpdate } from "./preferences-relay.js";
 import { scheduleProjectSeed } from "./project-seed.js";
+import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
 import {
   customEventTypeOfEvent,
   isGroupableCustomEvent,
@@ -49,10 +49,10 @@ import {
 } from "./session/custom-event-group-annotation.js";
 import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, reconcileAgentLiveness } from "./session/event-status-extraction.js";
+import { createReplayState, decideSkipWipe, type ReplayState, validLeafEntryId } from "./session/hydration-state.js";
 import { createInFlightToolCalls, type InFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
-import { seedDiscoveredHistory } from "./session/seed-discovered-history.js";
-import { applyPluginRef } from "./session/plugin-refs.js";
+import { buildAutoNameRestore, guardBridgeNameClaim, systemRenameUpdates } from "./session/name-provenance.js";
 import {
   findOpenSubagents,
   findOpenToolCalls,
@@ -63,25 +63,25 @@ import {
   attachedStillExistsInCandidateRoots,
   localityGateAllows,
 } from "./session/openspec-locality.js";
+import { resolvePidTarget, sanitizePidNamespace } from "./session/pid-target.js";
+import { applyPluginRef } from "./session/plugin-refs.js";
 import type { RemoteTranscriptStore } from "./session/remote-transcript-store.js";
+import type { ReplayExitCause } from "./session/replay-exit-controller.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
+import { seedDiscoveredHistory } from "./session/seed-discovered-history.js";
+import { getServerPidContext } from "./session/server-pid-context.js";
 import type { SessionOrderManager } from "./session/session-order-manager.js";
 import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
+import { linkRegisterToSpawn } from "./spawn-process/link-register.js";
 import { buildPidIndex, classifyProcesses } from "./spawn-process/process-classifier.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
-import { choiceToSpawnOptions, resolveSpawnChoice } from "./browser-handlers/spawn-choice.js";
-import { createReplayState, decideSkipWipe, type ReplayState, validLeafEntryId } from "./session/hydration-state.js";
-import type { ReplayExitCause } from "./session/replay-exit-controller.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import {
   buildEmptyActionableLogLine,
   buildModelErrorLogLine,
   extractModelTurnError,
 } from "./spawn-process/spawned-turn-log.js";
-import { resolvePidTarget, sanitizePidNamespace } from "./session/pid-target.js";
-import { getServerPidContext } from "./session/server-pid-context.js";
-import { linkRegisterToSpawn } from "./spawn-process/link-register.js";
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll

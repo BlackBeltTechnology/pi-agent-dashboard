@@ -124,7 +124,7 @@ describe("flow file routes", () => {
     expect(reportOpts).toEqual({ hubLocalOnly: true });
   });
 
-  it("a session that never reported (e.g. denied origin_denied) gets the unreported answer and no file read", async () => {
+  it("BE108/BX9: a session whose report was denied by the host (origin_denied, handler never ran) gets the unreported answer and no file read", async () => {
     const res = await getFile(flowFile);
     expect(res.statusCode).toBe(409);
     expect(JSON.parse(res.payload).retry).toBe(true);
@@ -143,7 +143,7 @@ describe("flow file routes", () => {
     expect(files.data.reported).toBe(false);
   });
 
-  it("after a report: serves reported files, 403 for others, files map resolved with the session cwd", async () => {
+  it("BE107: after a hub-local report: serves reported files, 403 for others, files map resolved with the session cwd", async () => {
     report({ flows: [{ name: "ns:demo", source: flowFile }], agents: [{ name: "filler", source: agentFile }] }, { sessionId: "S1" });
     const ok = await getFile(handler);
     expect(ok.statusCode).toBe(200);

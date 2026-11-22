@@ -8,10 +8,11 @@ import type { KillFn } from "@blackbelt-technology/pi-dashboard-shared/platform/
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
-import type { LocalCredentialVerifier } from "../auth/local-credential.js";
 import { auditPrefix } from "../auth/audit-log.js";
+import type { LocalCredentialVerifier } from "../auth/local-credential.js";
 import { isProvenTls } from "../auth/proven-tls.js";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
+import { closeDeviceSockets } from "../pairing/ws-tier-gate.js";
 import { classifyCarrierLoss } from "../session/death-reason.js";
 import { createHostPressureTracker, type HostPressure } from "../session/host-pressure-tracker.js";
 import { normalizeUsageSeed, type SessionManager } from "../session/memory-session-manager.js";
@@ -35,7 +36,6 @@ import {
   resolveProbe,
 } from "./bridge-contention.js";
 import { decideBridgeUpgrade, isLoopbackAddress } from "./bridge-upgrade-auth.js";
-import { closeDeviceSockets } from "../pairing/ws-tier-gate.js";
 import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
 import { createProvisionalRegistry } from "./provisional-registration.js";
 

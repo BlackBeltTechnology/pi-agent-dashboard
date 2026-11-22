@@ -451,3 +451,59 @@ describe("decideClaim — origin binding", () => {
     expect(line).not.toMatch(/pid/i);
   });
 });
+
+describe("origin refusal accounting (BE22-BE24, BX1, BX2)", () => {
+  it("BE22: the per-session-id limiter emits at t=0 and t=5000 only, counting all four", () => {
+    let t = 0;
+    const tracker = createContentionTracker(() => t);
+    const emitted: number[] = [];
+    for (const at of [0, 4_999, 5_000, 5_001]) {
+      t = at;
+      if (tracker.record("S")) emitted.push(at);
+    }
+    expect(emitted).toEqual([0, 5_000]);
+    expect(tracker.count()).toBe(4);
+  });
+
+  it("BE23: the limiter is per session id", () => {
+    const tracker = createContentionTracker(() => 0);
+    expect(tracker.record("S1")).toBe(true);
+    expect(tracker.record("S2")).toBe(true);
+    expect(tracker.count()).toBe(2);
+  });
+
+  it("BE24: the origin line classes are exactly hub | device:<8 chars> | unattributed and leak nothing else", () => {
+    const D1 = "dev-0123456789abcdef";
+    const prefix = (id: string) => id.slice(0, 8);
+    const classes = [undefined, D1, "unattributed-remote"].map((o) => originClass(o, prefix));
+    expect(classes).toEqual(["hub", "device:dev-0123", "unattributed"]);
+    for (const rec of classes) {
+      for (const pres of classes) {
+        const line = formatOriginRefusalLine("S", rec, pres);
+        expect(line).toMatch(/^\[bridge-claim\] origin-refused session=S recorded=(hub|device:\S{8}|unattributed) presented=(hub|device:\S{8}|unattributed)$/);
+        expect(line).not.toContain(D1);
+        expect(line).not.toMatch(/pid|token|\[gateway\]/i);
+      }
+    }
+  });
+
+  it("BX1: a foreign origin never reaches a probe even when the same origin would be displaced as dead", () => {
+    const dead = deadTransportSocket();
+    const same = decideClaim({ incumbent: dead, newcomer: liveSocket(), recorded: { originDeviceId: "d", source: "tui", sessionFile: "/f" }, newcomerOriginDeviceId: "d" });
+    expect(same).toEqual({ outcome: "probe" });
+    expect(resolveProbe(dead, false)).toEqual({ outcome: "displace", reason: "incumbent-dead" });
+    expect(decideClaim({ incumbent: dead, newcomer: liveSocket(), recorded: { originDeviceId: "d", source: "tui", sessionFile: "/f" }, newcomerOriginDeviceId: "other" })).toEqual({
+      outcome: "refuse",
+      reason: "origin-mismatch",
+    });
+  });
+
+  it("BX2: a silent-but-writable incumbent is refused after the probe for the same origin; a foreign origin is refused with no probe at all", () => {
+    const busy = liveSocket();
+    const rec = { originDeviceId: "d", source: "tui", sessionFile: "/f" };
+    expect(decideClaim({ incumbent: busy, newcomer: liveSocket(), recorded: rec, newcomerOriginDeviceId: "d" })).toEqual({ outcome: "probe" });
+    expect(resolveProbe(busy, false)).toEqual({ outcome: "refuse", reason: "incumbent-alive" });
+    expect(decideClaim({ incumbent: busy, newcomer: liveSocket(), recorded: rec, newcomerOriginDeviceId: "x" }).outcome).toBe("refuse");
+  });
+});
+

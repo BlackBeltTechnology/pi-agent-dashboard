@@ -52,7 +52,7 @@ describe("plugin_request through the real gateway -> wiring -> lane hops", () =>
     delete options.peerAddressForTest;
   });
 
-  async function setup() {
+  async function setup(opts: { dropConn?: boolean } = {}) {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const sessionManager = createMemorySessionManager();
     const tickets = new WsTicketStore();
@@ -90,7 +90,7 @@ describe("plugin_request through the real gateway -> wiring -> lane hops", () =>
       knownSessionIds: new Set<string>(),
       pendingDashboardSpawns: new Map<string, number>(),
       dispatchPluginRequest: (sid: string, msg: PluginRequestMessage, conn: unknown) => {
-        lane.handle(sid, msg, conn as never).catch(() => undefined);
+        lane.handle(sid, msg, opts.dropConn ? undefined : (conn as never)).catch(() => undefined);
       },
     } as any);
     gateway.start(0, "127.0.0.1");
@@ -190,6 +190,85 @@ describe("plugin_request through the real gateway -> wiring -> lane hops", () =>
     expect(replies(c)).toHaveLength(0);
   });
 
+  it("BE95: a hop that drops `conn` fails closed for a hub-local-only handler (never silently open)", async () => {
+    const { port, seen } = await setup({ dropConn: true });
+    const proof = mintProof({ token: TOKEN, binding: canonicalBinding("127.0.0.1", port), purpose: BRIDGE_PURPOSE });
+    const a = await open(port, { [LOCAL_PROOF_HEADER]: proof.header });
+    reg(a, "S");
+    await until(() => gateway.isSessionConnected("S"));
+    lease(a);
+    await until(() => replies(a).length === 1);
+    expect(replies(a)[0].error).toMatch(/^origin_denied: /);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("BE89: a socket that gave up its entry can no longer use the lane for that session", async () => {
+    const { port, seen } = await setup();
+    const proof = mintProof({ token: TOKEN, binding: canonicalBinding("127.0.0.1", port), purpose: BRIDGE_PURPOSE });
+    const a = await open(port, { [LOCAL_PROOF_HEADER]: proof.header });
+    reg(a, "S");
+    await until(() => gateway.isSessionConnected("S"));
+    send(a, { type: "session_unregister", sessionId: "S" });
+    await until(() => !gateway.isSessionConnected("S"));
+    lease(a, "late", "echo", "demo");
+    await delay(200);
+    expect(seen).toHaveLength(0);
+    expect(replies(a)).toHaveLength(0);
+  });
+
+  it("BE91: an accepted id change re-attributes the lane to the new id; a refused one keeps the old", async () => {
+    const { port, seen, sessionManager, tickets } = await setup();
+    options.peerAddressForTest = "203.0.113.7";
+    const x = await open(port, {}, `?ticket=${tickets.mint("bridge", "dev-aaaaaaaa-1")}`);
+    reg(x, "S1");
+    await until(() => gateway.isSessionConnected("S1"));
+    sessionManager.register({ id: "FOREIGN", cwd: "/w", source: "tui", sessionFile: "/h/F.jsonl" } as never); // hub-local record
+    lease(x, "a", "echo", "demo");
+    await until(() => seen.length === 1);
+    expect(seen[0].meta.sessionId).toBe("S1");
+    reg(x, "S2");
+    await until(() => gateway.isSessionConnected("S2"));
+    lease(x, "b", "echo", "demo");
+    await until(() => seen.length === 2);
+    expect(seen[1].meta.sessionId).toBe("S2");
+    reg(x, "FOREIGN"); // origin-refused id change: keeps S2
+    await delay(150);
+    lease(x, "c", "echo", "demo");
+    await until(() => seen.length === 3);
+    expect(seen[2].meta.sessionId).toBe("S2");
+  });
+
+  it("BE92: a socket dropped after an origin-refused first frame cannot use the lane", async () => {
+    const { port, seen, sessionManager, tickets } = await setup();
+    sessionManager.register({ id: "H", cwd: "/w", source: "tui", sessionFile: "/h/H.jsonl" } as never);
+    options.peerAddressForTest = "203.0.113.7";
+    const b = await open(port, {}, `?ticket=${tickets.mint("bridge", "dev-aaaaaaaa-1")}`);
+    send(b, { type: "event_forward", sessionId: "H", event: { type: "noop" } });
+    await delay(100);
+    lease(b, "z", "echo", "demo");
+    await delay(200);
+    expect(seen).toHaveLength(0);
+    expect(replies(b)).toHaveLength(0);
+  });
+
+  it("BE93: only plugin_request and sessions_list carry the sender's conn to onEvent", async () => {
+    const { port } = await setup();
+    const got: Array<{ type: string; conn: unknown }> = [];
+    gateway.onEvent = ((_sid: string, msg: { type: string }, conn?: unknown) => { got.push({ type: msg.type, conn }); }) as never;
+    const a = await open(port);
+    reg(a, "S");
+    await until(() => gateway.isSessionConnected("S"));
+    send(a, { type: "plugin_request", requestId: "r", pluginId: "demo", messageType: "echo", payload: {} });
+    send(a, { type: "sessions_list", cwd: "/w", sessions: [] });
+    send(a, { type: "event_forward", sessionId: "S", event: { type: "noop" } });
+    send(a, { type: "session_heartbeat", sessionId: "S" });
+    await until(() => got.length >= 4);
+    for (const g of got) {
+      if (g.type === "plugin_request" || g.type === "sessions_list") expect(g.conn, g.type).toMatchObject({ channel: { admission: "grace" } });
+      else expect(g.conn, g.type).toBeUndefined();
+    }
+  });
+
   describe("sessions_list records are bound to the reporter's origin (task 1.10)", () => {
     const list = (p: Peer, sessions: Array<Record<string, unknown>>) =>
       send(p, { type: "sessions_list", cwd: "/w", sessions });
@@ -221,6 +300,57 @@ describe("plugin_request through the real gateway -> wiring -> lane hops", () =>
       list(hub, [row("HIST", "/h/HIST.jsonl")]);
       await until(() => sessionManager.get("HIST") !== undefined);
       expect(sessionManager.get("HIST")!.originDeviceId).toBeUndefined();
+    });
+
+    it("BE45/BE47: a device-seeded id is refused for hub and other devices but accepted for the seeding device; an unattributed seed stays remote", async () => {
+      const { port, sessionManager, tickets } = await setup();
+      options.peerAddressForTest = "203.0.113.7";
+      const seeder = await open(port, {}, `?ticket=${tickets.mint("bridge", "dev-aaaaaaaa-1")}`);
+      reg(seeder, "OWN");
+      await until(() => gateway.isSessionConnected("OWN"));
+      list(seeder, [row("Q", "/q/Q.jsonl")]);
+      await until(() => sessionManager.get("Q") !== undefined);
+      expect(sessionManager.get("Q")!.sessionFile).toBe("/q/Q.jsonl");
+      delete options.peerAddressForTest;
+      const hub = await open(port);
+      reg(hub, "Q");
+      await until(() => hub.ws.readyState === WebSocket.CLOSED);
+      options.peerAddressForTest = "203.0.113.7";
+      const other = await open(port, {}, `?ticket=${tickets.mint("bridge", "dev-bbbbbbbb-2")}`);
+      reg(other, "Q");
+      await until(() => other.ws.readyState === WebSocket.CLOSED);
+      const same = await open(port, {}, `?ticket=${tickets.mint("bridge", "dev-aaaaaaaa-1")}`);
+      reg(same, "Q");
+      await until(() => gateway.isSessionConnected("Q"));
+      // an unattributed (no ticket) remote reporter seeds "unattributed-remote", never hub-local
+      const un = await open(port);
+      reg(un, "OWN-U");
+      await until(() => gateway.isSessionConnected("OWN-U"));
+      list(un, [row("QU", "/u/QU.jsonl")]);
+      await until(() => sessionManager.get("QU") !== undefined);
+      expect(sessionManager.get("QU")!.originDeviceId).toBe("unattributed-remote");
+    });
+
+    it("BE48: sessionFile is rewritten only when reporter and record share an origin (all 3x3 pairs)", async () => {
+      const { port, sessionManager, tickets } = await setup();
+      const origins = [undefined, "dev-aaaaaaaa-1", "unattributed-remote"] as const;
+      const peers: Peer[] = [];
+      for (const [i, who] of origins.entries()) {
+        if (who === undefined) delete options.peerAddressForTest; else options.peerAddressForTest = "203.0.113.7";
+        const p = await open(port, {}, who && who !== "unattributed-remote" ? `?ticket=${tickets.mint("bridge", who)}` : "");
+        reg(p, `OWN${i}`);
+        await until(() => gateway.isSessionConnected(`OWN${i}`));
+        peers.push(p);
+      }
+      for (const [ri, recOrigin] of origins.entries()) {
+        for (const [pi, repOrigin] of origins.entries()) {
+          const id = `R${ri}${pi}`;
+          sessionManager.register({ id, cwd: "/w", source: "tui", sessionFile: "/a.jsonl", sessionDir: "/a", originDeviceId: recOrigin } as never);
+          list(peers[pi], [row(id, "/b.jsonl")]);
+          await delay(60);
+          expect(sessionManager.get(id)!.sessionFile, `${recOrigin}<-${repOrigin}`).toBe(recOrigin === repOrigin ? "/b.jsonl" : "/a.jsonl");
+        }
+      }
     });
 
     it("another origin's sessions_list does not rewrite an existing record's sessionFile; the same origin does", async () => {
