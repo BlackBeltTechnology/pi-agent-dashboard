@@ -65,8 +65,20 @@ function originLabel(conn: PluginRequestConn | undefined): string {
   return auditPrefix(conn.originDeviceId);
 }
 
+/** Host seams the lane cannot derive itself. */
+export interface PluginRequestLaneDeps {
+  /**
+   * The admission channel of the socket that CURRENTLY holds the routing entry for `sessionId`. Replies of a
+   * `hubLocalOnly` handler are bound to the socket that passed the dispatch gate: if the entry moved to another
+   * socket while the handler awaited (a same-origin newcomer on a deprecated admission can take a closed
+   * incumbent's id), the reply is dropped instead of reaching a socket the policy refuses. Absent = no check.
+   */
+  currentChannel?: (sessionId: string) => BridgeChannel | undefined;
+}
+
 export function createPluginRequestLane(
   send: (sessionId: string, msg: PluginReplyMessage) => unknown,
+  deps: PluginRequestLaneDeps = {},
 ): PluginRequestLane {
   const handlers = new Map<string, { handler: PluginRequestHandler; opts: PluginRequestHandlerOptions }>();
   const lastDeniedLog = new Map<string, number>();
@@ -97,6 +109,14 @@ export function createPluginRequestLane(
         return;
       }
       const { handler, opts } = entry;
+      // A hubLocalOnly reply may carry a credential: deliver it only to the socket that passed the gate.
+      const deliver = (m: PluginReplyMessage): void => {
+        if (opts.hubLocalOnly && deps.currentChannel && deps.currentChannel(sessionId) !== channel) {
+          console.error(`[plugin-request] reply dropped: ${String(msg.pluginId)}/${String(msg.messageType)} session=${sessionId} (routing entry moved to another socket)`);
+          return;
+        }
+        reply(sessionId, m);
+      };
       // Host-observed facts about the SENDING socket. Missing conn (a hop that dropped
       // it) yields neither, which fails closed below.
       const origin = conn ? originOf({ originDeviceId: conn.originDeviceId }) : undefined;
@@ -123,21 +143,21 @@ export function createPluginRequestLane(
       } catch (err) {
         // Message only — never the stack.
         const error = err instanceof Error ? err.message : String(err);
-        reply(sessionId, { type: "plugin_reply", requestId, ok: false, error });
+        deliver({ type: "plugin_reply", requestId, ok: false, error });
         return;
       }
       let json: string | undefined;
       try {
         json = JSON.stringify(result === undefined ? null : result);
       } catch {
-        reply(sessionId, { type: "plugin_reply", requestId, ok: false, error: "reply_not_serializable" });
+        deliver({ type: "plugin_reply", requestId, ok: false, error: "reply_not_serializable" });
         return;
       }
       if (Buffer.byteLength(json ?? "null", "utf-8") > PLUGIN_LANE_MAX_BYTES) {
-        reply(sessionId, { type: "plugin_reply", requestId, ok: false, error: "reply_too_large" });
+        deliver({ type: "plugin_reply", requestId, ok: false, error: "reply_too_large" });
         return;
       }
-      reply(sessionId, { type: "plugin_reply", requestId, ok: true, result: JSON.parse(json ?? "null") });
+      deliver({ type: "plugin_reply", requestId, ok: true, result: JSON.parse(json ?? "null") });
     },
   };
 }

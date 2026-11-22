@@ -1611,6 +1611,32 @@ describe("pi-gateway origin binding", () => {
     }
   }, 60000);
 
+  it("a commit onto a placeholder replaces it with the completed record carrying the mover's origin", async () => {
+    const { sessionManager, port } = await start();
+    // Placeholder created by a hub-local first frame, then claimed by a remote mover.
+    sessionManager.register({ id: "PH", cwd: "", source: "unknown" } as never);
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "PH", { provisional: true, sessionFile: "/b/PH.jsonl" });
+    await until(() => types(b).includes("provisional_accepted"));
+    const token = b.received.find((f) => f.type === "provisional_accepted").token;
+    b.ws.send(JSON.stringify({ type: "session_move_commit", sessionId: "PH", token }));
+    await until(() => types(b).includes("session_move_committed"));
+    expect(sessionManager.get("PH")).toMatchObject({ originDeviceId: "dev-aaaaaaaa-1", source: "tui", sessionFile: "/b/PH.jsonl" });
+  });
+
+  it("a first frame that claims another origin's placeholder re-attributes the record to the claimant", async () => {
+    const { sessionManager, port } = await start();
+    const creator = await as(port, "hub");
+    referenceOnly(creator, "PH2");
+    await until(() => sessionManager.get("PH2") !== undefined);
+    creator.ws.terminate();
+    await until(() => !gateway.isSessionConnected("PH2"));
+    const b = await as(port, "dev-aaaaaaaa-1");
+    referenceOnly(b, "PH2");
+    await until(() => gateway.isSessionConnected("PH2"));
+    expect(sessionManager.get("PH2")!.originDeviceId).toBe("dev-aaaaaaaa-1");
+  });
+
   /**
    * @structural-pin guards a future bypass: no runtime harness can enumerate the `connections.set` sites; a new one without the
    * shared origin decision (`originRefused` / `claim`) before it would reopen WS-02/WS-03.

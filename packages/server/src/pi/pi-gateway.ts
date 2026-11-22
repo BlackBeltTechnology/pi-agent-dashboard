@@ -31,6 +31,7 @@ import {
   formatPid,
   isSocketAlive,
   originClass,
+  isPlaceholderRecord,
   originMismatch,
   type ProbeableSocket,
   resolveProbe,
@@ -936,7 +937,11 @@ export function createPiGateway(
                 // Materialise the session if this instance never had one: a
                 // routing entry with no session record would route frames to a
                 // dashboard that cannot render the session.
-                if (!sessionManager.get(movedId) && verdict.register) {
+                // An accepted commit onto a PLACEHOLDER (first-frame record, no sessionFile) replaces it with the
+                // completed record carrying THIS socket's origin: leaving the placeholder would keep another
+                // origin's (possibly hub-local) attribution on a session routed to this socket.
+                const existingAtCommit = sessionManager.get(movedId);
+                if ((!existingAtCommit || isPlaceholderRecord(existingAtCommit)) && verdict.register) {
                   sessionManager.register({
                     id: movedId,
                     originDeviceId,
@@ -995,7 +1000,13 @@ export function createPiGateway(
               currentSessionId = sid;
               connections.set(sid, ws);
               // Auto-create a placeholder session so events aren't lost
-              if (!sessionManager.get(sid)) {
+              const existingAtFirstFrame = sessionManager.get(sid);
+              if (existingAtFirstFrame && isPlaceholderRecord(existingAtFirstFrame) && existingAtFirstFrame.originDeviceId !== originDeviceId) {
+                // A placeholder is claimable by any origin, but the record must then carry the claimant's origin,
+                // never keep the previous creator's (possibly hub-local) attribution on a session routed here.
+                sessionManager.update(sid, { originDeviceId });
+              }
+              if (!existingAtFirstFrame) {
                 sessionManager.register({
                   id: sid,
                   // The placeholder records its creator's origin, so it no longer reads hub-local.

@@ -289,3 +289,56 @@ describe("plugin request lane: spoofing, option variants, limiter windows (BE72-
     for (const [adm, local] of Object.entries(classification)) expect(isLocallyAdmitted(adm as BridgeAdmission), adm).toBe(local);
   });
 });
+
+/**
+ * A hub-local-only reply may carry a credential: it is delivered only to the socket that passed the gate. If the
+ * routing entry moved while the handler awaited, the reply is dropped. See change: harden-bridge-session-claim.
+ */
+describe("hub-local-only reply is bound to the socket that passed the gate", () => {
+  const chan = (admission: BridgeAdmission): BridgeChannel => ({ admission, provenTls: false, ticketTls: false });
+  const make = (current: { c: BridgeChannel | undefined }) => {
+    const sent: Array<{ sessionId: string; msg: PluginReplyMessage }> = [];
+    const lane = createPluginRequestLane((sessionId, msg) => { sent.push({ sessionId, msg }); }, { currentChannel: () => current.c });
+    const req = (): PluginRequestMessage => ({ type: "plugin_request", requestId: "r", pluginId: "gmail", messageType: "lease", payload: {} });
+    return { lane, sent, req };
+  };
+
+  it("delivers when the entry still belongs to the sender", async () => {
+    const sender = chan("unix");
+    const { lane, sent, req } = make({ c: sender });
+    lane.register("gmail", "lease", async () => ({ token: "T" }), { hubLocalOnly: true });
+    await lane.handle("S", req(), { originDeviceId: undefined, channel: sender });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("drops the reply when a different socket (even same origin, grace admission) took the entry during the await", async () => {
+    const sender = chan("unix");
+    const current: { c: BridgeChannel | undefined } = { c: sender };
+    const { lane, sent, req } = make(current);
+    lane.register("gmail", "lease", async () => { current.c = chan("grace"); return { token: "SECRET" }; }, { hubLocalOnly: true });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await lane.handle("S", req(), { originDeviceId: undefined, channel: sender });
+    spy.mockRestore();
+    expect(sent).toEqual([]);
+  });
+
+  it("also drops when the entry is gone (sender closed, nobody holds the id)", async () => {
+    const sender = chan("unix");
+    const current: { c: BridgeChannel | undefined } = { c: sender };
+    const { lane, sent, req } = make(current);
+    lane.register("gmail", "lease", async () => { current.c = undefined; return 1; }, { hubLocalOnly: true });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await lane.handle("S", req(), { originDeviceId: undefined, channel: sender });
+    spy.mockRestore();
+    expect(sent).toEqual([]);
+  });
+
+  it("an unrestricted handler's reply is not bound (its reply carries no hub-only secret)", async () => {
+    const sender = chan("device-ticket");
+    const { lane, sent, req } = make({ c: undefined });
+    lane.register("gmail", "lease", async () => 1);
+    await lane.handle("S", req(), { originDeviceId: "dev-1", channel: sender });
+    expect(sent).toHaveLength(1);
+  });
+});
+

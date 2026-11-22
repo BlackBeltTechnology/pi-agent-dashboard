@@ -1861,8 +1861,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Private plugin request/reply lane: one handler per (pluginId, type), reply
   // sent host-internally on the requesting socket (not the priority-gated
   // sendExtensionMessage). See change: expose-plugin-credential-and-oauth-seams (D7).
-  const pluginRequestLane = createPluginRequestLane((sessionId, msg) =>
-    piGateway.sendToSession(sessionId, msg),
+  const pluginRequestLane = createPluginRequestLane(
+    (sessionId, msg) => piGateway.sendToSession(sessionId, msg),
+    // A hub-local-only reply is delivered only to the socket that passed the gate (see the lane).
+    { currentChannel: (sessionId) => piGateway.channelOf(sessionId) },
   );
   // Forward the SENDING socket's own origin + channel (never `originOf(sessionManager.get(id))` /
   // `channelOf(id)`, which follow the routing entry and the recorded session, not the sender).

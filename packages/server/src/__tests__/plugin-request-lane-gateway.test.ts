@@ -67,7 +67,7 @@ describe("plugin_request through the real gateway -> wiring -> lane hops", () =>
     gateway = createPiGateway(sessionManager, options as never);
     const eventStore = createMemoryEventStore(() => false);
     const browserGateway = createBrowserGateway(sessionManager, eventStore, gateway);
-    const lane = createPluginRequestLane((sid, msg) => gateway.sendToSession(sid, msg as never));
+    const lane = createPluginRequestLane((sid, msg) => gateway.sendToSession(sid, msg as never), { currentChannel: (sid) => gateway.channelOf(sid) });
     const seen: Array<{ payload: unknown; meta: any }> = [];
     lane.register("gmail", "lease", (payload, meta) => { seen.push({ payload, meta }); return { token: "SECRET" }; }, { hubLocalOnly: true });
     lane.register("demo", "echo", (payload, meta) => { seen.push({ payload, meta }); return payload; });
