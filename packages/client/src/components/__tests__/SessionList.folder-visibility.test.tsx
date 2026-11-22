@@ -587,3 +587,36 @@ describe("archive fold keyed by archiveKeyPlatform", () => {
     expect(reqs[1].get("cwd")).toBe(FOLDED);
   });
 });
+
+// "Remove from sidebar" outcome (#1118) rides on the #1086 rule: once the pin
+// and workspace membership are gone, an ended-only folder leaves the sidebar
+// without any archive call. See change: sidebar-folder-ux (test-plan #S16–#S18).
+describe("after Remove from sidebar (#1118)", () => {
+  it("S16: an ended-only folder disappears once pin/membership clear — no archive; a Folders filter re-reveals it", () => {
+    const onArchiveSession = vi.fn();
+    const sessions = [mk({ cwd: "/old/dir" })];
+    const { update } = mount({ sessions, pinnedDirectories: ["/old/dir"], onArchiveSession });
+    expect(folderShown("/old/dir")).toBe(true);
+    update({ sessions, pinnedDirectories: [], workspaces: [], onArchiveSession });
+    expect(folderShown("/old/dir")).toBe(false);
+    expect(onArchiveSession).not.toHaveBeenCalled();
+    setSidebarSearch("folders", "old/dir");
+    expect(folderShown("/old/dir")).toBe(true);
+  });
+
+  it("S17: a live folder leaves by the #1086 rule after its sessions end and the pin clears", () => {
+    const live = [mk({ cwd: "/live/dir", status: "active" })];
+    const { update } = mount({ sessions: live, pinnedDirectories: ["/live/dir"] });
+    expect(folderShown("/live/dir")).toBe(true);
+    update({ sessions: [{ ...live[0], status: "ended" }], pinnedDirectories: [] });
+    expect(folderShown("/live/dir")).toBe(false);
+  });
+
+  it("S18: the selected session keeps its (ended, unpinned) folder visible until deselected", () => {
+    const ended = mk({ cwd: "/sel/dir" });
+    const { update } = mount({ sessions: [ended], pinnedDirectories: [], selectedId: ended.id });
+    expect(folderShown("/sel/dir")).toBe(true);
+    update({ sessions: [ended], pinnedDirectories: [], selectedId: undefined });
+    expect(folderShown("/sel/dir")).toBe(false);
+  });
+});

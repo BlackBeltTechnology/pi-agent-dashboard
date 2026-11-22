@@ -3645,6 +3645,8 @@ export const huCatalog: Record<string, string> = {
   "sessionList.filtersLabel": "Szűrők, {count} aktív",
   "sessionList.clearFolderFilter": "Mappaszűrő törlése",
   "sessionList.clearSessionSearch": "Munkamenet-keresés törlése",
+  "sessionList.compactCountMany": "{count} munkamenet",
+  "sessionList.compactCountOne": "1 munkamenet",
   "connection.offlineWord": "Offline",
   "session.notFound.title": "Munkamenet nem található",
   "session.notFound.hint": "A teljes munkamenet-azonosítót a GET /api/sessions adja meg. Archivált munkamenet a teljes azonosítóval és ?archived=1 paraméterrel nyílik meg.",

@@ -81,8 +81,9 @@ responsibility to route.
 
 ### Requirement: Dialog focus management
 
-When a `Dialog` opens it SHALL move focus into the dialog and trap
-keyboard focus within it; when it closes it SHALL restore focus to the
+When a `Dialog` opens it SHALL move focus into the dialog — to the first
+focusable descendant marked `data-autofocus` when one exists, otherwise to the
+first focusable element — and trap keyboard focus within it; when it closes it SHALL restore focus to the
 element that was focused before the dialog opened.
 
 When the dialog opens with NO focusable child, it SHALL keep watching its own
@@ -97,6 +98,13 @@ otherwise strand focus on a non-interactive box.
 - **WHEN** a `Dialog` transitions from `open={false}` to `open={true}`
 - **THEN** focus SHALL move to the first focusable element inside the
   dialog, or to the dialog container itself if no focusable child exists
+
+#### Scenario: Marked control receives initial focus
+
+- **GIVEN** a `Dialog` whose Cancel button carries `data-autofocus` and whose
+  first focusable element is the built-in ✕
+- **WHEN** the dialog opens
+- **THEN** focus SHALL be on the Cancel button
 
 #### Scenario: Focus follows a late-arriving focusable child
 

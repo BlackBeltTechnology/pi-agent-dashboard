@@ -6,7 +6,8 @@
  */
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import React, { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -56,6 +57,7 @@ function Harness({
   collapsed0 = [],
   expanded0 = [],
   extra = {},
+  loc,
 }: {
   mode?: "classic" | "accordion" | "absent";
   selectedId?: string;
@@ -66,10 +68,12 @@ function Harness({
   collapsed0?: string[];
   expanded0?: string[];
   extra?: Record<string, unknown>;
+  /** Supply a recording location (default: a static one) to observe navigation. */
+  loc?: ReturnType<typeof memoryLocation>;
 }) {
   const [collapsed, setCollapsed] = useState<string[]>(collapsed0);
   const [expanded, setExpanded] = useState<string[]>(expanded0);
-  const { hook } = memoryLocation({ path: "/", static: true });
+  const { hook } = loc ?? memoryLocation({ path: "/", static: true });
   return (
     <Router hook={hook}>
       <ThemeProvider>
@@ -112,22 +116,23 @@ describe("accordion render modes", () => {
     expect(has(`folder-compact-body-${B}`)).toBe(true);
   });
 
-  it("unfocused folder without attention shows `N sessions — click to view`; clicking focuses it only", () => {
+  it("unfocused folder without attention shows a header count button; clicking it focuses it only", () => {
     const list = [mk("a1", A), mk("b2", B), mk("b3", B)];
     render(<Harness selectedId="a1" list={list} />);
-    const row = screen.getByTestId(`folder-compact-row-${B}`);
-    expect(row.textContent).toBe("2 sessions — click to view");
+    const count = screen.getByTestId(`folder-compact-count-${B}`);
+    expect(count.textContent).toBe("2");
+    expect(count.getAttribute("aria-label")).toBe("2 sessions");
     expect(card("b2")).toBeNull();
-    fireEvent.click(row);
+    fireEvent.click(count);
     expect(card("b2")).not.toBeNull();
     expect(card("b3")).not.toBeNull();
     // A's selected session no longer focused → A compacts (a1 is idle)
-    expect(has(`folder-compact-row-${A}`)).toBe(true);
+    expect(has(`folder-compact-count-${A}`)).toBe(true);
   });
 
-  it("empty folder renders only the header (no row)", () => {
+  it("empty folder renders only the header (no count)", () => {
     render(<Harness selectedId="a1" list={[mk("a1", A)]} extra={{ pinnedDirectories: [B] }} />);
-    expect(has(`folder-compact-row-${B}`)).toBe(false);
+    expect(has(`folder-compact-count-${B}`)).toBe(false);
     expect(has(`folder-compact-body-${B}`)).toBe(false);
     expect(has(`folder-home-row-${B}`)).toBe(true);
   });
@@ -135,7 +140,7 @@ describe("accordion render modes", () => {
   it("attention peek off → compact-empty even with a streaming session", () => {
     render(<Harness selectedId="a1" peek={false} />);
     expect(card("b1")).toBeNull();
-    expect(has(`folder-compact-row-${B}`)).toBe(true);
+    expect(has(`folder-compact-count-${B}`)).toBe(true);
   });
 
   it("hidden attention session stays hidden (Show hidden off is the group filter)", () => {
@@ -149,7 +154,7 @@ describe("accordion render modes", () => {
     setSidebarSearch("sessions", "b");
     // forced full → compact markers gone
     expect(has(`folder-compact-body-${B}`)).toBe(false);
-    expect(has(`folder-compact-row-${B}`)).toBe(false);
+    expect(has(`folder-compact-count-${B}`)).toBe(false);
   });
 
   it("pinned-open unfocused folder renders all cards (full)", () => {
@@ -184,7 +189,7 @@ describe("accordion header and chevron", () => {
     render(<Harness selectedId="a1" />);
     fireEvent.click(chevron(A));
     expect(card("a1")).toBeNull();
-    expect(has(`folder-compact-row-${B}`) || has(`folder-compact-body-${B}`)).toBe(true);
+    expect(has(`folder-compact-count-${B}`) || has(`folder-compact-body-${B}`)).toBe(true);
     expect(has(`folder-body-${A}`)).toBe(false);
   });
 
@@ -265,5 +270,114 @@ describe("folder banner safety chip survives compact folders (review B1)", () =>
     await waitFor(() => expect(fetchMock.mock.calls.some((c) => String(c[0]).includes(encodeURIComponent(B)))).toBe(true));
     await act(async () => {});
     expect(screen.queryByTestId(`folder-banner-chip-${B}`)).toBeNull();
+  });
+});
+
+// Compact-empty folder: the count lives in the header as a sibling button; there
+// is no second row. See change: sidebar-folder-ux (test-plan #S32–#S37, #F6).
+describe("compact-empty count button (#1134 slim cards)", () => {
+  const many = (n: number, over: Partial<DashboardSession> = {}) =>
+    Array.from({ length: n }, (_, i) => mk(`b${i}`, B, over));
+  const listWith = (n: number) => [mk("a1", A), ...many(n)];
+  const countBtn = (cwd = B) => screen.queryByTestId(`folder-compact-count-${cwd}`);
+
+  it.each([
+    [0, null],
+    [1, "1 session"],
+    [2, "2 sessions"],
+    [18, "18 sessions"],
+  ])("S32: N=%i → accessible name %s; sibling of the name link; no compact row", (n, name) => {
+    render(<Harness selectedId="a1" list={listWith(n)} extra={{ pinnedDirectories: [B] }} />);
+    expect(has(`folder-compact-row-${B}`)).toBe(false);
+    if (name === null) {
+      expect(countBtn()).toBeNull();
+      return;
+    }
+    const btn = countBtn()!;
+    expect(btn.tagName).toBe("BUTTON");
+    expect(btn.getAttribute("aria-label")).toBe(name);
+    expect(btn.textContent).toBe(String(n));
+    const link = screen.getByTestId(`folder-header-name-${B}`);
+    expect(link.getAttribute("role")).toBe("link");
+    expect(link.contains(btn)).toBe(false);
+  });
+
+  it("S33: the link's accessible name is the folder only; the count is painted --text-secondary, never --text-muted", () => {
+    render(<Harness selectedId="a1" list={listWith(18)} />);
+    const link = screen.getByTestId(`folder-header-name-${B}`);
+    expect(link.textContent).not.toMatch(/18/);
+    const cls = countBtn()!.className;
+    expect(cls).toContain("--text-secondary");
+    expect(cls).not.toContain("--text-muted");
+  });
+
+  it("S34: activating the count focuses the folder only — no collapse/pin change, no navigation, no select", () => {
+    const loc = memoryLocation({ path: "/", record: true });
+    const onSelect = vi.fn();
+    const onSetFolderCollapsed = vi.fn();
+    const onSetFolderExpanded = vi.fn();
+    render(
+      <Harness
+        selectedId="a1"
+        list={listWith(3)}
+        loc={loc}
+        onSelect={onSelect}
+        extra={{ onSetFolderCollapsed, onSetFolderExpanded }}
+      />,
+    );
+    const before = loc.history?.length;
+    fireEvent.click(countBtn()!);
+    expect(card("b0")).not.toBeNull(); // B is now the focused (full) folder
+    expect(onSetFolderCollapsed).not.toHaveBeenCalled();
+    expect(onSetFolderExpanded).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(loc.history?.length).toBe(before);
+  });
+
+  it("S35: Enter on the header name link focuses the folder AND opens the folder home", () => {
+    const loc = memoryLocation({ path: "/", record: true });
+    render(<Harness selectedId="a1" list={listWith(3)} loc={loc} />);
+    const before = loc.history?.length ?? 0;
+    fireEvent.keyDown(screen.getByTestId(`folder-header-name-${B}`), { key: "Enter" });
+    expect(card("b0")).not.toBeNull();
+    expect(loc.history?.length ?? 0).toBeGreaterThan(before);
+  });
+
+  it("S36: N counts post-hidden-filter sessions; an active search forces full (no count)", () => {
+    const list = [mk("a1", A), ...many(18), mk("h1", B, { hidden: true } as never), mk("h2", B, { hidden: true } as never)];
+    render(<Harness selectedId="a1" list={list} />);
+    expect(countBtn()!.textContent).toBe("18");
+    setSidebarSearch("sessions", "b1");
+    expect(countBtn()).toBeNull();
+  });
+
+  it("S37: compact-attention is header + attention cards only (no count, no row)", () => {
+    render(<Harness selectedId="a1" list={[mk("a1", A), mk("b1", B, { status: "streaming" }), mk("b2", B), mk("b3", B)]} />);
+    expect(card("b1")).not.toBeNull();
+    expect(card("b2")).toBeNull();
+    expect(has(`folder-compact-body-${B}`)).toBe(true);
+    expect(countBtn()).toBeNull();
+    expect(has(`folder-compact-row-${B}`)).toBe(false);
+    expect(has(`folder-group-by-row-${B}`)).toBe(false);
+  });
+
+  it("F6: mousedown / click / Space on the count never reach the header's own click handler", async () => {
+    const user = userEvent.setup();
+    const loc = memoryLocation({ path: "/", record: true });
+    render(<Harness selectedId="a1" list={listWith(3)} loc={loc} />);
+    const before = loc.history?.length ?? 0;
+    const btn = countBtn()!;
+    fireEvent.mouseDown(btn);
+    fireEvent.click(btn);
+    expect(loc.history?.length ?? 0).toBe(before);
+
+    cleanup();
+    const loc2 = memoryLocation({ path: "/", record: true });
+    render(<Harness selectedId="a1" list={listWith(3)} loc={loc2} />);
+    const before2 = loc2.history?.length ?? 0;
+    countBtn()!.focus();
+    await user.keyboard(" ");
+    expect(card("b0")).not.toBeNull(); // Space activated it (focus the folder)…
+    expect(loc2.history?.length ?? 0).toBe(before2); // …without navigating.
   });
 });

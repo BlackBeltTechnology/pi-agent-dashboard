@@ -192,3 +192,21 @@ describe("isProjectSetupOutdated", () => {
     expect(projectSetupLabel(st(false))).not.toContain("● update");
   });
 });
+
+// "Remove from sidebar" renders neutral; its severity lives in the confirm
+// dialog, not the menu row. See change: sidebar-folder-ux (test-plan #S43).
+describe("Remove from sidebar tone", () => {
+  it("has no data-action-tone while toned siblings keep theirs", () => {
+    const items: FolderMenuItem[] = [
+      { id: "remove-from-sidebar", group: "directory", label: "Remove from sidebar", icon: mdiPin, onSelect: vi.fn() },
+      { id: "remove-from-workspace", group: "workspace", label: "Remove from workspace", icon: mdiPin, onSelect: vi.fn() },
+      { id: "disable-team", group: "directory", label: "Disable team", icon: mdiPin, tone: "danger", onSelect: vi.fn() },
+    ];
+    render(<Harness items={items} />);
+    fireEvent.click(screen.getByTestId(`folder-actions-menu-${CWD}`));
+    const row = (id: string) => screen.getByTestId(`folder-menu-item-${id}`);
+    expect(row("remove-from-sidebar").hasAttribute("data-action-tone")).toBe(false);
+    expect(row("remove-from-workspace").hasAttribute("data-action-tone")).toBe(false);
+    expect(row("disable-team").getAttribute("data-action-tone")).toBe("danger");
+  });
+});
