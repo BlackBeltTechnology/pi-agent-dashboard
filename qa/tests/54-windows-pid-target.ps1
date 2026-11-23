@@ -10,6 +10,11 @@
 # test-plan #X85: the same legacy native pi under an UNATTENDED reclaim ->
 #   refused-identity, C7 alive.
 #
+# add-windows-process-identity: a WSL pid is now acted on ONLY inside its distro
+# (`verifyAndKillWsl`); this runner has no WSL distro, so the helper reports
+# `error` and the answer is still "not terminated" (force_kill success:false,
+# shutdown session_orphaned) with the same-numbered Windows process untouched.
+#
 # Runs the REAL handlers / terminator and REAL Windows primitives
 # (qa/tests/lib/pid-target-probe.ts), in the style of 45-windows-reclaim-refused.ps1.
 # See change: scope-pids-to-namespace.

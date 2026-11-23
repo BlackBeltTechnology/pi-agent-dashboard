@@ -7,7 +7,7 @@ name: Nightly tests
 # updates the single open `nightly-tests` issue naming the failing files, any
 # job with no report, and the develop range since the last green scheduled run
 # (the bisect range). A dispatch run reports in its summary only and never
-# anchors a range. Independent of the land-dark nightly.yml.
+# anchors a range. Independent of nightly.yml.
 #
 # Rerun once (change: stabilize-blocking-test-lanes, D7): the first attempt of a
 # red scheduled night writes `attempt-1.json` and defers the issue;

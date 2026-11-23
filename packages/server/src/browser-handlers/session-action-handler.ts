@@ -9,6 +9,7 @@ import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform
 import {
   killPidWithGroup,
   killProcess,
+  verifyAndKillWsl,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import {
   findPidByMarker,
@@ -1100,8 +1101,8 @@ export async function shutdownSession(
         `termination NOT verified. The session record is being released.`,
     );
   } else if (result.outcome === "not-local" && result.pid !== undefined) {
-    // The recorded pid lives in another pid namespace (remote origin, WSL, a
-    // container): nothing was signalled, so the removal is UNCONFIRMED — the
+    // The recorded pid lives in another pid namespace (remote origin, legacy WSL,
+    // a container): nothing was signalled, so the removal is UNCONFIRMED — the
     // same orphan signal as a survivor, with an honest log line.
     // See change: scope-pids-to-namespace.
     console.error(
@@ -1350,6 +1351,8 @@ export type ForceKillDeps = Pick<
   /** Test seams: the server's pid namespace and the resolver. See change: scope-pids-to-namespace. */
   pidContext?: ServerPidContext;
   resolvePidTarget?: typeof resolvePidTarget;
+  /** Test seam: WSL in-distribution kill. */
+  verifyAndKillWsl?: typeof verifyAndKillWsl;
 };
 
 /** Refusal text for a force-kill of a pid outside this host's namespace. */
@@ -1410,6 +1413,26 @@ export async function forceKillSession(
   const target = deps.resolvePidTarget
     ? deps.resolvePidTarget(session, ctxPid, ownEntryPid)
     : resolvePidTarget(session, ctxPid, ownEntryPid);
+  // A WSL target is killed INSIDE its distribution (no age check: an operator
+  // decision); the Windows table never sees the pid. See change: add-windows-process-identity.
+  if (target.kind === "wsl") {
+    sessionManager.update(sessionId, { closedReason: "manual" });
+    const r = await (deps.verifyAndKillWsl ?? verifyAndKillWsl)(pid, target.distro, { timeoutMs: 2000 });
+    if (r === "error" || r === "mismatch") {
+      // Not terminated: the stamp is withdrawn, the WebSocket stays open, the session stays live.
+      if (sessionManager.get(sessionId)?.status !== "ended") sessionManager.update(sessionId, { closedReason: undefined });
+      console.warn(`[dashboard] force_kill(${sessionId}): WSL kill of pid ${pid} in ${target.distro} returned ${r}`);
+      return { success: false, message: `Process not terminated: could not kill pid ${pid} inside WSL (${target.distro})` };
+    }
+    if (session.sessionFile && metaPersistence) {
+      metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: "manual" });
+    }
+    piGateway.closeSession(sessionId);
+    const endedAt = Date.now();
+    sessionManager.update(sessionId, { status: "ended", endedAt, closedReason: "manual" });
+    broadcast({ type: "session_updated", sessionId, updates: { status: "ended", endedAt, closedReason: "manual" } });
+    return { success: true, message: r === "absent" ? "Process already gone" : "Process terminated" };
+  }
   if (!operatorMaySignal(target, ctxPid)) {
     console.warn(`[dashboard] force_kill(${sessionId}): refused — pid ${pid} target ${target.kind} is not on this host`);
     return { success: false, message: FORCE_KILL_NOT_LOCAL_MESSAGE };

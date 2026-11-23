@@ -26,7 +26,7 @@ Computes `version`, `tag`, prerelease state, and the exact ref. It has no releas
 
 ### `ci-checks`
 
-Runs install, lint, full tests, and build on Node 22. A failure prevents tagging and publishing.
+Runs `pnpm install --frozen-lockfile`, `pnpm run lint`, `pnpm test` and `pnpm run build` on Node 26. `pnpm test` collects the full unit suite except the budget lane (`*.budget.test.*` needs `RUN_BUDGET_TESTS=1`, which the release path never sets; pinned by release-gate clause 6 in `publish-workflow-contract.test.ts`). A failure prevents tagging and publishing. The scheduled `nightly-tests.yml` (03:00 UTC, issue label `nightly-tests`) runs the same suite plus the budget lane on `develop`; the scheduled `nightly.yml` (04:13 UTC, issue label `nightly`) rehearses publish, install smoke and the Electron matrix. Neither runs on the commit `tag-and-push` creates.
 
 ### `smoke`
 
@@ -75,6 +75,11 @@ Needs the completed publish and Electron artifacts, then creates the GitHub Rele
 | DMG signing fails | `electron` | Apple certificate or signing secret is invalid | Renew the certificate or secret, then rerun the affected leg |
 | Linux maker or Docker build fails | `electron` | Linux packaging or `Dockerfile.build` regressed | Reproduce with `packages/electron/scripts/docker-make.sh` |
 | `builder-debug.yml` asset basename collision or release upload `404` | `github-release` | Several matrix legs produced the same debug filename | Preserve or expand the `Drop builder-debug logs (avoid asset basename collision)` step in `publish.yml` |
+| `ci-checks :: Run pnpm test` (wall-clock or memory budget assertion, flake) | `ci-checks` | Unit test failed on the tagged commit | Read the latest `nightly-tests.yml` run and its `nightly-tests` issue; the rehearsal (`nightly.yml`) does NOT catch this class: it runs no unit suite |
+| `ETARGET` / `E404` on publish or install right after publish | `publish`, `electron` | Registry propagation lag on the public registry | Re-run the failed job; the rehearsal does NOT catch it (loopback Verdaccio shows a version at once) |
+| `EALLOWREMOTE` in "Set version from resolved tag" | `publish` | `publish.yml`'s own `npm version … --workspaces` under `npm@latest` refuses the `xlsx` remote tarball (fixed in 60a155465: `npm pkg set`) | Keep `npm pkg set`; the rehearsal does NOT catch a defect in `publish.yml`'s own step text, only its own copies of the commands (`nightly.yml` `verify-publish`) |
+| `npm@latest` rejects `npm pkg set`, runtime-lock generation, or a per-package publish | `publish` | npm drift | `nightly.yml` `verify-publish` (ubuntu, `npm@latest`, loopback publish) fails first on `develop`; read its `nightly` issue |
+| `tar` / `EXDEV` on Windows | `runtime-asset` | Windows runtime-asset packaging | NOT rehearsed (change `rehearse-runtime-asset-matrix`) |
 | Release notes are empty | `github-release` | The versioned changelog section is missing or malformed | Repair the changelog section created by `tag-and-push` |
 | Release asset already exists | `github-release` | Tag/release state was reused | Inspect the existing release; do not overwrite blindly |
 

@@ -143,6 +143,32 @@ Emits `test-timings` artifact. Refresh `scripts/test-selection/timings.json` by 
 
 Trade-off: regression missed by selection surfaces in next nightly, not on the merge.
 
+## Nightly rehearsal reporter (`nightly.yml`)
+
+Reporter serves two workflows: `nightly-tests.yml` (default modes) and `nightly.yml` (`--jobs-only`). See change: schedule-release-rehearsal.
+`nightly.yml` `report` job: `node scripts/test-selection/nightly-report.mjs --jobs-only --no-close-on-rerun --label nightly --name "Nightly Verdaccio build"`.
+Flags:
+- `--jobs-only`: verdict from `NEEDS_JSON`. No reports, no `timings.json`, no bisect-anchor query.
+- `--label <label>`: issue label. Read only in jobs-only mode. Default `nightly-tests`.
+- `--name <text>`: name in step-summary heading, headline, issue title, close comment. Read only in jobs-only mode.
+- `--no-close-on-rerun`: re-run attempt never closes. Read only in jobs-only mode.
+Verdict:
+- Red: any needed job not `success`. `skipped` counts red.
+- Red: `NEEDS_JSON` unset, empty, invalid JSON, or empty object.
+- Failed-job list: `failure`, `cancelled`, `timed_out` from jobs API.
+`nightly` issue rules:
+- Scheduled, attempt 1, red: opens or updates the issue.
+- Scheduled, attempt 1, green: comments and closes the issue.
+- Scheduled, attempt >1, red: comments on open issue, or opens it if none. Body untouched.
+- Scheduled, attempt >1, green: no issue call. Step summary only.
+- Re-run never closes the issue.
+- Dispatch (`GITHUB_EVENT_NAME` not `schedule`): step summary only. No issue call.
+- Failed issue call: run summary `Issue call failed: <error>`, `::error::` annotation, exit 1.
+- Recover failed issue call: re-run the `report` job.
+- `nightly` label reserved for reporter. Open issue with that label adopted; closed on green.
+Platform assumption unverified: re-run of scheduled run keeps `GITHUB_EVENT_NAME` `schedule`.
+Check on first re-run after merge: `gh run view <id> --attempt 2 --json event` (design T-B18).
+
 ## Budget lane (`*.budget.test.*`)
 
 Timing / size / memory budget tests. Blocking runs must never collect them.
@@ -269,6 +295,8 @@ Inputs: `select` 15, `unit` 50, `real-process` 30, `ci-scenarios` 40, `budget` 1
 - `--previous <dir>`: dir holding `attempt-1.json`.
 - `--watchdog`: reads no reports; checks latest scheduled run.
 - `--dry-run`: with `--watchdog`, no issue write.
+- `--jobs-only`: `nightly.yml` `report` job. Verdict from `NEEDS_JSON`. Ignores all other mode flags.
+- `--label <label>`, `--name <text>`, `--no-close-on-rerun`: jobs-only mode only. See Nightly rehearsal reporter.
 - Usage error (missing `--reports`/`--expected`) → exit 1.
 - Env: `NEEDS_JSON`, `GITHUB_RUN_ATTEMPT`, `GITHUB_EVENT_NAME`, `GITHUB_STEP_SUMMARY`.
 

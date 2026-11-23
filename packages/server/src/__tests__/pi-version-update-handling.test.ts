@@ -92,10 +92,10 @@ describe("event-wiring: pi_version_update", () => {
   }, 20_000);
 
   // test-plan #X3 — a running legacy fork reports its real version (the
-  // scope-agnostic walk-up) and is flagged below the 1.5.0 floor, and so is a 1.3.0
-  // session; a 1.5.0 session is not. See changes: drop-mariozechner-pi-fork, update-pi-core-1-3-adopt-apis,
-  // update-pi-core-1-5-adopt-apis (test-plan #E2).
-  it("X3: a fork-version report (0.73.1) is flagged below the floor, as is 1.3.0; 1.5.0 is not", async () => {
+  // scope-agnostic walk-up) and is flagged below the 1.6.0 floor, and so is a 1.5.0
+  // session; a 1.6.0 session is not. See changes: drop-mariozechner-pi-fork, update-pi-core-1-3-adopt-apis,
+  // update-pi-core-1-6-adopt-apis (test-plan #E2).
+  it("X3: a fork-version report (0.73.1) is flagged below the floor, as is 1.5.0; 1.6.0 is not", async () => {
     const { createServer } = await import("../server.js");
     const server = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
@@ -107,7 +107,7 @@ describe("event-wiring: pi_version_update", () => {
     const minimum = JSON.parse(
       readFileSync(path.resolve(__dirname, "../../package.json"), "utf-8"),
     ).piCompatibility.minimum as string;
-    expect(minimum).toBe("1.5.0");
+    expect(minimum).toBe("1.6.0");
 
     const tmpDir = mkdtempSync(path.join(os.tmpdir(), "pi-ver-fork-"));
     const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
@@ -115,7 +115,7 @@ describe("event-wiring: pi_version_update", () => {
       ws.on("error", reject);
       ws.on("open", () => resolve());
     });
-    for (const [sid, version] of [["pv-fork", "0.73.1"], ["pv-old", "1.3.0"], ["pv-ok", "1.5.0"]] as const) {
+    for (const [sid, version] of [["pv-fork", "0.73.1"], ["pv-old", "1.5.0"], ["pv-ok", "1.6.0"]] as const) {
       const sessionFile = path.join(tmpDir, `${sid}.jsonl`);
       writeFileSync(sessionFile, "");
       ws.send(JSON.stringify({ type: "session_register", sessionId: sid, cwd: tmpDir, source: "tui", sessionFile }));
@@ -124,8 +124,8 @@ describe("event-wiring: pi_version_update", () => {
       await wait(80);
     }
     expect(server.sessionManager.get("pv-fork")?.piVersion).toBe("0.73.1");
-    expect(server.sessionManager.get("pv-fork")?.piBelowFloor).toEqual({ minimum: "1.5.0" });
-    expect(server.sessionManager.get("pv-old")?.piBelowFloor).toEqual({ minimum: "1.5.0" });
+    expect(server.sessionManager.get("pv-fork")?.piBelowFloor).toEqual({ minimum: "1.6.0" });
+    expect(server.sessionManager.get("pv-old")?.piBelowFloor).toEqual({ minimum: "1.6.0" });
     expect(server.sessionManager.get("pv-ok")?.piBelowFloor ?? null).toBeNull();
     ws.close();
   }, 20_000);

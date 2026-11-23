@@ -30,7 +30,11 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
-- **BREAKING: pi 1.5.0 is the new floor** (`piCompatibility.minimum` = `recommended` = `1.5.0`; every `@earendil-works` pi peer `>=1.5.0`, optional). A session on an older pi shows the below-floor warning: update with `npm install -g @earendil-works/pi-coding-agent@1.5.0`. The Docker image installs pi 1.5.0.
+- **BREAKING: pi 1.6.0 is the new floor and lockstep pin** (`piCompatibility.minimum` = `recommended` = `1.6.0`; every `@earendil-works` pi peer `>=1.6.0`, optional; devDeps `^1.6.0`). A session on pi below 1.6.0 shows the below-floor warning: update with `npm install -g @earendil-works/pi-coding-agent@1.6.0`. The Docker image installs pi 1.6.0.
+- **`cacheWarming` defaults to `"idle"`.** Unset dashboard setting now means `"idle"` (pi 1.5.1 default). Stored `"streaming"` stays valid.
+- **`!` command killed on timeout reports exit code 143.** pi 1.6.0 `pi.exec` returns 128+signal; was 0. Killed `!` commands now show as failed.
+- **Bulk `/reload` of a busy session is refused.** pi refuses `/reload` while the session streams or compacts: "Wait for the current response to finish before reloading." Shown as a `/reload` error.
+- **Bridge shutdown fallback 500 ms → 5 s.** `BRIDGE_SHUTDOWN_FALLBACK_MS` = 5000 so pi finishes its credential write before forced exit. Residual risks: `docs/architecture.md` § "Bridge shutdown fallback".
 - **Project trust follows pi 1.5's order.** A recorded `trust.json` entry (yes or no) now decides before implicit trust, also for a folder with no trust-requiring project resources; dashboard trust and `defaultProjectTrust` apply only to folders that have such resources. Recorded entries match as pi's `pathsEqual` does (resolved; case-insensitive on Windows) in the bridge's recorded-entry check, the resource toggle's own-folder check and the remote-trust digest's user-skills exclusion, so a refusal saved under different casing or a non-normalised key is no longer overridden.
 - **Settings form accepts `"disabled"` for `httpIdleTimeoutMs` and `websocketConnectTimeoutMs`.** A stored `"disabled"` (any casing, as pi parses it) shows as `0` and is kept unless you edit the row. `extensionChangelogVersions` (written by pi) joins the read-only managed list.
 - **`mcp.json` with a UTF-8 BOM is read like pi 1.4+ reads it**: the MCP page, the config writer, the Radius MCP offer and the blender / craft-apps `mcp --register` no longer report such a file as invalid JSON.
