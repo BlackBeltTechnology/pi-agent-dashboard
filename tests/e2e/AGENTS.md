@@ -36,9 +36,9 @@ One row per file.
 | `credential-vault-locked.spec.ts` | → `credential-vault-locked.spec.ts.AGENTS.md` |
 | `csp-report-sink-oauth.spec.ts` | WF5: report sink POST public to armed OAuth gate; GET / unknown label gated. → see `csp-report-sink-oauth.spec.ts.AGENTS.md` |
 | `csp-strict-enforce.spec.ts` | WF2/WF3/WF6/WF7 under `PI_DASHBOARD_CSP=enforce`: no `unsafe-*`, nonce == import-map nonce, inline-script… → see `csp-strict-enforce.spec.ts.AGENTS.md` |
-| `csp-strict-report.spec.ts` | WF1/WF4 in default `report` harness: zero strict `script-src*` violations on core + plugin routes; TT/inline-script report delivery on the unmodified response (no header rewrite). See change: harden-cors-and-csp-reporting, fix-csp-report-delivery. |
-| `csp-report-delivery.spec.ts` | F1 in default `report` harness: `/` carries `report-uri` only (no `report-to`, no `Reporting-Endpoints`); inline script moves `cspReports.counts.strict["script-src-elem"]`. See change: fix-csp-report-delivery. |
-| `editor-pane-chrome.spec.ts` | Editor-pane chrome L3 (pane bar, document bar, rail Search, bulk close, Search tabs: scope-anchor-editor-pane-controls F12–F17). `unsaved built-in buffer guard` describe: dirty tab ✕, sidebar session switch, pane ✕ / Chat segment / Close all, dialog keyboard + focus (#S59 #S60 #S62 #S79); scratch `guard-*.md` seeded via `docker exec`. Written, NOT run by the author. See change: fix-file-link-editor-routing. |
+| `csp-strict-report.spec.ts` | WF1/WF4 in default `report` harness: zero strict `script-src*` violations on core + plugin routes;… → see `csp-strict-report.spec.ts.AGENTS.md` |
+| `csp-report-delivery.spec.ts` | F1 in default `report` harness: `/` carries `report-uri` only (no `report-to`, no `Reporting-Endpoints`);… → see `csp-report-delivery.spec.ts.AGENTS.md` |
+| `editor-pane-chrome.spec.ts` | Editor-pane chrome L3 (pane bar, document bar, rail Search, bulk close, Search tabs:… → see `editor-pane-chrome.spec.ts.AGENTS.md` |
 | `editor-pane-file-handler.spec.ts` | → `editor-pane-file-handler.spec.ts.AGENTS.md` |
 | `electron-pages-trusted-types.spec.ts` | F6: Electron bundled pages (`file://`, stubbed preload bridges) render hostile data as text under the… → see `electron-pages-trusted-types.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | → `first-run-create-project.spec.ts.AGENTS.md` |
@@ -97,7 +97,7 @@ One row per file.
 | `browser-relay.spec.ts` | → `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | → `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | → `chat-attachment-two-phase.spec.ts.AGENTS.md` |
-| `chat-image-only-send.spec.ts` | #1136: directory home still needs text (image only → send disabled, no spawn, S63); chat image-only send via click and Enter (enabled, optimistic bubble shows the image, no empty text row, S17). See change: fix-input-state-consistency. |
+| `chat-image-only-send.spec.ts` | #1136: directory home still needs text (image only → send disabled, no spawn, S63); chat image-only send via… → see `chat-image-only-send.spec.ts.AGENTS.md` |
 | `chat-pane-below-floor-allocation.spec.ts` | → `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | → `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | → `chat-render-perf.spec.ts.AGENTS.md` |
@@ -319,9 +319,10 @@ One row per file.
 | `mcp-tiered-token.spec.ts` | → `mcp-tiered-token.spec.ts.AGENTS.md` |
 | `identity-matrix/` | → `identity-matrix.AGENTS.md` |
 | `card-block-toggles.spec.ts` | → `card-block-toggles.spec.ts.AGENTS.md` |
+| `card-sections-global-pointer.spec.ts` | → `card-sections-global-pointer.spec.ts.AGENTS.md` |
 | `card-visual-effects.spec.ts` | → `card-visual-effects.spec.ts.AGENTS.md` |
 | `focus-mode.spec.ts` | → `focus-mode.spec.ts.AGENTS.md` |
 | `folder-accordion.spec.ts` | → `folder-accordion.spec.ts.AGENTS.md` |
 | `untrusted-content-guard-posture.spec.ts` | → `untrusted-content-guard-posture.spec.ts.AGENTS.md` |
 | `untrusted-content-guard-project-layer.spec.ts` | → `untrusted-content-guard-project-layer.spec.ts.AGENTS.md` |
-| `prompt-draft-persistence.spec.ts` | #1117 prompt-answer drafts: Other text survives a session switch (S40), batch step+answers survive a reload (S43), card↔dialog share one draft (S49), second tab starts empty and localStorage stays clean (S55). Faux scenarios `ask-select-other`, `ask-batch-steps`. See change: fix-input-state-consistency. |
+| `prompt-draft-persistence.spec.ts` | #1117 prompt-answer drafts: Other text survives a session switch (S40), batch step+answers survive a reload… → see `prompt-draft-persistence.spec.ts.AGENTS.md` |

@@ -1163,7 +1163,6 @@ export function SessionCard({
       openPr: () => { void import("../worktree/worktree-runners.js").then((m) => m.runWorktreeOpenPr(session.cwd)).then(toastOutcome); },
       openUrl: (url) => { openExternalUrl(url); },
       openCardSections: () => navigate(buildFolderSettingsUrl(sectionFolderPath, "cards")),
-      openCardDefaults: () => navigate("/settings/general"),
     };
     return {
       working,
