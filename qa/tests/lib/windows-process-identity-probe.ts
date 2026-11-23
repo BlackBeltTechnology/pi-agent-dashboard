@@ -37,6 +37,26 @@ function emit(id: string, ok: boolean, detail: string): void {
   console.log(JSON.stringify({ case: id, ok, detail }));
 }
 
+/** Resolves with the first `n` whitespace-separated tokens of `child.stdout`, or rejects after `ms`. */
+function tokens(child: ChildProcess, n: number, ms = 30_000): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    let buf = "";
+    const timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms waiting for ${n} token(s); got ${JSON.stringify(buf)}`)), ms);
+    child.stdout?.on("data", (d) => {
+      buf += String(d);
+      const t = buf.trim().split(/\s+/).filter(Boolean);
+      if (t.length >= n) {
+        clearTimeout(timer);
+        resolve(t.slice(0, n));
+      }
+    });
+    child.once("exit", () => {
+      clearTimeout(timer);
+      reject(new Error(`child exited before ${n} token(s); got ${JSON.stringify(buf)}`));
+    });
+  });
+}
+
 const kids: ChildProcess[] = [];
 const NODE_IDLE = ["-e", "setInterval(()=>{},60000)"];
 async function startNode(args: string[] = NODE_IDLE): Promise<ChildProcess> {
@@ -81,7 +101,7 @@ async function windowsCases(): Promise<void> {
     "-e",
     "const c=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},60000)'],{stdio:'ignore'});console.log(c.pid);setInterval(()=>{},60000)",
   ]);
-  const childPid = Number(await new Promise<string>((r) => parent.stdout?.once("data", (d) => r(String(d).trim()))));
+  const childPid = Number((await tokens(parent, 1))[0]);
   const pStart = (await probeProcessStart(parent.pid as number, { kind: "host" })) as number;
   const tree = await verifyAndKillWindows(parent.pid as number, { maxStartMs: pStart + 2000, timeoutMs: 2000 });
   await sleep(500);
@@ -169,7 +189,7 @@ async function wslCases(): Promise<void> {
   const A = Date.now();
   const holder = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
   kids.push(holder);
-  const pid = Number(await new Promise<string>((r) => holder.stdout?.once("data", (d) => r(String(d).trim()))));
+  const pid = Number((await tokens(holder, 1))[0]);
   const B = Date.now();
   const probe = await probeProcessStart(pid, { kind: "wsl", distro: DISTRO });
   emit("E55", probe !== null && probe >= A - 1000 && probe <= B + 1000, `probe=${probe} A=${A} B=${B}`);
@@ -186,7 +206,7 @@ async function wslCases(): Promise<void> {
   execFileSync(WSL_EXE, ["-d", DISTRO, "--exec", "sh", "-c", "printf 'trap \"\" TERM\\nwhile :; do sleep 1; done\\n' > /tmp/qa-w.sh; printf 'echo $$\\nsh /tmp/qa-w.sh &\\necho $!\\nwait\\n' > /tmp/qa-l.sh"], { windowsHide: true });
   const lead = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "/tmp/qa-l.sh"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
   kids.push(lead);
-  const [L, W] = (await new Promise<string>((r) => { let buf = ""; lead.stdout?.on("data", (d) => { buf += String(d); if (buf.trim().split(/\s+/).length >= 2) r(buf); }); })).trim().split(/\s+/).map(Number);
+  const [L, W] = (await tokens(lead, 2)).map(Number);
   const t0 = Date.now();
   const k = await verifyAndKillWsl(L, DISTRO, { timeoutMs: 2000 });
   const elapsed = Date.now() - t0;
@@ -204,7 +224,7 @@ async function wslCases(): Promise<void> {
   // E59: a restarted distro (pid gone) reads absent; nothing on Windows is signalled.
   const h2 = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
   kids.push(h2);
-  const p2 = Number(await new Promise<string>((r) => h2.stdout?.once("data", (d) => r(String(d).trim()))));
+  const p2 = Number((await tokens(h2, 1))[0]);
   execFileSync(WSL_EXE, ["--terminate", DISTRO], { windowsHide: true });
   const after = await wslLiveness(p2, DISTRO);
   const killAfter = await verifyAndKillWsl(p2, DISTRO, { minAgeMs: 0, timeoutMs: 2000 });
@@ -214,7 +234,7 @@ async function wslCases(): Promise<void> {
   const lat: number[] = [];
   const live = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
   kids.push(live);
-  const lp = Number(await new Promise<string>((r) => live.stdout?.once("data", (d) => r(String(d).trim()))));
+  const lp = Number((await tokens(live, 1))[0]);
   for (let i = 0; i < 20; i++) {
     const t = Date.now();
     await wslLiveness(lp, DISTRO);
@@ -223,10 +243,26 @@ async function wslCases(): Promise<void> {
   emit("P5", Math.max(...lat) < 10_000, `max=${Math.max(...lat)}ms median=${lat.sort((x, y) => x - y)[10]}ms`);
 }
 
+// Hard watchdog: a hung case must fail the run with a verdict, never hang the CI job.
+const watchdog = setTimeout(() => {
+  emit("watchdog", false, "driver exceeded 15 minutes");
+  process.exit(1);
+}, 15 * 60_000);
+
+async function group(id: string, run: () => Promise<void>): Promise<void> {
+  console.error(`[53] ${id} group start`);
+  try {
+    await run();
+  } catch (err) {
+    emit(id, false, err instanceof Error ? (err.stack ?? err.message) : String(err));
+  }
+  console.error(`[53] ${id} group done`);
+}
+
 try {
   if (process.platform !== "win32") throw new Error("windows-process-identity-probe runs on win32 only"); // platform-branch-ok
-  await windowsCases();
-  if (DISTRO) await wslCases();
+  await group("windows", windowsCases);
+  if (DISTRO) await group("wsl", wslCases);
   else console.log(JSON.stringify({ case: "WSL", ok: true, detail: "QA_WSL_DISTRO unset: WSL cases skipped" }));
 } catch (err) {
   emit("driver", false, err instanceof Error ? (err.stack ?? err.message) : String(err));
@@ -239,4 +275,5 @@ try {
     }
   }
 }
+clearTimeout(watchdog);
 process.exit(failed ? 1 : 0);

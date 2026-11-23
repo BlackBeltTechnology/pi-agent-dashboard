@@ -37,6 +37,7 @@ jobs:
   windows:
     name: process identity (windows-latest + WSL)
     runs-on: windows-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     env:
