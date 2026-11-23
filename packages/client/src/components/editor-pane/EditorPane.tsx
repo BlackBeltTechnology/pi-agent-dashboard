@@ -326,6 +326,7 @@ export function EditorPane() {
       reloadNonce: activeTab.reloadNonce,
       updatedByAgent: activeTab.updatedByAgent,
       htmlMode: activeTab.htmlMode,
+      opener: activeTab.opener,
       readOnly: sourceTab ? true : undefined,
     };
     // Plugin tabs render through PluginTabHost (claim by prefix, richer

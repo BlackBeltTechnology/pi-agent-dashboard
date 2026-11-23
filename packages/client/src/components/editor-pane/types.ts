@@ -5,6 +5,7 @@
  * See change: add-internal-monaco-editor-pane.
  */
 import type { FileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import type { UrlOpener } from "../../lib/layout/editor-pane-state.js";
 
 export interface ViewerProps {
   /** Absolute session working directory. */
@@ -32,6 +33,8 @@ export interface ViewerProps {
   updatedByAgent?: boolean;
   /** HTML file tabs: seed the Scripts ⇄ Static toggle at Static. See change: rich-chat-links (D10). */
   htmlMode?: "static";
+  /** `url:` tabs: who opened the tab; only `operator-click` lets the web page renderer probe by itself. In-memory only. */
+  opener?: UrlOpener;
   /** `source:<abs>` tab: show the file strictly read-only (no edit / save affordance). */
   readOnly?: boolean;
 }

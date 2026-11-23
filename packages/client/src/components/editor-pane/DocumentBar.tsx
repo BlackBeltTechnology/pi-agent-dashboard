@@ -14,7 +14,9 @@ import { Icon } from "@mdi/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
+import { dispatchPreview } from "../../lib/preview/preview-dispatch.js";
 import { copyText } from "../../lib/util/clipboard.js";
+import { EmbeddedFromLabel } from "../preview/WebPagePreview.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { FileModeSwitcher } from "./file-handler/FileModeSwitcher.js";
 import type { FileHandlerClaim } from "./file-handler/file-handler-claims.js";
@@ -212,6 +214,7 @@ export function DocumentBar(props: DocumentBarProps) {
         <span className="min-w-0 flex-1 truncate px-1 text-xs text-[var(--text-secondary)]" title={url}>
           {url}
         </span>
+        {dispatchPreview({ kind: "url", url }) === "webpage" && <EmbeddedFromLabel url={url} />}
         <TabActions target={{ kind: "url", url }} systemOpen={systemOpen} platform={platform} />
       </div>
     );

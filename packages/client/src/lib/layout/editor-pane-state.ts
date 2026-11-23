@@ -508,7 +508,11 @@ export function loadEditorPaneState(sessionId: string): EditorPaneState {
     // it, so such a tab loads opted out once (design D4).
     return {
       ...parsed,
-      openFiles: parsed.openFiles.map((f) => (f.autoOpened === undefined ? { ...f, autoOpened: f.restrictCsp === true } : f)),
+      openFiles: parsed.openFiles.map((f) => {
+        // `opener` is never restored (in-memory only), even from a hand-edited blob (rich-chat-links D11).
+        const { opener: _opener, ...rest } = f;
+        return rest.autoOpened === undefined ? { ...rest, autoOpened: rest.restrictCsp === true } : rest;
+      }),
     };
   } catch (err) {
     console.error(`[editor-pane] failed to read state for session ${sessionId}`, err);

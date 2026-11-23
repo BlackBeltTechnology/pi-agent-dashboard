@@ -13,3 +13,5 @@ See change: add-editor-pane-file-handlers — `OpenFile.handlerMode?: "<pluginId
 Actions `closeTabs {paths}` (path-keyed; active survives, else nearest right then left; operator reactivation; unknown paths → same state object) and `expandTreeRoots {relPaths}` (expand-only merge). Persisted shape unchanged. See change: scope-anchor-editor-pane-controls (D5, D11).
 
 `OpenFile` gains `opener?: UrlOpener` (in-memory only: `saveEditorPaneState` strips it) and `htmlMode?: "static"`; `openFile` action takes both (`applyOpenOptions`): `operator-click` upgrades + bumps `reloadNonce`, `agent` never downgrades, `htmlMode` also switches an already-open tab. See change: rich-chat-links (D7/D10/D11).
+
+`loadEditorPaneState` also drops any `opener` found in a stored blob (a hand-edited blob cannot smuggle one in); a restored `url:` tab always mounts as the `WebPagePreview` card with no request. See change: rich-chat-links (D11, task 8.5).

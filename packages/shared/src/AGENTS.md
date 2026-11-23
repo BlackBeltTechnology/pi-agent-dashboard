@@ -132,6 +132,7 @@ Files in this directory. One row per source file.
 | `redaction.ts` | `REDACTION_PATTERNS_V1`, `REDACTION_VERSION`, `redactSecrets`. → see `redaction.ts.AGENTS.md` |
 | `recommended-extensions.ts` | Curated manifest of recommended pi extensions. `RecommendedExtension` (id, source, displayName, status,…). → see `recommended-extensions.ts.AGENTS.md` |
 | `remote-credentials.ts` | `stripRemoteCredentials(raw)`: http(s) ⇒ drop all userinfo; other `scheme://user:pass@host` ⇒ drop password,… → see `remote-credentials.ts.AGENTS.md` |
+| `renderer-by-ext.ts` | → see `renderer-by-ext.ts.AGENTS.md` |
 | `rest-api.ts` | REST endpoint request/response types. Sessions, events, spawn, file read/write (`FileWriteRequest` mtime… →… → see `rest-api.ts.AGENTS.md` |
 | `role-config-disk.ts` | Node-only `readRoleConfigFromDisk(home?)` + `providersJsonPath`; total — missing/garbled `providers.json` →… → see `role-config-disk.ts.AGENTS.md` |
 | `role-name-validation.ts` | Shared role-name trust boundary. `isValidRoleName(name, existing) → {ok, reason?}`: non-empty after trim;… → see `role-name-validation.ts.AGENTS.md` |
