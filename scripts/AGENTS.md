@@ -13,7 +13,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection vi… → see `__tests__/check-kb-dist-fresh.test.mjs.AGENTS.md` |
 | `__tests__/check-mockups.test.mjs` | → `__tests__/check-mockups.test.mjs.AGENTS.md` |
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations`, `emptyFilterViolations` and `main` directly… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
-| `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + r… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
+| `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` CLI on tmp `packages/*` trees (test-plan #E1–#E8) + r… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
 | `__tests__/client-sinks.test.mjs` | `check-client-sinks.mjs` tests. See change: harden-client-sinks. |
 | `__tests__/discord-release-announce.test.mjs` | → see `__tests__/discord-release-announce.test.mjs.AGENTS.md` |
 | `__tests__/e2e-canary-seed.test.mjs` | → see `__tests__/e2e-canary-seed.test.mjs.AGENTS.md` |
@@ -43,12 +43,12 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/fixtures/codeql-resolve-extensions.json` | → `__tests__/fixtures/codeql-resolve-extensions.json.AGENTS.md` |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
 | `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL… → see `__tests__/fixtures/fake-codeql.mjs.AGENTS.md` |
-| `__tests__/fixtures/fake-gh.mjs` | Fake `gh` (`PI_CODEQL_GH_BIN` seam). Plan `$FAKE_GH_PLAN` `{log, alerts, exit, stderr, sleepMs}`; logs argv first. See change: codeql-model-pack-and-mirror. |
+| `__tests__/fixtures/fake-gh.mjs` | Fake `gh` (`PI_CODEQL_GH_BIN` seam), driven by `$FAKE_GH_PLAN`. See change: codeql-model-pack-and-mirror. |
 | `__tests__/fixtures/gh-code-scanning-alert.json` | Recorded real `gh api …/code-scanning/alerts/464` (trimmed); base of `ghAlert()`. See change: codeql-model-pack-and-mirror. |
 | `__tests__/fixtures/mutation-journal-child.mjs` | Child-process fixture for the mutation-journal crash-safety tests. → see `__tests__/fixtures/mutation-journal-child.mjs.AGENTS.md` |
 | `__tests__/fixtures/npm-view-stub.mjs` | Gate CLI npm-view stub. → see `__tests__/fixtures/npm-view-stub.mjs.AGENTS.md` |
 | `__tests__/helpers/ensure-dashboard-harness.mjs` | `makeCtx()` sandbox for the bootstrap tests: temp HOME, logging stub executables, fixture/pid helpers, async `run()`. |
-| `__tests__/helpers/fixture-dashboard-server.mjs` | Standalone fixture `/api/health` server (modes dashboard/wrong-pid/no-pid/recovery/foreign-html/hung); delayed bind, optional lock-meta write. |
+| `__tests__/helpers/fixture-dashboard-server.mjs` | Standalone fixture `/api/health` server (modes dashboard/wrong-pid/no-pid/recovery/foreign-html/hung). |
 | `__tests__/merge-latest-mac.test.mjs` | Covers test-plan U6 for `merge-latest-mac.py`: the `minimu… → see `__tests__/merge-latest-mac.test.mjs.AGENTS.md` |
 | `__tests__/qa-pack-fixture-plugin.test.mjs` | Tests `qa/scripts/pack-fixture-plugin.mjs`. |
 | `__tests__/qa-dist-only-scripts.test.mjs` | Guards QA 47–51, #E103. → `__tests__/qa-dist-only-scripts.test.mjs.AGENTS.md` |
@@ -73,11 +73,11 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/knip-scan.test.mjs` | Live Knip scan assertions. → see `__tests__/knip-scan.test.mjs.AGENTS.md` |
 | `__tests__/knip-scan.budget.test.mjs` | Knip scan time budget. → see `__tests__/knip-scan.budget.test.mjs.AGENTS.md` |
 | `__tests__/mutation-journal.test.mjs` | Vitest crash-safety tests for the mutation-harness journal (test-plan #E1-#E8, #X1-#X13). → see `__tests__/mutation-journal.test.mjs.AGENTS.md` |
-| `__tests__/nightly-verdaccio-publish-standalone.budget.test.mjs` | Standalone nightly publish run. → see `__tests__/nightly-verdaccio-publish-standalone.budget.test.mjs.AGENTS.md` |
+| `__tests__/nightly-verdaccio-publish-standalone.budget.test.mjs` | Real-run budget test. → see `__tests__/nightly-verdaccio-publish-standalone.budget.test.mjs.AGENTS.md` |
 | `__tests__/nightly-verdaccio-publish.test.mjs` | Vitest unit tests for scripts/nightly-verdaccio-publish.mj… → see `__tests__/nightly-verdaccio-publish.test.mjs.AGENTS.md` |
 | `__tests__/qa-smoke-guards.test.mjs` | Fault-injects the clean-prefix QA smoke (`qa/tests/35-plugin-install-load.sh`) by stubbing… → see `__tests__/qa-smoke-guards.test.mjs.AGENTS.md` |
 | `__tests__/prune-memory-backups.test.mjs` | Pins `planPrune` selection + `prune` IO for the hermes store trim. → see `__tests__/prune-memory-backups.test.mjs.AGENTS.md` |
-| `__tests__/rebuild-scripts-gate.test.mjs` | X5 fault injection: both `rebuild-restart.sh` and `rebuild-and-restart.sh` run the se… → see `__tests__/rebuild-scripts-gate.test.mjs.AGENTS.md` |
+| `__tests__/rebuild-scripts-gate.test.mjs` | X5 fault injection: `rebuild-restart.sh` + `rebuild-and-restart.sh` run the se… → see `__tests__/rebuild-scripts-gate.test.mjs.AGENTS.md` |
 | `__tests__/repair-meta-source.test.mjs` | Vitest unit tests for repair-meta-source.mjs. Asserts source:"dashboard" → cleaned (o… → see `__tests__/repair-meta-source.test.mjs.AGENTS.md` |
 | `__tests__/review-changes-parser.test.mjs` | Vitest unit tests for parseFindings + splitFindings (.pi/s… → see `__tests__/review-changes-parser.test.mjs.AGENTS.md` |
 | `__tests__/settings-kit-guard.test.mjs` | Settings-kit ratchet tests: per-kind counts + negatives (#… → see `__tests__/settings-kit-guard.test.mjs.AGENTS.md` |
@@ -123,13 +123,13 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `check-kb-dist-fresh.mjs` | CI gate (ci.yml, ship-it 4.4-adjacent): recomputes kb srcHash+tsconfigHash vs the committed… → see `check-kb-dist-fresh.mjs.AGENTS.md` |
 | `check-loader-neutral-source.mjs` | Loader-neutral source gate (AST; server scope). → see `check-loader-neutral-source.mjs.AGENTS.md` |
 | `check-mockups.mjs` | → `check-mockups.mjs.AGENTS.md` |
-| `check-pi-settings-paths.mjs` | Guard, run by ci.yml: no machine-specific absolute path and no empty resource filter in a committed `.pi/settings.json`… → see `check-pi-settings-paths.mjs.AGENTS.md` |
+| `check-pi-settings-paths.mjs` | Guard, run by ci.yml: no machine-specific path or empty resource filter in committed `.pi/settings.json`… → see `check-pi-settings-paths.mjs.AGENTS.md` |
 | `check-plugin-boundary.mjs` | Core/plugin import ratchet for `ship-it` step 4.4 + `npm run… → see `check-plugin-boundary.mjs.AGENTS.md` |
 | `codeql-anchor/plugin-routes.mjs` | → `codeql-anchor/plugin-routes.mjs.AGENTS.md` |
 | `host-api-surface.mjs` | Host API surface snapshot + bump gate. `--write` regenerates… → see `host-api-surface.mjs.AGENTS.md` |
 | `check-skill-frontmatter.mjs` | Skill frontmatter guard, run by ci.yml. Exit non-zero iff >=1 error; warnings never fail. → see `check-skill-frontmatter.mjs.AGENTS.md` |
 | `check-vendor-specifiers.mjs` | Static specifier guard for the vendored relay: every import under `relay/vendor/` mus… → see `check-vendor-specifiers.mjs.AGENTS.md` |
-| `codeql-local.mjs` | Local CodeQL ratchet, `ship-it` 4.4b: snapshot → analyse → baseline ratchet (`codeql-baseline.json`); `PI_CODEQL_RESOLVE_TIMEOUT_MS`. → see `codeql-local.mjs.AGENTS.md` |
+| `codeql-local.mjs` | Local CodeQL ratchet, `ship-it` 4.4b: snapshot → analyse → baseline ratchet (`codeql-baseline.json`). → see `codeql-local.mjs.AGENTS.md` |
 | `commit-windows-parity.sh` | Stages and commits fix-windows-server-parity + consolidate-platform-handlers… → see `commit-windows-parity.sh.AGENTS.md` |
 | `discord-release-announce.mjs` | Full release notes → Discord webhook. → see `discord-release-announce.mjs.AGENTS.md` |
 | `dox-byte-gate.mjs` | AGENTS.md byte-cap gate for `ship-it` step 4.4. Filters `kb dox lint --json` to `kind:"over-threshold"` +… → see `dox-byte-gate.mjs.AGENTS.md` |
