@@ -40,39 +40,43 @@ function schemeMatches(sourceScheme: string, ancestorScheme: string): boolean {
   );
 }
 
+/** `'self'`: the ancestor must be same-origin with the framed target (scheme-upgrade aware). */
+function selfMatches(ancestor: URL, target: URL): boolean {
+  return (
+    schemeMatches(target.protocol, ancestor.protocol) &&
+    ancestor.hostname === target.hostname &&
+    portOf(ancestor) === portOf(target)
+  );
+}
+
+/** Host part of a host-source: `*`, `*.suffix` or an exact hostname. */
+function hostPartMatches(host: string, ancestor: URL): boolean {
+  if (host === "*") return true; // any host
+  if (host.startsWith("*.")) return ancestor.hostname.endsWith(host.slice(1));
+  return ancestor.hostname === host;
+}
+
+/** host-source: [scheme "://"] host [":" port] [path] */
+function hostSourceMatches(lower: string, ancestor: URL, target: URL): boolean {
+  const m = lower.match(/^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|\*\.[^/:]+|[^/:*]+)(?::(\*|\d+))?(?:\/.*)?$/);
+  if (!m) return false;
+  const [, scheme, host, port] = m;
+  const sourceScheme = scheme ? `${scheme}:` : target.protocol;
+  if (!schemeMatches(sourceScheme, ancestor.protocol)) return false;
+  if (!hostPartMatches(host, ancestor)) return false;
+  if (port === "*") return true;
+  return (port ?? DEFAULT_PORTS[ancestor.protocol] ?? "") === portOf(ancestor);
+}
+
 /** Does one `frame-ancestors` source expression match the ancestor? */
 function sourceMatches(source: string, ancestor: URL, target: URL): boolean {
   const lower = source.toLowerCase();
   if (lower === "'none'") return false;
-  if (lower === "'self'") {
-    return (
-      schemeMatches(target.protocol, ancestor.protocol) &&
-      ancestor.hostname === target.hostname &&
-      portOf(ancestor) === portOf(target)
-    );
-  }
+  if (lower === "'self'") return selfMatches(ancestor, target);
   if (lower.startsWith("'")) return false; // nonce/hash/unsafe-* keywords never match an ancestor
   if (lower === "*") return NETWORK_SCHEMES.has(ancestor.protocol);
   if (/^[a-z][a-z0-9+.-]*:$/.test(lower)) return schemeMatches(lower, ancestor.protocol);
-
-  // host-source: [scheme "://"] host [":" port] [path]
-  const m = lower.match(/^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|\*\.[^/:]+|[^/:*]+)(?::(\*|\d+))?(?:\/.*)?$/);
-  if (!m) return false;
-  const [, scheme, host, port] = m;
-  if (scheme) {
-    if (!schemeMatches(`${scheme}:`, ancestor.protocol)) return false;
-  } else if (!schemeMatches(target.protocol, ancestor.protocol)) {
-    return false;
-  }
-  if (host === "*") {
-    // any host
-  } else if (host.startsWith("*.")) {
-    if (!ancestor.hostname.endsWith(host.slice(1))) return false;
-  } else if (ancestor.hostname !== host) {
-    return false;
-  }
-  if (port === "*") return true;
-  return (port ?? DEFAULT_PORTS[ancestor.protocol] ?? "") === portOf(ancestor);
+  return hostSourceMatches(lower, ancestor, target);
 }
 
 /** Every policy carrying `frame-ancestors`; null when none does. Each must admit the ancestor. */

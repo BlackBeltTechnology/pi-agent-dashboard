@@ -35,6 +35,25 @@ export interface BatchResult {
 /** `items` holds at most {@link MAX_BATCH_ITEMS} entries; `total` is the request's full item count (the rest are answered `unknown`). */
 export type BatchParse = { ok: true; cwd: string; items: BatchItem[]; total: number } | { ok: false; error: string };
 
+type ItemParse = { ok: true; item: BatchItem } | { ok: false; error: string };
+
+/** Validate one untrusted item: shape first, then the bound on every string field. */
+function parseBatchItem(raw: unknown): ItemParse {
+  if (typeof raw !== "object" || raw === null) return { ok: false, error: "each item must be an object" };
+  const { mention, toolCwd, reRooted } = raw as Record<string, unknown>;
+  if (typeof mention !== "string") return { ok: false, error: "each item needs a string mention" };
+  for (const field of [mention, toolCwd, reRooted]) {
+    if (field !== undefined && typeof field !== "string") return { ok: false, error: "toolCwd and reRooted must be strings" };
+    if (typeof field === "string" && field.length > MAX_FIELD_CHARS) {
+      return { ok: false, error: `a field exceeds ${MAX_FIELD_CHARS} characters` };
+    }
+  }
+  return {
+    ok: true,
+    item: { mention, ...(toolCwd ? { toolCwd: toolCwd as string } : {}), ...(reRooted ? { reRooted: reRooted as string } : {}) },
+  };
+}
+
 /**
  * Validate the untrusted body. Every string field of every item is bounded, including items past the
  * cap — but those are only checked, never materialised (a 512 KB body of tiny items stays cheap).
@@ -46,19 +65,9 @@ export function parseBatchBody(body: unknown): BatchParse {
   const items: BatchItem[] = [];
   const raws = b.items as unknown[];
   for (let i = 0; i < raws.length; i++) {
-    const raw = raws[i];
-    if (typeof raw !== "object" || raw === null) return { ok: false, error: "each item must be an object" };
-    const { mention, toolCwd, reRooted } = raw as Record<string, unknown>;
-    if (typeof mention !== "string") return { ok: false, error: "each item needs a string mention" };
-    for (const field of [mention, toolCwd, reRooted]) {
-      if (field !== undefined && typeof field !== "string") return { ok: false, error: "toolCwd and reRooted must be strings" };
-      if (typeof field === "string" && field.length > MAX_FIELD_CHARS) {
-        return { ok: false, error: `a field exceeds ${MAX_FIELD_CHARS} characters` };
-      }
-    }
-    if (i < MAX_BATCH_ITEMS) {
-      items.push({ mention, ...(toolCwd ? { toolCwd: toolCwd as string } : {}), ...(reRooted ? { reRooted: reRooted as string } : {}) });
-    }
+    const parsed = parseBatchItem(raws[i]);
+    if (!parsed.ok) return parsed;
+    if (i < MAX_BATCH_ITEMS) items.push(parsed.item);
   }
   return { ok: true, cwd: b.cwd, items, total: raws.length };
 }

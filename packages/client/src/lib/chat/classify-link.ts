@@ -83,25 +83,23 @@ const safeDecode = (s: string): string => {
   }
 };
 
+/** `owner/repo#n`, `owner/repo: file` or `owner/repo` for a GitHub/GitLab-shaped path. */
+function gitHostLabel(itemRe: RegExp, fileRe: RegExp, pathname: string): string | null {
+  const item = itemRe.exec(pathname);
+  if (item) return `${item[1]}/${item[2]}#${item[3]}`;
+  const file = fileRe.exec(pathname);
+  if (file) return `${file[1]}/${file[2]}: ${file[3]}`;
+  const repo = GITHUB_REPO.exec(pathname);
+  return repo ? `${repo[1]}/${repo[2]}` : null;
+}
+
 /** Short label for a recognised shape, or `null` to keep the URL text. */
 function shortLabel(provider: LinkProvider, host: string, pathname: string): string | null {
   switch (provider) {
-    case "github": {
-      const item = GITHUB_ITEM.exec(pathname);
-      if (item) return `${item[1]}/${item[2]}#${item[3]}`;
-      const file = GITHUB_FILE.exec(pathname);
-      if (file) return `${file[1]}/${file[2]}: ${file[3]}`;
-      const repo = GITHUB_REPO.exec(pathname);
-      return repo ? `${repo[1]}/${repo[2]}` : null;
-    }
-    case "gitlab": {
-      const item = GITLAB_ITEM.exec(pathname);
-      if (item) return `${item[1]}/${item[2]}#${item[3]}`;
-      const file = GITLAB_FILE.exec(pathname);
-      if (file) return `${file[1]}/${file[2]}: ${file[3]}`;
-      const repo = GITHUB_REPO.exec(pathname);
-      return repo ? `${repo[1]}/${repo[2]}` : null;
-    }
+    case "github":
+      return gitHostLabel(GITHUB_ITEM, GITHUB_FILE, pathname);
+    case "gitlab":
+      return gitHostLabel(GITLAB_ITEM, GITLAB_FILE, pathname);
     case "jira": {
       const key = JIRA_BROWSE.exec(pathname);
       return key ? `${key[1]} (${host.slice(0, -".atlassian.net".length)})` : null;
@@ -113,6 +111,12 @@ function shortLabel(provider: LinkProvider, host: string, pathname: string): str
     default:
       return null;
   }
+}
+
+/** Provider for a (lower-cased, non-loopback) host + path, or `undefined` when unrecognised. */
+function detectProvider(host: string, pathname: string): LinkProvider | undefined {
+  if (matchesHost(host, "atlassian.net") && host !== "atlassian.net" && JIRA_BROWSE.test(pathname)) return "jira";
+  return HOST_TABLE.find(([base]) => matchesHost(host, base))?.[1];
 }
 
 function generic(input: string): LinkClassification {
@@ -127,12 +131,7 @@ export function classifyLink(url: string): LinkClassification {
     const host = parsed.hostname.toLowerCase();
     if (isLoopback(host)) return { provider: "local", icon: ICONS.local, label: url };
 
-    let provider: LinkProvider | undefined;
-    if (matchesHost(host, "atlassian.net") && host !== "atlassian.net" && JIRA_BROWSE.test(parsed.pathname)) {
-      provider = "jira";
-    } else {
-      provider = HOST_TABLE.find(([base]) => matchesHost(host, base))?.[1];
-    }
+    const provider = detectProvider(host, parsed.pathname);
     if (!provider) return generic(url);
     return { provider, icon: ICONS[provider], label: shortLabel(provider, host, parsed.pathname) ?? url };
   } catch {

@@ -22,20 +22,23 @@ function asNonEmptyString(v: unknown): string | undefined {
   return typeof v === "string" && v !== "" ? v : undefined;
 }
 
+/** Apply one path segment to `out`: skip `.`/empty, pop on `..` (keeping leading `..` for relative paths). */
+function applySegment(out: string[], seg: string, abs: boolean): void {
+  if (seg === "" || seg === ".") return;
+  if (seg !== "..") {
+    out.push(seg);
+    return;
+  }
+  if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
+  else if (!abs) out.push("..");
+}
+
 /** Join `rel` onto `base` (POSIX), collapsing `.` and `..`; an absolute `rel` wins. */
 function resolveAgainst(base: string | undefined, rel: string): string {
   if (rel.startsWith("/") || base === undefined) return rel;
   const abs = base.startsWith("/");
   const out: string[] = [];
-  for (const seg of `${base}/${rel}`.split("/")) {
-    if (seg === "" || seg === ".") continue;
-    if (seg === "..") {
-      if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
-      else if (!abs) out.push("..");
-      continue;
-    }
-    out.push(seg);
-  }
+  for (const seg of `${base}/${rel}`.split("/")) applySegment(out, seg, abs);
   return (abs ? "/" : "") + out.join("/") || (abs ? "/" : ".");
 }
 

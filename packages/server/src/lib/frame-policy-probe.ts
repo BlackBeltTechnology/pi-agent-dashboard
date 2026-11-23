@@ -172,80 +172,136 @@ function head(
   });
 }
 
+/** Everything a probe's hops share: seams, the deadline signal and its rejecting promise. */
+interface ProbeEnv {
+  deps: ProbeDeps;
+  dashboardOrigin: string;
+  lookup: (hostname: string) => Promise<ResolvedAddress[]>;
+  gate: LookupGate;
+  request: ProbeRequestFn;
+  signal: AbortSignal;
+  /** Rejects when the overall deadline fires. */
+  aborted: Promise<never>;
+}
+
+/** A hop either ends the probe with a verdict or continues to the next (vetted-later) URL. */
+type HopOutcome = { verdict: ProbeVerdict } | { next: URL };
+
+const ineligible: HopOutcome = { verdict: "ineligible" };
+
+/**
+ * Addresses for `host`: a literal IP is taken as-is, a name goes through the (gated) lookup.
+ * `"busy"` = the lookup gate is full (transient); `null` = the lookup failed or the deadline hit.
+ */
+async function resolveAddresses(host: string, env: ProbeEnv): Promise<ResolvedAddress[] | "busy" | null> {
+  try {
+    const ipFamily = net.isIP(host);
+    if (ipFamily) return [{ address: host, family: ipFamily }];
+    // Held until the lookup settles, however the probe ends. Over the cap: no lookup, transient.
+    const release = env.gate.tryAcquire();
+    if (!release) return "busy";
+    const pending = (async () => env.lookup(host))();
+    pending.then(release, release);
+    return await Promise.race([pending, env.aborted]);
+  } catch {
+    return null;
+  }
+}
+
+/** The `Location` of a followable redirect response, or null when this is not one. */
+function redirectLocation(res: FinalResponse): string | null {
+  const location = res.headers.location;
+  return REDIRECT_STATUSES.has(res.status) && typeof location === "string" && location ? location : null;
+}
+
+function resolveRedirect(location: string, base: URL): URL | null {
+  try {
+    return new URL(location, base);
+  } catch {
+    return null;
+  }
+}
+
+/** One full-vetted hop: vet, resolve, pin, HEAD, then a verdict or the redirect target. */
+async function probeHop(url: URL, state: { hops: number }, env: ProbeEnv): Promise<HopOutcome> {
+  const canon = vetTarget(url, env.deps, env.dashboardOrigin);
+  if (!canon) return ineligible;
+  const addresses = await resolveAddresses(bareHost(url), env);
+  if (addresses === "busy") return { verdict: "undetermined" };
+  if (!addresses || addresses.length === 0 || !addresses.every((a) => isPublicUnicastAddress(a.address))) {
+    return ineligible;
+  }
+  state.hops++;
+  let res: FinalResponse;
+  try {
+    res = await Promise.race([head(url, addresses[0], env.request, env.signal), env.aborted]);
+  } catch {
+    return { verdict: "undetermined" }; // timeout or reset AFTER a vetted connect
+  }
+  const location = redirectLocation(res);
+  if (location === null) {
+    return {
+      verdict: computeFrameVerdict({
+        status: res.status,
+        headers: res.headers,
+        targetOrigin: canon,
+        dashboardOrigin: env.dashboardOrigin,
+      }),
+    };
+  }
+  if (state.hops >= MAX_PROBE_REQUESTS) return ineligible;
+  const next = resolveRedirect(location, url);
+  return next ? { next } : ineligible;
+}
+
+/**
+ * Parse + vet the raw input, then keep the origin only: the user's path, query and fragment are
+ * never sent. Vetting the raw input first matters — the rebuilt URL no longer carries userinfo.
+ */
+function rootUrlOf(rawOrigin: string, env: ProbeEnv): URL | null {
+  let url: URL;
+  try {
+    url = new URL(rawOrigin);
+  } catch {
+    return null;
+  }
+  if (!vetTarget(url, env.deps, env.dashboardOrigin)) return null;
+  return new URL(`${url.origin}/`);
+}
+
+async function probeHops(rawOrigin: string, env: ProbeEnv): Promise<ProbeResult> {
+  const state = { hops: 0 };
+  let url = rootUrlOf(rawOrigin, env);
+  if (!url) return { verdict: "ineligible", hops: 0 };
+  for (;;) {
+    const out = await probeHop(url, state, env);
+    if (!("next" in out)) return { verdict: out.verdict, hops: state.hops };
+    url = out.next;
+  }
+}
+
 export async function probeFramePolicy(
   rawOrigin: string,
   dashboardOrigin: string,
   deps: ProbeDeps,
 ): Promise<ProbeResult> {
-  const lookup = deps.lookup ?? defaultLookup;
-  const gate = deps.lookupGate ?? processLookupGate;
-  const request: ProbeRequestFn = deps.request ?? ((o, cb) => https.request(o, cb));
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), deps.deadlineMs ?? PROBE_DEADLINE_MS);
   const aborted = new Promise<never>((_, reject) => {
     ctl.signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
   });
   aborted.catch(() => {}); // never an unhandled rejection when the probe finishes first
-  let hops = 0;
+  const env: ProbeEnv = {
+    deps,
+    dashboardOrigin,
+    lookup: deps.lookup ?? defaultLookup,
+    gate: deps.lookupGate ?? processLookupGate,
+    request: deps.request ?? ((o, cb) => https.request(o, cb)),
+    signal: ctl.signal,
+    aborted,
+  };
   try {
-    let url: URL;
-    try {
-      url = new URL(rawOrigin);
-    } catch {
-      return { verdict: "ineligible", hops };
-    }
-    // Vet the raw input first (the rebuilt URL below no longer carries userinfo), then keep
-    // the origin only: the user's path, query and fragment are never sent.
-    if (!vetTarget(url, deps, dashboardOrigin)) return { verdict: "ineligible", hops };
-    url = new URL(`${url.origin}/`);
-    for (;;) {
-      const canon = vetTarget(url, deps, dashboardOrigin);
-      if (!canon) return { verdict: "ineligible", hops };
-      const host = bareHost(url);
-      let addresses: ResolvedAddress[];
-      try {
-        if (net.isIP(host)) addresses = [{ address: host, family: net.isIP(host) }];
-        else {
-          // Held until the lookup settles, however the probe ends. Over the cap: no lookup, transient.
-          const release = gate.tryAcquire();
-          if (!release) return { verdict: "undetermined", hops };
-          const pending = (async () => lookup(host))();
-          pending.then(release, release);
-          addresses = await Promise.race([pending, aborted]);
-        }
-      } catch {
-        return { verdict: "ineligible", hops };
-      }
-      if (addresses.length === 0 || !addresses.every((a) => isPublicUnicastAddress(a.address))) {
-        return { verdict: "ineligible", hops };
-      }
-      hops++;
-      let res: FinalResponse;
-      try {
-        res = await Promise.race([head(url, addresses[0], request, ctl.signal), aborted]);
-      } catch {
-        return { verdict: "undetermined", hops }; // timeout or reset AFTER a vetted connect
-      }
-      const location = res.headers.location;
-      if (REDIRECT_STATUSES.has(res.status) && typeof location === "string" && location) {
-        if (hops >= MAX_PROBE_REQUESTS) return { verdict: "ineligible", hops };
-        try {
-          url = new URL(location, url);
-        } catch {
-          return { verdict: "ineligible", hops };
-        }
-        continue;
-      }
-      return {
-        verdict: computeFrameVerdict({
-          status: res.status,
-          headers: res.headers,
-          targetOrigin: canon,
-          dashboardOrigin,
-        }),
-        hops,
-      };
-    }
+    return await probeHops(rawOrigin, env);
   } finally {
     clearTimeout(timer);
   }
