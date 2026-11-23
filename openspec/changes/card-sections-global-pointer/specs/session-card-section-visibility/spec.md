@@ -62,3 +62,17 @@ The item SHALL NOT trigger card selection. The per-folder and global controls ke
 - **WHEN** the user activates **Card sections…** in that session's actions menu
 - **THEN** the app SHALL navigate to `/a`'s Session cards page
 - **AND** the session SHALL NOT become selected as a side effect
+
+### Requirement: Global defaults in Settings
+
+Global settings SHALL include a `Session card sections` block (root `data-testid="card-sections-settings"`, the stable deep-link target of the folder page's `Edit global defaults` control) with one on/off switch per toggleable section — session-card sections, per-plugin entries, and directory-card sections, grouped the same way as the directory page — each showing the number of folders that override that section.
+
+#### Scenario: Override count shown
+- **GIVEN** folders `/a` and `/b` override `flows`
+- **WHEN** the global block renders
+- **THEN** the FLOWS row SHALL indicate 2 folder overrides
+
+#### Scenario: Directory-card switch applies everywhere
+- **GIVEN** no folder overrides `folder-create`
+- **WHEN** the user switches `folder-create` off in the global block
+- **THEN** no directory card SHALL render the CREATE divider or its spawn buttons

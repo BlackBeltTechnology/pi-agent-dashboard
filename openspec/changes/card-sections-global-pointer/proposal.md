@@ -10,8 +10,9 @@ Session-card section visibility has two scopes, and users confuse them:
 Three things cause the confusion:
 
 - The folder page says "everything else follows global defaults", and each row offers
-  `Default (Show)`. It never says where those defaults live, and it has no way to get
-  there.
+  `Default (Show)`. It never says where those defaults live, and nothing on it leads to
+  them. Its only Settings link is the context-bar `Open display settings`, which opens
+  the top of General, not the defaults block.
 - The session actions menu has two near-identical VIEW items, `Card sections…` and
   `Card section defaults…`, and their scope is unclear from the names.
 - `Card section defaults…` opens `/settings/general` at the top of a long page, not at
