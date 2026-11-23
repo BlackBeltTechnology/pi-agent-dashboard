@@ -364,6 +364,7 @@ describe("opened flow files through the plugin file route (E12–E15, X7)", () =
   let app: FastifyInstance;
   let registry: FlowFileRegistry;
   let report: (payload: unknown, meta: { sessionId: string }) => unknown;
+  const emitEvent = vi.fn((_sid: string, _type: string, _data: Record<string, unknown>) => true);
   const live = () => [
     { id: "S", cwd: w },
     { id: "S2", cwd: w },
@@ -391,7 +392,7 @@ describe("opened flow files through the plugin file route (E12–E15, X7)", () =
         if (type === FLOW_FILES_REPORT) report = h;
       },
       sessionManager: { listActive: live, getSession: (id) => live().find((s) => s.id === id) },
-      emitEventToSession: () => true,
+      emitEventToSession: emitEvent,
       registry,
     });
     await app.ready();
@@ -423,10 +424,13 @@ describe("opened flow files through the plugin file route (E12–E15, X7)", () =
   });
 
   it("E15: never-reported session: /files reported:true with handlers[displayName]; /file 200 (no 409)", async () => {
+    emitEvent.mockClear();
     const files = JSON.parse((await app.inject({ method: "GET", url: "/api/plugins/flows/files?sessionId=S" })).payload);
     expect(files.data.reported).toBe(true);
     expect(files.data.handlers["flows/f/flow.yaml"]).toEqual({ load: path.join(flowDir, "load.ts") });
     expect((await get(path.join(flowDir, "flow.yaml"))).statusCode).toBe(200);
+    // Still asks the bridge for its catalog report (review r1 non-blocking).
+    expect(emitEvent).toHaveBeenCalledWith("S", FLOW_FILES_REQUEST_EVENT, {});
   });
 
   it("X7: definition swapped for a symlink to outside after admission → 403", async () => {

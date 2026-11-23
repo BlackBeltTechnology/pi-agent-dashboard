@@ -206,6 +206,11 @@ export class FlowFileRegistry {
     return this.bySession.has(sessionId) || this.opened.has(sessionId);
   }
 
+  /** True once the session's bridge has reported (path-opened entries alone do not count). */
+  hasReport(sessionId: string): boolean {
+    return this.bySession.has(sessionId);
+  }
+
   remove(sessionId: string): void {
     this.bySession.delete(sessionId);
     this.opened.delete(sessionId);
@@ -345,8 +350,10 @@ export async function registerFlowFileRoutes(deps: RouteDeps): Promise<void> {
     const sessionId = liveSession(req.query);
     if (!sessionId) return reply.code(404).send({ success: false, error: "session not found" });
     const files = registry.files(sessionId);
+    // A path-opened flow alone answers `reported: true`, but still asks for the
+    // catalog report. See change: add-flow-open-tool.
+    if (!registry.hasReport(sessionId)) requestReport(sessionId);
     if (!files) {
-      requestReport(sessionId);
       return { success: true, data: { reported: false, agents: {}, handlers: {} } };
     }
     return { success: true, data: { reported: true, ...files } };
@@ -359,8 +366,8 @@ export async function registerFlowFileRoutes(deps: RouteDeps): Promise<void> {
     if (typeof filePath !== "string" || !filePath) {
       return reply.code(400).send({ success: false, error: "path parameter required" });
     }
+    if (!registry.hasReport(sessionId)) requestReport(sessionId);
     if (!registry.has(sessionId)) {
-      requestReport(sessionId);
       return reply.code(409).send({ success: false, error: "not reported yet", retry: true });
     }
     const target = registry.resolveAllowed(sessionId, filePath);
