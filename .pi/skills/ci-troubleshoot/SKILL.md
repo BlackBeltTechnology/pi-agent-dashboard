@@ -17,6 +17,7 @@ flowchart LR
   publish[publish.yml] --> smoke
   ciElectron[ci-electron.yml] --> electron[_electron-build.yml]
   nightly[nightly.yml] --> electron
+  nightly --> smoke
   publish --> electron
   publish --> release[GitHub Release]
   release --> sync[sync-release-version.yml]

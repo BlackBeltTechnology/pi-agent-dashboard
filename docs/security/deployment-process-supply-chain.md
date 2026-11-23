@@ -120,7 +120,7 @@ Windows note: `buildSafeArgv` wraps `.cmd`/`.bat`/extensionless names as `cmd.ex
 |---|---|---|
 | Triggers | `push`, `pull_request` (develop), `workflow_dispatch`, `schedule`, `workflow_call`. No `pull_request_target`, no `workflow_run` (rg over `.github/workflows/*.yml`) | `.github/workflows/ci.yml:14-21`; `publish.yml:21-30` |
 | Default token perms | workflow-level `contents: read` on all except: `codeql.yml` (`security-events: write`, `actions: read`), `deploy-site.yml` (`pages: write`, `id-token: write`), `sync-release-version.yml` (`contents: write`, dispatch-only) | `codeql.yml:20-23`; `deploy-site.yml:24-27`; `sync-release-version.yml:43-44` |
-| Job-level elevation | `publish.yml`: `tag-and-push` `contents: write` (`:144`); `publish` `contents: write` + `id-token: write` + `environment: npm-publish` (`:245-249`); `github-release` `contents: write` (`:649`); `site-redeploy` `actions: write` (`:858`); nightly `issues: write` | `.github/workflows/publish.yml:144`, `:245-249`, `:649`, `:821`, `:858`; `nightly.yml:200` |
+| Job-level elevation | `publish.yml`: `tag-and-push` `contents: write` (`:144`); `publish` `contents: write` + `id-token: write` + `environment: npm-publish` (`:245-249`); `github-release` `contents: write` (`:649`); `site-redeploy` `actions: write` (`:858`); nightly `issues: write` | `.github/workflows/publish.yml:144`, `:245-249`, `:649`, `:821`, `:858`; `nightly.yml:251` |
 | Action pinning | 0 SHA pins. Tags: `actions/*@v3-v7`, `pnpm/action-setup@v4` (34×), `softprops/action-gh-release@v2`, `astral-sh/setup-uv@v6`, `github/codeql-action/*@v4` | `rg 'uses:' .github/workflows` ; `publish.yml:786` → SUP-01 |
 | `actions/checkout` credentials | `persist-credentials` never set (default true) → token in `.git/config` for later steps (incl. dependency scripts) | rg `persist-credentials` = 0 hits; `publish.yml:251-256` → SUP-02 |
 | Secrets | `GITHUB_TOKEN` only + `DISCORD_RELEASE_WEBHOOK`. No `NPM_TOKEN`, no Apple/Windows signing secrets (unsigned → ELEC-04) | `publish.yml:150`, `:831`, `:862`, `:899`, `:925-926` |
@@ -134,8 +134,8 @@ Windows note: `buildSafeArgv` wraps `.cmd`/`.bat`/extensionless names as `cmd.ex
 | Sink linter | `scripts/check-client-sinks.mjs` in CI | `.github/workflows/ci.yml:138` |
 | Dependency update / audit | no `.github/dependabot.yml`, no renovate config, no `npm/pnpm audit` CI step | rg/ls → SUP-04 |
 | Package manager | `pnpm@11.15.1` (`packageManager`); `--frozen-lockfile` in every CI install; Docker `pnpm install --frozen-lockfile` | `package.json:10`; `docker/Dockerfile:193`; workflow rg |
-| pnpm policy | `nodeLinker: hoisted`; `blockExoticSubdeps: false` (git subdeps allowed); `strictDepBuilds: false`; `ignoredBuiltDependencies` + `allowBuilds` (electron, esbuild, node-pty, sharp, koffi, protobufjs, ffmpeg-static, @ffprobe-installer/*, @fission-ai/openspec, @google/genai, fs-xattr, macos-alias = true); `minimumReleaseAgeExclude` for `@earendil-works/*@1.5.0` (incl. `@earendil-works/pi-schema@1.5.0`) (no explicit `minimumReleaseAge` key — relies on pnpm default, Needs verification) | `pnpm-workspace.yaml:10`, `:19`, `:77`, `:81-92`, `:94-120`, `:122-130` |
-| Overrides | `bonjour-service 1.4.2`, `which@<2 → 2.0.2`, `@peculiar/asn1-schema 2.10.0`, pi core trio `1.5.0` | `pnpm-workspace.yaml:33-65` |
+| pnpm policy | `nodeLinker: hoisted`; `blockExoticSubdeps: false` (git subdeps allowed); `strictDepBuilds: false`; `ignoredBuiltDependencies` + `allowBuilds` (electron, esbuild, node-pty, sharp, koffi, protobufjs, ffmpeg-static, @ffprobe-installer/*, @fission-ai/openspec, @google/genai, fs-xattr, macos-alias = true); `minimumReleaseAgeExclude` for `@earendil-works/*@1.6.0` (incl. `@earendil-works/pi-schema@1.6.0`) (no explicit `minimumReleaseAge` key — relies on pnpm default, Needs verification) | `pnpm-workspace.yaml:10`, `:19`, `:77`, `:81-92`, `:94-120`, `:122-130` |
+| Overrides | `bonjour-service 1.4.2`, `which@<2 → 2.0.2`, `@peculiar/asn1-schema 2.10.0`, pi core trio `1.6.0` | `pnpm-workspace.yaml:33-65` |
 | Root postinstall | `scripts/maybe-patch-package.cjs` + `scripts/fix-pty-permissions.cjs` (chmod 0755 node-pty `spawn-helper`) | `package.json:63`; `packages/server/src/fix-pty-permissions.ts:34` |
 | Remote tarball dep | `xlsx-0.20.3` from `cdn.sheetjs.com`, sha512 integrity in lock | `pnpm-lock.yaml:10164` |
 | Vendored code | browser-plugin relay = playwright-core CDP relay; provenance per file in `vendor-hashes.json` (`upstream-verbatim` / `authored`); refresh procedure doc | `docs/vendored-relay-refresh.md:1-40`; `packages/browser-plugin/src/server/relay/vendor/` |
@@ -251,7 +251,7 @@ flowchart LR
 | `PI_ENTRYPOINT_NO_SUPERVISE` | unset | exec server as PID 1 (test harness) | `docker/entrypoint.sh:72-75` |
 | `ZROK_VERSION` / `GH_VERSION` / `JJ_VERSION` (build args) | 2.0.4 / 2.62.0 / 0.24.0 | pinned tool versions | `docker/Dockerfile:16-18` |
 | `PI_DASHBOARD_FIXTURE_PLUGINS` (build arg) | `""` | keep fixture plugin clients in bundle | `docker/Dockerfile:189` |
-| `use_dependency_cache` (`_electron-build` input) | false (release) | CI dependency cache | `codeql-baseline.json` justification; `nightly.yml:192` (`true` nightly) |
+| `use_dependency_cache` (`_electron-build` input) | false (release) | CI dependency cache | `codeql-baseline.json` justification; `nightly.yml:227` (`true` nightly) |
 
 ## Test/dev-only
 | Item | Note | Evidence |

@@ -525,10 +525,15 @@ export function GitInfo({ session }: { session: DashboardSession }) {
     >
       <WorktreePill session={session} />
       {session.gitBranchUrl ? (
-        <SafeLink href={session.gitBranchUrl} target="_blank" rel="noopener noreferrer" title={session.gitBranch} className="focus-ring text-[var(--link)] hover:underline grow basis-[6ch] min-w-0 truncate">
-          <Icon path={mdiSourceBranch} size={0.5} className="inline-block align-text-bottom mr-0.5" />
-          {session.gitBranch}
-        </SafeLink>
+        // Wrapper owns the slot sizing (no overflow rule → focus ring unclipped);
+        // the content-wide link owns the ellipsis, so free row space is not
+        // clickable. See change: narrow-branch-link-hit-area.
+        <span className="flex grow basis-[6ch] min-w-0">
+          <SafeLink href={session.gitBranchUrl} target="_blank" rel="noopener noreferrer" title={session.gitBranch} className="focus-ring text-[var(--link)] hover:underline min-w-0 truncate">
+            <Icon path={mdiSourceBranch} size={0.5} className="inline-block align-text-bottom mr-0.5" />
+            {session.gitBranch}
+          </SafeLink>
+        </span>
       ) : (
         <span title={session.gitBranch} className="grow basis-[6ch] min-w-0 truncate">
           <Icon path={mdiSourceBranch} size={0.5} className="inline-block align-text-bottom mr-0.5" />

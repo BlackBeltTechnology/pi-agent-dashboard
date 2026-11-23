@@ -115,6 +115,40 @@ git add CHANGELOG.md package.json package-lock.json packages/*/package.json
 git commit -m "chore(release): v<version>"
 ```
 
+### Before step 5: read both nightlies
+
+Tag gate does not prove the tag publishes. Check before tagging:
+- `nightly-tests.yml` (03:00 UTC, issue label `nightly-tests`): unit suite that `pnpm test` runs in the tag gate, plus `budget` job green on `develop`.
+- `nightly.yml` (04:13 UTC, issue label `nightly`): rehearsal of publish (`npm@latest` loopback publish), install smoke, Electron matrix green.
+- The two can test different commits (design D1). Each report names its SHA (`<name> is red|green at <sha>.`). Compare SHAs, not times.
+- Neither runs on the commit `tag-and-push` creates.
+- Tag gate `pnpm test` does not collect the budget lane (`*.budget.test.*` needs `RUN_BUDGET_TESTS=1`). Release path never sets `RUN_BUDGET_TESTS` (pinned by release-gate clause 6, `packages/shared/src/__tests__/publish-workflow-contract.test.ts`). Wall-clock and memory assertions not yet in budget files still run in the tag gate.
+- Open, owner follow-up: GitHub reports `macos-14` not supported for this repo on 2026-11-23 (`The configuration 'macos-14-arm64-us-default' is not supported`). Affects `_electron-build.yml:122` (darwin/arm64 leg) and `publish.yml:611`. Not fixed by `schedule-release-rehearsal`.
+
+Residual risk: what a green rehearsal does not prove (from `schedule-release-rehearsal` proposal.md). A green rehearsal does not prove the next tag will publish. These release failure classes stay uncovered:
+
+| Failure class (seen in a real release) | Covered after this change? | Why not |
+|---|---|---|
+| `ci-checks :: Run pnpm test` (the most frequent measured failure: 4 attempts, mostly wall-clock and memory budget assertions) | Not by the rehearsal | `nightly.yml` runs no unit suite and no `pnpm run lint`; the tag gate still runs `pnpm test` (B3). What reduces this class is change `stabilize-blocking-test-lanes`: the budget files it creates are not collected by `pnpm test` and run in the `budget` job of `nightly-tests.yml`, and `nightly-tests.yml` runs the full suite on `develop` every night (issue label `nightly-tests`). Still open: budget assertions not yet moved into budget files (until `migrate-budget-assertions`), non-budget flakes, and the untested `tag-and-push` commit (next row). |
+| Windows `runtime-asset` `tar`/`EXDEV`, and every other path of the release `runtime-asset` job | No | Not rehearsed. Moved to `rehearse-runtime-asset-matrix`. |
+| A defect in `publish.yml`'s own step text. Example: the v0.9.0 `EALLOWREMOTE` in "Set version from resolved tag", caused by `publish.yml`'s own `npm version` call under `npm@latest` | No | The rehearsal runs its own copies of the release commands (`nightly.yml` steps, `nightly-verdaccio-publish.mjs`), never `publish.yml`'s steps. `nightly.yml` never used `npm version`, so it would not have caught that failure. That instance was fixed in commit 60a155465 and is pinned by `publish-version-step-contract.test.ts`. |
+| npm `E404` on publish, packages not resolving on the registry, `ETARGET` from propagation lag | No | Verdaccio makes a version visible at once. Public-registry visibility and lag cannot be reproduced on loopback. |
+| OIDC token exchange, `--provenance`, `--access public`, `403`/`409` on publish, and any `npm@latest` behaviour that appears only on an authenticated upload to the real registry | No | Needs `id-token: write` and the real registry. The rehearsal must never hold either. `verify-publish` uploads to loopback with a fake token and `--no-provenance`. |
+| An `npm@latest` refusal that `--allow-remote=all` suppresses | No | The rehearsal's workspace lock step and `generate-runtime-lock.mjs` pass that flag. |
+| `assert-bundled-plugins-published.mjs` and the per-package `npm view` idempotency check of the release publish loop | No | The rehearsal publish script does not run them (`nightly-verdaccio-publish.mjs:211-233`). |
+| `npm@latest` drift on macOS or Windows runners | No | Only `verify-publish` (ubuntu, the release `publish` job's runner) uses `npm@latest`. The Verdaccio publishes inside the `electron` legs use the runner's npm; the release `electron` job does not publish. |
+| `tag-and-push` (commit, tag, push) | No | Forbidden by the safety contract (`nightly-workflow-contract.test.ts:71-89`). |
+| `github-release` (notes extraction, `latest-mac.yml` merge, asset upload) | No | Creating a release is forbidden. |
+| `runtime-release-assert`, `site-redeploy`, `discord-announce` | No | They act on a published release. |
+| Deterministic test failure on the tagged commit | No | `tag-and-push` creates a new commit that was never tested (`publish.yml:224-227`). `nightly-tests.yml` tests `develop` HEAD as of its 03:00 UTC run and the rehearsal builds `develop` HEAD as of its 04:13 UTC run, which can be a different commit (design D1); neither runs on that commit. |
+| macOS signing and notarisation (once `macos-notarization` lands) | No | `nightly.yml` passes no signing secrets to `_electron-build.yml` (`nightly.yml:178-192`), so the macOS legs take the unsigned path. |
+| Release-only jobs proposed by active changes (`server-launch-smoke`, `mobile-android`, Authenticode signing) | No | Non-goal here. See Impact. |
+
+Newly covered:
+- A new `npm@latest` that breaks `npm pkg set`, runtime-lock generation and lint, or per-package publishing (`verify-publish` under `npm@latest`, to loopback). This is preventive: no measured release failure is known that it would have caught.
+- The install-smoke legs (`smoke` job).
+- The macOS Intel launch smoke and runtime-lock generation for a first-party package that is missing from the publish set. Both already exist in the `electron` legs (`nightly-verdaccio-publish.mjs:229`). They only start running nightly because the cron is enabled.
+
 ### 5. Tag and push
 
 ```bash

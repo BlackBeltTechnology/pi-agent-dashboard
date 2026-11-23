@@ -13,7 +13,7 @@
  * See change: guard-restored-headless-identity (design D2).
  */
 import {
-  processStartedAtAsync,
+  probeProcessStart,
   signalZero,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
@@ -33,10 +33,15 @@ export type IdentityKind = "spawn" | "pi" | "keeper";
 export type StartProbe = (pid: number) => Promise<number | null> | number | null;
 
 /**
- * Default probe: the shared async platform helper (null on win32). Async so a
- * hung `ps` (macOS) cannot block the event loop the probe timeout runs on.
+ * Default probe: the shared platform helper for a `host` pid — Windows
+ * PowerShell `Get-Process` on win32 (through the shared 2-slot limiter),
+ * `processStartedAtAsync` elsewhere. Async so a hung probe cannot block the
+ * event loop the probe timeout runs on; its own timeout matches that bound so
+ * a timed-out probe releases its limiter slot. Headless entries are always `host`.
+ * See change: add-windows-process-identity (D6).
  */
-export const defaultStartProbe: StartProbe = (pid) => processStartedAtAsync(pid, { timeoutMs: PROBE_TIMEOUT_MS });
+export const defaultStartProbe: StartProbe = (pid) =>
+  probeProcessStart(pid, { kind: "host" }, { timeoutMs: PROBE_TIMEOUT_MS });
 
 /** Default gone check: only ESRCH proves a pid gone (EPERM reads as alive). */
 const defaultIsGone = (pid: number): boolean => signalZero(pid) === "esrch";

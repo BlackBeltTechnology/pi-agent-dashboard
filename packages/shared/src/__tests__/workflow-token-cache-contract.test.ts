@@ -315,6 +315,14 @@ describe("workflow token + cache contract", () => {
     }
   });
 
+  it("E62: the nightly.yml report job (issues: write) restores no cache", () => {
+    expect(hit(checkWorkflows(real()), { rule: 1, file: "nightly.yml", job: "report" })).toEqual([]);
+    const vs = checkWorkflows(mutated((f) => (setupNode(f["nightly.yml"].jobs.report).with.cache = "pnpm")));
+    const v = hit(vs, { rule: 1, file: "nightly.yml", job: "report" });
+    expect(v.length).toBeGreaterThan(0);
+    expect(v[0].message).toContain("nightly.yml job report");
+  });
+
   it("E8: cache-enabling keys and actions/cache variants on a privileged job", () => {
     const variants: [string, any, boolean][] = [
       ["enable-cache", { uses: "x/y@v1", with: { "enable-cache": true } }, true],

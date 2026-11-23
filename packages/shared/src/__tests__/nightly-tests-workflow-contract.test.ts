@@ -7,7 +7,7 @@
  * bisect range when it goes red. A commented-out cron, a missing shard
  * precondition (chromium, the built client) or a shard that verifies nothing
  * would each turn the safety net into a green no-op, so each is pinned here.
- * It must stay independent of the land-dark `nightly.yml` and never publish.
+ * It must stay independent of `nightly.yml` and never publish.
  *
  * change: stabilize-blocking-test-lanes extends it (E100–E107): the `budget`
  * job, no `concurrency` group, the attempt-1 record + `overwrite: true`
@@ -265,6 +265,19 @@ describe("nightly-tests.yml: attempt-1 record and artifact overwrite (E102, task
 
   it("the report job's permissions stay exactly contents: read, issues: write, actions: read", () => {
     expect(wf.jobs.report.permissions).toEqual({ contents: "read", issues: "write", actions: "read" });
+  });
+
+  // `--jobs-only`, `--label`, `--name` and `--no-close-on-rerun` are nightly.yml's flags (change:
+  // schedule-release-rehearsal, D2). Attempt 2 of this workflow is the one that reports a deferred
+  // night, so it must never run with `--no-close-on-rerun` (E61).
+  const forbiddenReporterFlags = (run: string) => (run.match(/--(?:jobs-only|no-close-on-rerun|label|name)\b/g) ?? []) as string[];
+
+  it("E61: the report command passes none of nightly.yml's reporter flags", () => {
+    const step = stepsOf(wf, "report").find((s) => /nightly-report\.mjs/.test(s.run ?? ""));
+    expect(forbiddenReporterFlags(step?.run ?? "")).toEqual([]);
+    for (const extra of ["--no-close-on-rerun", "--jobs-only"]) {
+      expect(forbiddenReporterFlags(`${step?.run ?? ""} ${extra}`), `a report step with ${extra} appended must fail`).toEqual([extra]);
+    }
   });
 });
 
