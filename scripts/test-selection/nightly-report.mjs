@@ -20,6 +20,11 @@
  * defers the issue to the rerun; attempt >= 2 reads it from `--previous <dir>`.
  * `--watchdog` (with `--dry-run`) reads no reports: it reports the latest
  * scheduled run when nothing else did. Unknown flags are ignored.
+ * `--jobs-only` (change: schedule-release-rehearsal, D2) is the second consumer's mode,
+ * `nightly.yml`: no reports, the verdict comes from NEEDS_JSON, a "### Failed jobs and
+ * legs" section from the jobs API. With it, `--label <l>` (issue label), `--name <n>`
+ * (the four named strings) and `--no-close-on-rerun` (a re-run attempt may open or
+ * comment, never close) apply; all three are ignored in every other mode.
  *
  * Env: NEEDS_JSON (`toJSON(needs)` — a job that failed after writing a clean
  * report still makes the night red), GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_EVENT_NAME, GITHUB_SHA,
@@ -148,14 +153,18 @@ export async function syncIssue({ api, red, body, sha, passedOnRerun = [], jobsP
   }
 }
 
-function githubApi({ token, repo, server = "https://api.github.com" }) {
-  const call = async (method, url, body) => {
-    const res = await fetch(`${server}${url}`, {
+export function githubApi({ token, repo, server = "https://api.github.com", fetchImpl = globalThis.fetch }) {
+  const raw = async (method, url, body) => {
+    const res = await fetchImpl(`${server}${url}`, {
       method,
       headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) throw new Error(`${method} ${url}: ${res.status} ${await res.text()}`);
+    return res;
+  };
+  const call = async (method, url, body) => {
+    const res = await raw(method, url, body);
     return res.status === 204 ? null : res.json();
   };
   return {
@@ -164,9 +173,24 @@ function githubApi({ token, repo, server = "https://api.github.com" }) {
     runAttempt: (id, attempt) => call("GET", `/repos/${repo}/actions/runs/${id}/attempts/${attempt}`),
     workflow: (file) => call("GET", `/repos/${repo}/actions/workflows/${file}`),
     scheduledRuns: async () => (await call("GET", `/repos/${repo}/actions/workflows/${WORKFLOW_FILE}/runs?branch=develop&event=schedule&per_page=10`)).workflow_runs,
+    /** Every job of a run, following `Link: rel="next"`. The token only ever goes to `server`: a next link keeps its path and query. */
+    jobs: async (runId) => {
+      const all = [];
+      let url = `/repos/${repo}/actions/runs/${runId}/jobs?per_page=${JOBS_PER_PAGE}`;
+      while (url) {
+        const res = await raw("GET", url);
+        all.push(...((await res.json()).jobs ?? []));
+        const next = nextLink(res.headers?.get?.("link"));
+        if (next) {
+          const u = new URL(next);
+          url = `${u.pathname}${u.search}`;
+        } else url = null;
+      }
+      return all;
+    },
     issues: {
-      listOpen: async () => (await call("GET", `/repos/${repo}/issues?labels=${ISSUE_LABEL}&state=open&per_page=10`)).filter((i) => !i.pull_request),
-      create: (title, body) => call("POST", `/repos/${repo}/issues`, { title, body, labels: [ISSUE_LABEL] }),
+      listOpen: async (label = ISSUE_LABEL) => (await call("GET", `/repos/${repo}/issues?labels=${encodeURIComponent(label)}&state=open&per_page=10`)).filter((i) => !i.pull_request),
+      create: (title, body, label = ISSUE_LABEL) => call("POST", `/repos/${repo}/issues`, { title, body, labels: [label] }),
       update: (n, body) => call("PATCH", `/repos/${repo}/issues/${n}`, { body }),
       comment: (n, body) => call("POST", `/repos/${repo}/issues/${n}/comments`, { body }),
       close: (n) => call("PATCH", `/repos/${repo}/issues/${n}`, { state: "closed" }),
@@ -236,6 +260,110 @@ function readRecord(previousDir) {
   }
 }
 
+/** Job conclusions the jobs-only report lists (GitHub marks a timed-out job `cancelled`). */
+const FAILED_CONCLUSIONS = new Set(["failure", "cancelled", "timed_out"]);
+const JOBS_PER_PAGE = 100;
+
+/** The four strings `--name` replaces; today's literals when it is absent. */
+function reportNames(name) {
+  return name === undefined
+    ? { heading: "Nightly tests", headline: "Nightly full suite", title: "Nightly full test suite is failing", green: "Nightly full suite" }
+    : { heading: name, headline: name, title: `${name} is failing`, green: name };
+}
+
+/** `toJSON(needs)` → the job-results object, or null when unset, empty, invalid or without entries. */
+function parseNeeds(raw) {
+  try {
+    const needs = JSON.parse(raw);
+    return needs && typeof needs === "object" && !Array.isArray(needs) && Object.keys(needs).length > 0 ? needs : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The `rel="next"` target of a `Link` header, or null. */
+export function nextLink(link) {
+  return /<([^>]+)>\s*;\s*rel="next"/.exec(link ?? "")?.[1] ?? null;
+}
+
+/** "### Failed jobs and legs" section; `needsFallback` adds the failing job results when the jobs request failed. */
+function failedJobsSection({ jobs, error, failedNeeds, needsFallback }) {
+  if (error) return ["### Failed jobs and legs", `failed-job list unavailable: ${error}`, ...(needsFallback ? failedNeeds.map((j) => `- ${j}`) : [])];
+  return ["### Failed jobs and legs", ...(jobs.length ? jobs.map((j) => `- ${j}`) : ["_none_"])];
+}
+
+/**
+ * Jobs-only mode: verdict from NEEDS_JSON, failed legs from the jobs API, one tracking issue.
+ * Only a scheduled run writes the issue; `--no-close-on-rerun` lets attempt >= 2 open or comment, never close.
+ */
+async function jobsOnly({ argv, api, env }) {
+  const names = reportNames(valueFlag(argv, "--name"));
+  const label = valueFlag(argv, "--label") ?? ISSUE_LABEL;
+  const noCloseOnRerun = boolFlag(argv, "--no-close-on-rerun");
+  const attempt = Number(env.GITHUB_RUN_ATTEMPT || 1);
+  const scheduled = env.GITHUB_EVENT_NAME === "schedule";
+  const sha = env.GITHUB_SHA;
+  const runUrl = `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+
+  const needs = parseNeeds(env.NEEDS_JSON);
+  const failedNeeds = Object.entries(needs ?? {})
+    .filter(([, v]) => v?.result !== "success")
+    .map(([job, v]) => `${job}: ${v?.result ?? "unknown"}`);
+  const red = needs === null || failedNeeds.length > 0;
+
+  let jobs = [];
+  let jobsError = null;
+  if (red) {
+    try {
+      jobs = (await api.jobs(env.GITHUB_RUN_ID)).filter((j) => FAILED_CONCLUSIONS.has(j.conclusion)).map((j) => j.name);
+    } catch (e) {
+      jobsError = String(e?.message ?? e);
+    }
+  }
+  const failedSection = (needsFallback) => failedJobsSection({ jobs, error: jobsError, failedNeeds, needsFallback });
+  const body = [
+    `${names.headline} is ${red ? "red" : "green"} at \`${sha}\`. Run: ${runUrl}`,
+    ...(needs === null ? ["", "job results unavailable: NEEDS_JSON is unset, empty or not a job-results object, so this run is treated as red."] : []),
+    "",
+    "### Jobs that did not succeed",
+    ...(failedNeeds.length ? failedNeeds.map((j) => `- ${j}`) : ["_none_"]),
+    "",
+    ...failedSection(false),
+  ].join("\n");
+
+  const rerun = noCloseOnRerun && attempt > 1;
+  const rerunGreenLine = scheduled && rerun && !red ? `Re-run attempt ${attempt}: a re-run never closes the \`${label}\` issue; the next green scheduled night does.` : null;
+  if (env.GITHUB_STEP_SUMMARY) {
+    fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `## ${names.heading}: ${red ? "RED" : "green"}\n\n${body}\n${rerunGreenLine ? `\n${rerunGreenLine}\n` : ""}`);
+  }
+  console.log(body);
+
+  if (scheduled && !(rerun && !red)) {
+    try {
+      const open = await api.issues.listOpen(label);
+      const existing = open[0];
+      if (rerun) {
+        // red re-run: visible as a comment, body untouched; no open issue → open it
+        if (existing) await api.issues.comment(existing.number, [`Re-run attempt ${attempt} of ${runUrl} is red at \`${sha}\`.`, "", ...failedSection(true)].join("\n"));
+        else await api.issues.create(names.title, body, label);
+      } else if (red) {
+        if (existing) {
+          await api.issues.update(existing.number, body);
+          await api.issues.comment(existing.number, `Still red at \`${sha}\`.`);
+        } else await api.issues.create(names.title, body, label);
+      } else if (existing) {
+        await api.issues.comment(existing.number, `${names.green} is green again at \`${sha}\`. Closing.`);
+        await api.issues.close(existing.number);
+      }
+    } catch (e) {
+      const msg = `Issue call failed: ${String(e?.message ?? e)}. The \`${label}\` issue may not reflect this run; re-run the \`report\` job.`;
+      if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `\n${msg}\n`);
+      console.log(`::error::${msg}`);
+      return 1;
+    }
+  }
+  return red ? 1 : 0;
+}
 const needsKey = (name) => name.replace(/-\d+$/, "");
 const sameTest = (a, b) => a.job === b.job && a.file === b.file && a.test === b.test;
 
@@ -318,10 +446,11 @@ async function watchdog({ api, env, now, dryRun }) {
 
 /**
  * @param {string[]} argv
- * @param {{ api?: object, now?: () => Date, env?: NodeJS.ProcessEnv }} [deps] GitHub API client, clock and environment.
+ * @param {{ api?: object, fetch?: typeof fetch, now?: () => Date, env?: NodeJS.ProcessEnv }} [deps] GitHub API client (or a `fetch` for the built-in one), clock and environment.
  */
-export async function main(argv, { api, now = () => new Date(), env = process.env, gitIsAncestor } = {}) {
-  api ??= githubApi({ token: env.GITHUB_TOKEN, repo: env.GITHUB_REPOSITORY });
+export async function main(argv, { api, fetch: fetchImpl, now = () => new Date(), env = process.env, gitIsAncestor } = {}) {
+  api ??= githubApi({ token: env.GITHUB_TOKEN, repo: env.GITHUB_REPOSITORY, fetchImpl });
+  if (boolFlag(argv, "--jobs-only")) return jobsOnly({ argv, api, env });
   if (boolFlag(argv, "--watchdog")) return watchdog({ api, env, now, dryRun: boolFlag(argv, "--dry-run") });
 
   const dir = valueFlag(argv, "--reports");

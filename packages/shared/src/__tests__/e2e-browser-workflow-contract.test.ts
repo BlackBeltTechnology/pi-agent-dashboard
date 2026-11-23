@@ -87,7 +87,7 @@ describe("ci-e2e-browser.yml — triggers", () => {
       );
     } else {
       // Land-dark is a decision, not an accident: the comment must say when to
-      // flip it on, mirroring nightly.yml.
+      // flip it on.
       expect(yaml, "land-dark schedule must document the enabling condition").toMatch(
         /uncomment|after .*(green|baseline)|task 5\.5/i,
       );

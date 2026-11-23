@@ -32,7 +32,8 @@ Files in this directory. One row per source file.
 | `__tests__/explore-mockup-adoption-wiring.test.ts` | Repo-lint (test-plan W1–W9): `openspec/config.yaml` has exactly `rules.proposal`+`rules.tasks` (one string… → see `__tests__/explore-mockup-adoption-wiring.test.ts.AGENTS.md` |
 | `__tests__/ci-publish-imports-workflow-contract.test.ts` | ci.yml post-build publish-imports run contract (X3). → see `__tests__/ci-publish-imports-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/knip-workflow-contract.test.ts` | CI placement contract for the dead-code oracle (test-plan #X1-#X3). → see `__tests__/knip-workflow-contract.test.ts.AGENTS.md` |
-| `__tests__/nightly-workflow-contract.test.ts` | Repo-lint safety contract for the nightly (change: add-nightly-verdaccio-build). → see `__tests__/nightly-workflow-contract.test.ts.AGENTS.md` |
+| `__tests__/publish-workflow-contract.test.ts` | publish.yml lint. → see |
+| `__tests__/nightly-workflow-contract.test.ts` | Nightly safety + job shape. → see `__tests__/nightly-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/real-process-project-guard.test.ts` | Repo-lint for the real-process vitest phase. → see `__tests__/real-process-project-guard.test.ts.AGENTS.md` |
 | `__tests__/node-cap-single-source.test.ts` | Repo-lint (#E5): engines-cap arithmetic lives only in `node-version.ts`. → see `__tests__/node-cap-single-source.test.ts.AGENTS.md` |
 | `__tests__/smoke-node-matrix.test.ts` | Repo-lint (#E8): `_smoke.yml` `standalone-install-smoke-linux` matrix majors equal the SUPPORTED set… → see `__tests__/smoke-node-matrix.test.ts.AGENTS.md` |

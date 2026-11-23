@@ -1,33 +1,44 @@
 name: Nightly Verdaccio build
 
-# Scheduled full-fidelity build that answers "would tonight's develop produce a
-# correct release?" WITHOUT any public npm write. Each Electron leg stands up an
-# ephemeral loopback Verdaccio, publishes every non-private workspace to it, and
-# runs the REAL bundle `npm install @blackbelt-technology/*` against that
-# throwaway registry — the exact code path that breaks releases (ETARGET race,
-# stale-registry drift) but never gets exercised source-only.
+# Scheduled release rehearsal that answers "would tonight's develop produce a
+# correct release?" WITHOUT any public npm write. Jobs:
+#   resolve         the throwaway nightly version slug
+#   verify-publish  `npm@latest` canary: the release's own npm, pnpm install,
+#                   build, then every workspace published to ONE loopback
+#                   Verdaccio (gates no job)
+#   electron        6 legs (_electron-build.yml), each with its own loopback
+#                   Verdaccio and the real bundle `npm install` against it
+#   smoke           the release gate's standalone-install smoke (_smoke.yml)
+#   knip            whole-graph dead-code ratchet
+#   install-load    every shipped plugin loads from a published install
+#   report          `nightly-report.mjs --jobs-only`: one `nightly` issue,
+#                   opened on a red scheduled night, closed on the first green
+#                   scheduled one; a dispatch writes the step summary only and
+#                   a re-run attempt may open or comment, never close
 #
 # HARD safety contract (locked by
 # packages/shared/src/__tests__/nightly-workflow-contract.test.ts):
-#   - NO public `npm publish` (the only `npm publish` here is `--dry-run`;
-#     the real publishes go to http://localhost:4873 from
-#     scripts/nightly-verdaccio-publish.mjs)
+#   - NO public `npm publish`: every publish here goes to http://localhost:4873
+#     (scripts/nightly-verdaccio-publish.mjs, --registry + a throwaway token)
 #   - NO GitHub Release (softprops/action-gh-release)
 #   - NO tag push, NO version-bump commit
 #
-# See change: add-nightly-verdaccio-build.
+# See changes: add-nightly-verdaccio-build, schedule-release-rehearsal.
 
 on:
-  # Land dark: workflow_dispatch first. After ONE clean manual run (task 6.4),
-  # uncomment the schedule below to enable the nightly cron (07:00 UTC).
-  # schedule:
-  #   - cron: '0 7 * * *'
+  # 04:13 UTC, after the night's nightly-tests.yml has typically finished and
+  # before the European working day; minute 13 avoids the top-of-hour schedule
+  # load GitHub documents as a cause of delayed or dropped runs. A design
+  # choice, not a spec rule (design D1 of schedule-release-rehearsal).
+  schedule:
+    - cron: '13 4 * * *'
   workflow_dispatch: {}
 
-# One nightly at a time; a newer dispatch supersedes an in-flight one.
-concurrency:
-  group: nightly
-  cancel-in-progress: true
+# No run group on purpose (design D6 of schedule-release-rehearsal): a group
+# shared with a scheduled run lets a manual dispatch or a re-run cancel, hold or
+# replace tonight's run, and a red night would then have no report. Every run
+# starts on its own; each Verdaccio is a loopback on its own VM and no job
+# writes shared state.
 
 permissions:
   contents: read
@@ -67,41 +78,62 @@ jobs:
           echo "Nightly version: $version (base $base, from $current)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-  # ── verify-publish: cheap pack+validate pre-gate (NO network write) ─────────
-  # `npm publish --dry-run` packs every workspace and runs publish validation
-  # locally. Catches manifest/pack errors before any leg spins up Verdaccio.
-  # This is the ONLY `npm publish` in this workflow and it is --dry-run (writes
-  # nothing) — see the safety-contract test.
+  # ── verify-publish: `npm@latest` canary with a real loopback publish ───────
+  # Runs the rehearsal's copies of the commands the release `publish` job runs
+  # after `npm install -g npm@latest` (publish.yml): npm pkg set, build, then
+  # runtime-lock generation and a per-package `npm publish` through
+  # scripts/nightly-verdaccio-publish.mjs, all to a loopback Verdaccio
+  # (http://localhost:4873, a throwaway token, --no-provenance). Nothing here
+  # reaches the public registry. It gates no job: an `npm@latest` breakage
+  # shows as this job red while electron/smoke/knip/install-load still run
+  # (design D3/D8 of schedule-release-rehearsal). Spike run 45153362930:
+  # green in 6 min 5 s under npm 12.2.3.
   verify-publish:
     needs: resolve
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
       # pnpm, like every other job: the repo has no package-lock.json, so
       # an npm-cache install could never run and skipped the electron matrix.
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 26
           cache: pnpm
-
+      # The release job upgrades npm to latest before it publishes
+      # (publish.yml); doing the same here is what makes npm drift show up on
+      # develop instead of at tag time.
+      - name: Upgrade npm like the release publish job (publish.yml)
+        run: npm install -g npm@latest
       - run: pnpm install --frozen-lockfile
-
       - name: Set nightly version
         run: npm pkg set "version=${{ needs.resolve.outputs.version }}" --workspaces --include-workspace-root
-
       - name: Sync inter-package dep specifiers
         run: node scripts/sync-versions.js
-
-      - run: npm run build
-
-      - name: Dry-run publish all workspaces (pack + validate, no network write)
-        run: npm publish --workspaces --include-workspace-root --dry-run
+      # publish.yml:185 and _electron-build.yml:263 refresh pnpm-lock.yaml the
+      # same way; verify-lockfile-versions.mjs (step (d) of the publish script)
+      # reads pnpm-lock.yaml and fails on the pre-bump specifiers without it.
+      - name: Refresh pnpm-lock.yaml with the bumped versions
+        run: pnpm install --lockfile-only
+      - run: pnpm run build
+      - name: Install Verdaccio
+        # Pinned: Verdaccio 7 rejects the fixed fake `_authToken` the publish
+        # script uses (E401). Runs under npm@latest, as the electron legs'
+        # install runs under the runner's npm.
+        run: npm install -g verdaccio@6.11.1
+      - name: Start Verdaccio
+        env:
+          REGISTRY: http://localhost:4873
+        run: node scripts/nightly-verdaccio-serve.mjs
+      - name: Publish workspaces to Verdaccio
+        env:
+          REGISTRY: http://localhost:4873
+          NIGHTLY_VERSION: ${{ needs.resolve.outputs.version }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: node scripts/nightly-verdaccio-publish.mjs
 
   # ── knip: whole-graph dead-code ratchet ────────────────────────────────────
   # Nightly, never ci.yml: the scan is whole-graph (~8s) and its verdict does
@@ -173,10 +205,13 @@ jobs:
 
   # ── electron: full matrix against a per-leg Verdaccio ──────────────────────
   # Delegates to the shared build. registry_url triggers the Verdaccio
-  # round-trip inside _electron-build.yml. NO publish/github-release/tag jobs
+  # round-trip inside _electron-build.yml. It does not wait for verify-publish:
+  # that job is the `npm@latest` canary and the legs run on the runner's npm, so
+  # gating them on it would skip the whole Electron rehearsal for as long as
+  # npm@latest is broken (design D3). NO publish/github-release/tag jobs
   # anywhere in this workflow (task 4.6).
   electron:
-    needs: [resolve, verify-publish]
+    needs: [resolve]
     uses: ./.github/workflows/_electron-build.yml
     with:
       version:                 ${{ needs.resolve.outputs.version }}
@@ -191,60 +226,39 @@ jobs:
       artifact_retention_days: 7
       use_dependency_cache:    true  # dev/nightly only; see harden-ci-cache-poisoning
 
-  # ── report: open/update a single tracking issue on failure ─────────────────
-  report:
-    needs: [resolve, verify-publish, electron, install-load]
-    if: failure()
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-    steps:
-      - name: Open or update the nightly tracking issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            // Enumerate the failed leg(s)/job(s) of THIS run.
-            const jobs = await github.paginate(
-              github.rest.actions.listJobsForWorkflowRun,
-              { owner: context.repo.owner, repo: context.repo.repo, run_id: context.runId, per_page: 100 },
-            );
-            const failed = jobs
-              .filter((j) => j.conclusion === 'failure')
-              .map((j) => `- \`${j.name}\``);
-            const legList = failed.length ? failed.join('\n') : '- (see run for details)';
-            const title = 'Nightly Verdaccio build failing';
-            const body = [
-              `The nightly Verdaccio build failed.`,
-              ``,
-              `**Run:** ${runUrl}`,
-              `**Commit:** \`${context.sha}\``,
-              ``,
-              `**Failed leg(s)/job(s):**`,
-              legList,
-              ``,
-              `_Auto-filed by \`.github/workflows/nightly.yml\` (label \`nightly\`)._`,
-            ].join('\n');
+  # ── smoke: the release gate's standalone-install smoke ─────────────────────
+  # Same reusable workflow the tag gate runs (publish.yml). It packs the working
+  # tree at `ref` and installs it into a clean HOME; it cannot target the
+  # Verdaccio registry (no registry input), so it rehearses the release's
+  # install path, not "install the published nightly" (design D4).
+  smoke:
+    uses: ./.github/workflows/_smoke.yml
+    with:
+      ref: ${{ github.sha }}
 
-            // Reuse a single open issue labelled `nightly` rather than spamming.
-            const existing = await github.paginate(github.rest.issues.listForRepo, {
-              owner: context.repo.owner, repo: context.repo.repo,
-              state: 'open', labels: 'nightly', per_page: 100,
-            });
-            if (existing.length > 0) {
-              const num = existing[0].number;
-              await github.rest.issues.update({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: num, body,
-              });
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: num,
-                body: `Still failing — ${runUrl}`,
-              });
-            } else {
-              await github.rest.issues.create({
-                owner: context.repo.owner, repo: context.repo.repo,
-                title, body, labels: ['nightly'],
-              });
-            }
+  # ── report: one `nightly` issue, written only by a scheduled run ───────────
+  # `needs` lists every other job and `if: always()` keeps the report alive
+  # when one fails, is skipped or is cancelled (all count as red). The verdict
+  # comes from NEEDS_JSON, the failed legs from the run's jobs API; see
+  # scripts/test-selection/nightly-report.mjs (design D2).
+  report:
+    needs: [resolve, verify-publish, knip, install-load, electron, smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Report the night
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/test-selection/nightly-report.mjs --jobs-only --no-close-on-rerun --label nightly --name "Nightly Verdaccio build"

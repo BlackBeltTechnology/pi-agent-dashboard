@@ -120,7 +120,7 @@ Windows note: `buildSafeArgv` wraps `.cmd`/`.bat`/extensionless names as `cmd.ex
 |---|---|---|
 | Triggers | `push`, `pull_request` (develop), `workflow_dispatch`, `schedule`, `workflow_call`. No `pull_request_target`, no `workflow_run` (rg over `.github/workflows/*.yml`) | `.github/workflows/ci.yml:14-21`; `publish.yml:21-30` |
 | Default token perms | workflow-level `contents: read` on all except: `codeql.yml` (`security-events: write`, `actions: read`), `deploy-site.yml` (`pages: write`, `id-token: write`), `sync-release-version.yml` (`contents: write`, dispatch-only) | `codeql.yml:20-23`; `deploy-site.yml:24-27`; `sync-release-version.yml:43-44` |
-| Job-level elevation | `publish.yml`: `tag-and-push` `contents: write` (`:144`); `publish` `contents: write` + `id-token: write` + `environment: npm-publish` (`:245-249`); `github-release` `contents: write` (`:649`); `site-redeploy` `actions: write` (`:858`); nightly `issues: write` | `.github/workflows/publish.yml:144`, `:245-249`, `:649`, `:821`, `:858`; `nightly.yml:200` |
+| Job-level elevation | `publish.yml`: `tag-and-push` `contents: write` (`:144`); `publish` `contents: write` + `id-token: write` + `environment: npm-publish` (`:245-249`); `github-release` `contents: write` (`:649`); `site-redeploy` `actions: write` (`:858`); nightly `issues: write` | `.github/workflows/publish.yml:144`, `:245-249`, `:649`, `:821`, `:858`; `nightly.yml:251` |
 | Action pinning | 0 SHA pins. Tags: `actions/*@v3-v7`, `pnpm/action-setup@v4` (34×), `softprops/action-gh-release@v2`, `astral-sh/setup-uv@v6`, `github/codeql-action/*@v4` | `rg 'uses:' .github/workflows` ; `publish.yml:786` → SUP-01 |
 | `actions/checkout` credentials | `persist-credentials` never set (default true) → token in `.git/config` for later steps (incl. dependency scripts) | rg `persist-credentials` = 0 hits; `publish.yml:251-256` → SUP-02 |
 | Secrets | `GITHUB_TOKEN` only + `DISCORD_RELEASE_WEBHOOK`. No `NPM_TOKEN`, no Apple/Windows signing secrets (unsigned → ELEC-04) | `publish.yml:150`, `:831`, `:862`, `:899`, `:925-926` |
@@ -251,7 +251,7 @@ flowchart LR
 | `PI_ENTRYPOINT_NO_SUPERVISE` | unset | exec server as PID 1 (test harness) | `docker/entrypoint.sh:72-75` |
 | `ZROK_VERSION` / `GH_VERSION` / `JJ_VERSION` (build args) | 2.0.4 / 2.62.0 / 0.24.0 | pinned tool versions | `docker/Dockerfile:16-18` |
 | `PI_DASHBOARD_FIXTURE_PLUGINS` (build arg) | `""` | keep fixture plugin clients in bundle | `docker/Dockerfile:189` |
-| `use_dependency_cache` (`_electron-build` input) | false (release) | CI dependency cache | `codeql-baseline.json` justification; `nightly.yml:192` (`true` nightly) |
+| `use_dependency_cache` (`_electron-build` input) | false (release) | CI dependency cache | `codeql-baseline.json` justification; `nightly.yml:227` (`true` nightly) |
 
 ## Test/dev-only
 | Item | Note | Evidence |

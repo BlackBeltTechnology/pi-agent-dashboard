@@ -898,3 +898,438 @@ describe("--watchdog (E90–E99, X7)", () => {
     expect(issueCalls(api)).toEqual([]);
   });
 });
+
+// ── jobs-only mode + report-mode defaults (change: schedule-release-rehearsal, D2; test-plan E1-E28, X1-X8) ──
+describe("nightly-report jobs-only mode (D2)", () => {
+  const N = "Nightly Verdaccio build";
+  const JO = ["--jobs-only", "--no-close-on-rerun", "--label", "nightly", "--name", N];
+  const SHA = "abc1234";
+  const RUN_URL = "https://github.com/o/r/actions/runs/42";
+  const allOk = JSON.stringify({ resolve: { result: "success" }, electron: { result: "success" }, knip: { result: "success" } });
+  const needsOf = (o) => JSON.stringify(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { result: v }])));
+  const job = (name, conclusion) => ({ name, conclusion });
+
+  /** A fake GitHub at the `fetch` layer: records issue calls, the list URL and every jobs request. */
+  function fakeGitHub({ open = [], jobPages = [[]], fail = {} } = {}) {
+    const calls = [];
+    const jobsRequests = [];
+    const urls = [];
+    const reply = (body, status = 200, headers = {}) => ({
+      ok: status < 400,
+      status,
+      headers: { get: (k) => headers[k.toLowerCase()] ?? null },
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    });
+    const fetch = async (url, init = {}) => {
+      const method = init.method ?? "GET";
+      const u = new URL(url);
+      const body = init.body ? JSON.parse(init.body) : undefined;
+      urls.push(`${method} ${u.pathname}${u.search}`);
+      const err = (name) => (fail[name] ? reply({ message: "boom" }, fail[name]) : null);
+      let m;
+      if (method === "GET" && u.pathname === "/repos/o/r/issues") {
+        calls.push(["listOpen", u.searchParams.get("labels")]);
+        return err("listOpen") ?? reply(open.filter((i) => i.labels.includes(u.searchParams.get("labels"))));
+      }
+      if (method === "GET" && /\/actions\/runs\/42\/jobs$/.test(u.pathname)) {
+        jobsRequests.push(`${u.pathname}${u.search}`);
+        calls.push(["jobs"]);
+        const page = Number(u.searchParams.get("page") ?? 1);
+        const link = page < jobPages.length ? { link: `<https://api.github.com${u.pathname}?per_page=100&page=${page + 1}>; rel="next"` } : {};
+        return err("jobs") ?? reply({ jobs: jobPages[page - 1] }, 200, link);
+      }
+      if (method === "GET" && /\/actions\/workflows\/.+\/runs$/.test(u.pathname)) {
+        calls.push(["runs"]);
+        return reply({ workflow_runs: [] });
+      }
+      if (method === "POST" && u.pathname === "/repos/o/r/issues") {
+        calls.push(["create", body.title, body.labels, body.body]);
+        return err("create") ?? reply({ number: 100 }, 201);
+      }
+      if (method === "POST" && (m = /\/issues\/(\d+)\/comments$/.exec(u.pathname))) {
+        calls.push(["comment", Number(m[1]), body.body]);
+        return err("comment") ?? reply({}, 201);
+      }
+      if (method === "PATCH" && (m = /\/issues\/(\d+)$/.exec(u.pathname))) {
+        const kind = body.state === "closed" ? "close" : "update";
+        calls.push([kind, Number(m[1]), body.body]);
+        return err(kind) ?? reply({});
+      }
+      throw new Error(`unexpected request ${method} ${u.pathname}`);
+    };
+    return { fetch, calls, jobsRequests, urls, writes: () => calls.filter((c) => ["create", "update", "comment", "close"].includes(c[0])) };
+  }
+
+  async function run(argv, { env = {}, gh = fakeGitHub() } = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jo-"));
+    const summaryFile = path.join(dir, "summary.md");
+    const baseEnv = {
+      GITHUB_TOKEN: "t",
+      GITHUB_REPOSITORY: "o/r",
+      GITHUB_SERVER_URL: "https://github.com",
+      GITHUB_RUN_ID: "42",
+      GITHUB_SHA: SHA,
+      GITHUB_EVENT_NAME: "schedule",
+      GITHUB_RUN_ATTEMPT: "1",
+      NEEDS_JSON: allOk,
+      GITHUB_STEP_SUMMARY: summaryFile,
+    };
+    const merged = { ...baseEnv, ...env };
+    for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k];
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const code = await main(argv, { fetch: gh.fetch, env: merged, gitIsAncestor: () => true });
+      const summary = fs.existsSync(summaryFile) ? fs.readFileSync(summaryFile, "utf8") : "";
+      const stdout = log.mock.calls.map((c) => c.join(" ")).join("\n");
+      return { code, summary, stdout, ...gh };
+    } finally {
+      log.mockRestore();
+    }
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  const reportsDir = () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "jo-rep-"));
+    for (const [job, failing] of [["unit-1", false], ["unit-2", true]]) {
+      fs.mkdirSync(path.join(d, `vitest-report-${job}`));
+      fs.writeFileSync(
+        path.join(d, `vitest-report-${job}`, "r.json"),
+        JSON.stringify({ testResults: [{ name: `${process.cwd()}/a.test.ts`, status: failing ? "failed" : "passed", startTime: 0, endTime: 1000, assertionResults: failing ? [{ status: "failed", fullName: "t" }] : [] }] }),
+      );
+    }
+    return d;
+  };
+  const okNeeds = needsOf({ "unit-1": "success", "unit-2": "success" });
+
+  it("E1: report mode without the new flags keeps today's strings, label and files", async () => {
+    const d = reportsDir();
+    const r = await run(["--reports", d, "--expected", "unit-1,unit-2"], { env: { NEEDS_JSON: okNeeds } });
+    expect(r.summary.startsWith("## Nightly tests: RED")).toBe(true);
+    expect(r.stdout).toContain(`Nightly full suite is red at \`${SHA}\`.`);
+    const create = r.calls.filter((c) => c[0] === "create");
+    expect(create).toHaveLength(1);
+    expect(create[0][1]).toBe("Nightly full test suite is failing");
+    expect(create[0][2]).toEqual(["nightly-tests"]);
+    expect(fs.existsSync(path.join(d, "timings.json"))).toBe(true);
+    expect(r.code).toBe(1);
+  });
+
+  it("E2: the new flags are ignored in report mode", async () => {
+    const d = reportsDir();
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly-tests"] }] });
+    const r = await run(["--reports", d, "--expected", "unit-1,unit-2", "--label", "nightly", "--name", "X", "--no-close-on-rerun"], { env: { NEEDS_JSON: okNeeds, GITHUB_RUN_ATTEMPT: "2" }, gh });
+    expect(r.writes().map((c) => c[0])).toEqual(["update", "comment"]);
+    expect(r.writes()[1]).toEqual(["comment", 7, `Still red at \`${SHA}\`.`]);
+    expect(r.calls.find((c) => c[0] === "listOpen")[1]).toBe("nightly-tests");
+    expect(`${r.summary}${r.stdout}${JSON.stringify(r.calls)}`).not.toMatch(/Re-run attempt|"X"|\bX is\b/);
+    expect(r.code).toBe(1);
+  });
+
+  it("E3: --jobs-only wins over --watchdog and needs no --reports", async () => {
+    const gone = path.join(os.tmpdir(), `jo-gone-${process.pid}-${Date.now()}`);
+    const r = await run([...JO, "--watchdog", "--reports", gone, "--expected", "a"], { env: { GITHUB_EVENT_NAME: "workflow_dispatch" } });
+    expect(fs.existsSync(gone)).toBe(false);
+    expect(r.calls.some((c) => c[0] === "runs")).toBe(false);
+    expect(r.stdout + r.summary).not.toContain("usage:");
+    expect(r.summary).toContain(`## ${N}: green`);
+    expect(r.code).toBe(0);
+  });
+
+  it("E4: jobs-only needs neither --reports nor --expected", async () => {
+    const r = await run(JO);
+    expect(r.stdout + r.summary).not.toContain("usage:");
+    expect(r.calls).toEqual([["listOpen", "nightly"]]);
+    expect(r.writes()).toEqual([]);
+    expect(r.code).toBe(0);
+  });
+
+  it("E5: --name maps the heading, headline and title; the failed leg is named", async () => {
+    const gh = fakeGitHub({ jobPages: [[job("electron / build (macos-14)", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure", knip: "success" }) }, gh });
+    expect(r.summary).toContain(`## ${N}: RED`);
+    const create = r.calls.filter((c) => c[0] === "create");
+    expect(create).toHaveLength(1);
+    expect(create[0][1]).toBe(`${N} is failing`);
+    expect(create[0][2]).toEqual(["nightly"]);
+    expect(create[0][3]).toContain(`${N} is red at \`${SHA}\`.`);
+    expect(create[0][3]).toContain(RUN_URL);
+    expect(create[0][3]).toMatch(/### Failed jobs and legs\n- electron \/ build \(macos-14\)/);
+    expect(r.code).toBe(1);
+  });
+
+  it("E6: recovery comments, then closes", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { gh });
+    expect(r.writes()).toEqual([["comment", 7, `${N} is green again at \`${SHA}\`. Closing.`], ["close", 7, undefined]]);
+    expect(r.summary).toContain(`## ${N}: green`);
+    expect(r.code).toBe(0);
+  });
+
+  it("E7: a repeat failure updates the open issue and comments 'Still red'", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], jobPages: [[job("knip", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ knip: "failure" }) }, gh });
+    const w = r.writes();
+    expect(w.map((c) => c[0])).toEqual(["update", "comment"]);
+    expect(w[0][2]).toContain("knip");
+    expect(w[0][2]).toContain(RUN_URL);
+    expect(w[1]).toEqual(["comment", 7, `Still red at \`${SHA}\`.`]);
+    expect(r.code).toBe(1);
+  });
+
+  it("E8: a red re-run comments on the open issue and leaves the body alone", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], jobPages: [[job("electron / build (windows-latest)", "failure")]] });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(r.writes()).toHaveLength(1);
+    const [kind, n, body] = r.writes()[0];
+    expect([kind, n]).toEqual(["comment", 7]);
+    expect(body.startsWith(`Re-run attempt 2 of ${RUN_URL} is red at \`${SHA}\`.`)).toBe(true);
+    expect(body).toMatch(/### Failed jobs and legs\n- electron \/ build \(windows-latest\)/);
+    expect(r.code).toBe(1);
+  });
+
+  it("E9: a red re-run with no open issue opens one with the full body", async () => {
+    const gh = fakeGitHub({ jobPages: [[job("electron / build (windows-latest)", "failure")]] });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    const create = r.calls.filter((c) => c[0] === "create");
+    expect(create).toHaveLength(1);
+    expect(create[0][1]).toBe(`${N} is failing`);
+    expect(create[0][2]).toEqual(["nightly"]);
+    expect(create[0][3]).toContain("electron");
+    expect(create[0][3]).toContain("electron / build (windows-latest)");
+    expect(create[0][3]).toContain(RUN_URL);
+    expect(r.code).toBe(1);
+  });
+
+  it("E10: a green re-run makes no issue call and says why", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2" }, gh });
+    expect(r.calls).toEqual([]);
+    expect(r.summary).toContain(`## ${N}: green`);
+    expect(r.summary).toContain("Re-run attempt 2: a re-run never closes the `nightly` issue; the next green scheduled night does.");
+    expect(r.code).toBe(0);
+  });
+
+  it("E11: a green re-run needs no first-attempt record", async () => {
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2" } });
+    expect(r.calls).toEqual([]);
+    expect(r.summary).toContain("Re-run attempt 2: a re-run never closes");
+    expect(r.code).toBe(0);
+  });
+
+  it("E12: attempt 3 behaves like attempt 2", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "3", NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(r.writes()).toHaveLength(1);
+    expect(r.writes()[0][0]).toBe("comment");
+    expect(r.writes()[0][2].startsWith("Re-run attempt 3 of")).toBe(true);
+    expect(r.code).toBe(1);
+  });
+
+  it("E13: a red dispatch never touches the issue", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { GITHUB_EVENT_NAME: "workflow_dispatch", NEEDS_JSON: needsOf({ smoke: "failure" }) }, gh });
+    expect(r.calls.filter((c) => c[0] !== "jobs")).toEqual([]);
+    expect(r.summary).toContain(`## ${N}: RED`);
+    expect(r.summary).toContain("smoke");
+    expect(r.code).toBe(1);
+  });
+
+  it("E14: a green dispatch never touches the issue", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { GITHUB_EVENT_NAME: "workflow_dispatch" }, gh });
+    expect(r.calls).toEqual([]);
+    expect(r.summary).toContain(`## ${N}: green`);
+    expect(r.code).toBe(0);
+  });
+
+  it("E15: a dispatch re-run writes no issue and no re-run text", async () => {
+    const r = await run(JO, { env: { GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ smoke: "failure" }) } });
+    expect(r.writes()).toEqual([]);
+    expect(r.calls.some((c) => c[0] === "listOpen")).toBe(false);
+    expect(r.summary).not.toContain("Re-run attempt");
+    expect(r.code).toBe(1);
+  });
+
+  it("E16: without --no-close-on-rerun a green attempt 2 behaves like attempt 1", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(["--jobs-only", "--label", "nightly", "--name", N], { env: { GITHUB_RUN_ATTEMPT: "2" }, gh });
+    expect(r.writes().map((c) => c.slice(0, 3))).toEqual([["comment", 7, `${N} is green again at \`${SHA}\`. Closing.`], ["close", 7, undefined]]);
+    expect(r.code).toBe(0);
+  });
+
+  it.each([["unset", undefined], ["empty", ""]])("E17: NEEDS_JSON %s is red with 'job results unavailable'", async (_n, value) => {
+    const r = await run(JO, { env: { NEEDS_JSON: value } });
+    expect(r.stdout).toContain("job results unavailable");
+    expect(r.summary).toContain(`## ${N}: RED`);
+    const create = r.calls.filter((c) => c[0] === "create");
+    expect(create).toHaveLength(1);
+    expect(create[0][2]).toEqual(["nightly"]);
+    expect(r.code).toBe(1);
+  });
+
+  it("E18: invalid NEEDS_JSON is red, never an uncaught exception", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { NEEDS_JSON: "{not json" }, gh });
+    expect(r.stdout).toContain("job results unavailable");
+    expect(r.writes().map((c) => c[0])).toEqual(["update", "comment"]);
+    expect(r.summary).toContain("RED");
+    expect(r.code).toBe(1);
+  });
+
+  it("E19: NEEDS_JSON '{}' is red (today's `|| \"{}\"` would be green)", async () => {
+    const r = await run(JO, { env: { NEEDS_JSON: "{}" } });
+    expect(r.stdout).toContain("job results unavailable");
+    expect(r.summary).toContain("RED");
+    expect(r.calls.filter((c) => c[0] === "create")).toHaveLength(1);
+    expect(r.code).toBe(1);
+  });
+
+  it.each(["null", "[]"])("E20: NEEDS_JSON %s is red, never green", async (value) => {
+    const r = await run(JO, { env: { NEEDS_JSON: value } });
+    expect(r.stdout).toContain("job results unavailable");
+    expect(r.summary).not.toContain(`## ${N}: green`);
+    expect(r.code).toBe(1);
+  });
+
+  it("E21: a skipped job is red and printed with its result", async () => {
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ resolve: "failure", "verify-publish": "skipped", electron: "skipped", knip: "success", "install-load": "success", smoke: "success" }) } });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    for (const line of ["resolve: failure", "verify-publish: skipped", "electron: skipped"]) expect(body).toContain(line);
+    expect(r.code).toBe(1);
+  });
+
+  it("E22: a non-electron failing job is named in both sections", async () => {
+    const gh = fakeGitHub({ jobPages: [[job("knip", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ knip: "failure" }) }, gh });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    expect(body).toMatch(/### Jobs that did not succeed\n- knip: failure/);
+    expect(body).toMatch(/### Failed jobs and legs\n- knip/);
+    expect(r.code).toBe(1);
+  });
+
+  it("E23: only failure, cancelled and timed_out conclusions are listed", async () => {
+    const jobs = [
+      job("smoke / standalone-install-smoke-windows (node 26)", "failure"),
+      job("electron / build (macos-14)", "cancelled"),
+      job("verify-publish", "timed_out"),
+      job("resolve", "success"),
+      job("knip", "skipped"),
+      job("install-load", "neutral"),
+      job("report", null),
+    ];
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh: fakeGitHub({ jobPages: [jobs] }) });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    const section = body.slice(body.indexOf("### Failed jobs and legs"));
+    expect(section).toContain("smoke / standalone-install-smoke-windows (node 26)");
+    expect(section).toContain("electron / build (macos-14)");
+    expect(section).toContain("- verify-publish");
+    for (const name of ["resolve", "knip", "install-load", "report"]) expect(section).not.toContain(`- ${name}`);
+  });
+
+  it("E24: 100 jobs + a next link: two requests with per_page=100, the page-2 leg listed", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => job(`j${i}`, "success"));
+    const gh = fakeGitHub({ jobPages: [page1, [job("electron / build (windows-latest)", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(gh.jobsRequests).toHaveLength(2);
+    for (const u of gh.jobsRequests) expect(u).toContain("per_page=100");
+    expect(r.calls.find((c) => c[0] === "create")[3]).toMatch(/### Failed jobs and legs\n- electron \/ build \(windows-latest\)/);
+  });
+
+  it("E25: exactly 100 jobs and no Link header: one request", async () => {
+    const page = Array.from({ length: 100 }, (_, i) => job(`j${i}`, i === 42 ? "failure" : "success"));
+    const gh = fakeGitHub({ jobPages: [page] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(gh.jobsRequests).toHaveLength(1);
+    expect(r.calls.find((c) => c[0] === "create")[3]).toContain("- j42");
+  });
+
+  it("E26: with two open issues the first is adopted and nothing names the second", async () => {
+    const gh = fakeGitHub({ open: [{ number: 3, state: "open", labels: ["nightly"] }, { number: 9, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(r.writes().map((c) => [c[0], c[1]])).toEqual([["update", 3], ["comment", 3]]);
+    expect(r.writes().some((c) => c[1] === 9 || c[0] === "create")).toBe(false);
+  });
+
+  it("E27: the issue list uses the --label, so a nightly-tests issue is never adopted", async () => {
+    const gh = fakeGitHub({ open: [{ number: 5, state: "open", labels: ["nightly-tests"] }] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(gh.urls.some((u) => u.includes("labels=nightly&"))).toBe(true);
+    expect(gh.urls.some((u) => u.includes("labels=nightly-tests"))).toBe(false);
+    expect(r.calls.filter((c) => c[0] === "create")).toHaveLength(1);
+    expect(r.calls.find((c) => c[0] === "create")[2]).toEqual(["nightly"]);
+    expect(r.writes().some((c) => c[1] === 5)).toBe(false);
+  });
+
+  it("E28: a pull request carrying the label is not adopted", async () => {
+    const gh = fakeGitHub({ open: [{ number: 8, state: "open", labels: ["nightly"], pull_request: {} }] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(r.writes().some((c) => c[1] === 8)).toBe(false);
+    expect(r.calls.filter((c) => c[0] === "create")).toHaveLength(1);
+  });
+
+  it("X1: an unreadable job list does not turn the night green and is named", async () => {
+    const gh = fakeGitHub({ fail: { jobs: 500 } });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    expect(body).toContain("failed-job list unavailable:");
+    expect(body).toContain("electron: failure");
+    expect(body).toContain(RUN_URL);
+    expect(r.code).toBe(1);
+  });
+
+  it("X2: a failing jobs list does not change a green verdict or its exit code", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], fail: { jobs: 500 } });
+    const r = await run(JO, { gh });
+    expect(r.writes().map((c) => c[0])).toEqual(["comment", "close"]);
+    expect(r.code).toBe(0);
+  });
+
+  it("X3: a re-run comment names the failing jobs from the results when the list is unreadable", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], fail: { jobs: 500 } });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ smoke: "failure" }) }, gh });
+    expect(r.writes()).toHaveLength(1);
+    const [kind, , body] = r.writes()[0];
+    expect(kind).toBe("comment");
+    expect(body.startsWith("Re-run attempt 2 of")).toBe(true);
+    expect(body).toContain("failed-job list unavailable:");
+    expect(body).toContain("smoke: failure");
+    expect(r.code).toBe(1);
+  });
+
+  const issueFailure = `Issue call failed: `;
+  const issueTail = "The `nightly` issue may not reflect this run; re-run the `report` job.";
+  const expectNamed = (r) => {
+    expect(r.summary).toContain(issueFailure);
+    expect(r.summary.trimEnd().endsWith(issueTail)).toBe(true);
+    expect(r.stdout).toMatch(/::error::Issue call failed: .*re-run the `report` job\./);
+    expect(r.code).toBe(1);
+  };
+
+  it("X4: a failed create is named in the summary and as an annotation", async () => {
+    expectNamed(await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh: fakeGitHub({ fail: { create: 403 } }) }));
+  });
+
+  it("X5: a close that fails after the comment exits 1 although the verdict is green", async () => {
+    const r = await run(JO, { gh: fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], fail: { close: 500 } }) });
+    expect(r.writes().map((c) => c[0])).toEqual(["comment", "close"]);
+    expectNamed(r);
+  });
+
+  it("X6: a failed issue list is named", async () => {
+    expectNamed(await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh: fakeGitHub({ fail: { listOpen: 500 } }) }));
+  });
+
+  it("X7: a failed re-run comment is named", async () => {
+    expectNamed(await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ electron: "failure" }) }, gh: fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], fail: { comment: 500 } }) }));
+  });
+
+  it("X8: a failing verify-publish is red and names it, with no job shown as skipped", async () => {
+    const gh = fakeGitHub({ jobPages: [[job("verify-publish", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ resolve: "success", "verify-publish": "failure", electron: "success", smoke: "success", knip: "success", "install-load": "success" }) }, gh });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    expect(body).toContain("verify-publish");
+    expect(body).not.toContain("skipped");
+    expect(r.code).toBe(1);
+  });
+});

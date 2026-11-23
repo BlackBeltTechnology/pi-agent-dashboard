@@ -58,9 +58,20 @@ Run these in order. If any fails, **stop and report** — do not continue.
 
    > **Known false-positive (substring gate).** `verify-release-deps.mjs` checks the declared range with a naive `String.includes(minVersion)` — NOT semver math. So a legitimate pi bump ABOVE the floor (e.g. floor `0.74.0`, pin `^0.80.10`) fails the gate because `"^0.80.10"` does not contain the substring `"0.74.0"`. When this fires and the pin is genuinely newer than the rule's `minVersion`, the FIX is to bump that rule's `minVersion` (+ its evidence note in the RULES array, and the `scripts/AGENTS.md` row) to the new floor — do NOT downgrade the pin. This recurs on every pi version bump. See change: fix-release-lockfile-drift (gate lives in `scripts/verify-release-deps.mjs`).
 
-7. **Dispatch `ci-smoke.yml` against `develop`** (recommended; catches installer regressions BEFORE the tag exists)
+7. **Read both nightlies, then optionally dispatch `ci-smoke.yml` against `develop`** (catches installer regressions BEFORE the tag exists)
 
-   The release pipeline (`publish.yml`) gates `publish` on a `release-gate` that runs the full 7-leg standalone-install-smoke matrix. If that gate fails on `workflow_dispatch`, `tag-and-push` is skipped — clean abort, no commit, no tag. But on a `git push --tags` cut, the tag already exists when the gate fires; failure leaves a dangling tag requiring `release-revoke`.
+   Before tagging, check both scheduled nightlies and note the SHA each run tested (they can differ, and neither runs on the commit `tag-and-push` creates):
+
+   ```bash
+   gh run list --workflow nightly-tests.yml --event schedule --limit 1 --json conclusion,headSha,createdAt
+   gh issue list --label nightly-tests --state open   # unit suite the tag gate's `pnpm test` runs, plus the budget lane
+   gh run list --workflow nightly.yml --event schedule --limit 1 --json conclusion,headSha,createdAt
+   gh issue list --label nightly --state open         # publish (npm@latest loopback), install smoke, Electron matrix
+   ```
+
+   A green rehearsal does NOT prove the tag will publish. It cannot catch: `ci-checks :: Run pnpm test` flakes on the new commit, `ETARGET`/`E404` registry lag, OIDC/`--provenance`/`403`/`409` on the real registry, a defect in `publish.yml`'s own step text, Windows `runtime-asset` `tar`/`EXDEV`, macOS signing. See `docs/release-process.md`.
+
+   The release pipeline (`publish.yml`) gates `publish` on a `release-gate` that runs the standalone-install-smoke jobs `_smoke.yml` defines (`standalone-install-smoke-linux`, `standalone-install-smoke-windows`, `standalone-install-upgrade-continuity`). If that gate fails on `workflow_dispatch`, `tag-and-push` is skipped — clean abort, no commit, no tag. But on a `git push --tags` cut, the tag already exists when the gate fires; failure leaves a dangling tag requiring `release-revoke`.
 
    Operators SHOULD run the smoke matrix first against `develop`:
 
@@ -69,7 +80,7 @@ Run these in order. If any fails, **stop and report** — do not continue.
    gh run watch  # or open the Actions UI
    ```
 
-   All 7 legs must be green before cutting. If any leg fails, fix the regression on `develop` first — do NOT cut a tag that you know will fail the gate. Skip this step only when the change since the last release is provably installer-irrelevant (no lockfile, bundle-server, native dep, or preload-fastify touch). See change: gate-publish-on-smoke-and-tests.
+   Every `_smoke.yml` job must be green before cutting. If any leg fails, fix the regression on `develop` first — do NOT cut a tag that you know will fail the gate. Skip this step only when the change since the last release is provably installer-irrelevant (no lockfile, bundle-server, native dep, or preload-fastify touch). See change: gate-publish-on-smoke-and-tests.
 
 If any pre-flight step fails, stop and surface the exact error to the user.
 
@@ -274,7 +285,7 @@ before a Release was published. Stay on it until `github-release` is green.
 **Pipeline shape (each is a gate; a failure before `github-release` means NO
 GitHub Release exists yet):**
 ```
-release-gate ( ci-checks + 7-leg smoke ) → publish (npm, OIDC) → electron (6-leg matrix) → github-release
+release-gate ( ci-checks + `_smoke.yml` jobs ) → publish (npm, OIDC) → electron (6-leg matrix) → github-release
 ```
 **Latent-bug warning:** the FIRST release where `publish` finally goes green
 exposes CI bugs that never ran before (v0.6.1's `electron` job had been silently
@@ -312,7 +323,7 @@ reached yet (e.g. a single red smoke leg).
 | `electron`/`github-release` skipped instantly (<1s) even though `publish` is green | **workflow-if** (fixed in-repo; watch for regressions) | a skipped `tag-and-push` in needs-ancestry poisons the default `if: success()`. Those jobs now carry explicit `if: !cancelled() && needs.publish.result == 'success'`. |
 | Windows electron leg: `koffi prebuild GO/NO-GO failed` | **guard-path** (fixed) | koffi 3.x ships per-platform packages (`@koromix/koffi-win32-x64/win32_x64/koffi.node`), not the koffi-2.x `koffi/build/...` path. Guard lives in `scripts/windows-liveness-smoke.ts`. |
 | Windows **arm64** electron leg: NSIS install smoke "pi-dashboard.exe not found after 150s" | **arch** (fixed) | an arm64 binary can't execute on the x64 GitHub runner; install/uninstall smoke must be skipped on arm64 (needs a windows-11-arm runner). |
-| The smoke matrix false-positives a stale import (e.g. a symbol deleted by an earlier PR still imported by a probe) | **latent develop bug** | fix on `develop`, force-move the tag. The 7-leg smoke only runs at release time, so these surface here. |
+| The smoke matrix false-positives a stale import (e.g. a symbol deleted by an earlier PR still imported by a probe) | **latent develop bug** | fix on `develop`, force-move the tag. The `_smoke.yml` smoke also runs nightly in `nightly.yml`, so these usually surface there first, so these surface here. |
 
 ## Guardrails
 

@@ -87,10 +87,12 @@ jobs:
           echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
 
   # ── release-gate: ci-checks (lint+test+build) ─────────────────────────────
-  # The FULL unit suite plus lint and build, at release time against the
-  # resolved ref. Unlike ci.yml it applies no affected-test selection (change:
-  # speed-up-ci-affected-tests). Fans out in parallel with `smoke`. See change:
-  # gate-publish-on-smoke-and-tests.
+  # The full unit suite except the budget lane (`pnpm test` does not collect
+  # `*.budget.test.*` unless `RUN_BUDGET_TESTS=1`; change
+  # stabilize-blocking-test-lanes) plus lint and build, at release time against
+  # the resolved ref. Unlike ci.yml it applies no affected-test selection
+  # (change: speed-up-ci-affected-tests). Fans out in parallel with `smoke`.
+  # See change: gate-publish-on-smoke-and-tests.
   ci-checks:
     needs: [resolve]
     runs-on: ubuntu-latest
