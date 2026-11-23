@@ -55,8 +55,8 @@ GIT:
 - Worktree actions: Push, Open PR / View PR #N, Merge (not when NEXT), Close worktree….
 
 VIEW:
-- `Card sections…` → Session cards page of group folder (`gitWorktree.mainPath` for worktree sessions, else session cwd).
-- `Card section defaults…` → global Session cards defaults in Settings.
+- One item: `Card sections…` (id `card-sections`, action `openCardSections`) → `/folder/<enc>/settings/cards` of group folder (`gitWorktree.mainPath` for worktree sessions, else session cwd).
+- Global defaults: folder page `Edit global defaults →` (`card-sections-open-global`) → `/settings/general?scroll=card-sections-settings`. Settings scrolls `Session card sections` into view, then drops `scroll` param. Back returns to folder page.
 
 Stays on card (not moved into menu):
 - MEMORY subcard content.

@@ -364,10 +364,13 @@ describe("session actions menu VIEW group (replaces the legend options menu)", (
     expect(atob(folder.replace(/-/g, "+").replace(/_/g, "/"))).toBe(CWD);
   });
 
-  it("Card section defaults… opens the global Session cards defaults in Settings", () => {
-    setup();
-    fireEvent.click(screen.getByTestId("session-menu-item-card-defaults"));
-    expect(window.location.pathname).toBe("/settings/general");
+  it("VIEW has no Card section defaults… item; global defaults are reached via the folder page (#E11)", () => {
+    const { onSelect } = setup();
+    expect(screen.queryByTestId("session-menu-item-card-defaults")).toBeNull();
+    expect(screen.getByTestId("session-menu-item-card-sections")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("session-menu-item-card-sections"));
+    expect(window.location.pathname).toMatch(/^\/folder\/[^/]+\/settings\/cards$/);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("hiding `openspec` / `git` card sections keeps their menu groups", () => {

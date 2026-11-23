@@ -48,4 +48,6 @@ Relayed `gitBranchUrl` / `gitPrUrl` render via `SafeLink`; card action `openUrl`
 
 `menuListCtx` (the `ActionListMenuContext` value around the `session-card-action-bar` portal) carries `open: menuOpen` so mounted claims refetch on menu open (flows effective edit mode). See change: stop-flows-edit-mode-project-writes.
 
+Session menu actions drop `openCardDefaults`; VIEW = `Card sections…` only. See change: card-sections-global-pointer.
+
 Git-row branch link bounded to icon + text: slot sizing on non-clipping wrapper span, link content-wide; free row space falls through to card click (select). See change: narrow-branch-link-hit-area.

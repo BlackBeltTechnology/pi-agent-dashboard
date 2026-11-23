@@ -1,12 +1,13 @@
 /**
  * Directory Settings › Session cards — per-folder session-card section
- * visibility. One tri-state control per section (Default (<global>) / Show /
- * Hide) writing SPARSE overrides (`Default` sends `null` = inherit), grouped
+ * visibility. One tri-state control per section (Global (<global>) / Show /
+ * Hide) writing SPARSE overrides (`Global` sends `null` = inherit), grouped
  * Sections / Plugin sections / Card lines, override badges, `Reset to global`,
+ * `Edit global defaults →` (pushes `/settings/general?scroll=card-sections-settings`),
  * and a synthetic live preview built from the same resolver as the cards.
  * Plugin rows render only when an installed plugin claims the section's slot.
  * Writes apply immediately (server-authoritative, synced to every browser).
- * See change: configurable-session-card-sections (design D9).
+ * See change: configurable-session-card-sections (design D9), card-sections-global-pointer.
  */
 import {
   type CardSectionPrefs,
@@ -41,9 +42,9 @@ export function CardSectionsPage({ cwd }: { cwd: string }) {
 
   const row = (m: CardSectionMeta) => {
     const override = getFolderOverride(prefs, key, m.id);
-    // What "Default" means for THIS row: the value with only this id's folder
+    // What "Global" means for THIS row: the value with only this id's folder
     // override removed (global → legacy parent → visible), so a child that
-    // inherits from a hidden legacy parent reads `Default (Hide)`.
+    // inherits from a hidden legacy parent reads `Global (Hide)`.
     const folderMap = { ...(prefs.folders?.[key] ?? {}) };
     delete folderMap[m.id];
     const globalVisible = resolveCardSectionVisible(
@@ -57,8 +58,8 @@ export function CardSectionsPage({ cwd }: { cwd: string }) {
       {
         v: "inherit",
         text: globalVisible
-          ? i18nT("cardSections.defaultShow", undefined, "Default (Show)")
-          : i18nT("cardSections.defaultHide", undefined, "Default (Hide)"),
+          ? i18nT("cardSections.globalShow", undefined, "Global (Show)")
+          : i18nT("cardSections.globalHide", undefined, "Global (Hide)"),
         send: null,
       },
       { v: "show", text: i18nT("cardSections.show", undefined, "Show"), send: true },
@@ -145,21 +146,32 @@ export function CardSectionsPage({ cwd }: { cwd: string }) {
         </p>
 
         <FocusNotice />
-        <div className="flex items-center gap-3 px-3 py-2.5 mb-4 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-tertiary)]">
-          <span className="flex-1 text-xs text-[var(--text-secondary)]" data-testid="card-sections-override-summary">
+        <div className="flex flex-wrap items-center gap-3 px-3 py-2.5 mb-4 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-tertiary)]">
+          <span className="flex-1 min-w-[12rem] text-xs text-[var(--text-secondary)]" data-testid="card-sections-override-summary">
             {overrideCount === 0
-              ? i18nT("cardSections.noOverrides", undefined, "Using global defaults — no overrides for this folder.")
-              : i18nT("cardSections.overrideCount", { count: overrideCount }, "{count} override(s) for this folder; everything else follows global defaults.")}
+              ? i18nT("cardSections.noOverrides", undefined, "Using the global defaults — no overrides for this folder.")
+              : i18nT("cardSections.overrideCount", { count: overrideCount }, "{count} override(s) for this folder; everything else follows the global defaults.")}
           </span>
-          <button
-            type="button"
-            data-testid="card-sections-reset"
-            disabled={overrideCount === 0 || !actions.canWrite}
-            onClick={() => actions.resetFolder(cwd)}
-            className="text-xs px-2.5 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
-          >
-            {i18nT("cardSections.resetToGlobal", undefined, "Reset to global")}
-          </button>
+          <div className="flex gap-2 shrink-0">
+            {/* Navigation, not a write: always enabled (ignores canWrite / override count). */}
+            <button
+              type="button"
+              data-testid="card-sections-open-global"
+              onClick={() => navigate("/settings/general?scroll=card-sections-settings")}
+              className="text-xs px-2.5 py-1 rounded border border-[var(--border-secondary)] text-[var(--accent-primary)] hover:text-[var(--text-primary)] focus-ring"
+            >
+              {i18nT("cardSections.editGlobalDefaults", undefined, "Edit global defaults →")}
+            </button>
+            <button
+              type="button"
+              data-testid="card-sections-reset"
+              disabled={overrideCount === 0 || !actions.canWrite}
+              onClick={() => actions.resetFolder(cwd)}
+              className="text-xs px-2.5 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
+            >
+              {i18nT("cardSections.resetToGlobal", undefined, "Reset to global")}
+            </button>
+          </div>
         </div>
 
         {groups.map((g) => {

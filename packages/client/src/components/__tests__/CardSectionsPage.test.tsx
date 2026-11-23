@@ -38,7 +38,7 @@ function renderPage(prefs: CardSectionPrefs, slots: string[] = []) {
 }
 
 describe("CardSectionsPage", () => {
-  it("Hide writes a folder override; Default writes inherit (sparse)", () => {
+  it("Hide writes a folder override; Global writes inherit (sparse)", () => {
     const { send, rerender } = renderPage({});
     fireEvent.click(screen.getByTestId("card-section-tags-hide"));
     expect(send).toHaveBeenLastCalledWith({ type: "set_card_section_visibility", path: CWD, section: "tags", visible: false });
@@ -59,10 +59,46 @@ describe("CardSectionsPage", () => {
     expect(send).toHaveBeenLastCalledWith({ type: "set_card_section_visibility", path: CWD, section: "tags", visible: null });
   });
 
-  it("Default label reflects the global value", () => {
-    renderPage({ global: { git: false } });
-    expect(screen.getByTestId("card-section-git-inherit").textContent).toBe("Default (Hide)");
-    expect(screen.getByTestId("card-section-tags-inherit").textContent).toBe("Default (Show)");
+  it("Global label reflects the global value (card-sections-global-pointer #E3)", () => {
+    const { container } = renderPage({ global: { git: false } });
+    expect(screen.getByTestId("card-section-git-inherit").textContent).toBe("Global (Hide)");
+    expect(screen.getByTestId("card-section-tags-inherit").textContent).toBe("Global (Show)");
+    expect(container.textContent).not.toContain("Default (");
+  });
+
+  it("Edit global defaults navigates (push) to the Settings block, enabled while Reset is disabled (#E1)", () => {
+    const { hook, history } = memoryLocation({ path: "/a", record: true });
+    const navSpy = vi.fn();
+    const spyHook = () => {
+      const [loc, nav] = hook();
+      return [loc, (to: string, opts?: unknown) => { navSpy(to, opts); nav(to, opts as never); }] as ReturnType<typeof hook>;
+    };
+    render(
+      <Router hook={spyHook}>
+        <PluginContextProvider registry={createSlotRegistry()}>
+          <CardSectionsProvider value={{ prefs: {}, send: vi.fn(), connected: false }}>
+            <CardSectionsPage cwd={CWD} />
+          </CardSectionsProvider>
+        </PluginContextProvider>
+      </Router>,
+    );
+    expect((screen.getByTestId("card-sections-reset") as HTMLButtonElement).disabled).toBe(true);
+    const link = screen.getByTestId("card-sections-open-global") as HTMLButtonElement;
+    expect(link.disabled).toBe(false);
+    expect(link.textContent).toBe("Edit global defaults →");
+    fireEvent.click(link);
+    expect(navSpy).toHaveBeenCalledTimes(1);
+    expect(navSpy.mock.calls[0][0]).toBe("/settings/general?scroll=card-sections-settings");
+    expect((navSpy.mock.calls[0][1] as { replace?: boolean } | undefined)?.replace).not.toBe(true);
+    expect(history[history.length - 1]).toBe("/settings/general?scroll=card-sections-settings");
+  });
+
+  it("summary strip names the global defaults (#E2)", () => {
+    renderPage({ folders: { [CWD]: { git: false, tags: false } } });
+    expect(screen.getByTestId("card-sections-override-summary").textContent).toContain("follows the global defaults");
+    cleanup();
+    renderPage({});
+    expect(screen.getByTestId("card-sections-override-summary").textContent).toContain("Using the global defaults");
   });
 
   it("Reset to global is disabled with no overrides", () => {
@@ -165,11 +201,20 @@ describe("CardSectionsPage — card blocks (add-focus-mode-and-card-block-toggle
     expect(screen.queryByTestId("card-section-row-fx-status-animation")).toBeNull();
   });
 
-  it("openspec-badge inherits a hidden legacy parent as Default (Hide) and a folder write targets the child", () => {
+  it("openspec-badge inherits a hidden legacy parent as Global (Hide) and a folder write targets the child", () => {
     const { send } = renderWith({ global: { openspec: false } }, []);
-    expect(screen.getByTestId("card-section-openspec-badge-inherit").textContent).toBe("Default (Hide)");
+    expect(screen.getByTestId("card-section-openspec-badge-inherit").textContent).toBe("Global (Hide)");
     fireEvent.click(screen.getByTestId("card-section-openspec-badge-show"));
     expect(send).toHaveBeenLastCalledWith({ type: "set_card_section_visibility", path: CWD, section: "openspec-badge", visible: true });
+  });
+
+  it("child of a folder-hidden legacy parent reads Global (Hide); selecting inherit writes no child key (#E4)", () => {
+    const { send } = renderWith({ folders: { [CWD]: { openspec: false } } }, []);
+    const inherit = screen.getByTestId("card-section-openspec-badge-inherit");
+    expect(inherit.textContent).toBe("Global (Hide)");
+    expect(inherit.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(inherit);
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("shows the Focus notice only while Focus is on and Turn off Focus sends the toggle (#E23)", () => {
