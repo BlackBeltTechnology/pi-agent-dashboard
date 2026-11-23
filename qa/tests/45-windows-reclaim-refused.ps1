@@ -54,7 +54,7 @@ import { getServerPidContext } from "./packages/server/src/session/server-pid-co
 
 const pid = Number(process.env.QA_CHILD_PID);
 const pid2 = Number(process.env.QA_CHILD2_PID);
-// A bridge on this host reports its pid namespace; without it the target is `unknown` and an
+// A bridge on this host reports its pid namespace; without it the target is "unknown" and an
 // unattended reclaim is refused before any helper runs.
 const ctx = getServerPidContext();
 const record: any = { id: "s1", status: "idle", pid, pidRecordedAt: Date.now(), pidNamespace: { platform: ctx.platform, kind: "host", hostId: ctx.hostId } };
