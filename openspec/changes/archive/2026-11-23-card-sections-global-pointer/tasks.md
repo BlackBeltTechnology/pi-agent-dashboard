@@ -28,14 +28,14 @@
 ## 4. Navigation check
 - [x] 4.1 Test (L3, new tests/e2e/card-sections-global-pointer.spec.ts, see tests/e2e/card-block-toggles.spec.ts + helpers/card-sections.ts): input `FIXTURE_GIT` folder cards page `/folder/<cwd>/settings/cards` · trigger click `card-sections-open-global`, then `page.goBack()` · observable URL settles at `/settings/general` with no `scroll=` and `card-sections-settings` in the viewport; after Back the URL is `/folder/<cwd>/settings/cards` with the summary strip visible ; then click `card-sections-open-global` again · observable the block is in the viewport again (repeat trip) (test-plan #F2)
 - [x] 4.2 Test (L3, same spec): input Settings reached via the link · trigger press Escape · observable lands on `/folder/<cwd>/settings/cards` (test-plan #F3)
-- [ ] 4.3 Manual: strip layout in dark and light themes at 375px and 1440px matches mock frame 1 (test-plan: manual-only, #F4)
+- [x] 4.3 Manual: strip layout in dark and light themes at 375px and 1440px matches mock frame 1 (test-plan: manual-only, #F4)
 
 ## 5. Docs
 - [x] 5.1 `docs/session-actions-menu.md` VIEW group: one item (DocScribe, caveman style).
 - [x] 5.2 Update the `AGENTS.md` rows for the touched files (`CardSectionsPage.tsx`, `SettingsPanel.tsx`, `session-menu-items.ts`, `SessionCard.tsx`, the new e2e spec).
 
 ## 6. Gates
-- [ ] 6.1 `npm test` (pipefail + tee) green. `npm run quality:changed`.
-- [ ] 6.2 `review-code` pass.
+- [x] 6.1 `npm test` (pipefail + tee) green. `npm run quality:changed`.
+- [x] 6.2 `review-code` pass.
 - [x] 6.3 `openspec validate card-sections-global-pointer`.
 - [x] 6.4 Client build + isolated verification (non-8000 port) of the click-through and Back, in dark and light.
