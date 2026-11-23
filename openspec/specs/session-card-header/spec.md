@@ -83,6 +83,8 @@ The PR status SHALL reuse the PR-segment rendering previously shown in the workt
 
 The missing-folder pill SHALL NOT render in the git row.
 
+When the branch renders as a link, the link element's box SHALL NOT extend beyond its own content: the branch icon and branch text, including the ellipsis when the text is truncated. Free row space that the branch slot leaves SHALL NOT be part of the link; a click there SHALL NOT open the branch URL and hovering it SHALL NOT show the branch `title`. The link SHALL keep its visible keyboard focus indicator. The 6-character minimum applies to the branch slot, not to the link: a branch shorter than 6 characters gives a link narrower than the slot. Bounding the link SHALL NOT change the slot's width, the branch truncation point, ellipsis, or `title`, or the position and wrapping of the trailing pills.
+
 #### Scenario: Worktree pill leads the git row
 - **WHEN** a desktop card renders a worktree session with `gitBranch: "os/feat-x"` and `gitPrNumber: 812`
 - **THEN** `[data-testid="worktree-pill"]` SHALL precede the branch text in document order
@@ -105,6 +107,24 @@ The missing-folder pill SHALL NOT render in the git row.
 #### Scenario: Legacy PR number only
 - **WHEN** a session has `gitPrNumber: 5` and no `gitPrState`
 - **THEN** the git row SHALL show `#5` with no state word and no checks summary
+
+#### Scenario: Branch link is clickable only on its text
+- **WHEN** a desktop card 420 px wide renders a session with `gitBranch: "develop"`, a `gitBranchUrl`, and `gitStatus.dirtyCount: 5`
+- **THEN** the branch link element's right edge SHALL be within 1 px of the end of the rendered branch text
+- **AND** `[data-testid="git-dirty-pill"]` SHALL stay right-aligned in the git row, as before this change
+- **AND** the topmost element at a point midway between the branch text and the dirty pill SHALL NOT be, or be inside, any link or button below the card root
+- **AND** a click at that point SHALL select the session (card click) and SHALL NOT open a new tab
+
+#### Scenario: Long linked branch still ellipsizes inside the link
+- **WHEN** a desktop card 260 px wide renders a session with a 60-character `gitBranch` and a `gitBranchUrl`
+- **THEN** the branch text SHALL be ellipsized, keep at least 6 characters' width, and carry the full name in `title`
+- **AND** the link element SHALL span the full width of the branch slot (within 1 px), so the text truncates no earlier than the slot allows
+- **AND** the ellipsis SHALL be rendered inside the link element, so a click on it opens the branch URL
+
+#### Scenario: Focused branch link shows its focus ring
+- **WHEN** the branch link receives keyboard focus in a 260 px card with a 60-character branch
+- **THEN** the link SHALL show the standard focus ring (2 px outline)
+- **AND** no element between the link and the git row SHALL have a computed `overflow` other than `visible`
 
 ### Requirement: Meta row shows the model id with context and cost
 The meta row SHALL render the model label, then the existing `MovedBadge`, `OriginDeviceChip` and `DriverChip`. A flexible gap follows, then the context usage bar (when the `contextUsageBar` display preference is on) and the cost (when `cost > 0`).

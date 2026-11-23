@@ -497,3 +497,61 @@ describe("session chips render on the meta row when their predicate holds (E12)"
     expect(row("meta")).toBeNull();
   });
 });
+
+/**
+ * Branch link hit area: a non-clipping flex wrapper owns the branch slot's
+ * sizing; the anchor inside it is content-wide and owns the ellipsis.
+ * See change: narrow-branch-link-hit-area (test-plan E1, E2, E4).
+ */
+describe("branch link hit area (narrow-branch-link-hit-area)", () => {
+  const BRANCH_URL = "https://github.com/o/r/tree/develop";
+  const hasTokens = (el: Element, tokens: string[]) => tokens.every((t) => el.classList.contains(t));
+  const lacksTokens = (el: Element, tokens: string[]) => tokens.every((t) => !el.classList.contains(t));
+
+  it("E1: linked branch → wrapper span owns the slot, content-wide anchor owns the text", () => {
+    renderCard(makeSession({ gitBranch: "develop", gitBranchUrl: BRANCH_URL }));
+    const link = within(row("git")!).getByRole("link", { name: "develop" });
+    expect(link.tagName).toBe("A");
+    expect(hasTokens(link, ["min-w-0", "truncate", "focus-ring"])).toBe(true);
+    expect(lacksTokens(link, ["grow", "basis-[6ch]"])).toBe(true);
+    expect(link.getAttribute("title")).toBe("develop");
+    expect(link.querySelector("svg")).not.toBeNull();
+    expect(link.textContent).toBe("develop");
+
+    const wrapper = link.parentElement!;
+    expect(wrapper.tagName).toBe("SPAN");
+    expect(wrapper.parentElement).toBe(row("git"));
+    expect(hasTokens(wrapper, ["flex", "grow", "basis-[6ch]", "min-w-0"])).toBe(true);
+    expect(lacksTokens(wrapper, ["truncate", "overflow-hidden"])).toBe(true);
+    expect(wrapper.hasAttribute("title")).toBe(false);
+    expect(wrapper.children).toHaveLength(1);
+  });
+
+  it("E2: no gitBranchUrl → non-link span unchanged, direct child of the git row", () => {
+    renderCard(makeSession({ gitBranch: "develop" }));
+    const git = row("git")!;
+    expect(git.querySelector("a")).toBeNull();
+    const span = git.querySelector('[title="develop"]')!;
+    expect(span.tagName).toBe("SPAN");
+    expect(span.parentElement).toBe(git);
+    expect(hasTokens(span, ["grow", "basis-[6ch]", "min-w-0", "truncate"])).toBe(true);
+  });
+
+  it("E4: worktree + link + PR + dirty → exactly 4 git-row children in order", () => {
+    renderCard(
+      makeSession({
+        gitBranch: "develop",
+        gitBranchUrl: BRANCH_URL,
+        gitWorktree: WORKTREE,
+        gitPrNumber: 812,
+        gitStatus: { dirtyCount: 5, staged: 0, unstaged: 5, untracked: 0, ahead: 0, behind: 0 },
+      }),
+    );
+    const children = Array.from(row("git")!.children);
+    expect(children).toHaveLength(4);
+    expect(children[0].getAttribute("data-testid")).toBe("worktree-pill");
+    expect(children[1].querySelector('a[title="develop"]')).not.toBeNull();
+    expect(children[2].getAttribute("data-testid")).toBe("worktree-pr-segment");
+    expect(children[3].getAttribute("data-testid")).toBe("git-dirty-pill");
+  });
+});
