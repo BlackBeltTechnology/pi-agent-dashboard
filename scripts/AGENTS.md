@@ -128,7 +128,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `host-api-surface.mjs` | Host API surface snapshot + bump gate. `--write` regenerates… → see `host-api-surface.mjs.AGENTS.md` |
 | `check-skill-frontmatter.mjs` | Skill frontmatter guard, run by ci.yml. Exit non-zero iff >=1 error; warnings never fail. → see `check-skill-frontmatter.mjs.AGENTS.md` |
 | `check-vendor-specifiers.mjs` | Static specifier guard for the vendored relay: every import under `relay/vendor/` mus… → see `check-vendor-specifiers.mjs.AGENTS.md` |
-| `codeql-local.mjs` | Local CodeQL ratchet for `ship-it` steps 4.4/4.4b: snapshot → analyse → per-alert baseline ratchet (`codeql-baseline.json`). → see `codeql-local.mjs.AGENTS.md` |
+| `codeql-local.mjs` | Local CodeQL ratchet, `ship-it` 4.4b: snapshot → analyse → baseline ratchet (`codeql-baseline.json`); `PI_CODEQL_RESOLVE_TIMEOUT_MS`. → see `codeql-local.mjs.AGENTS.md` |
 | `commit-windows-parity.sh` | Stages and commits fix-windows-server-parity + consolidate-platform-handlers… → see `commit-windows-parity.sh.AGENTS.md` |
 | `discord-release-announce.mjs` | Full release notes → Discord webhook. → see `discord-release-announce.mjs.AGENTS.md` |
 | `dox-byte-gate.mjs` | AGENTS.md byte-cap gate for `ship-it` step 4.4. Filters `kb dox lint --json` to `kind:"over-threshold"` +… → see `dox-byte-gate.mjs.AGENTS.md` |

@@ -893,7 +893,7 @@ export function runBudgetGuard({ root = REPO_ROOT, prefixes = [], analyze = anal
   return { files: files.length, findings, allowed, errors };
 }
 
-const cell = (s) => String(s).replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+const cell = (s) => String(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 const esc = (s) => String(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
 
 /**
