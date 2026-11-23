@@ -96,7 +96,7 @@ describe("force-kill — refusals", () => {
   it("X31: WSL on a win32 server is killed inside the distribution, never via taskkill", async () => {
     const w = make({ pidNamespace: RL_WSL }, SW);
     const verifyAndKillWsl = vi.fn(async () => "killed" as const);
-    const r = await forceKillSession("s1", { ...w.deps, verifyAndKillWsl } as never);
+    const r = await forceKillSession("s1", { ...w.raw, verifyAndKillWsl } as never);
     expect(r.success).toBe(true);
     expect(verifyAndKillWsl).toHaveBeenCalledWith(4242, "Ubuntu-24.04", { timeoutMs: 2000 });
     expect(killProcessSpy).not.toHaveBeenCalled();
