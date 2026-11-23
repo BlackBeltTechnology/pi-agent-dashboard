@@ -925,7 +925,7 @@ function rootScriptCalls(text: string): string[] {
 function budgetLaneViolations(workflows: Record<string, string>, rootScripts: Record<string, string>): string[] {
   const out: string[] = [];
   const names = new Set<string>(["publish.yml"]);
-  for (const m of (workflows["publish.yml"] ?? "").matchAll(/^\s*uses:\s*\.\/\.github\/workflows\/(\S+?)\s*$/gm)) names.add(m[1]);
+  for (const m of (workflows["publish.yml"] ?? "").matchAll(/^\s*uses:\s*\.\/\.github\/workflows\/([^\s#]+)\s*(?:#.*)?$/gm)) names.add(m[1]);
   const calls: string[] = [];
   for (const name of names) {
     const text = workflows[name];
@@ -961,7 +961,7 @@ describe("publish.yml — release-gate clause 6: no budget lane on the release p
   const read = (name: string) => fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", name), "utf8");
   const real = () => {
     const workflows: Record<string, string> = { "publish.yml": read("publish.yml") };
-    for (const m of workflows["publish.yml"].matchAll(/^\s*uses:\s*\.\/\.github\/workflows\/(\S+?)\s*$/gm)) workflows[m[1]] = read(m[1]);
+    for (const m of workflows["publish.yml"].matchAll(/^\s*uses:\s*\.\/\.github\/workflows\/([^\s#]+)\s*(?:#.*)?$/gm)) workflows[m[1]] = read(m[1]);
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
     return { workflows, scripts: pkg.scripts };
   };

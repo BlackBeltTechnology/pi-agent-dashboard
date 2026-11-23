@@ -161,7 +161,7 @@ type Job = {
 
 /** Local reusable workflows a workflow calls through `uses: ./.github/workflows/<file>` (outside comments). */
 function localCallees(yaml: string): string[] {
-  return [...codeLines(yaml).join("\n").matchAll(/^\s*uses:\s*\.\/\.github\/workflows\/(\S+?)\s*$/gm)].map((m) => m[1]);
+  return [...codeLines(yaml).join("\n").matchAll(/^\s*uses:\s*\.\/\.github\/workflows\/([^\s#]+)\s*(?:#.*)?$/gm)].map((m) => m[1]);
 }
 
 const asList = (v: string | string[] | undefined): string[] => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
@@ -434,6 +434,12 @@ describe("nightly.yml — release-rehearsal contract (schedule-release-rehearsal
   it("E58: actions/create-release in nightly.yml fails", () => {
     const { nightly, callees } = real();
     fires(`${nightly}\n      - uses: actions/create-release@v1\n`, callees, /nightly\.yml: no GitHub Release action/);
+  });
+
+  it("E59b: a callee with a trailing comment on its uses: line is still scanned", () => {
+    const { nightly, callees } = real();
+    const withExtra = `${nightly}\n  extra:\n    uses: ./.github/workflows/_extra.yml # rehearsal helper\n`;
+    fires(withExtra, { ...callees, "_extra.yml": "jobs:\n  x:\n    steps:\n      - uses: softprops/action-gh-release@v2\n" }, /_extra\.yml: no GitHub Release action/);
   });
 
   it("E59: a new local callee is scanned, and fails naming itself", () => {
