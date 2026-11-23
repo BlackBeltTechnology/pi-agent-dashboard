@@ -41,6 +41,8 @@ function emit(id: string, ok: boolean, detail: string): void {
 function tokens(child: ChildProcess, n: number, ms = 30_000): Promise<string[]> {
   return new Promise((resolve, reject) => {
     let buf = "";
+    let err = "";
+    child.stderr?.on("data", (d) => (err += String(d)));
     const timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms waiting for ${n} token(s); got ${JSON.stringify(buf)}`)), ms);
     child.stdout?.on("data", (d) => {
       buf += String(d);
@@ -50,9 +52,9 @@ function tokens(child: ChildProcess, n: number, ms = 30_000): Promise<string[]> 
         resolve(t.slice(0, n));
       }
     });
-    child.once("exit", () => {
+    child.once("exit", (code) => {
       clearTimeout(timer);
-      reject(new Error(`child exited before ${n} token(s); got ${JSON.stringify(buf)}`));
+      reject(new Error(`child exited (code ${code}) before ${n} token(s); got ${JSON.stringify(buf)} stderr=${JSON.stringify(err.slice(0, 400))}`));
     });
   });
 }
@@ -187,7 +189,7 @@ async function windowsCases(): Promise<void> {
 async function wslCases(): Promise<void> {
   // E55: probe against a real distro lands within a second of the spawn.
   const A = Date.now();
-  const holder = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+  const holder = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "-w", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   kids.push(holder);
   const pid = Number((await tokens(holder, 1))[0]);
   const B = Date.now();
@@ -204,7 +206,7 @@ async function wslCases(): Promise<void> {
 
   // E56: group-aware kill of a leader + a SIGTERM-ignoring worker (needs SIGKILL, so >= 2000 ms).
   execFileSync(WSL_EXE, ["-d", DISTRO, "--exec", "sh", "-c", "printf 'trap \"\" TERM\\nwhile :; do sleep 1; done\\n' > /tmp/qa-w.sh; printf 'echo $$\\nsh /tmp/qa-w.sh &\\necho $!\\nwait\\n' > /tmp/qa-l.sh"], { windowsHide: true });
-  const lead = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "/tmp/qa-l.sh"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+  const lead = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "-w", "sh", "/tmp/qa-l.sh"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   kids.push(lead);
   const [L, W] = (await tokens(lead, 2)).map(Number);
   const t0 = Date.now();
@@ -219,7 +221,7 @@ async function wslCases(): Promise<void> {
   // signals nothing; a Windows sentinel is only ever the subject of a read-only liveness call.
   const sentinel = await startNode();
   const sp = sentinel.pid as number;
-  const h57 = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+  const h57 = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "-w", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   kids.push(h57);
   const p57 = Number((await tokens(h57, 1))[0]);
   const kr = await verifyAndKillWsl(p57, DISTRO, { minAgeMs: 3_600_000, timeoutMs: 2000 });
@@ -229,7 +231,7 @@ async function wslCases(): Promise<void> {
   emit("E57", kr === "mismatch" && stillThere && ["absent", "alive"].includes(lr) && alive(sp), `kill=${kr} wslProcessSurvived=${stillThere} liveness=${lr} sentinelAlive=${alive(sp)}`);
 
   // E59: a restarted distro (pid gone) reads absent; nothing on Windows is signalled.
-  const h2 = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+  const h2 = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "-w", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   kids.push(h2);
   const p2 = Number((await tokens(h2, 1))[0]);
   execFileSync(WSL_EXE, ["--terminate", DISTRO], { windowsHide: true });
@@ -239,7 +241,7 @@ async function wslCases(): Promise<void> {
 
   // P5: sequential liveness calls stay under the 10 s timeout.
   const lat: number[] = [];
-  const live = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+  const live = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "-w", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   kids.push(live);
   const lp = Number((await tokens(live, 1))[0]);
   for (let i = 0; i < 20; i++) {

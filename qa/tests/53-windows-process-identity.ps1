@@ -19,6 +19,7 @@ Write-Host "=== Test: Windows / WSL process identity (real processes) ==="
 # measure the steady state (P1 still logs the first probe).
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "1" | Out-Null
 
+if ($env:QA_WSL_DISTRO) { & "$env:SystemRoot\System32\wsl.exe" -l -v | Out-Host }
 # Stream the driver output live (a hung case must be visible in the job log).
 $lines = New-Object System.Collections.Generic.List[string]
 & npx --yes tsx qa/tests/lib/windows-process-identity-probe.ts 2>&1 | ForEach-Object { $s = "$_"; Write-Host $s; $lines.Add($s) }
