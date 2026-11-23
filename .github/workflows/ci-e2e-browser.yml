@@ -29,7 +29,7 @@ name: CI E2E Browser
 # See change: stabilize-browser-e2e (design D2).
 
 on:
-  # Land dark, like nightly.yml: dispatch first. Enable the nightly cron only
+  # Land dark: dispatch first. Enable the nightly cron only
   # after the baseline triage is green (task 5.5) — the first scheduled run
   # after merge SHALL be green, not a 6-shard red wall.
   # schedule:

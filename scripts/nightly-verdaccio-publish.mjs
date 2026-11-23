@@ -3,7 +3,9 @@
  * nightly-verdaccio-publish.mjs — publish every non-private workspace to an
  * ephemeral private registry (Verdaccio) for the nightly Electron round-trip.
  *
- * Runs INSIDE `_electron-build.yml` on each leg when `registry_url` is set.
+ * Callers: `_electron-build.yml` on each leg when `registry_url` is set (the
+ * runner's own npm), and `nightly.yml` `verify-publish` (after
+ * `npm install -g npm@latest`, with `pnpm install --lockfile-only` first).
  * Pipeline (mirrors the release `tag-and-push` version-coherence machinery,
  * so the nightly exercises the exact cross-workspace specifier-sync path a
  * real release uses):
@@ -12,7 +14,7 @@
  *       (`<base>` = next patch of the current package.json version) via
  *       `npm pkg set version` — field-only edit, no lifecycle scripts.
  *   (b) `node scripts/sync-versions.js`         — rewrite ^<base> cross-refs
- *   (c) `npm install --package-lock-only`        — regen lockfile
+ *   (c) `npm install --package-lock-only --allow-remote=all` — regen lockfile
  *   (d) `node scripts/verify-lockfile-versions.mjs` — assert coherence
  *   (e) publish every non-private workspace to `$REGISTRY` in RELEASE order
  *       (publish.yml): everything except server + root (topological), then
@@ -41,6 +43,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT_META = "@blackbelt-technology/pi-agent-dashboard";
 const SERVER_PKG = "@blackbelt-technology/pi-dashboard-server";
 const SCOPE = "@blackbelt-technology/";
+/**
+ * npm 12 refuses to publish a prerelease without `--tag` (publish.yml passes
+ * `--tag beta`). `latest` is what npm < 12 applied implicitly, so the electron
+ * legs behave as before; nothing here reads dist-tags (every consumer pins the
+ * exact version) and the registry is throwaway.
+ */
+const PUBLISH_TAG = ["--tag", "latest"];
 
 /**
  * Next patch of a SemVer core `X.Y.Z` (any prerelease/build suffix ignored).
@@ -190,7 +199,11 @@ function main() {
   // (b) rewrite inter-package specifiers to ^<version>.
   run("node", ["scripts/sync-versions.js"]);
   // (c) regenerate the lockfile with the bumped versions.
-  run("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund"]);
+  // --allow-remote=all: npm 12 defaults to allow-remote=none and refuses the
+  // server's `xlsx` remote tarball (EALLOWREMOTE). The release never takes this
+  // step (it uses pnpm, publish.yml), so a red here would be a false alarm.
+  // See change: fix-npm12-remote-tarball-install.
+  run("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund", "--allow-remote=all"]);
   // (d) assert lockfile cross-ref coherence.
   run("node", ["scripts/verify-lockfile-versions.mjs"]);
 
@@ -214,8 +227,8 @@ function main() {
   const publishOne = (name) => {
     const args =
       name === ROOT_META
-        ? ["publish", "--registry", registry, "--no-provenance"]
-        : ["publish", "--workspace", name, "--registry", registry, "--no-provenance"];
+        ? ["publish", "--registry", registry, "--no-provenance", ...PUBLISH_TAG]
+        : ["publish", "--workspace", name, "--registry", registry, "--no-provenance", ...PUBLISH_TAG];
     console.log(`::group::npm ${args.join(" ")}`);
     publish(args);
     console.log("::endgroup::");

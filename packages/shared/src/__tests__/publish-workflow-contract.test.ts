@@ -475,7 +475,7 @@ describe("publish.yml — prerelease safety contract", () => {
 });
 
 // ── Release-gate contract (change: gate-publish-on-smoke-and-tests) ─────────
-// Pin the five-clause contract from spec requirement "Repo-lint pins the
+// Pin the six-clause contract from spec requirement "Repo-lint pins the
 // release-gate contract":
 //   1. resolve job exists with `outputs.ref` declared.
 //   2. ci-checks job exists with needs: [resolve] and runs lint/test/build.
@@ -483,6 +483,10 @@ describe("publish.yml — prerelease safety contract", () => {
 //      _smoke.yml passing ref: ${{ needs.resolve.outputs.ref }}.
 //   4. tag-and-push job exists with `if: github.event_name == 'workflow_dispatch'`.
 //   5. publish.needs contains all of: resolve, ci-checks, smoke, tag-and-push.
+//   6. The release path never enables the budget lane: no `RUN_BUDGET_TESTS` or
+//      `test:budget` outside full-line `#` comments in publish.yml, in a reusable
+//      workflow it calls through a local `uses:`, or in a root script those files
+//      run (change: schedule-release-rehearsal, design D5).
 //
 // Each failure message names the offending job/field and cites this change
 // so a future contributor sees the rationale, not just the assertion.
@@ -889,5 +893,169 @@ describe("release-lock workflow contract (E16)", () => {
   it("an on-demand caller that sets `release_lock` fails the contract", () => {
     const broken = { ...real, ciElectron: `${real.ciElectron}\n      release_lock: true\n` };
     expect(releaseLockViolations(broken).join("\n")).toContain("ci-electron.yml must not set release_lock");
+  });
+});
+
+// ── Release-gate clause 6: the release path never enables the budget lane ───
+// (change: schedule-release-rehearsal, design D5). `pnpm test` stops collecting
+// `*.budget.test.*` unless RUN_BUDGET_TESTS=1 (change: stabilize-blocking-test-lanes),
+// so the tag gate is only the full suite minus the budget lane for as long as
+// nothing on the release path sets it. Only full-line `#` comments are excluded.
+
+const BUDGET_TOKENS = /RUN_BUDGET_TESTS|test:budget/;
+const codeLines = (text: string): string[] => text.split("\n").filter((l) => !/^\s*#/.test(l));
+
+/** Root script names a text runs: `pnpm test`, `pnpm|npm run <name>`; a call with `--workspace` is not followed. */
+function rootScriptCalls(text: string): string[] {
+  const names: string[] = [];
+  for (const line of codeLines(text)) {
+    for (const m of line.matchAll(/\b(?:pnpm|npm)\s+run\s+([\w:.-]+)([^\n&|;]*)/g)) {
+      if (!/--workspace\b/.test(m[2])) names.push(m[1]);
+    }
+    if (/\bpnpm\s+test\b/.test(line)) names.push("test");
+  }
+  return names;
+}
+
+/**
+ * Every place on the release path that mentions the budget lane, as
+ * `<file>: <line>` strings. `workflows` maps a file name under `.github/workflows/`
+ * to its text and must hold `publish.yml` plus every local reusable workflow it calls.
+ */
+function budgetLaneViolations(workflows: Record<string, string>, rootScripts: Record<string, string>): string[] {
+  const out: string[] = [];
+  const names = new Set<string>(["publish.yml"]);
+  for (const m of (workflows["publish.yml"] ?? "").matchAll(/^\s*uses:\s*\.\/\.github\/workflows\/(\S+?)\s*$/gm)) names.add(m[1]);
+  const calls: string[] = [];
+  for (const name of names) {
+    const text = workflows[name];
+    if (text === undefined) throw new Error(`release-gate clause 6: ${name} is called by publish.yml but was not provided`);
+    for (const line of codeLines(text)) if (BUDGET_TOKENS.test(line)) out.push(`${name}: ${line.trim()}`);
+    calls.push(...rootScriptCalls(text));
+  }
+  const seen = new Set<string>();
+  const queue = [...calls, "postinstall"];
+  while (queue.length > 0) {
+    const name = queue.shift() as string;
+    if (seen.has(name) || typeof rootScripts[name] !== "string") continue;
+    seen.add(name);
+    if (BUDGET_TOKENS.test(rootScripts[name])) out.push(`package.json: script "${name}": ${rootScripts[name]}`);
+    queue.push(...rootScriptCalls(rootScripts[name]));
+  }
+  return out;
+}
+
+function assertNoBudgetLane(workflows: Record<string, string>, rootScripts: Record<string, string>): void {
+  const bad = budgetLaneViolations(workflows, rootScripts);
+  if (bad.length > 0) {
+    throw new Error(
+      "The release path MUST NOT enable the budget lane: RUN_BUDGET_TESTS / test:budget found in\n" +
+        bad.map((b) => `  - ${b}`).join("\n") +
+        "\nThe tag gate runs `pnpm test`, which does not collect *.budget.test.* unless RUN_BUDGET_TESTS=1. " +
+        "See change: schedule-release-rehearsal (release-gate clause 6).",
+    );
+  }
+}
+
+describe("publish.yml — release-gate clause 6: no budget lane on the release path (schedule-release-rehearsal)", () => {
+  const read = (name: string) => fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", name), "utf8");
+  const real = () => {
+    const workflows: Record<string, string> = { "publish.yml": read("publish.yml") };
+    for (const m of workflows["publish.yml"].matchAll(/^\s*uses:\s*\.\/\.github\/workflows\/(\S+?)\s*$/gm)) workflows[m[1]] = read(m[1]);
+    const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as { scripts: Record<string, string> };
+    return { workflows, scripts: pkg.scripts };
+  };
+  const base = () => {
+    const { workflows, scripts } = real();
+    return { workflows: { ...workflows }, scripts: { ...scripts } };
+  };
+
+  it("E64: the real publish.yml, its callees and the root scripts pass all six clauses", () => {
+    const { workflows, scripts } = real();
+    expect(Object.keys(workflows)).toEqual(expect.arrayContaining(["publish.yml", "_smoke.yml", "_electron-build.yml"]));
+    expect(() => assertNoBudgetLane(workflows, scripts)).not.toThrow();
+  });
+
+  it("E65: the ci-checks comment may name RUN_BUDGET_TESTS on full-line # comments", () => {
+    const { workflows, scripts } = base();
+    workflows["publish.yml"] += "\n  # RUN_BUDGET_TESTS=1 and *.budget.test.* are not set here\n";
+    expect(() => assertNoBudgetLane(workflows, scripts)).not.toThrow();
+  });
+
+  it("E66: a trailing comment is code: only full-line # comments are excluded", () => {
+    const { workflows, scripts } = base();
+    workflows["publish.yml"] += "\n        run: pnpm test  # RUN_BUDGET_TESTS is never set here\n";
+    expect(() => assertNoBudgetLane(workflows, scripts)).toThrow(/RUN_BUDGET_TESTS[\s\S]*publish\.yml: run: pnpm test/);
+  });
+
+  it("E67: a workflow-level env of RUN_BUDGET_TESTS fails naming publish.yml and the change", () => {
+    const { workflows, scripts } = base();
+    workflows["publish.yml"] = `env:\n  RUN_BUDGET_TESTS: "1"\n${workflows["publish.yml"]}`;
+    expect(() => assertNoBudgetLane(workflows, scripts)).toThrow(/RUN_BUDGET_TESTS[\s\S]*publish\.yml[\s\S]*schedule-release-rehearsal/);
+  });
+
+  it("E68: a callee step env fails naming _electron-build.yml", () => {
+    const { workflows, scripts } = base();
+    workflows["_electron-build.yml"] += "\n        env: { RUN_BUDGET_TESTS: 1 }\n";
+    expect(() => assertNoBudgetLane(workflows, scripts)).toThrow(/_electron-build\.yml/);
+  });
+
+  it("E69: RUN_BUDGET_TESTS written to GITHUB_ENV in a callee fails naming _smoke.yml", () => {
+    const { workflows, scripts } = base();
+    workflows["_smoke.yml"] += '\n        run: echo "RUN_BUDGET_TESTS=1" >> "$GITHUB_ENV"\n';
+    expect(() => assertNoBudgetLane(workflows, scripts)).toThrow(/_smoke\.yml/);
+  });
+
+  it("E70: running test:budget in publish.yml fails naming RUN_BUDGET_TESTS and publish.yml", () => {
+    const { workflows, scripts } = base();
+    workflows["publish.yml"] += "\n        run: pnpm run test:budget\n";
+    expect(() => assertNoBudgetLane(workflows, scripts)).toThrow(/RUN_BUDGET_TESTS[\s\S]*publish\.yml/);
+  });
+
+  it("E71: a budget env on a root script the release runs fails naming package.json", () => {
+    const { workflows, scripts } = base();
+    scripts["test:parallel"] = `RUN_BUDGET_TESTS=1 ${scripts["test:parallel"]}`;
+    expect(() => assertNoBudgetLane(workflows, scripts)).toThrow(/package\.json/);
+  });
+
+  it("E72: the root postinstall is followed", () => {
+    const { workflows, scripts } = base();
+    scripts.postinstall = `${scripts.postinstall ?? "true"} && npm run test:budget`;
+    expect(() => assertNoBudgetLane(workflows, scripts)).toThrow(/package\.json/);
+  });
+
+  it("E73: root scripts are followed through npm run", () => {
+    const { workflows, scripts } = base();
+    scripts.lint = `${scripts.lint} && npm run lint:extra`;
+    scripts["lint:extra"] = "RUN_BUDGET_TESTS=1 true";
+    expect(() => assertNoBudgetLane(workflows, scripts)).toThrow(/package\.json/);
+  });
+
+  it("E74: a script cycle terminates and passes", () => {
+    const { workflows, scripts } = base();
+    scripts.a = "npm run b";
+    scripts.b = "npm run a";
+    scripts.lint = "npm run a";
+    expect(() => assertNoBudgetLane(workflows, scripts)).not.toThrow();
+  });
+
+  it("E75: a script reached only through --workspace is not followed (T-B15 gap 3)", () => {
+    const { workflows, scripts } = base();
+    scripts["build:app"] = "RUN_BUDGET_TESTS=1 true";
+    workflows["publish.yml"] += "\n        run: npm run build:app --workspace=@blackbelt-technology/pi-dashboard-web\n";
+    expect(() => assertNoBudgetLane(workflows, scripts)).not.toThrow();
+  });
+
+  it("E76: a name that is not a root script is skipped without an exception", () => {
+    const { workflows, scripts } = base();
+    workflows["publish.yml"] += "\n        run: pnpm run not-a-root-script\n";
+    expect(() => assertNoBudgetLane(workflows, scripts)).not.toThrow();
+  });
+
+  it("E77: a new local reusable workflow called by publish.yml is scanned", () => {
+    const { workflows, scripts } = base();
+    workflows["publish.yml"] += "\n    new-callee:\n      uses: ./.github/workflows/_new.yml\n";
+    workflows["_new.yml"] = "jobs:\n  x:\n    env:\n      RUN_BUDGET_TESTS: 1\n";
+    expect(() => assertNoBudgetLane(workflows, scripts)).toThrow(/_new\.yml/);
   });
 });
