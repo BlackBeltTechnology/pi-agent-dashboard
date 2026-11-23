@@ -226,6 +226,7 @@ import {
 } from "./lib/client-dist.js";
 import { readFileGuarded as guardedReadFile, runWithStateCaller } from "./lib/dashboard-state-guard.js";
 import { collectRuleSources } from "./lib/folder-project.js";
+import { resolveFramePolicyTestSeam } from "./lib/frame-policy-test-seam.js";
 import { createIndexHtmlSender } from "./lib/index-html.js";
 import { listKnownFolderCwds, type RouteAdmissionDeps } from "./lib/route-admission.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
@@ -312,6 +313,7 @@ import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-ro
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { denialBody, gateFilePath, registerFileRoutes } from "./routes/file-routes.js";
 import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
+import { registerFramePolicyRoutes } from "./routes/frame-policy-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
@@ -2898,6 +2900,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Signed navigation intents for operator-opened route-backed overlays
   // (per-process key: a restart invalidates them). See change: harden-client-sinks (D10).
   registerNavIntentRoutes(fastify, { networkGuard, intents: new NavIntents() });
+  // Framing probe for web-link previews: operator click → one SSRF-hardened outbound HEAD, verdict only
+  // (control tier; own browser Origin required). See change: rich-chat-links (D12).
+  registerFramePolicyRoutes(fastify, {
+    networkGuard,
+    corsOpts,
+    ownOrigins: previewEgressOwnOrigins,
+    ownPorts: () => {
+      const tls = loadConfig().tls;
+      return [config.port, ...(tls?.enabled ? [tls.port] : [])];
+    },
+    // Test-only verdict seam (PI_E2E_SEED + PI_E2E_FRAME_POLICY_VERDICTS, refused in production): undefined = real probe.
+    probe: resolveFramePolicyTestSeam(process.env, console),
+  });
   // On-demand AI mermaid repair (opt-in via `mermaidRepair` config; 404 when off).
   // See change: add-mermaid-ai-repair.
   registerMermaidRepairRoutes(fastify, {

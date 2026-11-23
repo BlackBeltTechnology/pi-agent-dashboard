@@ -79,14 +79,13 @@ describe("PreviewCard", () => {
     expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("fallback");
   });
 
-  // test-plan #3 — a URL target ending `.eml` dispatches to "email", but
-  // PreviewBody guards `kind !== "file"` → FallbackPreview (no crash).
-  it("URL ending .eml falls back to FallbackPreview without crashing (test-plan #3)", () => {
+  // test-plan #3, #E25 — `email` is file-only, so a URL ending `.eml` is a web page:
+  // the card with "Check and embed" (no opener → no probe), no crash.
+  it("URL ending .eml renders the web page card without crashing (test-plan #3)", () => {
     const target: ViewTarget = { kind: "url", url: "https://example.com/mail.eml" };
     const { getByTestId, getByText } = wrap(<PreviewCard target={target} />);
-    expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("email");
-    // FallbackPreview for a URL target renders an "Open in new tab" link.
-    expect(getByText("Open in new tab")).toBeTruthy();
+    expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("webpage");
+    expect(getByText("Check and embed")).toBeTruthy();
   });
 
   it("dispatches docx renderer for .docx files", () => {
@@ -104,14 +103,12 @@ describe("PreviewCard", () => {
     }
   });
 
-  it("a URL target ending .docx renders FallbackPreview, no crash (test-plan #6)", () => {
-    // dispatch maps the .docx URL to kind "docx", but PreviewBody guards
-    // target.kind !== "file" and degrades to FallbackPreview.
+  it("a URL target ending .docx renders the web page card, no crash (test-plan #6, #E25)", () => {
+    // `docx` is file-only: dispatch maps the URL to `webpage`, never a docx body.
     const target: ViewTarget = { kind: "url", url: "https://example.com/report.docx" };
-    const { getByTestId, container } = wrap(<PreviewCard target={target} />);
-    expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("docx");
-    // Fallback for a URL target renders an "Open in new tab" link, not a docx body.
-    expect(container.querySelector('a[href="https://example.com/report.docx"]')).toBeTruthy();
+    const { getByTestId, getByText } = wrap(<PreviewCard target={target} />);
+    expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("webpage");
+    expect(getByText("Open in browser")).toBeTruthy();
   });
 
   it("expand button navigates to file-view overlay route", () => {

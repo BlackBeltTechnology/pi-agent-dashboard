@@ -18,6 +18,9 @@
  * import. No local `Suspense` — `EditorPane.tsx` already wraps the pseudo-tab
  * body in one with a "Loading viewer…" fallback.
  *
+ * A `source:<abs>` tab (read-only source of a real file, rich-chat-links D10) is deliberately NOT a registry
+ * kind: it is a `monaco` tab under a virtual path, resolved by `EditorPane` via the `viewer-kinds` helpers.
+ *
  * See change: cleanup-import-cycles (D3).
  */
 

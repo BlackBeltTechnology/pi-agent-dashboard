@@ -900,6 +900,77 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "src/example.ts" },
   },
 
+  // rich-chat-links E2E scenarios (change: rich-chat-links, tasks 9.1-9.9). Every file below is a baked
+  // `docker/fixtures/sample-git` file (`packages/x/src/a.ts`, `mockups/board.html`, `rl-a|rl-b/sub/memo.md`).
+  //
+  // Web links: a docs URL (F6), a root URL (X12) and a `.test` host the harness frame-policy seam stubs as
+  // `allowed` (F10). One link per line so each is its own anchor.
+  "rich-links-web": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "Links:\n\n- docs https://example.com/docs\n\n- root https://example.com/\n\n- framed https://framed-allowed.test/page",
+        ),
+      ]),
+    ],
+    expect: { text: "Links:" },
+  },
+  // Bare PR URL (F11): the label shortens to `o/r#123`; the full URL must survive a copy.
+  "rich-links-pr": {
+    script: [fauxAssistantMessage([fauxText("https://github.com/o/r/pull/123")])],
+    expect: { text: "github.com" },
+  },
+  // Dead-link visibility (F7): one existing and one missing file in a finalized tool result.
+  "rich-links-states": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo packages/x/src/a.ts src/definitely-m$(echo issing).ts" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("states done")]),
+    ],
+    expect: { text: "states done" },
+  },
+  // Recovered link (F8): `src/a.ts` exists only under `packages/x`, which the command `cd`s into.
+  "rich-links-subdir": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "cd packages/x && ls src/*" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("subdir done")]),
+    ],
+    expect: { text: "subdir done" },
+  },
+  // HTML chevron (F9): an `.html` mention in assistant text.
+  "rich-links-html": {
+    script: [fauxAssistantMessage([fauxText("Open mockups/board.html to review.")])],
+    expect: { text: "board.html" },
+  },
+  // Picker (F12): `sub/memo.md` is tracked twice (`rl-a/sub/`, `rl-b/sub/`), so the mention matches two files.
+  "rich-links-picker": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "ls -d rl-*/sub/mem*.md >/dev/null; echo sub/mem$(echo o).md" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("picker done")]),
+    ],
+    expect: { text: "picker done" },
+  },
+  // Flush rate (P3): 30 finalized tool results x 20 distinct file mentions, then one STILL-RUNNING tool that
+  // has already streamed 20 more mentions (`rl-flush/running-f*`) and sleeps; the spec scrolls meanwhile.
+  "rich-links-flush": {
+    script: [
+      ...Array.from({ length: 30 }, (_, i) =>
+        // Non-empty text is a hard burst boundary: each result is its own collapsible row.
+        fauxAssistantMessage([fauxText(`batch ${i}`), fauxToolCall("bash", { command: `echo rl-flush/t${i}-f{1..20}.ts` })], {
+          stopReason: "toolUse",
+        }),
+      ),
+      fauxAssistantMessage([fauxText("running"), fauxToolCall("bash", { command: "echo rl-flush/running-f{1..20}.ts; sleep 90" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("flush done")]),
+    ],
+    expect: { text: "flush done" },
+  },
+
   // Assistant text carrying a fenced mermaid diagram mixing default
   // (un-authored) and authored nodes. Exercises MermaidBlock default-node
   // colorization end-to-end: default nodes (A, C) get a soft accent wash;
@@ -1942,7 +2013,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   },
 
   // Inner run for `subagent-long-stream-hold`: hold → stream → hold.
-  //  1. `sleep 40` — the window the L3 test restarts the dashboard in. After a
+  //  1. `sleep 90` — the window the L3 test restarts the dashboard in. After a
   //     restart the parent store is rebuilt from the bridge transcript, which
   //     carries no subagent stream, so streaming BEFORE the restart cannot fill
   //     the tail.
@@ -1954,7 +2025,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   // See change: fix-backfill-elides-live-tools (task 3.1).
   "subagent-long-stream-hold-inner": {
     script: [
-      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 40 && echo hold-one" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 90 && echo hold-one" })], { stopReason: "toolUse" }),
       ...buildStreamingBurst(10, 60).slice(0, -1),
       fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 90 && echo hold-two" })], { stopReason: "toolUse" }),
       fauxAssistantMessage([fauxText("long stream hold inner complete")]),

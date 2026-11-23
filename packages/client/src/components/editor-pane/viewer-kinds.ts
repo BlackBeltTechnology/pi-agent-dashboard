@@ -51,6 +51,16 @@ export const OPEN_PATH_VIEWERS = [
   "video",
 ] as const;
 
+/**
+ * A read-only source tab for a real file: virtual path `source:<abs>` (like `diff:<rel>`), `viewer: "monaco"`.
+ * Tab paths are not `ViewTarget`s; file-handler claims are keyed on real paths so they never match `source:`.
+ * See change: rich-chat-links (D10).
+ */
+export const SOURCE_TAB_PREFIX = "source:";
+export const isSourceTabPath = (path: string): boolean => path.startsWith(SOURCE_TAB_PREFIX);
+/** The real absolute file behind a `source:` tab path; other paths are returned unchanged. */
+export const sourceTabFile = (path: string): string => (isSourceTabPath(path) ? path.slice(SOURCE_TAB_PREFIX.length) : path);
+
 export type PseudoTabViewer = (typeof PSEUDO_TAB_VIEWERS)[number];
 /**
  * Pseudo-tab kinds rendered from `pseudoTabRegistry`. `plugin` is excluded: it

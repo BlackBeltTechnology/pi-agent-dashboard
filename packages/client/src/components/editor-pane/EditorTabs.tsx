@@ -19,6 +19,7 @@ import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
 import { fileIcon } from "../../lib/preview/file-icon.js";
 import { basename, prefixOf } from "./tab-labels.js";
+import { isSourceTabPath } from "./viewer-kinds.js";
 
 interface EditorTabsProps {
   openFiles: OpenFile[];
@@ -230,6 +231,11 @@ export function EditorTabs({
                 : basename(file.path)}
           </span>
           {file.unread && i !== activeIndex && <UnreadDot file={file} />}
+          {isSourceTabPath(file.path) && (
+            <span className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-tertiary)]">
+              {t("editor.sourceTab", undefined, "source")}
+            </span>
+          )}
           {file.viewer === "diff" && (
             <span className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-tertiary)]">
               diff

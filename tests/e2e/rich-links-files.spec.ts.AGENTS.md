@@ -1,0 +1,3 @@
+# rich-links-files.spec.ts — index
+
+Playwright E2E for rendered file links (change: rich-chat-links, test-plan F7/F8/F9/F12). Fixtures baked in `docker/fixtures/sample-git` (`packages/x/src/a.ts`, `mockups/board.html`, `rl-a|rl-b/sub/memo.md`); scenarios `rich-links-states|subdir|html|picker`. Tool output is collapsed by default → `helpers/tool-expand.ts`. F7 dead link visible without clicking; F8 `cd`-recovered link opens `packages/x/src/a.ts`; F9 HTML chevron → Static tab (`live-mode-static` checked) then read-only Source tab (Monaco, typing is a no-op; needs `/api/file` to return `.html` text); F12 ambiguous mention → picker (Escape opens nothing, choose opens that file).

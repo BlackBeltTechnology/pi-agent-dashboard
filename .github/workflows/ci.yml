@@ -131,6 +131,19 @@ jobs:
       # reason. See change: make-test-suite-deterministic.
       - name: Fixed-tick wait guard
         run: node scripts/check-fixed-tick-waits.mjs
+      # Budget lane check (blocking). A `*.budget.test.*` file runs only in the
+      # nightly budget lane; this fails when a vitest config collects one in a
+      # blocking run or when a tracked one would run nowhere. Never sets
+      # RUN_BUDGET_TESTS. See change: stabilize-blocking-test-lanes (D1).
+      - name: Budget lane check
+        run: node scripts/check-budget-lane.mjs
+      # Budget assertion guard (warn-only). Lists upper-bound timing/memory
+      # assertions still in blocking test files as annotations + a job-summary
+      # table; exits 0 whatever it finds. `migrate-budget-assertions` moves the
+      # hits and switches this step to the blocking no-flag mode.
+      # See change: stabilize-blocking-test-lanes (D5).
+      - name: Budget assertion guard (warn-only)
+        run: node scripts/check-budget-assertions.mjs --warn
       # Client sink guard: raw navigation / HTML / script sinks in browser-side
       # source must go through the safe-navigation chokepoints or a named
       # Trusted Types policy. See change: harden-client-sinks (D4).

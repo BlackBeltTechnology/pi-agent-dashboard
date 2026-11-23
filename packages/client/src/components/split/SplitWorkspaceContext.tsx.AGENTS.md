@@ -16,3 +16,5 @@ See change: improve-canvas-html-and-url-ux — adds `openStaticTarget(cwd,path,{
 
 `hasFileSearch` (true only when the provider received `onFilenameSearch`; folder providers leave it false): gates the rail Search view, the `+` menu's Open file…, the Search-tabs fall-through and the Cmd-P / Cmd-Shift-F interception. See change: scope-anchor-editor-pane-controls (D4).
 `cwdUnavailable` (provider prop → context value): empty `cwd` is permanent. Empty `cwd` also makes `onFilenameSearch` a no-op (watch effects already skip it). See change: fix-archived-session-view-header-and-stale-artifact-tab (D4).
+
+`openUrlTarget(url,{background?,opener?})`: `opener` (`UrlOpener` = `"operator-click"|"agent"`) is in-memory tab state (stripped on save): an `operator-click` open upgrades an existing `url:` tab and bumps its `reloadNonce`; `agent` never downgrades it. `openInSplit` opts gain `htmlMode:"static"` (HTML tab state, seeds `HtmlPreview`'s Scripts⇄Static toggle). `openSourceTab(path)` opens the virtual `source:<abs>` tab (`viewer:"monaco"`, one per file, coexists with the rendered tab); source tabs are excluded from the file-watch set. See change: rich-chat-links (D7/D10).

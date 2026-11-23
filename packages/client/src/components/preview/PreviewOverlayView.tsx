@@ -19,7 +19,9 @@ import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useNavIntentVerdict } from "../../lib/nav/nav-intent.js";
 import { dispatchPreview } from "../../lib/preview/preview-dispatch.js";
+import { TabActions } from "../editor-pane/TabActions.js";
 import { PreviewBody } from "./PreviewCard.js";
+import { EmbeddedFromLabel } from "./WebPagePreview.js";
 
 interface Props {
   target: ViewTarget;
@@ -55,9 +57,11 @@ export function PreviewOverlayView({ target, onBack }: Props) {
         >
           <Icon path={mdiArrowLeft} size={0.7} />
         </button>
-        <span className="text-sm font-medium text-[var(--text-secondary)] truncate font-mono">
+        <span className="min-w-0 flex-1 text-sm font-medium text-[var(--text-secondary)] truncate font-mono">
           {label}
         </span>
+        {target.kind === "url" && kind === "webpage" && <EmbeddedFromLabel url={target.url} />}
+        {target.kind === "url" && <TabActions target={{ kind: "url", url: target.url }} systemOpen={false} />}
       </div>
       <div className="flex-1 overflow-auto">{body}</div>
     </div>

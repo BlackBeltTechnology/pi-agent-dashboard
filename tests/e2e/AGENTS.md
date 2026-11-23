@@ -294,6 +294,9 @@ One row per file.
 | `tool-burst.spec.ts` | → `tool-burst.spec.ts.AGENTS.md` |
 | `tool-collapse-narration.spec.ts` | → `tool-collapse-narration.spec.ts.AGENTS.md` |
 | `tool-created-files.spec.ts` | → `tool-created-files.spec.ts.AGENTS.md` |
+| `rich-links-files.spec.ts` | → `rich-links-files.spec.ts.AGENTS.md` |
+| `rich-links-flush.spec.ts` | → `rich-links-flush.spec.ts.AGENTS.md` |
+| `rich-links-web.spec.ts` | → `rich-links-web.spec.ts.AGENTS.md` |
 | `tool-output-links.spec.ts` | → `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | → `tool-output-selection.spec.ts.AGENTS.md` |
 | `trust-mode-pair.spec.ts` | → `trust-mode-pair.spec.ts.AGENTS.md` |

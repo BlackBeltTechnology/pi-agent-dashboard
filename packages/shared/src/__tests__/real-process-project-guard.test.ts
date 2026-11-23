@@ -24,6 +24,7 @@
  *       retries are scoped to that one project, CI-only, on purpose.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -212,4 +213,52 @@ describe("real-process vitest project guard", () => {
         "Remove `retry:` from:\n  " + offenders.join("\n  "),
     ).toEqual([]);
   });
+});
+
+/**
+ * A server `*.budget.test.*` file is in NEITHER phase by design (spec `parallel-test-execution`,
+ * change: stabilize-blocking-test-lanes D1): both configs exclude it with the `BUDGET_TEST_EXCLUDE`
+ * spread, and only the nightly budget lane (`RUN_BUDGET_TESTS=1`) collects it. The guard above must
+ * stay unchanged by that: its "in neither" check flags literal `src/….test.ts` paths only.
+ */
+describe("server budget files and the real-process guard (E32)", () => {
+  const budgetFilesUnder = (dir: string, acc: string[] = []): string[] => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name === "dist") continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) budgetFilesUnder(full, acc);
+      else if (/\.budget\.test\.[cm]?[jt]sx?$/.test(entry.name)) acc.push(path.relative(SERVER_DIR, full).replace(/\\/g, "/"));
+    }
+    return acc;
+  };
+
+  it("both server configs exclude the lane through the BUDGET_TEST_EXCLUDE spread, with no literal budget path", () => {
+    const main = fs.readFileSync(MAIN_CONFIG, "utf-8");
+    const excludeBlock = main.match(/exclude:\s*\[([\s\S]*?)\]/)?.[1] ?? "";
+    expect(excludeBlock).toContain("...BUDGET_TEST_EXCLUDE");
+    expect(excludeBlock).toContain("REAL_PROCESS_TESTS");
+    // The guard's stray filter (check (b)) sees nothing to flag in the spread.
+    expect([...excludeBlock.matchAll(/"([^"]+)"/g)].map((x) => x[1]).filter((p) => /^src\/.*\.test\.ts$/.test(p))).toEqual([]);
+    const real = fs.readFileSync(REAL_PROCESS_CONFIG, "utf-8");
+    expect(real).toMatch(/exclude:\s*\[[^\]]*\.\.\.BUDGET_TEST_EXCLUDE/);
+  });
+
+  it("no server budget file is listed in REAL_PROCESS_TESTS, so it is in neither phase", () => {
+    const listed = readList();
+    expect(listed.filter((f) => /\.budget\.test\./.test(f))).toEqual([]);
+    for (const rel of budgetFilesUnder(path.join(SERVER_DIR, "src"))) expect(listed, rel).not.toContain(rel);
+  });
+
+  it("the lane check counts every present server budget file in the lane (exit 0)", () => {
+    const env = { ...process.env } as Record<string, string | undefined>;
+    delete env["RUN_BUDGET_TESTS"];
+    for (const k of Object.keys(env)) if (k.startsWith("VITEST")) delete env[k];
+    const r = spawnSync(process.execPath, [path.join(REPO_ROOT, "scripts", "check-budget-lane.mjs")], {
+      cwd: REPO_ROOT,
+      env: env as NodeJS.ProcessEnv,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
+  }, 150_000);
 });

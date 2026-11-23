@@ -34,6 +34,7 @@ import {
 } from "../access/verified-read.js";
 import type { LocalTrustContext } from "../auth/local-proof.js";
 import { canDiscloseAccessPosture, isLocallyTrusted } from "../auth/localhost-guard.js";
+import { requestPrincipalKey } from "../auth/request-principal.js";
 import {
   CreateProjectError,
   type CreateProjectReason,
@@ -120,7 +121,20 @@ export function sendGateFailure(reply: import("fastify").FastifyReply, gate: Gat
 }
 
 import { serializeWrite } from "../lib/file-write-lock.js";
-import { resolveFileMention } from "../lib/resolve-file-mention.js";
+import { getMentionFuzzyIndex, type MentionFuzzyIndex } from "../lib/mention-fuzzy-index.js";
+import { type ContainmentMemo, resolveMentionTagged } from "../lib/resolve-file-mention.js";
+import {
+  BATCH_BODY_LIMIT_BYTES,
+  BATCH_CONCURRENCY,
+  BATCH_RATE_PER_MINUTE,
+  type BatchResult,
+  createWindowLimiter,
+  formatBatchLog,
+  MAX_FIELD_CHARS,
+  mapConcurrent,
+  parseBatchBody,
+  toBatchResult,
+} from "../lib/resolve-mentions-batch.js";
 import { isTextDocWriteTarget, isWritableMdTarget } from "../lib/writable-md-target.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
@@ -550,9 +564,12 @@ export function registerFileRoutes(
      * the known set of this registrar's own `sessionManager` + `preferencesStore`.
      */
     routeAdmission?: RouteAdmissionDeps;
+    /** Tracked-file index behind mention recovery (change: rich-chat-links). Absent → the process-wide index. */
+    mentionFuzzyIndex?: MentionFuzzyIndex;
   },
 ) {
   const { sessionManager, preferencesStore, networkGuard } = deps;
+  const mentionIndex = deps.mentionFuzzyIndex ?? getMentionFuzzyIndex();
   const routeAdmission: RouteAdmissionDeps = {
     ...deps.routeAdmission,
     knownCwds: deps.routeAdmission?.knownCwds ?? (() => listKnownFolderCwds({ sessionManager, preferencesStore })),
@@ -811,6 +828,7 @@ export function registerFileRoutes(
           if (
             kindResult.viewer === "monaco" ||
             kindResult.viewer === "markdown" ||
+            kindResult.kind === "html" || // read-only Source tab (rich-chat-links)
             kindResult.editable === true
           ) {
             content = await fh.readFile("utf-8");
@@ -1262,7 +1280,12 @@ export function registerFileRoutes(
   // resolution. `resolveFileMention` then expands `~/`, runs containment
   // (cwd + git-root + `~/.pi`) BEFORE `fs.stat`, and returns null for a
   // non-existent in-scope mention (never an error).
-  fastify.post<{ Body: { cwd?: unknown; mention?: unknown } }>(
+  //
+  // Opt-in recovery (change: rich-chat-links, design D3): `recover: true` (literal boolean) enables the producing
+  // tool's directory (`toolCwd`, a string ≤ 1024 chars) and the tracked-file fuzzy fallback; without it the answer
+  // is exactly the exact-only lookup. Every answer carries `state` (found | recovered | ambiguous | missing | gated);
+  // recovery adds `via`, ambiguity adds `candidates` (and `resolved: null`).
+  fastify.post<{ Body: { cwd?: unknown; mention?: unknown; recover?: unknown; toolCwd?: unknown } }>(
     "/api/file/resolve-mention",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -1273,15 +1296,98 @@ export function registerFileRoutes(
         reply.code(400);
         return { success: false, error: "cwd and mention are required" } satisfies ApiResponse;
       }
+      const toolCwd = typeof body.toolCwd === "string" && body.toolCwd !== "" ? body.toolCwd : undefined;
+      if (toolCwd !== undefined && toolCwd.length > MAX_FIELD_CHARS) {
+        reply.code(400);
+        return { success: false, error: `toolCwd exceeds ${MAX_FIELD_CHARS} characters` } satisfies ApiResponse;
+      }
       const admitted = await admitFileCwd(cwd, routeAdmission, { reply });
       if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
-      const result = await resolveFileMention(mention, { cwd: admitted.cwd, canonCwd: admitted.canonCwd });
-      return {
-        success: true,
-        data: result
-          ? { resolved: result.resolved, kind: result.kind, ...(result.outside ? { outside: true } : {}) }
-          : { resolved: null },
-      } satisfies ApiResponse;
+      const result = await resolveMentionTagged(mention, {
+        cwd: admitted.cwd,
+        canonCwd: admitted.canonCwd,
+        recover: body.recover === true,
+        toolCwd,
+        fuzzyIndex: mentionIndex,
+      });
+      return { success: true, data: result } satisfies ApiResponse;
+    },
+  );
+
+  // Batch mention resolver (change: rich-chat-links, design D3/D14). Body `{ cwd, items: [{ mention, toolCwd?,
+  // reRooted? }] }` → `{ results }` in request order. Always recovers. Same network guard, tier (`observe`) and
+  // `cwd` admission as the single route, and admission runs BEFORE any resolution. Bounds: 512 KB body (413),
+  // any string field > 1024 chars (400, decided before any filesystem access), 200 resolved items per request
+  // (the rest `unknown`), 60 requests/min per principal (429). `gated` items carry only their state.
+  const batchLimiter = createWindowLimiter(BATCH_RATE_PER_MINUTE);
+  fastify.post(
+    "/api/file/resolve-mentions",
+    { preHandler: networkGuard, bodyLimit: BATCH_BODY_LIMIT_BYTES },
+    async (request, reply) => {
+      const started = performance.now();
+      const principal = requestPrincipalKey(request);
+      // Without a real principal every local caller would share one bucket anyway; key by address.
+      if (!batchLimiter.take(principal === "local-operator" ? `${principal}@${request.ip}` : principal)) {
+        reply.code(429);
+        return { success: false, error: "rate limited" } satisfies ApiResponse;
+      }
+      const parsed = parseBatchBody(request.body);
+      if (!parsed.ok) {
+        reply.code(400);
+        return { success: false, error: parsed.error } satisfies ApiResponse;
+      }
+      const admitted = await admitFileCwd(parsed.cwd, routeAdmission, { reply });
+      if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
+
+      const counters = { stats: 0 };
+      const containmentMemo: ContainmentMemo = new Map();
+      const fuzzy = { hit: 0, miss: 0, skipped: 0, buildMs: 0 };
+      const fuzzyIndex: MentionFuzzyIndex = {
+        clear: () => mentionIndex.clear(),
+        lookup: async (c, m) => {
+          const r = await mentionIndex.lookup(c, m);
+          if (r.status === "skipped") fuzzy.skipped++;
+          else {
+            if (r.cached) fuzzy.hit++;
+            else {
+              fuzzy.miss++;
+              fuzzy.buildMs = Math.max(fuzzy.buildMs, r.buildMs ?? 0);
+            }
+          }
+          return r;
+        },
+      };
+      const resolved = await mapConcurrent(parsed.items, BATCH_CONCURRENCY, async (item): Promise<BatchResult> =>
+        toBatchResult(
+          await resolveMentionTagged(item.mention, {
+            cwd: admitted.cwd,
+            canonCwd: admitted.canonCwd,
+            recover: true,
+            toolCwd: item.toolCwd,
+            reRooted: item.reRooted,
+            fuzzyIndex,
+            counters,
+            containmentMemo,
+          }),
+        ),
+      );
+      // Items past the cap are never materialised: one shared `unknown`, same order and length as the request.
+      const overflow = parsed.total - parsed.items.length;
+      const results: BatchResult[] = overflow > 0 ? resolved.concat(new Array<BatchResult>(overflow).fill({ state: "unknown" })) : resolved;
+      const counts: Partial<Record<BatchResult["state"], number>> = {};
+      for (const r of resolved) counts[r.state] = (counts[r.state] ?? 0) + 1;
+      if (overflow > 0) counts.unknown = overflow;
+      console.log(
+        formatBatchLog({
+          cwd: admitted.cwd,
+          items: parsed.total,
+          counts,
+          fuzzy,
+          stats: counters.stats,
+          totalMs: performance.now() - started,
+        }),
+      );
+      return { success: true, data: { results } } satisfies ApiResponse;
     },
   );
 

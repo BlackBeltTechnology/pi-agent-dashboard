@@ -1,0 +1,58 @@
+name: Nightly tests rerun
+
+# Reruns the FAILED jobs of a red scheduled `Nightly tests` night once, when its
+# first attempt deferred the issue (change: stabilize-blocking-test-lanes, D7).
+# A run cannot rerun itself while it is in progress, so this workflow reacts to
+# the completed run. Attempt 2 then reports: issue on a second failure, comment
+# and close on green, with the tests that passed on rerun listed as flaky.
+#
+# Least privilege: the token can rerun or cancel workflow runs and nothing else
+# (no contents, issues or packages). No checkout and no cache: the only input is
+# the numeric run id of the event, passed through `env:`, never interpolated
+# into a script. A `workflow_run` workflow runs the default-branch copy of this
+# file, so a branch cannot change it. The failure condition also accepts
+# `cancelled`: a run whose only problems are a job that hit `timeout-minutes`
+# and a failing report ends `cancelled`, not `failure` (rerun-spike.md item (h)).
+#
+# `record` fails (and so does the job) on a missing or unparsable first-attempt
+# record; the watchdog then reports that night (nightly-tests-watchdog.yml).
+
+on:
+  workflow_run:
+    workflows: ["Nightly tests"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  rerun:
+    if: >-
+      (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'cancelled')
+      && github.event.workflow_run.run_attempt == 1
+      && github.event.workflow_run.event == 'schedule'
+      && github.event.workflow_run.head_branch == 'develop'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - name: Read the first-attempt record
+        id: record
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$RUN_ID" --name nightly-attempt-1 --dir rec --repo "$GITHUB_REPOSITORY"
+          rc=0
+          jq -e '.deferred == true' rec/attempt-1.json >/dev/null || rc=$?
+          case "$rc" in
+            0) echo "deferred=true" >> "$GITHUB_OUTPUT" ;;
+            1) echo "deferred=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::first-attempt record unreadable (jq exit $rc)"; exit 1 ;;
+          esac
+      - name: Rerun the failed jobs once
+        if: steps.record.outputs.deferred == 'true'
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh run rerun "$RUN_ID" --failed --repo "$GITHUB_REPOSITORY"

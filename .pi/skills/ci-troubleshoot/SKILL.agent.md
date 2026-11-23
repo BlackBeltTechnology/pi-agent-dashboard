@@ -6,7 +6,7 @@ Triggers: "CI run is red", "release is stuck", "workflow won't dispatch", "which
 
 ## Workflow taxonomy
 - 11 workflow files: 9 entry + 2 reusable (`_smoke.yml`, `_electron-build.yml`).
-- Entry: `ci.yml`, `nightly-tests.yml`, `deploy-site.yml` (GitHub Pages), `ci-e2e-electron.yml`, `ci-smoke.yml`, `publish.yml`, `ci-electron.yml`, `nightly.yml`, `sync-release-version.yml`.
+- Entry: `ci.yml`, `nightly-tests.yml` (+ `nightly-tests-rerun.yml`, `nightly-tests-watchdog.yml`), `deploy-site.yml` (GitHub Pages), `ci-e2e-electron.yml`, `ci-smoke.yml`, `publish.yml`, `ci-electron.yml`, `nightly.yml`, `sync-release-version.yml`.
 - Full detail: `references/workflow-taxonomy.md`.
 
 ## First moves
@@ -26,7 +26,7 @@ Triggers: "CI run is red", "release is stuck", "workflow won't dispatch", "which
 - Force full: `ci:full` label (applies NEXT push, no `labeled` trigger) or `gh workflow run ci.yml --ref <branch>`.
 - Slow tier: `scripts/test-selection/slow-tier.json` (504 s mutation harness) deselected in affected mode unless file changed; runs nightly/full/`ci:full`.
 - Nightly-red, PR-green: bisect `nightly-tests` issue range; check breaking PR's `test-selection`. Selected → debug test. Not selected → `scripts/test-selection/triggers.json` or layer fix. Never just re-run.
-- `nightly-tests` issue: "no report" = infra; "no new commits" = flake/env. Timings: artifact `test-timings` → `scripts/test-selection/timings.json` by hand.
+- `nightly-tests` issue: opens only after the rerun (`nightly-tests-rerun.yml`, failed jobs once) also fails; first attempt defers (red, no issue). "Passed on rerun (flaky)" = failed once, passed on rerun. Watchdog-opened issue (`nightly-tests-watchdog.yml`, "rerun not performed or not reported") = read both attempts. "no report" = infra; "no new commits" = flake/env. Timings: artifact `test-timings` → `scripts/test-selection/timings.json` by hand.
 
 ## Vitest report (read FIRST on unit failure)
 - Artifacts: `vitest-report-unit-<n>`, `vitest-report-real-process`, `vitest-report-ci-scenarios` (`if: always()`, 14-day retention).

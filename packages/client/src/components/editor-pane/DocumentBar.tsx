@@ -14,14 +14,16 @@ import { Icon } from "@mdi/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
+import { dispatchPreview } from "../../lib/preview/preview-dispatch.js";
 import { copyText } from "../../lib/util/clipboard.js";
+import { EmbeddedFromLabel } from "../preview/WebPagePreview.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { FileModeSwitcher } from "./file-handler/FileModeSwitcher.js";
 import type { FileHandlerClaim } from "./file-handler/file-handler-claims.js";
 import { MenuItem, MenuPopover } from "./MenuPopover.js";
 import { TabActions, type TabActionTarget } from "./TabActions.js";
 import { basename, tabLabelText } from "./tab-labels.js";
-import { isPseudoTabViewer } from "./viewer-kinds.js";
+import { isPseudoTabViewer, isSourceTabPath } from "./viewer-kinds.js";
 
 export interface DocumentBarProps {
   tab: OpenFile | null;
@@ -202,7 +204,8 @@ export function DocumentBar(props: DocumentBarProps) {
   if (!tab) return null;
 
   const frame = "flex min-h-8 shrink-0 items-center gap-1 border-b border-[var(--border-primary)] px-2";
-  const isFile = !isPseudoTabViewer(tab.viewer);
+  // A `source:<abs>` tab is a read-only view of a file, not the file itself: plain title, no breadcrumb / file actions.
+  const isFile = !isPseudoTabViewer(tab.viewer) && !isSourceTabPath(tab.path);
 
   if (tab.viewer === "url") {
     const url = tab.path.replace(/^url:/, "");
@@ -211,6 +214,7 @@ export function DocumentBar(props: DocumentBarProps) {
         <span className="min-w-0 flex-1 truncate px-1 text-xs text-[var(--text-secondary)]" title={url}>
           {url}
         </span>
+        {dispatchPreview({ kind: "url", url }) === "webpage" && <EmbeddedFromLabel url={url} />}
         <TabActions target={{ kind: "url", url }} systemOpen={systemOpen} platform={platform} />
       </div>
     );
@@ -220,6 +224,7 @@ export function DocumentBar(props: DocumentBarProps) {
     const text = tabLabelText(tab, {
       terminalTitle: props.terminalTitle,
       terminalFallback: t("terminal.terminal", undefined, "terminal"),
+      sourceLabel: t("editor.sourceTab", undefined, "source"),
     });
     return (
       <div data-testid="doc-bar" className={frame}>

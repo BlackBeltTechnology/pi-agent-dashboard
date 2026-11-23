@@ -64,6 +64,53 @@ describe("buildSelectionClipboardText", () => {
     container.remove();
   });
 
+  describe("label elements copy their original URL (rich-chat-links #E38)", () => {
+    const URL_ = "https://github.com/o/r/pull/123";
+    const mountLabel = () => {
+      const container = mount(
+        `<div data-index="0"><p>see <svg aria-hidden="true"><title>ICON-TEXT</title><path d="M0 0"/></svg><a ${COPY_TEXT_ATTR}="${URL_}">o/r#123</a> now</p></div>`,
+      );
+      const a = container.querySelector("a")!;
+      return { container, a, p: container.querySelector("p")! };
+    };
+
+    it("whole line copies the URL in place of the label", () => {
+      const { container, p } = mountLabel();
+      const range = document.createRange();
+      range.selectNodeContents(p);
+      expect(buildSelectionClipboardText(range, container)).toBe(`see ${URL_} now`);
+      container.remove();
+    });
+
+    it("selecting only the label copies the full URL", () => {
+      const { container, a } = mountLabel();
+      const range = document.createRange();
+      range.selectNodeContents(a);
+      expect(buildSelectionClipboardText(range, container)).toBe(URL_);
+      container.remove();
+    });
+
+    it("selecting half the label copies the full URL", () => {
+      const { container, a } = mountLabel();
+      const range = document.createRange();
+      range.setStart(a.firstChild!, 0);
+      range.setEnd(a.firstChild!, 3);
+      expect(buildSelectionClipboardText(range, container)).toBe(URL_);
+      container.remove();
+    });
+
+    it("selection from 'see' into the middle of the label copies the URL, no icon text", () => {
+      const { container, p, a } = mountLabel();
+      const range = document.createRange();
+      range.setStart(p.firstChild!, 0);
+      range.setEnd(a.firstChild!, 3);
+      const out = buildSelectionClipboardText(range, container);
+      expect(out).toBe(`see ${URL_}`);
+      expect(out).not.toContain("ICON-TEXT");
+      container.remove();
+    });
+  });
+
   it("returns empty string for a collapsed selection", () => {
     const container = mount(`<div data-index="0"><p>hello</p></div>`);
     const range = document.createRange();

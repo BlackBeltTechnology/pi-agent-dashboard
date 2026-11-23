@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-knip-dead-code-oracle. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Whole-graph Knip scan
 
 Knip SHALL analyse the whole workspace graph in a single pass and SHALL NOT be
@@ -23,8 +25,14 @@ cannot answer whether a symbol is used somewhere else in the graph.
 
 #### Scenario: Whole-workspace scan stays within budget
 
-- **WHEN** the Knip pass runs on the full workspace
+- **WHEN** the Knip pass runs on the full workspace in the nightly budget lane
 - **THEN** it completes in under 30 seconds
+
+#### Scenario: The scan-time budget does not gate a pull request
+
+- **WHEN** the Knip scan takes longer than 30 seconds on a pull-request runner
+- **THEN** no blocking `ci.yml` job SHALL fail for that reason
+- **AND** the 30-second assertion SHALL run only in the nightly budget lane of `nightly-tests.yml`
 
 ### Requirement: Entry points are derived from project manifests
 
@@ -128,4 +136,3 @@ overrides deliberately exempt.
 - **THEN** the Knip pass reports nothing for it
 - **AND** no manifest declaration is added, per the existing `code-quality-loop`
   scenario "Non-published trees are ignored, not declared"
-

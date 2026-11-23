@@ -123,7 +123,7 @@ if [ -d /fixtures-src ] && [ -d /fixtures ]; then
       try { d = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
       for (const c of cwds) d[c] = true;
       fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
-    ' "${TRUST_DIR}/trust.json" /fixtures/super /fixtures/super/models/sub /fixtures/sub-worktree \
+    ' "${TRUST_DIR}/trust.json" /fixtures/super /fixtures/super/models/sub /fixtures/sub-worktree /fixtures/sample-git \
       && echo "[test-entrypoint] pre-trusted submodule fixtures (trust.json)" \
       || echo "[test-entrypoint] WARN: submodule trust seeding failed"
     # `|| echo` is not cosmetic: under `set -e` a failed write here would abort

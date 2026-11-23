@@ -6,7 +6,7 @@
  * as a child process, the way ci.yml runs it. test-plan rows E20, E21, E32,
  * X2–X8.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,10 +14,11 @@ import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { loadData, renderSummary } from "../select-affected-tests.mjs";
+import { assignment } from "../test-selection/assigned.mjs";
 import { checkResult } from "../test-selection/check-result.mjs";
 import { decide } from "../test-selection/decide.mjs";
 import { changedFiles, resolveDiff } from "../test-selection/git-diff.mjs";
-import { assignment } from "../test-selection/assigned.mjs";
+import { summarizeReports } from "../test-selection/nightly-report.mjs";
 import { assignedFor, verifyExecuted } from "../test-selection/verify-executed.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -342,4 +343,193 @@ describe("assignment for a workflow job", () => {
   it("packaging-scenario files stay listed even when the suite was not enumerated", () => {
     expect(assignment({ ...sel, enumerated: false }, "ci-scenarios").files).toEqual(["g"]);
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Budget lane (change: stabilize-blocking-test-lanes, design.md D1–D3; test-plan E17, E18, E20–E22, X9, X10)
+// ---------------------------------------------------------------------------------------------
+
+const VERIFY = path.join(repoRoot, "scripts/test-selection/verify-executed.mjs");
+const ASSIGNED = path.join(repoRoot, "scripts/test-selection/assigned.mjs");
+
+/** Run `verify-executed.mjs <selection> <key> <report>` in a temp dir; the report names resolve against it. */
+function verifyCli(selection, key, resultsFor) {
+  const d = tmpDir("sel-budget-verify-");
+  const selPath = path.join(d, "selection.json");
+  const rep = path.join(d, "report.json");
+  fs.writeFileSync(selPath, JSON.stringify(selection));
+  fs.writeFileSync(rep, JSON.stringify({ testResults: resultsFor(d) }));
+  const r = spawnSync(process.execPath, [VERIFY, selPath, key, rep], { cwd: d, encoding: "utf8" });
+  return { status: r.status, out: `${r.stdout}${r.stderr}` };
+}
+
+describe("budget lane verification is strict (E20, X9, X10)", () => {
+  const f = "packages/kb-plugin/src/server/__tests__/kb-search-perf.budget.test.ts";
+  const result = (d, statuses) => [{ name: path.join(d, f), assertionResults: statuses.map((status) => ({ status })) }];
+  const sel = { enumerated: true, budgetFiles: [f], shards: [[f], [], [], []], realProcess: [], ciScenariosFiles: [] };
+
+  it("E20 (a): three passed assertions pass", () => {
+    expect(verifyCli(sel, "budget", (d) => result(d, ["passed", "passed", "passed"])).status).toBe(0);
+  });
+
+  it.each([
+    ["(b) zero assertions", []],
+    ["(c) one skipped", ["passed", "skipped"]],
+    ["(d) one pending", ["passed", "pending"]],
+    ["(e) one todo", ["passed", "todo"]],
+  ])("E20 %s fails the budget key, naming the file", (_label, statuses) => {
+    const r = verifyCli(sel, "budget", (d) => result(d, statuses));
+    expect(r.status).toBe(1);
+    expect(r.out).toContain(f);
+  });
+
+  it("E20 (f): the strict rule applies to the budget key only (the same skipped case passes under unit-1)", () => {
+    expect(verifyCli(sel, "unit-1", (d) => result(d, ["passed", "skipped"])).status).toBe(0);
+    expect(verifyCli(sel, "unit-1", (d) => result(d, [])).status).toBe(0);
+  });
+
+  it("X9: a JSPI probe failure (real-binary P1–P3 skipped) fails the lane, naming the file", () => {
+    const blender = "packages/blender/src/__tests__/real-binary.budget.test.ts";
+    const r = verifyCli({ ...sel, budgetFiles: [blender] }, "budget", (d) => [
+      { name: path.join(d, blender), assertionResults: ["P1", "P2", "P3"].map((title) => ({ title, status: "skipped" })) },
+    ]);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("real-binary.budget.test.ts");
+  });
+
+  it("X10: a tracked budget file the run did not collect fails, naming it", () => {
+    const missing = "packages/server/src/access/__tests__/ladder-perf.budget.test.ts";
+    const r = verifyCli({ ...sel, budgetFiles: [f, missing] }, "budget", (d) => result(d, ["passed"]));
+    expect(r.status).toBe(1);
+    expect(r.out).toContain(missing);
+    expect(r.out).not.toContain(`  - ${f}`); // the collected file is not blamed
+  });
+
+  it("verifyExecuted reports `weak` files only under { strict: true }", () => {
+    const rep = { testResults: [{ name: "/repo/a.budget.test.ts", assertionResults: [{ status: "skipped" }] }] };
+    expect(verifyExecuted(["a.budget.test.ts"], rep, "/repo").ok).toBe(true);
+    const strict = verifyExecuted(["a.budget.test.ts"], rep, "/repo", { strict: true });
+    expect(strict.ok).toBe(false);
+    expect(strict.weak.map((w) => w.file)).toEqual(["a.budget.test.ts"]);
+  });
+
+  it("the `budget` key maps to budgetFiles", () => {
+    expect(assignedFor({ budgetFiles: ["b"] }, "budget")).toEqual(["b"]);
+    expect(assignedFor({}, "budget")).toEqual([]);
+  });
+});
+
+describe("an empty budget lane is green (E21)", () => {
+  it("empty budgetFiles + empty testResults: verify exits 0, the summary is green, `budget` is not 'no report'", () => {
+    const emptySel = { enumerated: true, budgetFiles: [], shards: [[], [], [], []], realProcess: [], ciScenariosFiles: [] };
+    expect(verifyCli(emptySel, "budget", () => []).status).toBe(0);
+    // Also when the selector fell back (the budget list is a filename scan, not an enumeration).
+    expect(verifyCli({ ...emptySel, enumerated: false }, "budget", () => []).status).toBe(0);
+    const summary = summarizeReports({ expected: ["budget"], reports: { budget: { testResults: [] } }, root: "/repo", needs: { budget: { result: "success" } } });
+    expect(summary.noReport).toEqual([]);
+    expect(summary.red).toBe(false);
+  });
+});
+
+describe("fallback selection keeps the scanned budget list (E22)", () => {
+  it("assigned.mjs budget prints the scanned list, not an empty one", () => {
+    const d = tmpDir("sel-budget-assigned-");
+    const selPath = path.join(d, "selection.json");
+    const out = path.join(d, "assigned.txt");
+    const files = ["a/x.budget.test.ts", "b/y.budget.test.mjs"];
+    fs.writeFileSync(selPath, JSON.stringify({ enumerated: false, shards: [[], [], [], []], realProcess: [], ciScenariosFiles: [], budgetFiles: files }));
+    const r = spawnSync(process.execPath, [ASSIGNED, selPath, "budget", out], { cwd: d, encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: "" } });
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(out, "utf8")).toBe(`${files.join("\n")}\n`);
+    expect(assignment({ enumerated: false, budgetFiles: files }, "budget")).toEqual({ files, empty: false, enumerated: true });
+    // ...while unit/real-process still fall back to `--shard`.
+    expect(assignment({ enumerated: false, budgetFiles: files }, "unit-1").enumerated).toBe(false);
+  });
+});
+
+describe("budget files in a real selector run (E17, E18)", () => {
+  // Fixture lives in the gitignored install cache: on macOS `vitest` under /var/folders is ~150x slower.
+  const FIXTURE_BASE = path.join(repoRoot, "node_modules", ".cache", "budget-selector-fixtures");
+  const WORKERS = fs.readFileSync(path.join(repoRoot, "vitest.workers.ts"), "utf8");
+  const BUDGETS = ["packages/p/src/__tests__/zeta.budget.test.ts", "packages/p/src/__tests__/alpha.budget.test.ts"];
+  const SNAP = "packages/p/src/__tests__/__snapshots__/alpha.budget.test.ts.snap";
+  const TEST = 'import { it } from "vitest";\nit("x", () => {});\n';
+
+  const workspaces = [];
+  afterAll(() => {
+    for (const d of workspaces) fs.rmSync(d, { recursive: true, force: true });
+    try {
+      fs.rmdirSync(FIXTURE_BASE);
+    } catch {
+      /* not empty or gone */
+    }
+  });
+
+  function budgetWorkspace() {
+    fs.mkdirSync(FIXTURE_BASE, { recursive: true });
+    const d = fs.realpathSync(fs.mkdtempSync(path.join(FIXTURE_BASE, "ws-")));
+    workspaces.push(d);
+    const w = (rel, content) => {
+      fs.mkdirSync(path.dirname(path.join(d, rel)), { recursive: true });
+      fs.writeFileSync(path.join(d, rel), content);
+    };
+    w("vitest.config.ts", 'import { defineConfig } from "vitest/config";\nexport default defineConfig({ test: { projects: ["packages/*/vitest.config.ts"] } });\n');
+    w("vitest.workers.ts", WORKERS);
+    w(
+      "packages/p/vitest.config.ts",
+      'import { configDefaults, defineConfig } from "vitest/config";\nimport { BUDGET_TEST_EXCLUDE } from "../../vitest.workers";\nexport default defineConfig({ test: { include: ["src/**/__tests__/**/*.test.ts"], exclude: [...configDefaults.exclude, ...BUDGET_TEST_EXCLUDE] } });\n',
+    );
+    w("packages/p/src/a.ts", "export const a = 1;\n");
+    w("packages/p/src/__tests__/a.test.ts", 'import { a } from "../a";\nimport { it } from "vitest";\nit("a", () => { void a; });\n');
+    for (const b of BUDGETS) w(b, TEST);
+    w(SNAP, "// snapshot\n");
+    fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(d, "node_modules"));
+    w(".gitignore", "node_modules\n");
+    git(d, "init", "-q", "-b", "main");
+    git(d, "config", "user.email", "t@example.com");
+    git(d, "config", "user.name", "t");
+    git(d, "config", "commit.gpgsign", "false");
+    git(d, "add", "-A");
+    git(d, "commit", "-q", "-m", "base");
+    return d;
+  }
+
+  const lists = (sel) => [...sel.shards.flat(), ...sel.realProcess, ...sel.ciScenariosFiles];
+
+  it("E17: the same tree and base twice give identical selections (budgetFiles order included)", () => {
+    const d = budgetWorkspace();
+    const base = git(d, "rev-parse", "HEAD");
+    fs.appendFileSync(path.join(d, "packages/p/src/a.ts"), "export const b = 2;\n");
+    git(d, "commit", "-q", "-am", "edit");
+    const strip = (sel) => {
+      // `graphMs` is the graph build's wall-clock; every other field must repeat exactly.
+      const { graphMs, ...rest } = sel;
+      expect(typeof graphMs).toBe("number");
+      return JSON.stringify(rest);
+    };
+    const one = runCli(d, ["--base", base]).selection;
+    const two = runCli(d, ["--base", base]).selection;
+    expect(strip(one)).toBe(strip(two));
+    expect(one.mode).toBe("affected");
+    expect(one.budgetFiles).toEqual([...BUDGETS].sort());
+    expect(runCli(d, ["--full"]).selection.budgetFiles).toEqual([...BUDGETS].sort());
+  }, 120_000);
+
+  it("E18: a PR that only edits a budget file runs none of its cases in a PR job, and lists every budget file", () => {
+    const d = budgetWorkspace();
+    const base = git(d, "rev-parse", "HEAD");
+    fs.appendFileSync(path.join(d, BUDGETS[1]), "// touched\n");
+    git(d, "commit", "-q", "-am", "edit a budget file");
+    const { selection, summary } = runCli(d, ["--base", base]);
+    expect(selection.mode).toBe("affected");
+    for (const b of BUDGETS) expect(lists(selection)).not.toContain(b);
+    expect(lists(selection).some((f) => f.includes(".budget.test."))).toBe(false);
+    expect(selection.budgetFiles).toEqual([...BUDGETS].sort());
+    expect(selection.budgetFiles).not.toContain(SNAP);
+    expect(summary).toMatch(/budget 2/);
+    // The workflow never reads the field and has no budget job.
+    const ci = fs.readFileSync(path.join(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    expect(ci).not.toMatch(/budgetFiles/);
+    expect(ci).not.toMatch(/^  budget:/m);
+  }, 120_000);
 });
