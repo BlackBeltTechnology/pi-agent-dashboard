@@ -69,24 +69,34 @@ function useOnEnterIdle(isIdle: boolean, onEnter: () => void) {
   }, [isIdle, onEnter]);
 }
 
-/** Idle header controls: rejection reason, Run, Close. */
+/** Idle header controls: rejection reason, Run, Close (view-only: label, no Run). */
 function IdleControls({ idle }: { idle: FlowDashboardIdle }) {
   const t = useT();
   return (
     <>
+      {idle.viewOnly && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] whitespace-nowrap"
+          data-testid="flow-view-only-label"
+        >
+          {t("flowViewOnlyLabel", undefined, "view only - not registered")}
+        </span>
+      )}
       {idle.rejectionReason && (
         <span className="text-[10px] text-red-400 truncate" data-testid="flow-run-rejected">
           {idle.rejectionReason}
         </span>
       )}
-      <button
-        onClick={(e) => { e.stopPropagation(); idle.onRun(); }}
-        disabled={idle.runDisabled}
-        className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-        data-testid="flow-idle-run"
-      >
-        <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />{t("runFlow", undefined, "Run")}
-      </button>
+      {!idle.viewOnly && (
+        <button
+          onClick={(e) => { e.stopPropagation(); idle.onRun(); }}
+          disabled={idle.runDisabled}
+          className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+          data-testid="flow-idle-run"
+        >
+          <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />{t("runFlow", undefined, "Run")}
+        </button>
+      )}
       <button
         onClick={(e) => { e.stopPropagation(); idle.onClose(); }}
         className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
@@ -106,6 +116,8 @@ interface FlowDashboardIdle {
   runDisabled?: boolean;
   /** Reason of the latest rejected start for this flow, shown inline. */
   rejectionReason?: string;
+  /** Path-opened by the agent (`flow_open`): no Run, no AUTO, a view-only label. See change: add-flow-open-tool (D7). */
+  viewOnly?: boolean;
 }
 
 export function FlowDashboard({
@@ -325,18 +337,20 @@ export function FlowDashboard({
         </span>
 
         {/* Controls */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleAutonomous(); }}
-          aria-pressed={flowState.autonomousMode}
-          className={`text-[10px] px-1.5 py-0.5 rounded border ${
-            flowState.autonomousMode
-              ? "border-green-500/40 text-green-400 bg-green-500/10"
-              : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
-          }`}
-          title={t("toggleAutonomousMode", undefined, "Toggle autonomous mode")}
-        >
-          <Icon path={mdiRobotOutline} size={0.4} className="inline mr-0.5" />AUTO
-        </button>
+        {!idle?.viewOnly && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleAutonomous(); }}
+            aria-pressed={flowState.autonomousMode}
+            className={`text-[10px] px-1.5 py-0.5 rounded border ${
+              flowState.autonomousMode
+                ? "border-green-500/40 text-green-400 bg-green-500/10"
+                : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
+            }`}
+            title={t("toggleAutonomousMode", undefined, "Toggle autonomous mode")}
+          >
+            <Icon path={mdiRobotOutline} size={0.4} className="inline mr-0.5" />AUTO
+          </button>
+        )}
         {headerActions}
         {idle && <IdleControls idle={idle} />}
         {isRunning && (
@@ -594,6 +608,9 @@ function useAttachedFlowState(attachment: FlowAttachment | null, sessionId: stri
   const t = useT();
   const name = attachment?.name ?? "";
   const source = attachment?.source;
+  // View-only (path-opened) files are admitted on the plugin route only.
+  // See change: add-flow-open-tool (D7).
+  const noHostFallback = attachment?.viewOnly === true;
   const key = attachment ? `${attachment.id}\u0000${source ?? ""}` : "";
   const [state, setState] = useState<{ key: string; load: IdleLoad } | null>(null);
 
@@ -604,7 +621,7 @@ function useAttachedFlowState(attachment: FlowAttachment | null, sessionId: stri
       if (!cancelled) setState({ key, load: { kind: "error", message } });
     };
     // Plugin file endpoint (runtime-registered flow dirs) → host fallback.
-    fetchFlowFile(sessionId, source)
+    fetchFlowFile(sessionId, source, { noHostFallback })
       .then((content) => {
         if (!cancelled) setState({ key, load: buildIdleFlowState(content, { name, source }) });
       })
@@ -612,7 +629,7 @@ function useAttachedFlowState(attachment: FlowAttachment | null, sessionId: stri
     return () => {
       cancelled = true;
     };
-  }, [key, name, source, sessionId, reportReady]);
+  }, [key, name, source, sessionId, reportReady, noHostFallback]);
 
   if (!attachment) return LOADING;
   if (!source) {
@@ -826,10 +843,16 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
   if (slot.mode === "none") return null;
 
   if (slot.mode === "loading" || slot.mode === "error") {
+    // A view-only definition the server no longer admits (e.g. after a restart):
+    // the agent can open it again. See change: add-flow-open-tool (D7).
+    const reopen =
+      slot.error?.kind === "load" && attachment?.viewOnly
+        ? ` · ${t("flowViewOnlyReopenHint", undefined, "ask the agent to open it again")}`
+        : "";
     return (
       <FlowSlotMessage
         name={attachedName ?? ""}
-        message={slotMessage(slot, t)}
+        message={slotMessage(slot, t) + reopen}
         tone={slot.mode === "error" ? "error" : "muted"}
         onClose={detach}
       />
@@ -849,7 +872,14 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
         session={session}
         sessionId={sessionId}
         nodeFiles={nodeFiles}
-        headerActions={<FlowHeaderActions sessionId={sessionId} flowName={shown.flowName} variant={headerVariant} />}
+        headerActions={
+          <FlowHeaderActions
+            sessionId={sessionId}
+            flowName={shown.flowName}
+            variant={headerVariant}
+            viewOnly={isIdle && attachment?.viewOnly === true}
+          />
+        }
         idle={
           isIdle
             ? {
@@ -857,6 +887,7 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
                 onClose: closeIdle,
                 runDisabled: run.pending,
                 rejectionReason: run.rejectionReason,
+                viewOnly: attachment?.viewOnly === true,
               }
             : undefined
         }

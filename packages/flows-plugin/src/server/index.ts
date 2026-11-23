@@ -13,7 +13,8 @@ import { provideFlowsActions } from "./automation-actions.js";
 import { broadcastEditModeState, handleSetEditMode, migrateLegacyEditFlow, registerEditModeRoutes } from "./edit-mode.js";
 import { FLOW_REQUEST_CATALOG_ACTION } from "../flow-catalog-contract.js";
 import { registerFlowCatalog } from "./flow-catalog.js";
-import { registerFlowFileRoutes } from "./flow-files.js";
+import { flowFileRegistry, registerFlowFileRoutes } from "./flow-files.js";
+import { registerFlowOpen } from "./flow-open.js";
 import { mountFlowInputsRoute } from "./flow-inputs.js";
 import { FLOW_CONTROL_ACTIONS, type FlowControlDeps, registerFlowControlRoute, runFlowControl } from "./flow-control.js";
 import { renderSessionFlowActions } from "./render-actions.js";
@@ -90,6 +91,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     registerPiRequestHandler: ctx.registerPiRequestHandler,
     sessionManager: ctx.sessionManager,
     emitEventToSession,
+    registry: flowFileRegistry,
   });
 
   // Flow catalog: feed stateStore from forwarded `flow_catalog` events, ask
@@ -105,6 +107,22 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     logger,
   });
   catalog.startServerStartAsks();
+
+  // Agent `flow_open` tool (bridge) → `flow/open` lane: catalog or path flow,
+  // admitted path files join the SAME file registry the routes serve from.
+  // See change: add-flow-open-tool.
+  registerFlowOpen({
+    registerPiRequestHandler: ctx.registerPiRequestHandler,
+    registerBrowserHandler,
+    broadcastToSubscribers,
+    sessionManager: ctx.sessionManager,
+    onSessionEnded: ctx.onSessionEnded,
+    store: stateStore,
+    requestCatalog: catalog.requestCatalog,
+    registry: flowFileRegistry,
+    readFileGuarded: ctx.readFileGuarded,
+    logger,
+  });
 
   // Edit mode: global default (`~/.pi/agent/settings.json#flows.editFlow`) +
   // per-session effective state, read-only except the guarded global PUT.

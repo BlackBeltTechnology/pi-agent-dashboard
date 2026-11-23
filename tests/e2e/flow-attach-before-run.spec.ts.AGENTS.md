@@ -9,3 +9,5 @@ Needs PI_E2E_SEED=1.
 Summary (moved from directory AGENTS.md row): L3 attach-flow-before-run F15/F16.
 
 F15/F16 drive Open/Run from the FLOWS chip; summary expanded via `expandSummary`. See change: flows-dock-chip-and-panel-actions.
+
+F8/F9: `[[faux:flow-open]] e2e:synthetic` prompt → agent `flow_open` pins the flow not-started + expanded (desktop panel; 375 px mobile bar `e2e:synthetic · not started`); echoed tool result `"status":"shown"`, `"acks":1`. See change: add-flow-open-tool.

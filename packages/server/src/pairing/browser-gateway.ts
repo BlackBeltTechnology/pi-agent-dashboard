@@ -98,6 +98,11 @@ export function buildOpenSpecConnectSnapshot(
 export function frameClassOf(
   msg: ServerToBrowserMessage,
 ): { cls: "state" | "transcript"; key: string } {
+  // Flows-plugin agent pin (a plugin frame, outside the core union): per-session
+  // state, never shed — a shed one is a `flow_open` that never shows.
+  // See change: add-flow-open-tool.
+  const plugin = msg as { type: string; sessionId?: unknown };
+  if (plugin.type === "flows_open") return { cls: "state", key: `flows_open:${String(plugin.sessionId)}` };
   switch (msg.type) {
     case "sessions_snapshot":
     case "pinned_dirs_updated":

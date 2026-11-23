@@ -35,6 +35,7 @@ import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared
 import { startFlowCatalogPublisher } from "./flow-catalog-publisher.js";
 import { startFlowEventForward } from "./flow-event-forward.js";
 import { startFlowFilesReporter } from "./flow-files-reporter.js";
+import { startFlowOpenTool } from "./flow-open-tool.js";
 import { FlowQuestionAdapter } from "./flow-question-adapter.js";
 import { clearFlowTools, publishFlowTools } from "./flow-tool-registry.js";
 import { startFlowToolsGuideline } from "./flow-tools-guideline.js";
@@ -86,4 +87,7 @@ export default function activate(ctx: unknown): void {
   // Publish this session's flow catalog through declared event forwarding.
   // See change: flows-dock-chip-and-panel-actions.
   startFlowCatalogPublisher(pi as Parameters<typeof startFlowCatalogPublisher>[0]);
+  // Agent `flow_open` tool: show a catalog or path flow in the flow slot.
+  // See change: add-flow-open-tool.
+  startFlowOpenTool(pi as Parameters<typeof startFlowOpenTool>[0]);
 }

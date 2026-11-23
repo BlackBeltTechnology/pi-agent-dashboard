@@ -37,6 +37,8 @@ function parse(raw: string | null): FlowAttachment | null {
       source: typeof v.source === "string" ? v.source : undefined,
       baselineStartedAt:
         typeof v.baselineStartedAt === "number" && Number.isFinite(v.baselineStartedAt) ? v.baselineStartedAt : null,
+      // Only a literal `true` keeps the view-only flag. See change: add-flow-open-tool.
+      ...(v.viewOnly === true ? { viewOnly: true as const } : {}),
     };
   } catch {
     return null;

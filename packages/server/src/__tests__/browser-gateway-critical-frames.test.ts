@@ -698,6 +698,11 @@ describe("collapsed-folder frames (X7)", () => {
     });
   });
 
+  it("X10: flows_open is state-class, keyed per session — never shed (add-flow-open-tool)", () => {
+    const m = { type: "flows_open", sessionId: "S" } as unknown as ServerToBrowserMessage;
+    expect(frameClassOf(m)).toEqual({ cls: "state", key: "flows_open:S" });
+  });
+
   it("F4: services_changed is state-class, key services_changed — coalesced, never shed (add-services-settings-ui)", () => {
     expect(frameClassOf({ type: "services_changed" })).toEqual({ cls: "state", key: "services_changed" });
   });
