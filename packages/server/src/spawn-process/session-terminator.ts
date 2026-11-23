@@ -24,6 +24,9 @@ import {
   killProcess as defaultKillProcess,
   processStartedAt as defaultProcessStartedAt,
   signalZero as defaultSignalZero,
+  verifyAndKillWindows as defaultVerifyAndKillWindows,
+  verifyAndKillWsl as defaultVerifyAndKillWsl,
+  wslLiveness as defaultWslLiveness,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { findPidsBySpawnToken as defaultFindPidsBySpawnToken } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -89,6 +92,12 @@ interface TerminatorPrimitives {
   signalZero?: typeof defaultSignalZero;
   killProcess?: typeof defaultKillProcess;
   processStartedAt?: typeof defaultProcessStartedAt;
+  /** Windows host: verify identity (max start) and tree-kill in one call. */
+  verifyAndKillWindows?: typeof defaultVerifyAndKillWindows;
+  /** WSL target: tri-state liveness decided inside the distribution. */
+  wslLiveness?: typeof defaultWslLiveness;
+  /** WSL target: verify age and group-aware kill inside the distribution. */
+  verifyAndKillWsl?: typeof defaultVerifyAndKillWsl;
   findPidsBySpawnToken?: typeof defaultFindPidsBySpawnToken;
   platform?: NodeJS.Platform;
   sleep?: (ms: number) => Promise<void>;
@@ -109,6 +118,9 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
   const signalZero = deps.signalZero ?? defaultSignalZero;
   const killProcess = deps.killProcess ?? defaultKillProcess;
   const processStartedAt = deps.processStartedAt ?? defaultProcessStartedAt;
+  const verifyAndKillWindows = deps.verifyAndKillWindows ?? defaultVerifyAndKillWindows;
+  const wslLiveness = deps.wslLiveness ?? defaultWslLiveness;
+  const verifyAndKillWsl = deps.verifyAndKillWsl ?? defaultVerifyAndKillWsl;
   const findPidsBySpawnToken = deps.findPidsBySpawnToken ?? defaultFindPidsBySpawnToken;
   const platform = deps.platform ?? process.platform;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -168,6 +180,9 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
    * BEFORE any liveness probe (a foreign ESRCH proves nothing here).
    */
   function targetRefusal(target: PidTarget, opts: TerminateOptions): TerminateOutcome | undefined {
+    // A WSL target is reclaimed INSIDE its distribution (wslReclaim), never refused
+    // and never probed from the Windows table. See change: add-windows-process-identity.
+    if (target.kind === "wsl") return undefined;
     if (opts.operator === true) return operatorMaySignal(target, pidContext()) ? undefined : "not-local";
     return target.kind === "host" ? undefined : "refused-identity";
   }
@@ -203,6 +218,20 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     pid: number,
     guarded: boolean,
   ): Promise<TerminateResult> {
+    // Windows host, unattended: verify the creation time and tree-kill in ONE
+    // PowerShell call (the pinned handle closes the pid-reuse window).
+    const recordedAt = sessionManager.get(sessionId)?.pidRecordedAt;
+    if (guarded && platform === "win32" && recordedAt !== undefined) {
+      const r = await verifyAndKillWindows(pid, { maxStartMs: recordedAt + IDENTITY_TOLERANCE_MS, timeoutMs: 2000 });
+      if (r === "mismatch") {
+        if (isGone(pid)) return done("confirmed-dead", pid);
+        warn(`[session-terminator] refusing to signal pid ${pid} for session ${sessionId}: pid reused`);
+        return done("refused-identity", pid);
+      }
+      // `error` is never read as dead (bounded retry by the give-up tracker); `killed`/`absent` re-check.
+      if (r === "error") return done("unconfirmed", pid);
+      return isGone(pid) ? done("confirmed-dead", pid) : done("unconfirmed", pid);
+    }
     const refusal = guarded ? identityRefusal(sessionId, pid) : undefined;
     if (refusal !== undefined) {
       if (isGone(pid)) return done("confirmed-dead", pid);
@@ -211,6 +240,50 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     }
     await killProcess(pid, { timeoutMs: 2000 });
     return isGone(pid) ? done("confirmed-dead", pid) : done("unconfirmed", pid);
+  }
+
+  /**
+   * A WSL target on a Windows server: liveness, age check and kill all happen
+   * inside the distribution. No Windows liveness probe or signal ever touches
+   * the (unrelated, same-numbered) Windows pid. See change: add-windows-process-identity.
+   */
+  async function wslReclaim(
+    sessionId: string,
+    pid: number,
+    distro: string,
+    opts: TerminateOptions,
+  ): Promise<TerminateResult> {
+    const unattended = opts.verifyIdentity === true;
+    const now = deps.now ?? Date.now;
+    const recordedAt = sessionManager.get(sessionId)?.pidRecordedAt;
+    // The age bound cannot be computed without the recording time.
+    if (unattended && recordedAt === undefined) {
+      warn(`[session-terminator] refusing to signal WSL pid ${pid} for session ${sessionId}: identity unverifiable (no pidRecordedAt)`);
+      return done("refused-identity", pid);
+    }
+    let live = await wslLiveness(pid, distro);
+    if (opts.graceMs && opts.graceMs > 0) {
+      const deadline = now() + opts.graceMs;
+      while (live !== "absent" && now() < deadline) {
+        await sleep(GRACE_POLL_MS);
+        live = await wslLiveness(pid, distro);
+      }
+    }
+    if (live === "absent") return done("confirmed-dead", pid);
+    // A wedged WSL is never a confirmed termination; the in-script check is the safety.
+    if (unattended && live === "unknown") return done("unconfirmed", pid);
+    const killOpts: { minAgeMs?: number; timeoutMs: number } = { timeoutMs: 2000 };
+    if (unattended && recordedAt !== undefined) {
+      killOpts.minAgeMs = Math.max(0, now() - (recordedAt + IDENTITY_TOLERANCE_MS));
+    }
+    const r = await verifyAndKillWsl(pid, distro, killOpts);
+    if (r === "mismatch") {
+      warn(`[session-terminator] refusing to signal WSL pid ${pid} for session ${sessionId}: pid reused`);
+      return done("refused-identity", pid);
+    }
+    if (r === "error") return done("unconfirmed", pid);
+    // `killed` / `absent`: confirmed only after a liveness re-check (unknown reads as alive).
+    return (await wslLiveness(pid, distro)) === "absent" ? done("confirmed-dead", pid) : done("unconfirmed", pid);
   }
 
   async function ladder(sessionId: string, opts: TerminateOptions): Promise<TerminateResult> {
@@ -249,6 +322,11 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     const pid = sessionPid ?? registryPid;
     if (pid === undefined) {
       return opts.spawnToken ? reclaimByToken(opts.spawnToken) : done("no-identity");
+    }
+
+    // 2b. WSL target: decided entirely inside the distribution.
+    if (target?.kind === "wsl" && sessionPid !== undefined && pid === sessionPid) {
+      return wslReclaim(sessionId, pid, target.distro, opts);
     }
 
     // 3–4. Already gone (before the identity GUARD, so a dead pid is never

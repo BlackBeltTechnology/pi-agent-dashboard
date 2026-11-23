@@ -8,6 +8,7 @@
  */
 
 import fs from "node:fs";
+import { win32 as pathWin32 } from "node:path";
 import { execFile as defaultExecFile, execSync } from "./exec.js";
 
 export type ExecFn = (cmd: string, opts: { encoding: "utf-8" }) => string;
@@ -375,4 +376,362 @@ export async function killProcessGroup(
   const killDeadline = Date.now() + 2000;
   while (groupAlive() && Date.now() < killDeadline) await sleep(50);
   return { ok: !groupAlive(), forced: true };
+}
+
+// ── Windows / WSL process identity + verified kill ───────────────────────────
+// See change: add-windows-process-identity (D3, D4). Every helper below spawns
+// an absolute-path `powershell.exe` / `wsl.exe` through ONE shared limiter and
+// validates its inputs BEFORE anything is interpolated into a script.
+
+/** Where a recorded pid lives: the server's own OS, or inside a WSL distribution. */
+export type ProcessTarget = { kind: "host" } | { kind: "wsl"; distro: string };
+
+/** Result of a verify-and-kill helper. `error` is NEVER to be read as dead. */
+export type VerifyKillResult = "killed" | "mismatch" | "absent" | "error";
+
+/** Tri-state WSL liveness. `unknown` reads as alive. */
+export type WslLivenessResult = "alive" | "absent" | "unknown";
+
+/** Async exec seam: resolves stdout on exit 0, rejects otherwise; honours `signal`. */
+export type ProcessControlExecFn = (
+  file: string,
+  args: string[],
+  opts: { env: NodeJS.ProcessEnv; signal: AbortSignal; windowsHide: true },
+) => Promise<string | { stdout: string }>;
+
+export interface ProcessControlOpts {
+  /** Override platform (defaults to process.platform). */
+  platform?: NodeJS.Platform;
+  /** Override env (defaults to process.env); only `SystemRoot` is read. */
+  env?: NodeJS.ProcessEnv;
+  /** Override the async exec (for tests). */
+  execFile?: ProcessControlExecFn;
+}
+
+/** Concurrent PowerShell / `wsl.exe` invocations allowed per server (W5). */
+const PROCESS_CONTROL_SLOTS = 2;
+/** Extra wrapper time a verify-and-kill gets for the in-script TERM → KILL ladder (W12). */
+const KILL_LADDER_GRACE_MS = 10_000;
+const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
+const DEFAULT_KILL_TIMEOUT_MS = 5_000;
+const MAX_PID = 4_294_967_295;
+
+let inFlight = 0;
+const waiters: Array<() => void> = [];
+
+/** Test hook: drop all limiter state (slots and queued waiters). */
+export function resetProcessControlLimiter(): void {
+  inFlight = 0;
+  waiters.length = 0;
+}
+
+function acquireSlot(): Promise<void> {
+  if (inFlight < PROCESS_CONTROL_SLOTS) {
+    inFlight++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => waiters.push(resolve));
+}
+
+function releaseSlot(): void {
+  const next = waiters.shift();
+  if (next) next(); // the slot passes straight to the next waiter (FIFO)
+  else inFlight = Math.max(0, inFlight - 1);
+}
+
+function defaultProcessControlExec(
+  file: string,
+  args: string[],
+  o: { env: NodeJS.ProcessEnv; signal: AbortSignal; windowsHide: true },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    defaultExecFile(
+      file,
+      args,
+      { encoding: "utf8", env: o.env, signal: o.signal, windowsHide: o.windowsHide, maxBuffer: 1024 * 1024 },
+      (err, stdout) => (err ? reject(err) : resolve(String(stdout))),
+    );
+  });
+}
+
+/**
+ * Run `file args` under the shared limiter. `timeoutMs` starts at slot
+ * acquisition (queue wait never consumes it). Resolves the raw stdout, or
+ * `null` on any failure, timeout or rejection. Never rejects.
+ */
+async function runLimited(
+  file: string,
+  args: string[],
+  timeoutMs: number,
+  opts: ProcessControlOpts,
+): Promise<string | null> {
+  await acquireSlot();
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const run = opts.execFile ?? defaultProcessControlExec;
+    const exec = Promise.resolve()
+      .then(() => run(file, args, { env: opts.env ?? process.env, signal: controller.signal, windowsHide: true }))
+      .then((r) => (typeof r === "string" ? r : String(r?.stdout ?? "")));
+    exec.catch(() => undefined); // a late rejection after a timeout is not an unhandled one
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve(null);
+      }, timeoutMs);
+    });
+    return await Promise.race([exec, timeout]).catch(() => null);
+  } finally {
+    if (timer) clearTimeout(timer);
+    releaseSlot();
+  }
+}
+
+/** Floor a validated non-negative number to a plain decimal integer (never exponent form). */
+function safeInt(n: number): number {
+  return Math.min(Math.floor(n), Number.MAX_SAFE_INTEGER);
+}
+
+function validPid(pid: unknown): pid is number {
+  return typeof pid === "number" && Number.isInteger(pid) && pid >= 1 && pid <= MAX_PID;
+}
+
+function validDistro(distro: unknown): distro is string {
+  return typeof distro === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(distro) && !distro.startsWith("-");
+}
+
+function validTarget(target: unknown): target is ProcessTarget {
+  if (!target || typeof target !== "object") return false;
+  const t = target as { kind?: unknown; distro?: unknown };
+  return t.kind === "host" || (t.kind === "wsl" && validDistro(t.distro));
+}
+
+function nonNegFinite(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n >= 0;
+}
+
+function validTimeout(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n > 0;
+}
+
+/** Absolute `%SystemRoot%\System32\<rel>`, or null when SystemRoot is missing/relative. */
+function systemExe(env: NodeJS.ProcessEnv, rel: string): string | null {
+  const root = env.SystemRoot ?? env.SYSTEMROOT ?? env.systemroot;
+  if (typeof root !== "string" || root === "" || !pathWin32.isAbsolute(root)) return null;
+  return pathWin32.join(root, "System32", rel);
+}
+
+const POWERSHELL_REL = "WindowsPowerShell\\v1.0\\powershell.exe";
+const PS_FLAGS = ["-NoProfile", "-NonInteractive", "-Command"];
+
+function powershellInvocation(opts: ProcessControlOpts, script: string): { file: string; args: string[] } | null {
+  if ((opts.platform ?? process.platform) !== "win32") return null;
+  const file = systemExe(opts.env ?? process.env, POWERSHELL_REL);
+  return file ? { file, args: [...PS_FLAGS, script] } : null;
+}
+
+function wslInvocation(opts: ProcessControlOpts, distro: string, script: string): { file: string; args: string[] } | null {
+  if ((opts.platform ?? process.platform) !== "win32") return null;
+  const file = systemExe(opts.env ?? process.env, "wsl.exe");
+  return file ? { file, args: ["-d", distro, "--exec", "sh", "-c", script] } : null;
+}
+
+/** The trimmed stdout, exactly one of `markers`, else null (W10: any noise is an error). */
+function exactMarker<T extends string>(stdout: string | null, markers: readonly T[]): T | null {
+  if (stdout === null) return null;
+  const t = stdout.trim();
+  return (markers as readonly string[]).includes(t) ? (t as T) : null;
+}
+
+// PowerShell scripts: single quoted tokens only, numeric values interpolated
+// AFTER validation. `$null = $p.Handle` pins the process handle so Windows
+// cannot recycle the pid while the check and the kill run (D4).
+const PS_START_MS = "[DateTimeOffset]::new($p.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()";
+
+function psProbeScript(pid: number): string {
+  return `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($null -ne $p) { ${PS_START_MS} }`;
+}
+
+function psVerifyKillScript(pid: number, maxStartMs: number): string {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `try { $p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue`,
+    "if ($null -eq $p) { 'absent'; exit 0 }",
+    "$null = $p.Handle",
+    `$s = ${PS_START_MS}`,
+    `if ($s -gt ${safeInt(maxStartMs)}) { 'mismatch'; exit 0 }`,
+    `taskkill /F /T /PID ${pid} | Out-Null`,
+    "if ($LASTEXITCODE -ne 0 -and -not $p.HasExited) { exit 1 }",
+    "'killed' } catch { exit 1 }",
+  ].join("; ");
+}
+
+// POSIX `sh` fragments run inside the distribution (`wsl.exe --exec sh -c`).
+// No double quotes or backslashes: the string crosses the Windows command line.
+const SH_PREAMBLE = "LC_ALL=C; export LC_ALL";
+/** Reads /proc/<pid>/stat into `$1..` (field 3 onward, parsed after the LAST `)`); exits 1 when unreadable. */
+function shStat(pid: number): string {
+  return [`st=$(cat /proc/${pid}/stat 2>/dev/null) || exit 1`, "rest=${st##*) }", "set -- $rest", "[ -n $3 ] || exit 1"].join("; ");
+}
+
+/** After {@link shStat}: sets `now_ms` / `start_ms` (both on the WSL clock) or exits 1. */
+const SH_AGE = [
+  "ticks=${20}",
+  "[ -n $ticks ] || exit 1",
+  "read up _ < /proc/uptime || exit 1",
+  "hz=$(getconf CLK_TCK 2>/dev/null || echo 100)",
+  "cs=$(( 1${up#*.} - 100 ))",
+  "now_ms=$(( ${up%.*} * 1000 + cs * 10 ))",
+  "start_ms=$(( ticks * 1000 / hz ))",
+].join("; ");
+
+function shProbeScript(pid: number): string {
+  return [SH_PREAMBLE, shStat(pid), SH_AGE, "echo $now_ms $start_ms"].join("; ");
+}
+
+/** Prints `alive | absent | unknown` from a `kill -0` under LC_ALL=C. */
+function shLivenessScript(pid: number): string {
+  return [
+    SH_PREAMBLE,
+    `e=$(kill -0 ${pid} 2>&1)`,
+    "case $e in '') echo alive;; *'No such process'*) echo absent;; *) echo unknown;; esac",
+  ].join("; ");
+}
+
+function shVerifyKillScript(pid: number, minAgeMs: number | undefined, timeoutMs: number): string {
+  const polls = Math.max(1, Math.ceil(timeoutMs / 200));
+  const parts = [
+    SH_PREAMBLE,
+    `e=$(kill -0 ${pid} 2>&1)`,
+    "case $e in '') ;; *'No such process'*) echo absent; exit 0;; *) exit 1;; esac",
+    shStat(pid),
+  ];
+  if (minAgeMs !== undefined) {
+    parts.push(SH_AGE, `age_ms=$(( now_ms - start_ms ))`, `[ $age_ms -ge ${safeInt(minAgeMs)} ] || { echo mismatch; exit 0; }`);
+  }
+  // dash rejects `kill -SIG -- -N` (`--` then a negative number): pass `-N` right after the signal.
+  // Only an explicit "No such process" counts as gone; any other kill error is NOT read as dead.
+  parts.push(
+    // group-aware: only a group leader (pgrp == pid, /proc/<pid>/stat field 5) gets a group signal
+    "pg=$3",
+    `if [ $pg = ${pid} ]; then t=-${pid}; else t=${pid}; fi`,
+    // a non-leader zombie (state Z, awaiting its parent's wait) is already dead
+    `alive() { r=$(kill -0 $t 2>&1); case $r in '') ;; *'No such process'*) return 1;; esac; [ $pg != ${pid} ] || return 0; z=$(cat /proc/${pid}/stat 2>/dev/null); zr=\${z##*) }; case $zr in Z*) return 1;; esac; return 0; }`,
+    "e=$(kill -TERM $t 2>&1)",
+    "case $e in '') ;; *'No such process'*) echo absent; exit 0;; *) exit 1;; esac",
+    `i=0; while [ $i -lt ${polls} ]; do alive || { echo killed; exit 0; }; sleep 0.2; i=$((i+1)); done`,
+    "kill -KILL $t 2>/dev/null",
+    "i=0; while [ $i -lt 10 ]; do alive || { echo killed; exit 0; }; sleep 0.2; i=$((i+1)); done",
+    "exit 1",
+  );
+  return parts.join("; ");
+}
+
+/**
+ * Epoch-ms start time of `pid` on `target`, or null when it cannot be determined
+ * (dead pid, invalid input, wrong platform, timeout, wedged helper). Never throws.
+ *
+ * - win32 host: PowerShell `Get-Process` `.StartTime` (exact to the ms).
+ * - POSIX host: {@link processStartedAt}.
+ * - WSL `D`: the process AGE measured inside `D` carried onto the server clock
+ *   (`Date.now() − age`), so WSL ↔ Windows clock skew cancels out.
+ *
+ * Counts against the shared limiter (win32 / WSL only). See change:
+ * add-windows-process-identity.
+ */
+export async function probeProcessStart(
+  pid: number,
+  target: ProcessTarget,
+  opts: ProcessControlOpts & { timeoutMs?: number; processStartedAt?: (pid: number) => number | null | Promise<number | null> } = {},
+): Promise<number | null> {
+  if (!validPid(pid) || !validTarget(target)) return null;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  if (!validTimeout(timeoutMs)) return null;
+  const platform = opts.platform ?? process.platform;
+  if (target.kind === "host" && platform !== "win32") {
+    try {
+      return await (opts.processStartedAt
+        ? opts.processStartedAt(pid)
+        : processStartedAtAsync(pid, { platform, timeoutMs }));
+    } catch {
+      return null;
+    }
+  }
+  if (target.kind === "host") {
+    const inv = powershellInvocation(opts, psProbeScript(pid));
+    if (!inv) return null;
+    const out = await runLimited(inv.file, inv.args, timeoutMs, opts);
+    const t = out?.trim();
+    if (!t || !/^\d+$/.test(t)) return null;
+    const ms = Number(t);
+    return Number.isSafeInteger(ms) ? ms : null;
+  }
+  const inv = wslInvocation(opts, target.distro, shProbeScript(pid));
+  if (!inv) return null;
+  const out = await runLimited(inv.file, inv.args, timeoutMs, opts);
+  const sampledAt = Date.now();
+  const m = out === null ? null : /^(\d+) (\d+)$/.exec(out.trim());
+  if (!m) return null;
+  const age = Number(m[1]) - Number(m[2]);
+  if (!Number.isFinite(age) || age < 0) return null;
+  return sampledAt - age;
+}
+
+/**
+ * Verify identity and kill the process tree of `pid` in ONE PowerShell
+ * invocation (win32 host only): the handle is pinned, `StartTime ≤ maxStartMs`
+ * is checked, then `taskkill /F /T` runs while the handle is still open — so
+ * pid reuse cannot redirect the kill. `error` is never to be read as dead.
+ * See change: add-windows-process-identity (D4).
+ */
+export async function verifyAndKillWindows(
+  pid: number,
+  opts: ProcessControlOpts & { maxStartMs: number; timeoutMs?: number },
+): Promise<VerifyKillResult> {
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_KILL_TIMEOUT_MS;
+  if (!validPid(pid) || !nonNegFinite(opts?.maxStartMs) || !validTimeout(timeoutMs)) return "error";
+  const inv = powershellInvocation(opts, psVerifyKillScript(pid, opts.maxStartMs));
+  if (!inv) return "error";
+  const out = await runLimited(inv.file, inv.args, timeoutMs + KILL_LADDER_GRACE_MS, opts);
+  return exactMarker(out, ["killed", "mismatch", "absent"] as const) ?? "error";
+}
+
+/**
+ * Tri-state liveness of a WSL pid, decided ONLY inside the distribution.
+ * `absent` only on the script's explicit marker; any failure/timeout is
+ * `unknown`, which reads as alive. See change: add-windows-process-identity.
+ */
+export async function wslLiveness(
+  pid: number,
+  distro: string,
+  opts: ProcessControlOpts & { timeoutMs?: number } = {},
+): Promise<WslLivenessResult> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  if (!validPid(pid) || !validDistro(distro) || !validTimeout(timeoutMs)) return "unknown";
+  const inv = wslInvocation(opts, distro, shLivenessScript(pid));
+  if (!inv) return "unknown";
+  const out = await runLimited(inv.file, inv.args, timeoutMs, opts);
+  return exactMarker(out, ["alive", "absent"] as const) ?? "unknown";
+}
+
+/**
+ * Verify identity and kill `pid` inside WSL distribution `distro` in ONE
+ * `sh -c`: optional age check (`minAgeMs`, an AGE not a time, so clock skew is
+ * irrelevant), then a group-aware SIGTERM → poll → SIGKILL. The group leader is
+ * read from `/proc/<pid>/stat` (no `ps`). `error` is never to be read as dead.
+ * Residual: the few ms between the in-script check and `kill` inside one shell.
+ * See change: add-windows-process-identity (D4).
+ */
+export async function verifyAndKillWsl(
+  pid: number,
+  distro: string,
+  opts: ProcessControlOpts & { minAgeMs?: number; timeoutMs?: number } = {},
+): Promise<VerifyKillResult> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_KILL_TIMEOUT_MS;
+  if (!validPid(pid) || !validDistro(distro) || !validTimeout(timeoutMs)) return "error";
+  if (opts.minAgeMs !== undefined && !nonNegFinite(opts.minAgeMs)) return "error";
+  const inv = wslInvocation(opts, distro, shVerifyKillScript(pid, opts.minAgeMs, timeoutMs));
+  if (!inv) return "error";
+  const out = await runLimited(inv.file, inv.args, timeoutMs + KILL_LADDER_GRACE_MS, opts);
+  return exactMarker(out, ["killed", "mismatch", "absent"] as const) ?? "error";
 }
