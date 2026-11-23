@@ -79,6 +79,31 @@ describe("relayed git URLs render inert (#E9)", () => {
     expectNoScriptOrDataHref(container);
   });
 
+  // See change: narrow-branch-link-hit-area (test-plan #E3).
+  it("SessionCard git row: blocked branch URL renders an inert element inside the branch wrapper", () => {
+    render(
+      <SessionCard
+        session={makeSession({ gitBranch: "develop" })}
+        selectedId={undefined}
+        onSelect={() => {}}
+        now={Date.now()}
+        showGitInfo
+        isHidden={false}
+        onArchive={() => {}}
+      />,
+    );
+    const gitRow = screen.getByTestId("session-card-git-row");
+    expect(gitRow.querySelector('a[title="develop"]')).toBeNull();
+    const inert = gitRow.querySelector('[title="develop"]')!;
+    expect(inert.tagName).toBe("SPAN");
+    expect(inert.hasAttribute("href")).toBe(false);
+    expect(inert.textContent).toBe("develop");
+    const wrapper = inert.parentElement!;
+    expect(wrapper.parentElement).toBe(gitRow);
+    expect(wrapper.classList.contains("basis-[6ch]")).toBe(true);
+    expect(wrapper.hasAttribute("title")).toBe(false);
+  });
+
   it("folder header GroupGitInfo", () => {
     const { container } = render(<GroupGitInfo sessions={[makeSession()]} cwd="/home/user/project" />);
     expect(container.textContent).toContain("feature/x");

@@ -37,7 +37,7 @@ When the branch renders as a link, the link element's box SHALL NOT extend beyon
 - **THEN** the git row SHALL show `#5` with no state word and no checks summary
 
 #### Scenario: Branch link is clickable only on its text
-- **WHEN** a desktop card 480 px wide renders a session with `gitBranch: "develop"`, a `gitBranchUrl`, and `gitStatus.dirtyCount: 5`
+- **WHEN** a desktop card 420 px wide renders a session with `gitBranch: "develop"`, a `gitBranchUrl`, and `gitStatus.dirtyCount: 5`
 - **THEN** the branch link element's right edge SHALL be within 1 px of the end of the rendered branch text
 - **AND** `[data-testid="git-dirty-pill"]` SHALL stay right-aligned in the git row, as before this change
 - **AND** the topmost element at a point midway between the branch text and the dirty pill SHALL NOT be, or be inside, any link or button below the card root
