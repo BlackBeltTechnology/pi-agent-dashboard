@@ -101,6 +101,14 @@ export function TranscriptLinkScope({ enabled, children, ...rest }: ProviderProp
   return enabled ? <LinkResolutionProvider {...rest}>{children}</LinkResolutionProvider> : <>{children}</>;
 }
 
+/**
+ * True when a `LinkResolutionProvider` is above, i.e. the dashboard transcript: web-link icons / short labels
+ * (design D1/D7) render only there. Outside it the DOM is exactly the pre-change one.
+ */
+export function useInTranscript(): boolean {
+  return useContext(LinkResolutionContext) !== null;
+}
+
 /** What a link tells the store about itself. Absent `sessionId` / `cwd` means "nothing to resolve against". */
 interface LinkSubject {
   sessionId?: string;

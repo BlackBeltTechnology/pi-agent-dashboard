@@ -11,3 +11,5 @@ See change: add-editor-pane-file-handlers — `OpenFile.handlerMode?: "<pluginId
 `OpenFile.reloadNonce?`/`updatedByAgent?`; `openFile.bump`; `ackUpdate` action. See change: improve-canvas-html-and-url-ux.
 
 Actions `closeTabs {paths}` (path-keyed; active survives, else nearest right then left; operator reactivation; unknown paths → same state object) and `expandTreeRoots {relPaths}` (expand-only merge). Persisted shape unchanged. See change: scope-anchor-editor-pane-controls (D5, D11).
+
+`OpenFile` gains `opener?: UrlOpener` (in-memory only: `saveEditorPaneState` strips it) and `htmlMode?: "static"`; `openFile` action takes both (`applyOpenOptions`): `operator-click` upgrades + bumps `reloadNonce`, `agent` never downgrades, `htmlMode` also switches an already-open tab. See change: rich-chat-links (D7/D10/D11).

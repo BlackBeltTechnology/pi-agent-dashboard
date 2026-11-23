@@ -21,7 +21,7 @@ import type { FileHandlerClaim } from "./file-handler/file-handler-claims.js";
 import { MenuItem, MenuPopover } from "./MenuPopover.js";
 import { TabActions, type TabActionTarget } from "./TabActions.js";
 import { basename, tabLabelText } from "./tab-labels.js";
-import { isPseudoTabViewer } from "./viewer-kinds.js";
+import { isPseudoTabViewer, isSourceTabPath } from "./viewer-kinds.js";
 
 export interface DocumentBarProps {
   tab: OpenFile | null;
@@ -202,7 +202,8 @@ export function DocumentBar(props: DocumentBarProps) {
   if (!tab) return null;
 
   const frame = "flex min-h-8 shrink-0 items-center gap-1 border-b border-[var(--border-primary)] px-2";
-  const isFile = !isPseudoTabViewer(tab.viewer);
+  // A `source:<abs>` tab is a read-only view of a file, not the file itself: plain title, no breadcrumb / file actions.
+  const isFile = !isPseudoTabViewer(tab.viewer) && !isSourceTabPath(tab.path);
 
   if (tab.viewer === "url") {
     const url = tab.path.replace(/^url:/, "");
@@ -220,6 +221,7 @@ export function DocumentBar(props: DocumentBarProps) {
     const text = tabLabelText(tab, {
       terminalTitle: props.terminalTitle,
       terminalFallback: t("terminal.terminal", undefined, "terminal"),
+      sourceLabel: t("editor.sourceTab", undefined, "source"),
     });
     return (
       <div data-testid="doc-bar" className={frame}>

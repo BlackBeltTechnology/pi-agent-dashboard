@@ -595,3 +595,108 @@ describe("FileLink — transcript link states", () => {
     expect(singleCalls[0]).toEqual({ cwd: "/repo", mention: "src/foo.ts" });
   });
 });
+
+// HTML open-mode menu (change: rich-chat-links, test-plan #E26): a chevron next to an `.html` / `.htm` link, only in
+// the same-session transcript. Observed through the real split workspace's persisted tab state.
+describe("FileLink — HTML open-mode menu (E26)", () => {
+  const ctx: ToolContext = { cwd: "/repo", sessionId: "S" };
+  beforeEach(() => {
+    vi.stubGlobal("IntersectionObserver", NeverVisibleIO);
+    localStorage.clear();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any, init?: any) => {
+      if (String(input).endsWith("/api/file/resolve-mention")) {
+        const body = JSON.parse(init.body);
+        return jsonResponse({ success: true, data: { resolved: `/repo/${String(body.mention)}`, kind: "relative" } });
+      }
+      return jsonResponse({ success: true, data: { type: "file", content: "" } });
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  type Surface = "transcript" | "other-surface" | "other-session";
+  function renderLink(path: string, surface: Surface) {
+    const link = (
+      <FileLink path={path} context={surface === "other-session" ? { ...ctx, sessionId: "OTHER" } : ctx}>
+        {path}
+      </FileLink>
+    );
+    return render(
+      <ThemeProvider>
+        <SplitWorkspaceProvider sessionId="S" cwd="/repo" orientation="h">
+          {surface === "other-surface" ? link : <LinkResolutionProvider sessionId="S">{link}</LinkResolutionProvider>}
+        </SplitWorkspaceProvider>
+      </ThemeProvider>,
+    );
+  }
+  const chevron = (r: ReturnType<typeof render>) => r.queryByTestId("link-html-menu-trigger");
+  const tabs = () => loadEditorPaneState("S").openFiles;
+
+  it.each([
+    ["m/board.html", "transcript", true],
+    ["m/x.htm", "transcript", true],
+    ["m/a.ts", "transcript", false],
+    ["m/board.html", "other-surface", false],
+    ["m/x.htm", "other-surface", false],
+    ["m/board.html", "other-session", false],
+  ] as const)("%s in %s → chevron %s", (path, surface, shown) => {
+    const r = renderLink(path, surface);
+    expect(!!chevron(r)).toBe(shown);
+    if (shown) {
+      const c = chevron(r) as HTMLElement;
+      expect(c.getAttribute("aria-label")).toBeTruthy();
+      expect(c.getAttribute("draggable")).toBe("false");
+      expect(c.textContent).toBe(""); // icon only: no text node
+      expect(c.getAttribute("aria-haspopup")).toBe("menu");
+      expect(c.parentElement?.closest("button")).toBeNull(); // sibling of the link button, never nested
+      expect(r.container.querySelectorAll("button")).toHaveLength(2);
+    }
+  });
+
+  it("a plain click on the link routes like any other file (no mode)", async () => {
+    const r = renderLink("m/board.html", "transcript");
+    fireEvent.click(r.getByText("m/board.html"));
+    await waitFor(() => expect(tabs().map((f) => f.path)).toEqual(["m/board.html"]));
+    expect(tabs()[0].htmlMode).toBeUndefined();
+  });
+
+  it("menu: Rendered opens the file as a plain click does", async () => {
+    const r = renderLink("m/board.html", "transcript");
+    fireEvent.click(chevron(r) as HTMLElement);
+    fireEvent.click(await r.findByRole("menuitem", { name: /rendered/i }));
+    await waitFor(() => expect(tabs().map((f) => f.path)).toEqual(["m/board.html"]));
+    expect(tabs()[0].htmlMode).toBeUndefined();
+  });
+
+  it("menu: Static opens the file with htmlMode static", async () => {
+    const r = renderLink("m/board.html", "transcript");
+    fireEvent.click(chevron(r) as HTMLElement);
+    fireEvent.click(await r.findByRole("menuitem", { name: /static/i }));
+    await waitFor(() => expect(tabs().map((f) => f.path)).toEqual(["m/board.html"]));
+    expect(tabs()[0].htmlMode).toBe("static");
+  });
+
+  it("menu: Source opens the read-only source tab under the absolute path", async () => {
+    const r = renderLink("m/board.html", "transcript");
+    fireEvent.click(chevron(r) as HTMLElement);
+    fireEvent.click(await r.findByRole("menuitem", { name: /source/i }));
+    await waitFor(() => expect(tabs().map((f) => f.path)).toEqual(["source:/repo/m/board.html"]));
+    expect(tabs()[0].viewer).toBe("monaco");
+  });
+
+  it("a menu mode asks the server first: a missing file opens nothing", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) =>
+      String(input).endsWith("/api/file/resolve-mention")
+        ? jsonResponse({ success: true, data: { resolved: null, state: "missing" } })
+        : jsonResponse({ success: true, data: { type: "file", content: "" } }),
+    );
+    const r = renderLink("m/board.html", "transcript");
+    fireEvent.click(chevron(r) as HTMLElement);
+    fireEvent.click(await r.findByRole("menuitem", { name: /source/i }));
+    await waitFor(() => expect(r.getByText("m/board.html").getAttribute("data-not-found")).toBe("true"));
+    expect(tabs()).toHaveLength(0);
+  });
+});

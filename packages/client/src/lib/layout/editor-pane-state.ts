@@ -16,6 +16,13 @@ import { OPEN_PATH_VIEWERS, PSEUDO_TAB_VIEWERS } from "../../components/editor-p
 
 export const EDITOR_PANE_KEY_PREFIX = "pi-dashboard:editor-pane:";
 
+/**
+ * Who opened a `url:` tab, in-memory only (never persisted — a restored tab starts without it). Gates the web-page
+ * renderer's probe: only `operator-click` (a plain click on a web link, design D7) runs it without a further
+ * operator action. Distinct from the preview `Opener` (`"operator" | "agent"`). See change: rich-chat-links (D11).
+ */
+export type UrlOpener = "operator-click" | "agent";
+
 export interface OpenFile {
   /** Path relative to the session cwd. */
   path: string;
@@ -61,6 +68,13 @@ export interface OpenFile {
    * and offers "Updated by the agent · Reload". Cleared by `ackUpdate`.
    */
   updatedByAgent?: boolean;
+  /**
+   * HTML file tabs: `"static"` seeds the viewer's existing Scripts ⇄ Static toggle at Static (the file link's
+   * "Static (no scripts)" menu entry). Policy is untouched. See change: rich-chat-links (D10).
+   */
+  htmlMode?: "static";
+  /** `url:` tabs only; in-memory (stripped on save). An operator click upgrades it, an agent open never downgrades. */
+  opener?: UrlOpener;
 }
 
 export interface EditorPaneState {
@@ -91,6 +105,10 @@ export type EditorPaneAction =
        * `updatedByAgent`. Ignored for a tab that is not open yet.
        */
       bump?: boolean;
+      /** `url:` tabs: who opened it. `operator-click` upgrades an existing tab (and bumps `reloadNonce`); `agent` never downgrades. */
+      opener?: UrlOpener;
+      /** HTML file tabs: seed the Scripts ⇄ Static toggle at Static (new tab, or switch an open one). */
+      htmlMode?: "static";
     }
   | { type: "closeTab"; index: number }
   // The viewer showed/handled the "Updated by the agent" notice. Clears `updatedByAgent`.
@@ -180,7 +198,7 @@ function activateAt(openFiles: OpenFile[], index: number, autoOpened: boolean): 
  * without moving `activeIndex`. See change: non-disruptive-file-open.
  */
 function reduceOpenFile(state: EditorPaneState, action: Extract<EditorPaneAction, { type: "openFile" }>): EditorPaneState {
-  const next = reduceOpenFileBase(state, action);
+  const next = applyOpenOptions(state, reduceOpenFileBase(state, action), action);
   if (!action.bump) return next;
   const i = next.openFiles.findIndex((f) => f.path === action.path);
   const was = state.openFiles.findIndex((f) => f.path === action.path);
@@ -191,6 +209,25 @@ function reduceOpenFile(state: EditorPaneState, action: Extract<EditorPaneAction
     was === state.activeIndex
       ? { ...openFiles[i], updatedByAgent: true }
       : { ...openFiles[i], reloadNonce: (openFiles[i].reloadNonce ?? 0) + 1 };
+  return { ...next, openFiles };
+}
+
+/**
+ * Record `action.htmlMode` / `action.opener` on the tab. A new tab takes it as-is; an existing tab is upgraded by `operator-click`
+ * (which also bumps `reloadNonce` so a mounted web-page renderer re-runs its check) and never downgraded by `agent`.
+ */
+function applyOpenOptions(prev: EditorPaneState, next: EditorPaneState, action: Extract<EditorPaneAction, { type: "openFile" }>): EditorPaneState {
+  if (!action.opener && !action.htmlMode) return next;
+  const i = next.openFiles.findIndex((f) => f.path === action.path);
+  if (i < 0) return next;
+  const existed = prev.openFiles.some((f) => f.path === action.path);
+  const tab = next.openFiles[i];
+  let updated: OpenFile = action.htmlMode ? { ...tab, htmlMode: action.htmlMode } : tab;
+  if (action.opener && !existed) updated = { ...updated, opener: action.opener };
+  else if (action.opener === "operator-click") updated = { ...updated, opener: "operator-click", reloadNonce: (tab.reloadNonce ?? 0) + 1 };
+  if (updated === tab) return next;
+  const openFiles = [...next.openFiles];
+  openFiles[i] = updated;
   return { ...next, openFiles };
 }
 
@@ -483,7 +520,8 @@ export function loadEditorPaneState(sessionId: string): EditorPaneState {
 export function saveEditorPaneState(sessionId: string, state: EditorPaneState): void {
   if (!sessionId) return;
   try {
-    globalThis.localStorage?.setItem(keyFor(sessionId), JSON.stringify(state));
+    // `opener` is in-memory only: a restored `url:` tab always starts without it (rich-chat-links D11).
+    globalThis.localStorage?.setItem(keyFor(sessionId), JSON.stringify(state, (k, v) => (k === "opener" ? undefined : v)));
   } catch (err) {
     console.warn(`[editor-pane] failed to persist state for session ${sessionId}`, err);
   }

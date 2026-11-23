@@ -68,7 +68,10 @@ const PdfViewer = (p: ViewerProps) => (
     <PdfPreview target={asTarget(p)} />
   </Suspense>
 );
-const HtmlViewer = (p: ViewerProps) => <HtmlPreview target={asTarget(p)} restrictCsp={p.restrictCsp} />;
+// Keyed by the mode: choosing "Static" on an already-open tab remounts so the toggle re-seeds (rich-chat-links D10).
+const HtmlViewer = (p: ViewerProps) => (
+  <HtmlPreview key={p.htmlMode ?? "scripts"} target={asTarget(p)} restrictCsp={p.restrictCsp} htmlMode={p.htmlMode} />
+);
 const VideoViewer = (p: ViewerProps) => <VideoPreview target={asTarget(p)} />;
 const ImageTab = (p: ViewerProps) => <ImagePreview target={asTarget(p)} variant="full" />;
 const AudioViewer = (p: ViewerProps) => <AudioPreview target={asTarget(p)} />;

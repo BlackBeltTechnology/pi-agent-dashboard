@@ -12,6 +12,8 @@ import { normalizeUnderCwd } from "../../lib/util/normalize-path.js";
 import { useLinkResolution } from "../chat/LinkResolutionProvider.js";
 import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+import { HtmlModeMenu, type HtmlOpenMode } from "./HtmlModeMenu.js";
+import { LinkIconSlot } from "./LinkIconSlot.js";
 import { MentionPicker } from "./MentionPicker.js";
 import type { ToolContext } from "./types.js";
 import { useFileOpenRouting } from "./useFileOpenRouting.js";
@@ -85,6 +87,27 @@ async function resolveWithWorktreeProbe(
 
 type LinkState = LinkEntry["state"] | "unknown";
 
+const HTML_FILE = /\.html?$/i;
+
+type SplitApi = NonNullable<ReturnType<typeof useOptionalSplitWorkspace>>;
+
+/** Open in the split by mode: Source → the read-only `source:` tab, Static → the toggle seeded at Static, else a plain open. */
+function openInPane(ws: SplitApi, target: string, line: number | undefined, mode?: HtmlOpenMode, resolved = target): void {
+  if (mode === "source") ws.openSourceTab(resolved);
+  else if (mode === "static") ws.openInSplit(target, line, undefined, { htmlMode: "static" });
+  else ws.openInSplit(target, line);
+}
+
+/** The re-rooted worktree candidate of an absolute link, when it differs from the typed path. */
+const reRootedOrigin = (absolute: boolean | undefined, origin: string, path: string): string | undefined =>
+  absolute && origin !== path ? origin : undefined;
+
+/** The HTML open-mode menu shows for `.html` / `.htm` links of the same-session transcript only (design D10). */
+const showsHtmlMenu = (transcript: boolean, splitLive: boolean, path: string): boolean => transcript && splitLive && HTML_FILE.test(path);
+
+/** The offline fallback may open in the pane: a relative link always, an absolute one only for an explicit mode. */
+const fallsBackToPane = (absolute: boolean | undefined, mode?: HtmlOpenMode): boolean => !absolute || mode !== undefined;
+
 /** Slot glyph + tone: lock = gated, question mark = ambiguous, else the editor pane's file-type icon. */
 function linkGlyph(path: string, state: LinkState): { glyph: string; tone: string } {
   if (state === "gated") return { glyph: mdiLock, tone: "text-[var(--text-muted)]" };
@@ -117,25 +140,6 @@ function linkClass(dead: boolean, notFound: boolean, recovered: boolean): string
   return `${base} text-[var(--link)] hover:underline cursor-pointer${recovered ? " underline decoration-dotted underline-offset-2" : ""}`;
 }
 
-/**
- * Fixed-size slot from first paint: only the glyph inside changes with the state, never the box. `aria-hidden` +
- * `user-select:none` + no text node, so it never reaches assistive tech or a copied selection.
- */
-function LinkIconSlot({ glyph, tone }: { glyph: string; tone: string }) {
-  return (
-    <svg
-      data-link-icon=""
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="1em"
-      height="1em"
-      className={`fill-current shrink-0 mr-[0.25em] align-[-0.125em] select-none ${tone}`}
-    >
-      <path d={glyph} />
-    </svg>
-  );
-}
-
 export function FileLink({ path, line, col, absolute, context, children }: Props) {
   const { cwd, openFile, hostManaged, previewTarget, closePreview } =
     useFileOpenRouting(context);
@@ -156,7 +160,7 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
     cwd,
     mention: path,
     toolCwd: context.toolCwd,
-    reRooted: absolute && origin !== path ? origin : undefined,
+    reRooted: reRootedOrigin(absolute, origin, path),
     settled: context.linkSettled !== false,
     ref: btnRef,
   });
@@ -168,21 +172,24 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
   const sessionId = context.sessionId;
   const splitLive = !!ws && !!sessionId && ws.sessionId === sessionId;
 
+  // HTML open-mode menu: same-session transcript links to .html / .htm only (design D10).
+  const htmlMenu = showsHtmlMenu(active, splitLive, path);
+
   // D5 offline fallback: today's client-side open (cwd-relative split tab or preview).
-  const openViaFallback = () => {
-    if (splitLive && ws && !absolute) {
-      ws.openInSplit(path, line);
+  const openViaFallback = (mode?: HtmlOpenMode) => {
+    if (splitLive && ws && fallsBackToPane(absolute, mode)) {
+      openInPane(ws, openTarget, line, mode); // openTarget === path for a relative link
       return;
     }
     void openFile(openTarget, line);
   };
 
   // Open the server-resolved (or user-picked) absolute path: cwd-relative tab in-cwd, absolute tab otherwise.
-  const openResolved = (resolved: string) => {
+  const openResolved = (resolved: string, mode?: HtmlOpenMode) => {
     if (!cwd) return;
     const target = normalizeUnderCwd(resolved, cwd);
     if (splitLive && ws) {
-      ws.openInSplit(target, line);
+      openInPane(ws, target, line, mode, resolved);
     } else if (sessionId) {
       navigate(buildEditorUrl(sessionId, target, line)); // no live split: deep-link the pane route
     } else {
@@ -195,13 +202,11 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
     btnRef.current?.focus();
   };
 
-  const handleClick = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const openLink = async (mode?: HtmlOpenMode) => {
     if (notFound && !active) return; // already resolved to absent (transcript links always ask again: the file may exist now)
     // No cwd → nothing to resolve against; keep the legacy client-side open.
     if (!cwd) {
-      openViaFallback();
+      openViaFallback(mode);
       return;
     }
     try {
@@ -218,12 +223,20 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
         return;
       }
       setNotFound(false);
-      openResolved(result.resolved);
+      openResolved(result.resolved, mode);
     } catch {
       // D5: a transport failure (NOT a null result) → client-side fallback.
-      openViaFallback();
+      openViaFallback(mode);
     }
   };
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    return openLink();
+  };
+
+
 
   const resolved = origin;
   const titleSuffix = line ? `:${line}${col ? `:${col}` : ""}` : "";
@@ -258,6 +271,7 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
       {active && <LinkIconSlot glyph={glyph} tone={tone} />}
       {children}
     </button>
+    {htmlMenu && <HtmlModeMenu path={path} onPick={(mode) => void openLink(mode)} />}
     {candidates && cwd && <MentionPicker mention={path} candidates={candidates} cwd={cwd} onPick={(p) => { setCandidates(null); openResolved(p); }} onClose={closePicker} />}
     {!hostManaged && previewTarget && (
       <FilePreviewOverlay

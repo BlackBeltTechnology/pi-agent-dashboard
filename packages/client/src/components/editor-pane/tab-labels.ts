@@ -6,6 +6,7 @@
 import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
 import type { TabHaystack } from "../../lib/layout/match-tabs.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { isSourceTabPath } from "./viewer-kinds.js";
 
 /** Text before the first `:` (`term:t1` → `term`); the whole string when none. */
 export const prefixOf = (p: string): string => {
@@ -30,6 +31,8 @@ export interface TabTextDeps {
   terminalTitle?: (id: string) => string | undefined;
   /** Fallback label for a terminal without a title. */
   terminalFallback: string;
+  /** Marker appended to a `source:<abs>` tab's file name (`board.html · source`); omitted → just the name. */
+  sourceLabel?: string;
 }
 
 /** Plain-text label of a tab; `""` for a plugin tab (its label is a React node). */
@@ -42,8 +45,10 @@ export function tabLabelText(file: OpenFile, deps: TabTextDeps): string {
     case "url":
     case "live-server":
       return afterPrefix(file.path);
-    default:
-      return basename(afterPrefix(file.path));
+    default: {
+      const name = basename(afterPrefix(file.path));
+      return deps.sourceLabel && isSourceTabPath(file.path) ? `${name} · ${deps.sourceLabel}` : name;
+    }
   }
 }
 

@@ -30,13 +30,14 @@ import type { FileDigest } from "../../lib/file-digest.js";
 import {
   type EditorPaneAction,
   type EditorPaneState,
+  type UrlOpener,
   useEditorPaneState,
 } from "../../lib/layout/editor-pane-state.js";
 import { type SplitMode, type SplitOrientation, type SplitState, useSplitState } from "../../lib/layout/split-state.js";
 import { type TerminalPaneTabs, useTerminalPaneTabs } from "../../lib/layout/use-terminal-pane-tabs.js";
 import type { Opener } from "../../lib/live-preview/preview-policy.js";
 import { saveTreeVisible } from "../../lib/util/tree-visible.js";
-import { isPseudoTabViewer } from "../editor-pane/viewer-kinds.js";
+import { isPseudoTabViewer, isSourceTabPath, SOURCE_TAB_PREFIX } from "../editor-pane/viewer-kinds.js";
 import { type TrackedFileWrite, TrackedFileWriteProvider } from "./tracked-file-write.js";
 import { useChangeVerification } from "./use-change-verification.js";
 
@@ -69,13 +70,14 @@ export interface SplitWorkspaceContextValue {
    * active-tab change, no pending scroll, marked unread. `autoOpened` marks an
    * agent (canvas auto-open) as the opener — provenance, independent of both:
    * a viewer it mounts opts out of the access-grant dialog (see change:
-   * surface-denial-remedy-in-previews, D4).
+   * surface-denial-remedy-in-previews, D4). `htmlMode: "static"` (an HTML file) seeds the viewer's
+   * Scripts ⇄ Static toggle at Static (see change: rich-chat-links, D10).
    */
   openInSplit: (
     relPath: string,
     line?: number,
     restrictCsp?: boolean,
-    opts?: { background?: boolean; autoOpened?: boolean },
+    opts?: { background?: boolean; autoOpened?: boolean; htmlMode?: "static" },
   ) => void;
   /**
    * Open a loopback dev-server URL in the `live-server` split viewer (auto-launched).
@@ -93,8 +95,12 @@ export interface SplitWorkspaceContextValue {
    * `updatedByAgent`. See change: improve-canvas-html-and-url-ux (D8).
    */
   openStaticTarget: (cwd: string, path: string, opts?: { background?: boolean; opener?: Opener; bump?: boolean }) => void;
-  /** Open a generic URL/youtube target in the `url` split viewer (auto-canvas S35). */
-  openUrlTarget: (url: string, opts?: { background?: boolean }) => void;
+  /**
+   * Open a generic URL/youtube target in the `url` split viewer (auto-canvas S35). One tab per URL. `opener`
+   * (in-memory tab state): `operator-click` (a plain click on a web link, `useWebLinkOpen`) upgrades + bumps an
+   * existing tab; `agent` never downgrades it. See change: rich-chat-links (D7/D11).
+   */
+  openUrlTarget: (url: string, opts?: { background?: boolean; opener?: UrlOpener }) => void;
   /**
    * Open (or focus) a plugin-owned `<pathPrefix>:<rest>` tab. Returns `false`
    * (and opens nothing) when no enabled `editor-pane-tab` claim owns the
@@ -103,6 +109,11 @@ export interface SplitWorkspaceContextValue {
   openPluginTab: (path: string) => boolean;
   /** Open a file's diff as a `diff:<relPath>` viewer tab (coexists with its monaco tab). */
   openDiffTab: (relPath: string) => void;
+  /**
+   * Open a file's source, read-only, as a `source:<abs>` tab in the `monaco` viewer (coexists with the file's
+   * rendered tab; one tab per file). See change: rich-chat-links (D10).
+   */
+  openSourceTab: (path: string) => void;
   /** Open the split and reveal the Changes section in the pane rail. */
   openChanges: () => void;
   /** Bumps whenever `openChanges()` fires so the rail section expands + scrolls into view. */
@@ -297,7 +308,7 @@ export function SplitWorkspaceProvider({
   }, [split.mode, updateSplit]);
 
   const openInSplit = useCallback(
-    (relPath: string, line?: number, restrictCsp?: boolean, opts?: { background?: boolean; autoOpened?: boolean }) => {
+    (relPath: string, line?: number, restrictCsp?: boolean, opts?: { background?: boolean; autoOpened?: boolean; htmlMode?: "static" }) => {
       if (!relPath) return;
       const viewer = fileKind(absOf(cwd, relPath)).viewer;
       // Background only applies when the editor is already shown; from `closed`
@@ -310,6 +321,7 @@ export function SplitWorkspaceProvider({
         restrictCsp,
         activate: !background,
         autoOpened: opts?.autoOpened === true,
+        htmlMode: opts?.htmlMode,
       });
       ensureRevealed();
       // A background tab is not activated; a stashed scroll would jump when the
@@ -358,13 +370,13 @@ export function SplitWorkspaceProvider({
   );
 
   const openUrlTarget = useCallback(
-    (url: string, opts?: { background?: boolean }) => {
+    (url: string, opts?: { background?: boolean; opener?: UrlOpener }) => {
       // Generic url/youtube canvas target — opened under a virtual `url:<url>`
       // path so the `url` split viewer (dispatchPreview → PreviewBody) renders
       // it. Idempotent by path. See change: auto-canvas (S35).
       if (!url) return;
       const background = opts?.background === true && split.mode !== "closed";
-      dispatch({ type: "openFile", path: `url:${url}`, viewer: "url", activate: !background });
+      dispatch({ type: "openFile", path: `url:${url}`, viewer: "url", activate: !background, opener: opts?.opener });
       ensureRevealed();
     },
     [dispatch, ensureRevealed, split.mode],
@@ -395,6 +407,18 @@ export function SplitWorkspaceProvider({
       ensureRevealed();
     },
     [dispatch, ensureRevealed],
+  );
+
+  // Source tabs open under a virtual `source:<abs>` path (the `diff:` pattern): one per file, beside the file's
+  // own rendered tab, never colliding with it. See change: rich-chat-links (D10).
+  const openSourceTab = useCallback(
+    (path: string) => {
+      if (!path) return;
+      const abs = /^(\/|[A-Za-z]:[\\/])/.test(path) ? path : absOf(cwd, path);
+      dispatch({ type: "openFile", path: `${SOURCE_TAB_PREFIX}${abs}`, viewer: "monaco" });
+      ensureRevealed();
+    },
+    [cwd, dispatch, ensureRevealed],
   );
 
   const [changesRevealSignal, setChangesRevealSignal] = useState(0);
@@ -430,7 +454,7 @@ export function SplitWorkspaceProvider({
   // Only real files are watched: pseudo-tab and plugin paths are virtual and
   // never reach the server watcher. See change: add-browser-editor-pane-tab (D3).
   const openPathsKey = paneState.openFiles
-    .filter((f) => !isPseudoTabViewer(f.viewer))
+    .filter((f) => !isPseudoTabViewer(f.viewer) && !isSourceTabPath(f.path))
     .map((f) => f.path)
     .join("\u0000");
   const openPaths = useMemo(() => openPathsKey.split("\u0000").filter(Boolean), [openPathsKey]);
@@ -493,6 +517,7 @@ export function SplitWorkspaceProvider({
       openUrlTarget,
       openPluginTab,
       openDiffTab,
+      openSourceTab,
       openChanges,
       changesRevealSignal,
       pendingScroll,
@@ -510,7 +535,7 @@ export function SplitWorkspaceProvider({
       terminal,
       terminalActivated,
     }),
-    [sessionId, cwd, cwdUnavailable, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openStaticTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, onFilenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, setBaseline, resyncWatch, terminal, terminalActivated],
+    [sessionId, cwd, cwdUnavailable, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openStaticTarget, openUrlTarget, openPluginTab, openDiffTab, openSourceTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, onFilenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, setBaseline, resyncWatch, terminal, terminalActivated],
   );
 
   return (

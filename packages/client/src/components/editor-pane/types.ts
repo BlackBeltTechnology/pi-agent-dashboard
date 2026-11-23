@@ -30,4 +30,8 @@ export interface ViewerProps {
    */
   reloadNonce?: number;
   updatedByAgent?: boolean;
+  /** HTML file tabs: seed the Scripts ⇄ Static toggle at Static. See change: rich-chat-links (D10). */
+  htmlMode?: "static";
+  /** `source:<abs>` tab: show the file strictly read-only (no edit / save affordance). */
+  readOnly?: boolean;
 }
