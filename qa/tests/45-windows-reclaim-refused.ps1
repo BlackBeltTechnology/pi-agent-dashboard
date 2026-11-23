@@ -50,10 +50,14 @@ try {
   @"
 import { createSessionTerminator } from "./packages/server/src/spawn-process/session-terminator.ts";
 import { signalZero } from "./packages/shared/src/platform/process.ts";
+import { getServerPidContext } from "./packages/server/src/session/server-pid-context.ts";
 
 const pid = Number(process.env.QA_CHILD_PID);
 const pid2 = Number(process.env.QA_CHILD2_PID);
-const record: any = { id: "s1", status: "idle", pid, pidRecordedAt: Date.now() };
+// A bridge on this host reports its pid namespace; without it the target is `unknown` and an
+// unattended reclaim is refused before any helper runs.
+const ctx = getServerPidContext();
+const record: any = { id: "s1", status: "idle", pid, pidRecordedAt: Date.now(), pidNamespace: { platform: ctx.platform, kind: "host", hostId: ctx.hostId } };
 const warnings: string[] = [];
 const { terminate } = createSessionTerminator({
   sessionManager: { get: () => record, update: (_id: string, u: any) => Object.assign(record, u) },
