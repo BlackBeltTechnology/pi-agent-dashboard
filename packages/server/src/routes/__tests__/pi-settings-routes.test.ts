@@ -163,6 +163,27 @@ describe("pi-settings routes", () => {
       }
     });
 
+    // test-plan #E8 — pi 1.5.1 moved the cacheWarming default to "idle"; a stored
+    // "streaming" stays valid. See change: update-pi-core-1-6-adopt-apis.
+    it("E8 cacheWarming: streaming/idle/off are written verbatim, an unknown value is a 400 field error, an unset key is never written", async () => {
+      const others = { steeringMode: "all" };
+      seed(others);
+      for (const value of ["streaming", "idle", "off"]) {
+        const res = await typed({ cacheWarming: value }, (await get()).etag);
+        expect(res.statusCode).toBe(200);
+        expect(JSON.parse(onDisk())).toEqual({ ...others, cacheWarming: value });
+      }
+      const before = onDisk();
+      const bad = await typed({ cacheWarming: "warm" }, (await get()).etag);
+      expect(bad.statusCode).toBe(400);
+      expect(bad.json().errors.map((e: { field: string }) => e.field)).toContain("cacheWarming");
+      expect(onDisk()).toBe(before);
+      seed(others);
+      const unrelated = await typed({ steeringMode: "one-at-a-time" }, (await get()).etag);
+      expect(unrelated.statusCode).toBe(200);
+      expect(JSON.parse(onDisk())).not.toHaveProperty("cacheWarming");
+    });
+
     it("missing baseEtag → 400", async () => {
       const res = await app.inject({ method: "PUT", url: "/api/pi-settings", payload: { patch: {} } });
       expect(res.statusCode).toBe(400);

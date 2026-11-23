@@ -110,7 +110,7 @@ export const PI_SETTINGS_SCHEMA: readonly PiSettingDef[] = [
   // Model and thinking
   bool("hideThinkingBlock", false, "model", "Hide thinking blocks", "Hide thinking blocks in pi's transcript"),
   bool("showCacheMissNotices", false, "model", "Cache notices", "Notices for cache misses, cache warming, compaction usage and provider recovery"),
-  enumKey("cacheWarming", ["off", "streaming", "idle"], "streaming", "model", "Cache warming", "Keep provider prompt caches warm during runs, or between runs with idle"),
+  enumKey("cacheWarming", ["off", "streaming", "idle"], "idle", "model", "Cache warming", "Keep eligible provider prompt caches warm during active runs and, with idle, for up to 30 minutes between runs; streaming warms only during active runs"),
   intKey("thinkingBudgets.minimal", null, "model", "Thinking budget: minimal", "Token budget for the minimal thinking level", { min: 0, defText: "built-in" }),
   intKey("thinkingBudgets.low", null, "model", "Thinking budget: low", "Token budget for the low thinking level", { min: 0, defText: "built-in" }),
   intKey("thinkingBudgets.medium", null, "model", "Thinking budget: medium", "Token budget for the medium thinking level", { min: 0, defText: "built-in" }),

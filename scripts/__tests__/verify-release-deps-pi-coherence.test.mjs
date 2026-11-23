@@ -11,7 +11,7 @@
  * overrides plus every `@earendil-works` pi peer lower bound and devDependency
  * range in the root + packages/* manifests (test-plan #E4).
  * update-pi-core-1-5-adopt-apis moves the lockstep to 1.5.0 (test-plan #E4, #E5,
- * #E6, #E8).
+ * #E6, #E8). update-pi-core-1-6-adopt-apis moves it to 1.6.0 (test-plan #E4, #E5).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkPiPinCoherence, piManifests } from "../verify-release-deps.mjs";
 
-const V = "1.5.0";
+const V = "1.6.0";
 const serverPkg = (dep, recommended, minimum = recommended) => ({
   dependencies: { "@earendil-works/pi-coding-agent": dep },
   piCompatibility: { recommended, minimum },
@@ -161,37 +161,37 @@ describe("checkPiPinCoherence — six governed pins", () => {
     expect(min).toContain("1.1.0");
   });
 
-  // update-pi-core-1-5-adopt-apis (test-plan #E4): the 1.3.0 → 1.5.0 lockstep
-  // move — each pin left on 1.3.0 is drift, named at exactly its own location.
-  it("E4 (1.5): a pin left on 1.3.0 is drift naming exactly that location", () => {
+  // update-pi-core-1-6-adopt-apis (test-plan #E4): the 1.5.0 → 1.6.0 lockstep
+  // move — each pin left on 1.5.0 is drift, named at exactly its own location.
+  it("E4 (1.6): a pin left on 1.5.0 is drift naming exactly that location", () => {
     const peer = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), V, [
-      manifest("packages/kb-extension/package.json", peerPkg(">=1.3.0")),
+      manifest("packages/kb-extension/package.json", peerPkg(">=1.5.0")),
     ]);
     expect(peer).toContain("packages/kb-extension/package.json peerDependencies.@earendil-works/pi-coding-agent");
 
     const dev = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), V, [
-      manifest("packages/b/package.json", peerPkg(`>=${V}`, "^1.3.0")),
+      manifest("packages/b/package.json", peerPkg(`>=${V}`, "^1.5.0")),
     ]);
     expect(dev).toContain("packages/b/package.json devDependencies.@earendil-works/pi-tui");
 
-    const dock = check(serverPkg(`^${V}`, V), dockerfile("1.3.0"), workspace(V));
+    const dock = check(serverPkg(`^${V}`, V), dockerfile("1.5.0"), workspace(V));
     expect(dock).toContain("docker/Dockerfile");
 
-    const tui = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V, { tui: "1.3.0" }));
+    const tui = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V, { tui: "1.5.0" }));
     expect(tui).toContain("pnpm-workspace.yaml overrides @earendil-works/pi-tui");
     expect(tui).not.toContain("overrides @earendil-works/pi-ai");
 
-    const checker = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), "1.3.0");
+    const checker = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), "1.5.0");
     expect(checker).toContain("verify-release-deps.mjs minVersion");
 
-    const min = check(serverPkg(`^${V}`, V, "1.3.0"), dockerfile(V), workspace(V));
+    const min = check(serverPkg(`^${V}`, V, "1.5.0"), dockerfile(V), workspace(V));
     expect(min).toContain("piCompatibility.minimum");
-    expect(min).toContain("1.3.0");
+    expect(min).toContain("1.5.0");
   });
 
   // test-plan #E5: the server dependency is `^<minimum>`; the stale spec pin
   // `^1.0.0` is drift naming the server dependency range.
-  it("E5 (1.5): a server dependency left at ^1.0.0 is drift", () => {
+  it("E5 (1.6): a server dependency left at ^1.0.0 is drift", () => {
     expect(check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V))).toBeNull();
     const err = check(serverPkg("^1.0.0", V), dockerfile(V), workspace(V));
     expect(err).toBeTruthy();
@@ -199,7 +199,7 @@ describe("checkPiPinCoherence — six governed pins", () => {
   });
 
   // test-plan #E6: the extension's new pi-ai devDependency follows the floor.
-  it("E6 (1.5): the extension pi-ai devDependency is governed (^<floor>)", () => {
+  it("E6 (1.6): the extension pi-ai devDependency is governed (^<floor>)", () => {
     const extPkg = (devRange) => ({
       peerDependencies: { "@earendil-works/pi-ai": `>=${V}` },
       peerDependenciesMeta: { "@earendil-works/pi-ai": { optional: true } },
@@ -228,15 +228,15 @@ describe("checkPiPinCoherence — six governed pins", () => {
  * together at HEAD, not just synthetic fixtures.
  *
  * The floor asserted here is `1.5.0` rather than an exact equality: the
- * requirement is "`^1.5.0` or later, and every other pin agrees", so a later
+ * requirement is "`^1.6.0` or later, and every other pin agrees", so a later
  * lockstep bump must NOT have to edit this test. What it forbids is a pin below
  * the floor or any disagreement between the governed surfaces.
  * See change: delegate-provider-oauth-to-pi-ai (D3), update-pi-core-1-0-adopt-apis.
  */
-describe("repo HEAD — governed pins agree at or above the 1.5.0 floor", () => {
+describe("repo HEAD — governed pins agree at or above the 1.6.0 floor", () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const read = (rel) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
-  const FLOOR = "1.5.0";
+  const FLOOR = "1.6.0";
 
   const serverPkg = JSON.parse(read("packages/server/package.json"));
   const dockerfileText = read("docker/Dockerfile");
@@ -323,7 +323,7 @@ describe("repo HEAD — governed pins agree at or above the 1.5.0 floor", () => 
     }
     const exclude = workspaceYamlText.split("minimumReleaseAgeExclude:")[1] ?? "";
     expect(exclude).toContain(`'@earendil-works/pi-schema@${FLOOR}'`);
-    expect(exclude).not.toMatch(/@earendil-works\/[\w-]+@1\.3\.0/);
+    expect(exclude).not.toMatch(/@earendil-works\/[\w-]+@1\.5\.0/);
   });
 
   it("the checker reaches the coherence gate at all (not vacuous)", () => {
