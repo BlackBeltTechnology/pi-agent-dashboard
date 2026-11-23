@@ -98,7 +98,7 @@ async function startBackground(page: Page, prompt = "[[faux:subagent-background]
 test.describe("background subagents (L3)", () => {
   test.beforeEach(async ({ page }) => {
     // The container seeds NO display prefs; without toolResults no Agent card body
-    // renders. Send a COMPLETE prefs object (see pi-1-5-floor-smoke.spec.ts).
+    // renders. Send a COMPLETE prefs object (see pi-1-6-floor-smoke.spec.ts).
     const res = await page.request.patch("/api/preferences/display", {
       data: { reasoning: true, toolResults: true, toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true } },
     });

@@ -29,6 +29,7 @@ import { type BridgeState, createInstance } from "./bridge-handlers/instance.js"
 import { registerProjectTrust, registerSessionInfoChanged, registerSessionShutdown, registerSessionStart, registerTurnEnd } from "./bridge-handlers/lifecycle.js";
 import { appendIdentityLog } from "./bridge-identity-log.js";
 import { createPollingHolder, drainDisposables, ensureDisposable, teardownPreviousIncarnation } from "./bridge-polling.js";
+import { runBridgeShutdown } from "./bridge-shutdown.js";
 import {
   createCommandHandler,
   tryExecSlashTemplate,
@@ -1504,12 +1505,10 @@ function initBridge(pi: ExtensionAPI) {
       // that. See change: honest-mid-turn-queue-surface (spec
       // mid-turn-prompt-queue: "Session shutdown invokes cachedCtx.shutdown
       // directly").
-      if (inst.cachedCtx?.shutdown) {
-        inst.cachedCtx.shutdown();
-      }
-      // Safety net: force exit after a short delay in case ctx.shutdown()
-      // doesn't terminate (e.g. in RPC mode headless sessions)
-      setTimeout(() => process.exit(0), 500);
+      // pi 1.5.1+ exits on its own when idle and its dispose() waits for a
+      // credential write, so the safety-net exit leaves it BRIDGE_SHUTDOWN_FALLBACK_MS.
+      // See change: update-pi-core-1-6-adopt-apis.
+      runBridgeShutdown(inst.cachedCtx);
     },
     abort: () => {
       // Pi.abort() cancels the turn; queues persist by design (pi ExtensionAPI

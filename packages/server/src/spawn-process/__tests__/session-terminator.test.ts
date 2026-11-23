@@ -160,7 +160,9 @@ describe("session terminator — identity guard", () => {
   });
 
   // E6 / E7: unverifiable start time ⇒ refuse with a diagnostic naming the platform.
-  it.each(["linux", "win32"] as const)("refuses an unverifiable start time on %s", async (platform) => {
+  // (win32 no longer has an unverifiable start time: it is verified by `verifyAndKillWindows`,
+  // see session-terminator-windows-identity.test.ts — add-windows-process-identity.)
+  it.each(["linux"] as const)("refuses an unverifiable start time on %s", async (platform) => {
     const h = setup({ platform, world: { alive: new Set([100]) } }); // started map empty → null
     const r = await h.terminate("s1", unattended);
     expect(r).toMatchObject({ outcome: "refused-identity", terminated: false, pid: 100 });

@@ -36,6 +36,8 @@ interface Seed {
   /** Worktree session of FIXTURE_GIT (groups under the main folder; gets a git row without `showGitInfo`). */
   worktree?: boolean;
   branch?: string;
+  /** Forge branch URL relayed with the branch (renders the branch as a link). See change: narrow-branch-link-hit-area. */
+  branchUrl?: string;
   pr?: { number: number; state: "open"; checks: "passing" };
   gitStatus?: { dirtyCount: number; ahead: number; behind: number };
   model?: string;
@@ -69,6 +71,7 @@ async function seed(s: Seed): Promise<void> {
       type: "git_info_update",
       sessionId: s.id,
       gitBranch: s.branch,
+      ...(s.branchUrl ? { gitBranchUrl: s.branchUrl } : {}),
       ...(s.pr ? { gitPrNumber: s.pr.number, gitPrState: s.pr.state, gitPrChecks: s.pr.checks, gitPrDraft: false } : {}),
       ...(s.worktree ? { gitWorktree: { mainPath: FIXTURE_GIT, name: s.id, base: "develop" } } : {}),
       ...(s.gitStatus ? { gitStatus: { ...s.gitStatus, staged: 0, unstaged: s.gitStatus.dirtyCount, untracked: 0 } } : {}),
@@ -102,6 +105,10 @@ const cardOf = (page: Page, id: string): Locator => page.locator(`[data-testid="
 async function reveal(page: Page, id: string, name: string): Promise<Locator> {
   await gotoDashboard(page);
   const home = page.getByTestId(`folder-home-row-${FIXTURE_GIT}`).first();
+  // Give an already-pinned folder time to paint before deciding to pin it (an
+  // instant `isVisible()` races the first render and re-opens Add folders on a
+  // pinned path, whose commit is then disabled as "Already added").
+  await home.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
   if (!(await home.isVisible().catch(() => false))) await pinDirectory(page, FIXTURE_GIT);
   await home.waitFor({ state: "visible", timeout: 30_000 });
   if ((await page.getByTestId(`folder-body-${FIXTURE_GIT}`).count()) === 0) await expandFolder(page, FIXTURE_GIT);
@@ -365,5 +372,184 @@ test.describe("desktop card header — Failed label", () => {
     expect(geometry.wrapped, "Failed label stays on one line").toBe(false);
     expect(geometry.rowOverflow, "status row does not overflow").toBeLessThanOrEqual(TOL);
     expect(geometry.labelOutsideCard, "Failed label inside the card").toBeLessThanOrEqual(TOL);
+  });
+});
+
+// Branch link hit area: the link covers only the icon + branch text; the free
+// row space beside it is plain card surface (a click selects the session).
+// Covers test-plan #F1–#F5. See change: narrow-branch-link-hit-area.
+test.describe("desktop card git row — branch link hit area", () => {
+  test.setTimeout(180_000);
+
+  const BRANCH_URL = "https://github.com/o/r/tree/develop";
+  /** A wide card: the sidebar clamps at 500 px (`useSidebarState` MAX_WIDTH), so a card tops out near 433 px. */
+  const WIDE = 420;
+
+  const stubDirty = (page: Page, dirtyCount: number) =>
+    page.route("**/api/git/status**", (route) =>
+      route.fulfill({ json: { success: true, data: { dirtyCount, staged: 0, unstaged: dirtyCount, untracked: 0, ahead: 0, behind: 0 } } }),
+    );
+
+  /** Right edge of the link's rendered contents (icon + text), from a Range. */
+  const textEnd = (link: Locator): Promise<number> =>
+    link.evaluate((e) => {
+      const r = document.createRange();
+      r.selectNodeContents(e);
+      return r.getBoundingClientRect().right;
+    });
+
+  /** Right edge of an element's content box (border box minus right padding/border). */
+  const contentRight = (loc: Locator): Promise<number> =>
+    loc.evaluate((e) => {
+      const cs = getComputedStyle(e);
+      return e.getBoundingClientRect().right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+    });
+
+  const sixChOf = (loc: Locator): Promise<number> => loc.evaluate((e) => parseFloat(getComputedStyle(e).fontSize) * 0.5 * 6);
+
+  const width = async (loc: Locator): Promise<number> => {
+    const b = await box(loc);
+    return b.right - b.left;
+  };
+
+  /** Midpoint between the branch link's right edge and the dirty pill's left edge, at the link's vertical centre. */
+  async function deadSpacePoint(gitRow: Locator, link: Locator): Promise<{ x: number; y: number }> {
+    const l = await box(link);
+    const p = await box(gitRow.getByTestId("git-dirty-pill"));
+    expect(p.left - l.right, "dead space between link and pill").toBeGreaterThan(8);
+    return { x: (l.right + p.left) / 2, y: (l.top + l.bottom) / 2 };
+  }
+
+  test("F1: 420 px card — link ends at its text, pill right-aligned, dead space hits no link/button", async ({ page }) => {
+    const id = `e2e-hit-f1-${Date.now().toString(36)}`;
+    await seed({ id, name: id, worktree: true, branch: "develop", branchUrl: BRANCH_URL, gitStatus: { dirtyCount: 5, ahead: 0, behind: 0 } });
+    await stubDirty(page, 5);
+    const card = await sizeCard(page, id, id, WIDE);
+    const gitRow = card.getByTestId("session-card-git-row");
+    const link = gitRow.locator('a[title="develop"]');
+    await expect(link).toBeVisible();
+    await expect(gitRow.getByTestId("git-dirty-pill")).toBeVisible({ timeout: 30_000 });
+
+    expect(Math.abs((await box(link)).right - (await textEnd(link))), "link right vs text end").toBeLessThanOrEqual(TOL);
+    expect(
+      Math.abs((await box(gitRow.getByTestId("git-dirty-pill"))).right - (await contentRight(gitRow))),
+      "dirty pill right-aligned",
+    ).toBeLessThanOrEqual(TOL);
+
+    const pt = await deadSpacePoint(gitRow, link);
+    const hitInteractive = await card.evaluate((root, { x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      if (!el || !root.contains(el)) return `outside card: ${el?.tagName}`;
+      const hit = el.closest("a,button");
+      return hit && hit !== root && root.contains(hit) ? `${hit.tagName} ${hit.getAttribute("title") ?? ""}` : null;
+    }, pt);
+    expect(hitInteractive, "dead-space hit target").toBeNull();
+  });
+
+  test("F2: a dead-space click selects the session and opens no tab", async ({ page }) => {
+    const stamp = Date.now().toString(36);
+    const prefix = `e2e-hit-f2-${stamp}`;
+    const [idA, idB] = [`${prefix}-a`, `${prefix}-b`];
+    await seed({ id: idA, name: idA, worktree: true, branch: "develop", branchUrl: BRANCH_URL, gitStatus: { dirtyCount: 5, ahead: 0, behind: 0 } });
+    await seed({ id: idB, name: idB });
+    await stubDirty(page, 5);
+    const cardA = await sizeCard(page, idA, prefix, WIDE);
+    const cardB = cardOf(page, idB);
+    await expect(cardB).toBeVisible({ timeout: 30_000 });
+    await cardB.getByTestId("session-card-title-row").locator("span.font-semibold").first().click();
+    await expect(cardB).toHaveClass(/card-selected-ring/, { timeout: 15_000 });
+    await expect(cardA).not.toHaveClass(/card-selected-ring/);
+
+    const gitRow = cardA.getByTestId("session-card-git-row");
+    const link = gitRow.locator('a[title="develop"]');
+    await expect(gitRow.getByTestId("git-dirty-pill")).toBeVisible({ timeout: 30_000 });
+    const pt = await deadSpacePoint(gitRow, link);
+
+    let popups = 0;
+    page.on("popup", () => {
+      popups++;
+    });
+    page.context().on("page", () => {
+      popups++;
+    });
+    await page.mouse.click(pt.x, pt.y);
+    await page.waitForTimeout(1_000);
+    expect(popups, "no new tab opened").toBe(0);
+    await expect(cardA).toHaveClass(/card-selected-ring/, { timeout: 15_000 });
+    await expect(cardB).not.toHaveClass(/card-selected-ring/);
+  });
+
+  test("F3: 260 px card — long linked branch ellipsizes inside a slot-wide link", async ({ page }) => {
+    const id = `e2e-hit-f3-${Date.now().toString(36)}`;
+    await seed({
+      id,
+      name: id,
+      worktree: true,
+      branch: LONG_BRANCH,
+      branchUrl: BRANCH_URL,
+      pr: { number: 812, state: "open", checks: "passing" },
+      gitStatus: { dirtyCount: 12, ahead: 0, behind: 0 },
+    });
+    await stubDirty(page, 12);
+    const card = await sizeCard(page, id, id, 260);
+    const content = await contentBox(card);
+    const gitRow = card.getByTestId("session-card-git-row");
+    const link = gitRow.locator(`a[title="${LONG_BRANCH}"]`);
+    await expect(link).toBeVisible();
+    const wrapper = link.locator("xpath=..");
+
+    expect(await link.evaluate((e) => e.scrollWidth > e.clientWidth), "link ellipsized").toBe(true);
+    expect(Math.abs((await width(link)) - (await width(wrapper))), "link spans the slot").toBeLessThanOrEqual(TOL);
+    expect(await width(link), "link ≥ 6ch").toBeGreaterThanOrEqual(await sixChOf(link));
+    for (const pill of ["worktree-pill", "worktree-pr-segment", "git-dirty-pill"]) {
+      await expect(gitRow.getByTestId(pill)).toBeVisible({ timeout: 30_000 });
+      expect(inside(await box(gitRow.getByTestId(pill)), content), `${pill} inside content box`).toBe(true);
+    }
+  });
+
+  test("F4: 420 px card — a short branch keeps the 6ch slot, the link stays text-wide", async ({ page }) => {
+    const id = `e2e-hit-f4-${Date.now().toString(36)}`;
+    await seed({ id, name: id, worktree: true, branch: "b", branchUrl: BRANCH_URL });
+    const card = await sizeCard(page, id, id, WIDE);
+    const link = card.getByTestId("session-card-git-row").locator('a[title="b"]');
+    await expect(link).toBeVisible();
+    const wrapper = link.locator("xpath=..");
+
+    expect(await width(wrapper), "slot ≥ 6ch").toBeGreaterThanOrEqual(await sixChOf(wrapper));
+    expect(await width(link), "link narrower than the slot").toBeLessThan(await width(wrapper));
+    expect(Math.abs((await box(link)).right - (await textEnd(link))), "link right vs text end").toBeLessThanOrEqual(TOL);
+  });
+
+  test("F5: keyboard focus shows an unclipped 2 px focus ring on the branch link", async ({ page }) => {
+    const id = `e2e-hit-f5-${Date.now().toString(36)}`;
+    await seed({ id, name: id, worktree: true, branch: LONG_BRANCH, branchUrl: BRANCH_URL });
+    const card = await sizeCard(page, id, id, 260);
+    const link = card.getByTestId("session-card-git-row").locator(`a[title="${LONG_BRANCH}"]`);
+    await expect(link).toBeVisible();
+
+    let focused = false;
+    for (let i = 0; i < 300 && !focused; i++) {
+      await page.keyboard.press("Tab");
+      focused = await link.evaluate((e) => document.activeElement === e);
+    }
+    expect(focused, "branch link reached by Tab").toBe(true);
+
+    const style = await link.evaluate((e) => {
+      const cs = getComputedStyle(e);
+      return { outlineStyle: cs.outlineStyle, outlineWidth: cs.outlineWidth };
+    });
+    expect(style.outlineStyle).toBe("solid");
+    expect(style.outlineWidth).toBe("2px");
+
+    const clipping = await link.evaluate((e) => {
+      const out: string[] = [];
+      for (let el = e.parentElement; el; el = el.parentElement) {
+        const ov = getComputedStyle(el).overflow;
+        if (ov !== "visible") out.push(`${el.tagName}.${el.className}: ${ov}`);
+        if (el.getAttribute("data-testid") === "session-card-git-row") break;
+      }
+      return out;
+    });
+    expect(clipping, "no clipping ancestor up to the git row").toEqual([]);
   });
 });

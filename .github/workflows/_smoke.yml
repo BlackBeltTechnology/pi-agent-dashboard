@@ -10,6 +10,7 @@ name: Standalone install smoke (reusable)
 # Consumed by:
 #   - .github/workflows/ci-smoke.yml  (on-demand manual dispatch)
 #   - .github/workflows/publish.yml   (release gate before npm publish)
+#   - .github/workflows/nightly.yml   (scheduled release rehearsal)
 #
 # This workflow MUST NOT publish to npm or create a GitHub Release. It only
 # packs the workspace into tarballs, installs into a clean HOME, and asserts

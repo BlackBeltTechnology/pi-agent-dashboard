@@ -220,4 +220,18 @@ describe("nightly infra contracts", () => {
     expect(job).toContain("pnpm install --frozen-lockfile");
     expect(job).not.toMatch(/npm ci|cache:\s*npm/);
   });
+
+  it("every loopback publish passes --tag (npm 12 refuses a prerelease publish without one)", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    expect(src).toMatch(/const PUBLISH_TAG = \["--tag", "latest"\]/);
+    expect(src.match(/\.\.\.PUBLISH_TAG/g)).toHaveLength(2);
+  });
+
+  it("verify-publish refreshes pnpm-lock.yaml between the version bump and the publish script (spike run 1)", () => {
+    const wf = read(".github", "workflows", "nightly.yml");
+    const job = wf.slice(wf.indexOf("  verify-publish:"), wf.indexOf("  knip:"));
+    const at = (needle) => job.indexOf(needle);
+    expect(at("pnpm install --lockfile-only")).toBeGreaterThan(at("scripts/sync-versions.js"));
+    expect(at("pnpm install --lockfile-only")).toBeLessThan(at("node scripts/nightly-verdaccio-publish.mjs"));
+  });
 });

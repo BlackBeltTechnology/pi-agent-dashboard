@@ -35,6 +35,7 @@
         "tests/e2e-electron/**/*.spec.ts",
         "qa/**/*.{ts,mjs}",
         ".pi/skills/**/scripts/*.ts",
+        ".pi/skills/ship-batch/scripts/__tests__/signal-child.ts",
         "public/sw.js",
         "spike/*/server.mjs",
         "**/vitest.config.ts"

@@ -35,7 +35,7 @@ The server SHALL store the `pid` from `session_register` messages on the `Dashbo
 - **THEN** the corresponding `DashboardSession` SHALL have `pid` set to that value
 
 ### Requirement: Force kill process escalation
-When the server receives a `force_kill` message for a session whose pid target is `host`, or `unknown` on a Windows server (*A recorded pid is used only in its resolved pid target*), it SHALL terminate the session's process using the platform-provided `killProcess(pid, { timeoutMs: 2000 })` helper, so that the entire process subtree is terminated on every supported OS. For any other target, the force-kill SHALL be refused: no signal, no WebSocket close, the session not marked ended, and `success: false` with a message stating that the process is not on this host. On Windows this delegates to `taskkill /F /T /PID <pid>` (immediate tree kill). On POSIX this sends `SIGTERM`, waits up to 2 seconds, and sends `SIGKILL` if the process is still alive. The server SHALL NOT call `process.kill(pid, …)` directly.
+When the server receives a `force_kill` message for a session whose pid target is `host`, or `unknown` on a Windows server (*A recorded pid is used only in its resolved pid target*), it SHALL terminate the session's process using the platform-provided `killProcess(pid, { timeoutMs: 2000 })` helper, so that the entire process subtree is terminated on every supported OS. For a WSL target it SHALL terminate the process inside its distribution with `verifyAndKillWsl`, with no start-time condition because this is an operator path, and SHALL NOT invoke `taskkill`. When that call returns `error`, `force_kill_result` SHALL be `success: false` with a "not terminated" message, the WebSocket SHALL stay open and the session SHALL NOT be marked ended; `absent` SHALL be `success: true`, already gone. For any other non-local target, the force-kill SHALL be refused: no signal, no WebSocket close, the session not marked ended, and `success: false` with a message stating that the process is not on this host. On Windows this delegates to `taskkill /F /T /PID <pid>` (immediate tree kill). On POSIX this sends `SIGTERM`, waits up to 2 seconds, and sends `SIGKILL` if the process is still alive. The server SHALL NOT call `process.kill(pid, …)` directly.
 
 The PID used for kill resolution SHALL come from the session's stored `pid` field (`DashboardSession.pid`), populated from `session_register.pid`. The PID stored on the session SHALL have been correlated to the session via the three-tier link in `headlessPidRegistry` (`linkByToken` → `linkByPid` → `linkSession`), so that for sessions registered with a `spawnToken`, the kill target is unambiguously the pi process matching that token rather than the first unsessioned entry in the cwd. This eliminates the prior race where a sibling spawn in the same cwd could be killed by mistake.
 
@@ -88,9 +88,23 @@ The PID used for kill resolution SHALL come from the session's stored `pid` fiel
 - **THEN** no local process SHALL be signalled, the bridge WebSocket SHALL stay open, the session SHALL NOT be marked ended
 - **AND** `force_kill_result` SHALL carry `success: false` with a message that the process is not on this host
 
+#### Scenario: Force-kill of a WSL session on a Windows server kills inside the distribution
+- **WHEN** an operator force-kills a session whose pid target is WSL `D` on a Windows server
+- **THEN** the process SHALL be terminated inside `D` and `taskkill` SHALL NOT be invoked for its pid
+
 #### Scenario: Force-kill of a WSL session on a Windows server never uses taskkill
-- **WHEN** an operator force-kills a session whose pid target is WSL on a Windows server
-- **THEN** `taskkill` SHALL NOT be invoked for its pid and the force-kill SHALL be refused
+- **WHEN** an operator force-kills a session whose pid target is WSL `D` on a Windows server
+- **THEN** `taskkill` SHALL NOT be invoked for its pid
+- **AND** the kill SHALL run only inside `D`, as in "Force-kill of a WSL session on a Windows server kills inside the distribution"
+
+#### Scenario: Force-kill of a WSL session whose helper errors is not a termination
+- **WHEN** `verifyAndKillWsl` returns `error` for an operator force-kill
+- **THEN** `force_kill_result` SHALL carry `success: false` and a message containing "not terminated"
+- **AND** the bridge WebSocket SHALL stay open and the session SHALL NOT be marked ended
+
+#### Scenario: Force-kill of an already-gone WSL process succeeds
+- **WHEN** `verifyAndKillWsl` returns `absent` for an operator force-kill
+- **THEN** `force_kill_result` SHALL carry `success: true` with a message that the process was already gone
 
 ### Requirement: Session marked ended after force kill
 After force-killing a process, the server SHALL mark the session as "ended" and broadcast a `session_updated` message. A refused force-kill SHALL NOT change the session's status. The session SHALL NOT be removed from the session list.
@@ -153,8 +167,10 @@ Ending a session — via the browser WebSocket `shutdown` message, the REST
 shutdown route, or force-kill — SHALL terminate the operating-system process
 backing that session, regardless of the strategy that spawned it
 (`PI_SPAWN_STRATEGY`: `headless` or `tmux`), when that process is on this host.
-A session whose pid target is not local (*A recorded pid is used only in its
-resolved pid target*) SHALL NOT be signalled. Its shutdown is an unconfirmed
+A session whose pid target is WSL `D` on a Windows server SHALL be terminated
+inside `D` with `verifyAndKillWsl` (no start-time condition on these operator
+paths). Any other non-local target (*A recorded pid is used only in its resolved
+pid target*) SHALL NOT be signalled. Its shutdown is an unconfirmed
 termination under *A removal SHALL never imply a termination the server did not
 verify*, and its force-kill is refused.
 
@@ -224,6 +240,15 @@ SHALL be verified and escalated when the process survives.
 - **WHEN** an operator shuts down a session registered from a remote device
 - **THEN** no local process SHALL be signalled
 - **AND** the removal SHALL be reported as unconfirmed, with the orphan signal alongside `session_removed`
+
+#### Scenario: Shutdown of a WSL session on a Windows server terminates inside the distribution
+- **WHEN** an operator shuts down a session whose pid target is WSL `D` on a Windows server
+- **THEN** the process SHALL be terminated inside `D` and no Windows process SHALL be signalled
+
+#### Scenario: Shutdown of a WSL session whose helper errors is an unconfirmed termination
+- **WHEN** `verifyAndKillWsl` returns `error` during an operator shutdown
+- **THEN** the removal SHALL be reported as unconfirmed, with the orphan signal alongside `session_removed`
+- **AND** an `absent` result SHALL be a confirmed removal
 
 ### Requirement: A removal SHALL never imply a termination the server did not verify
 
@@ -375,11 +400,22 @@ Every UNATTENDED server-initiated termination of a session SHALL terminate the
 session's `pi` process regardless of the strategy that spawned it, on every host
 where the process identity it signals can be verified (see *An unattended kill
 SHALL verify process identity before signalling*). The recorded pid SHALL be
-probed and signalled only when its resolved target is `host` (*A recorded pid is
-used only in its resolved pid target*). Any other target SHALL be refused BEFORE
-any liveness probe, and reported as a failed reclaim that is not retried. On a
-Windows server the start time of a host-target non-headless process cannot be
-determined, so such a session SHALL also be refused. Headless sessions are
+probed and signalled only in its resolved target (*A recorded pid is used only in
+its resolved pid target*).
+- A `host` target on a Windows server SHALL be checked against its creation time
+  and tree-killed in ONE invocation (`verifyAndKillWindows`).
+- A WSL target SHALL be checked and killed in ONE invocation inside its
+  distribution (`verifyAndKillWsl`), with liveness read by `wslLiveness`.
+- `legacy-wsl`, `foreign` and `unknown` targets SHALL be refused BEFORE any
+  liveness probe, and reported as a failed reclaim that is not retried.
+
+A result of `error` from either helper SHALL be reported as a failed reclaim,
+never as a confirmed termination: it SHALL be `unconfirmed`, which the existing
+bounded give-up retries. A `mismatch` SHALL be `refused-identity`, which is
+terminal. An `absent` or `killed` result SHALL be confirmed only after a liveness
+re-check. A WSL target whose liveness reads `unknown` SHALL be `unconfirmed`, and
+`verifyAndKillWsl` SHALL NOT run. A host or WSL target with no recorded
+`pidRecordedAt` SHALL be `refused-identity`. Headless sessions are
 terminated through the registry (`headless-spawn`); a restored registry entry the
 registry refuses is not signalled and is reported as a failed reclaim.
 
@@ -429,11 +465,13 @@ report success and SHALL NOT signal an unrelated process.
 #### Scenario: A non-headless session on a Windows server is refused, not killed
 
 - **WHEN** an unattended reclaim targets a non-headless session on a Windows
-  server, where the start time of its recorded process cannot be determined
+  server whose pid target is `unknown` or `legacy-wsl`, or whose probe returned
+  `error` or timed out
 - **THEN** no signal SHALL be sent to that process
 - **AND** the reclaim SHALL be reported as a failed reclaim stating that the
   identity was unverifiable
 - **AND** the session's `pi` process MAY remain resident
+- **AND** an `error` or timed-out probe SHALL be `unconfirmed` and retried up to the give-up bound, while `unknown` and `legacy-wsl` SHALL be `refused-identity` and not retried
 
 #### Scenario: The unattended paths share one terminator
 
@@ -443,11 +481,51 @@ report success and SHALL NOT signal an unrelated process.
 - **AND** a path that terminates only via the headless PID registry SHALL fail a
   test rather than silently orphan its process
 
+#### Scenario: A WSL session is reclaimed inside its distribution
+
+- **WHEN** an unattended reclaim targets a session whose pid target is WSL `D` on a Windows server
+- **AND** the process's age measured inside `D` shows it started no later than the identity's recording time plus the tolerance
+- **THEN** it SHALL be terminated inside `D`, and no Windows process with the same numeric pid SHALL be probed or signalled
+
 #### Scenario: A WSL pid on a Windows server is never reported dead from the Windows table
 
-- **WHEN** an unattended reclaim targets a session whose pid target is WSL on a Windows server
+- **WHEN** an unattended reclaim targets a session whose pid target is WSL `D` on a Windows server
 - **THEN** no Windows liveness probe SHALL run for that pid
-- **AND** the reclaim SHALL be reported as failed and SHALL NOT be reported as a confirmed termination
+- **AND** its liveness SHALL be decided only inside `D`, as in "A WSL session is reclaimed inside its distribution"
+
+#### Scenario: A wedged WSL never yields a confirmed termination
+
+- **WHEN** `wsl.exe` fails or times out while checking a WSL-target pid
+- **THEN** the liveness SHALL read as unknown and the reclaim SHALL NOT be reported as a confirmed termination
+- **AND** the outcome SHALL be `unconfirmed` and `verifyAndKillWsl` SHALL NOT be run
+
+#### Scenario: A WSL age bound is computed on the server
+
+- **WHEN** an unattended reclaim of a WSL target runs
+- **THEN** `verifyAndKillWsl` SHALL receive `minAgeMs = max(0, now − (pidRecordedAt + tolerance))`, never an absolute time
+- **AND** an operator shutdown or force-kill SHALL pass no `minAgeMs`
+
+#### Scenario: A transient helper failure is retried within the bound
+
+- **WHEN** `verifyAndKillWindows` or `verifyAndKillWsl` returns `error` on an unattended reclaim
+- **THEN** the outcome SHALL be `unconfirmed` and the session SHALL be attempted again on later sweeps until the give-up bound of 3 attempts
+
+#### Scenario: A creation-time mismatch is terminal
+
+- **WHEN** a helper returns `mismatch`
+- **THEN** the outcome SHALL be `refused-identity`, the process SHALL NOT be signalled, and the reclaim SHALL NOT be retried
+
+#### Scenario: An absent process is confirmed only after a re-check
+
+- **WHEN** a helper returns `absent`, or `killed`
+- **THEN** the outcome SHALL be `confirmed-dead` only if the liveness re-check also reads absent
+- **AND** a re-check that reads alive or unknown SHALL give `unconfirmed`
+
+#### Scenario: A verified Windows-terminal session is reclaimed
+
+- **WHEN** an unattended reclaim targets a `wt` session whose pid target is `host` on a Windows server
+- **AND** its creation time is no later than the identity's recording time plus the tolerance
+- **THEN** its process tree SHALL be terminated, with the check and the kill in one invocation
 
 #### Scenario: A remote-origin session is refused before any probe
 
@@ -540,12 +618,15 @@ A child process the server spawned and still holds, reached through the headless
 
 #### Scenario: An unverifiable identity is refused, not guessed
 
-- **WHEN** an unattended reclaim targets a live recorded process identity on a
-  host where its start time cannot be determined
+- **WHEN** an unattended reclaim targets a live recorded process identity whose
+  start time cannot be determined by design: no recording time, or a pid target
+  that is `unknown`, `legacy-wsl` or `foreign`
 - **THEN** no signal SHALL be sent
 - **AND** the reclaim SHALL be reported as failed with a diagnostic stating the
   identity was unverifiable
 - **AND** that session SHALL NOT be retried on later sweeps
+- **AND** a transient probe or helper failure (`error`, timeout) is NOT this
+  case: it SHALL be `unconfirmed` and retried up to the give-up bound
 
 #### Scenario: A restored registry entry refused by the registry is not signalled by the terminator
 
@@ -556,7 +637,7 @@ A child process the server spawned and still holds, reached through the headless
 
 ### Requirement: A recorded pid is used only in its resolved pid target
 
-Before any probe, signal or pid-based link, the server SHALL resolve the recorded pid's target (`host`, WSL `D`, `legacy-wsl`, `foreign` or `unknown`) with one shared helper, in the rule order of the resolution scenarios below. Only `host` SHALL be probed or signalled locally, except that on a Windows server an operator shutdown or force-kill MAY signal `unknown`. The terminator SHALL resolve once, before its registry rung. A repo test SHALL enforce this.
+Before any probe, signal or pid-based link, the server SHALL resolve the recorded pid's target (`host`, WSL `D`, `legacy-wsl`, `foreign` or `unknown`) with one shared helper, in the rule order of the resolution scenarios below. Only `host` SHALL be probed or signalled locally, except that on a Windows server an operator shutdown or force-kill MAY signal `unknown`. A WSL `D` target SHALL be probed and signalled only inside `D` through the platform module's WSL helpers, with the target passed as `{ kind: "wsl", distro }` (a host target as `{ kind: "host" }`). The terminator SHALL resolve once, before its registry rung. A repo test SHALL enforce this.
 
 #### Scenario: Resolution 1 — a remote-origin session is foreign
 - **WHEN** the session has `originDeviceId` set

@@ -96,8 +96,11 @@ const RULES = [
       "`sessionShareDestination` setting). See change: update-pi-core-1-3-adopt-apis. " +
       "1.5.0 moves it again (trust precedence and pathsEqual trust keys, " +
       "tool arguments validated by pi-schema, `\"disabled\"` timeouts). " +
-      "See change: update-pi-core-1-5-adopt-apis.",
-    minVersion: "1.5.0",
+      "See change: update-pi-core-1-5-adopt-apis. " +
+      "1.6.0 moves it again (cacheWarming defaults to \"idle\", the bridge " +
+      "shutdown fallback leaves pi time to save credentials, `pi.exec` reports " +
+      "128 + signal for a killed command). See change: update-pi-core-1-6-adopt-apis.",
+    minVersion: "1.6.0",
   },
   {
     pkgPath: "packages/server/package.json",
