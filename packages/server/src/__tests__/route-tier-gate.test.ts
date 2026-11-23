@@ -108,6 +108,9 @@ async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Prom
   app.post("/api/fixture", async () => ({ success: true }));
   // Stand-ins for the kb plugin's reindex routes (real handlers live in kb-plugin; the gate is what is under test).
   app.post("/api/kb/reindex", async () => ({ status: "running" }));
+  // Stand-in for the batch mention resolver (real handler in file-routes; its admission is covered by
+  // resolve-mention-endpoint.test.ts — the tier gate is what is under test). Change: rich-chat-links.
+  app.post("/api/file/resolve-mentions", async () => ({ success: true }));
   app.post("/api/kb/reindex/cancel", async () => ({ cancelled: false }));
   // Live-preview HTTP proxy patterns (live-server-proxy.ts). See change: add-passkey-user-auth.
   app.all("/live/:id/*", async () => ({ ok: true }));
@@ -586,5 +589,38 @@ describe("S40 — POST /api/kb/reindex/cancel is an explicit operate-tier row (t
       expect(cancel.headers["www-authenticate"]).toBe(reindex.headers["www-authenticate"]);
     }
     expect((await call("/api/kb/reindex/cancel", "operate")).statusCode).toBe(200);
+  });
+});
+
+describe("E21 — POST /api/file/resolve-mentions tier (rich-chat-links)", () => {
+  const REMOTE = "203.0.113.5";
+
+  it("is listed at tier observe, like the single route", () => {
+    expect(hasRouteTier("POST", "/api/file/resolve-mentions")).toBe(true);
+    expect(routeTier("POST", "/api/file/resolve-mentions")).toBe("observe");
+    expect(routeTier("POST", "/api/file/resolve-mentions")).toBe(routeTier("POST", "/api/file/resolve-mention"));
+  });
+
+  it("an observe-tier bearer is allowed off-host", async () => {
+    const { app, tokens } = await mkApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/file/resolve-mentions",
+      remoteAddress: REMOTE,
+      headers: bearer(tokens.observe),
+      payload: { cwd: "/x", items: [] },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("an unauthenticated remote request is refused by the existing gate", async () => {
+    const { app } = await mkApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/file/resolve-mentions",
+      remoteAddress: REMOTE,
+      payload: { cwd: "/x", items: [] },
+    });
+    expect([401, 403]).toContain(res.statusCode);
   });
 });

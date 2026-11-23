@@ -157,6 +157,7 @@ Files in this directory. One row per source file.
 | `tls-only-token.ts` | TLS-only bridge token marker. Exports `TLS_ONLY_TOKEN_PREFIX="pi_tls_"`, `isTlsOnlyToken`,… → see `tls-only-token.ts.AGENTS.md` |
 | `tls-status.ts` | Browser-safe wire types of `/api/health.tls`: `TlsGate`, `TlsSourceStatus`, `TlsCertStatus` (held, notAfter… → see `tls-status.ts.AGENTS.md` |
 | `tool-path-resolve.ts` | Shared pi-parity path resolver: `resolveToolPath`, `resolveReadTarget`, `canonicalizeTarget` (realpath… → see `tool-path-resolve.ts.AGENTS.md` |
+| `tool-workdir.ts` | `toolWorkdir(toolName, args)` — literal-only working dir of a tool call… → see `tool-workdir.ts.AGENTS.md` |
 | `trusted-types-mode.ts` | `resolveTrustedTypesMode({env,config,cspMode})` → `{mode,source,warnings}`; `recognizeTrustedTypesMode`. → see `trusted-types-mode.ts.AGENTS.md` |
 | `tunnel-concurrency.ts` | Resolves WHICH providers run and in which mode.… → see `tunnel-concurrency.ts.AGENTS.md` |
 | `tunnel-provider.ts` | Tunnel ("Gateway") provider abstraction types. Exports `TunnelProvider` interface (`id`, `kind`… → see `tunnel-provider.ts.AGENTS.md` |

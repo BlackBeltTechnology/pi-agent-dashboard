@@ -73,3 +73,5 @@ improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` 
 `GET /api/plugins/flows/edit-mode-default` + `GET /api/plugins/flows/edit-mode-state` → `observe`; `PUT /api/plugins/flows/edit-mode-default` → `operate` (writes `~/.pi/agent/settings.json#flows.editFlow`). See change: stop-flows-edit-mode-project-writes.
 
 `POST /api/pair/challenge` moved `operate` → `observe`; new `POST /api/pair/device-status` + `POST /api/pair/device-key` = `observe` (a device of any tier asks about its own pairing). New operator routes = `operate`: `GET /api/paired-devices/revoked`, `POST /api/paired-devices/:id/restore`, `DELETE /api/paired-devices/revoked/:id`, `DELETE /api/paired-devices/:id/companions/:companionId`. `request`/`redeem`/`poll` stay `operate`. See change: device-key-mutual-check.
+
+`POST /api/file/resolve-mentions` (batch mention resolver) `observe`, same tier as `POST /api/file/resolve-mention`. See change: rich-chat-links.

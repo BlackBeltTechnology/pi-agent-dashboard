@@ -1,0 +1,3 @@
+# tool-workdir.ts — index
+
+`toolWorkdir(toolName, args)` — pure, browser-safe, literal-only working directory of a tool call (rich-chat-links D4). A string `cwd`/`workdir` argument is the base; for `bash`, ONE leading literal `cd <dir> &&` (bare or quoted word) resolves against it (POSIX join, `.`/`..` collapsed). Ignored (falls back to the base): `$`, backtick, glob chars, backslash, leading `~` or `-`, `;`/`||` chaining, a second `cd`, subshells, non-string args. The result is an untrusted hint: the server (`resolveMentionTagged`) re-gates it with containment before any stat. Re-exported from `index.ts`. See change: rich-chat-links.

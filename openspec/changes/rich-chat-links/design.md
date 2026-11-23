@@ -263,6 +263,41 @@ The renderer has no chrome. The pane's `DocumentBar` (`viewer === "url"` branch)
 - **Probe:** verdict, hop count and ms. The host is logged for `allowed`/`refused`/`undetermined`. `ineligible` logs a salted hash of the host, so internal names stay out of logs while repeated scans stay visible. Never path or query.
 - **Client:** a debug counter of flushes and items per flush.
 
+## Threat model
+
+Produced by running the `security-hardening` discipline (trust boundaries → assets → STRIDE → abuse cases) over four surfaces: the batch route `POST /api/file/resolve-mentions`, the tool-directory hint, the frame-policy probe `POST /api/web/frame-policy`, and the CSP `frame-src` widening. The probe and CSP code are specified here (D11–D13) and built in group 3, so their rows are modelled from the design.
+
+**Trust boundaries.** (1) Browser → server HTTP: `cwd`, mentions, `toolCwd`, `reRooted` and the probe `origin` are untrusted request input. (2) Agent/tool output → client → server: mentions and the `toolCwd` hint come from model-controlled text, so they are attacker-influenced (prompt injection). (3) Server → the public internet: the probe is the first dashboard code that makes an outbound request on a user's click, to an attacker-chosen host. (4) Third-party page → dashboard: an embedded page runs in the operator's browser.
+
+**Assets.** Files outside the admitted scope and their existence; dashboard state and credentials; the internal network behind the server (SSRF); dashboard-origin authority (cookies, API credentials); server availability.
+
+| # | Surface | Threat (STRIDE) | Mitigation | Test-plan ids |
+|---|---|---|---|---|
+| T1 | batch | **I** — existence oracle: injected text asks the server to check whether `~/.ssh/…` or `/etc/…` exists | Containment runs before any stat (D6). Out-of-scope → `gated`, and the batch wire carries only `{state:"gated"}`, byte-identical whether or not the file exists | E19, E14 |
+| T2 | batch | **E** — probing an arbitrary tree through an unadmitted `cwd` | Same network guard, tier `observe` and `admitFileCwd` as the single route, before any resolution; 403 with zero stats | E21 |
+| T3 | batch, tool dir | **E** — escape through `..`, an in-repo symlink to `/etc`, a symlink tool dir, or a re-rooted candidate | Tool dir and joined path each pass realpath containment before any stat; an out-of-scope dir or joined path is skipped silently and never produces `gated`; `reRooted` passes the same gate as the mention and falls through when it fails | E14, E22, E13 |
+| T4 | fuzzy | **E/I** — a tracked symlink to `/etc/passwd` (or an ignored/secret file) becomes a "recovered" link | Index is tracked-only; every candidate passes realpath containment before its stat; a symlink escape is never recovered | E17, E16 |
+| T5 | fuzzy | **I** — colliding names leak many paths, or auto-select the wrong file | Several tracked matches never auto-resolve: at most 10 on-disk candidates, ≤25 stats per mention, containment on each; candidates are in-scope tracked files only | E16 |
+| T6 | tool dir | **S/T** — a forged `cd` in model output steers resolution to attacker-chosen paths | `toolWorkdir` is literal-only (no `$`, backtick, glob, backslash, `~`, `-`, chained or repeated `cd`); the result is an untrusted hint that is re-gated server-side and never grants access or yields `gated` | E15, E14, E13 |
+| T7 | batch | **D** — amplification: 200 items × (4 + 25) stats, giant bodies or fields, request floods | ≤200 items (rest `unknown`), 512 KB body (413), 1024-char field cap (400, validated before any fs access), 60/min per principal (429), bounded concurrency (16), per-request containment memo | E20, P1, P2 |
+| T8 | fuzzy | **D** — `git ls-files` hangs, floods memory, or is respawned per mention | `execFile` timeout 3 s + own timer, 64 MiB buffer, 200k-entry cap, single-flight, 60 s TTL (skips cached too); every failure degrades to exact-only with one log line | E18, X4 |
+| T9 | batch | **T** — a client without the recovery opt-in is silently changed (downgrade/compat) | Recovery and `toolCwd` need a literal `recover: true`; an old client gets the exact-only result plus `state` | X3, E12 |
+| T10 | batch | **I/R** — logs leak mentions, paths or directories | One structured line per request: cwd hash, counts, timings only | E19 (+ the log-hygiene test in `resolve-mention-endpoint.test.ts`) |
+| T11 | probe | **I/E** — SSRF to internal hosts (loopback, RFC 1918, link-local, metadata, `.internal`, IPv4-embedding labels, alternate IP notations) | `https:` port 443 only; WHATWG-normalised host; refusal of everything `isUngrantableEgressOrigin` and `classifyCorsOrigin` trust; `isPublicUnicastAddress` that fails closed on unparseable input | E33, E34 |
+| T12 | probe | **E** — DNS rebinding / TOCTOU between check and connect, or a name with one public and one private record | `dns.lookup(all)` with every address vetted; connect pinned to a vetted address through a dedicated `https.Agent` with a custom `lookup`; lookup failure → `ineligible` | X6, E33 |
+| T13 | probe | **E** — redirect into an internal target | Only 301/302/303/307/308 with `Location`; every hop re-enters the full check; ≤3 hops | X5 |
+| T14 | probe | **E** — proxy environment variables re-resolve the target | The probe agent never reads `HTTPS_PROXY` / `NODE_USE_ENV_PROXY` | X11 |
+| T15 | probe | **S/E** — cross-site request or scripted client triggers outbound requests | `POST`, so `mutation-origin-gate` applies; browser `Origin` must be one of the dashboard's own origins (else 400, no outbound request); tier `control`; target origin only in the body | X8 |
+| T16 | probe | **D** — the probe used as a port/host scanner or amplifier | 30/min per principal, 8 concurrent probes, 500-entry/10-min LRU keyed by a bounded origin set, 5 s deadline, 64 KB header cap, `HEAD` only (never `GET`) | X7, X9 |
+| T17 | probe | **I** — response or logs leak page content, credentials, or internal names | No cookies/`Authorization`, fixed User-Agent; headers only, then the socket is destroyed; the response carries a verdict only; `ineligible` logs a salted hash of the host; never path or query | X10 |
+| T18 | probe | **T** — a wrong "allowed" verdict frames a page that forbids it | Verdict follows browser precedence (`frame-ancestors` first, else `X-Frame-Options`; only a final 2xx counts); the verdict is a UX gate, not a security boundary: the frame is opaque anyway | E35 |
+| T19 | CSP | **E** — widening `frame-src` to `https:` lets injected markup frame an attacker page | External `https:` frames are created only by `WebPagePreview` and `YouTubePreview`; the markdown schema strips `<iframe>` and every DOMPurify sink drops it (pinned per sink); `http:`, `data:`, `blob:`, `*` frame sources stay blocked and `frame-ancestors 'self'` is unchanged | E36, E37 |
+| T20 | frame | **E** — an embedded page reads the dashboard or calls its API with credentials | `sandbox="allow-scripts allow-forms"` without `allow-same-origin` (opaque origin, no popups, no top navigation), `referrerpolicy="no-referrer"`; holds even if the page navigates itself onto the dashboard origin (client tests in group 8) | E36, E37 |
+
+**Accepted / residual.** A scripted `control`-tier client that forges a browser `Origin` is an operator by definition (T15). Localhost clients without a principal share one rate-limit bucket (T7, T16). `YouTubePreview` frames a fixed host without a sandbox and the widening unblocks it in `enforce` mode (D13); `Audit` signs off. In-frame navigation of an embedded page is not tracked. Fuzzy candidates reveal tracked-file names that are already inside the admitted scope. Not covered by any gate: the page's own content once framed, which only the opaque sandbox contains.
+
+Sign-off: task 3.17 (`Audit`) reviews T11–T20 against the implemented probe and CSP diff and amends this table if the code departs from the design.
+
 ## Risks / Trade-offs
 
 - **[Supersedes archived decisions (D1/D6, improve-canvas non-goals)]** → each objection is answered above. Selection-survival and no-layout-shift tests guard the "no swap" claim. There is no off switch (accepted).

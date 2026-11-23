@@ -59,6 +59,17 @@ function isNonRenderedElement(el: Element): boolean {
   return NON_RENDERED_TAGS.has(el.tagName) || el.hasAttribute("hidden") || el.getAttribute("aria-hidden") === "true";
 }
 
+/**
+ * A "substitution" element (rich-chat-links D9): its `data-copy-text` value is
+ * NOT an extension of the rendered text (e.g. a short link label `o/r#123`
+ * standing for `https://github.com/o/r/pull/123`). It copies as its attribute
+ * value even when only partly selected. A capped renderer's value starts with
+ * its rendered prefix and keeps the full-containment rule below.
+ */
+function isSubstitution(el: Element): boolean {
+  return !(el.getAttribute(COPY_TEXT_ATTR) ?? "").startsWith(el.textContent ?? "");
+}
+
 /** Serialize a detached fragment to text with block-boundary newlines. */
 function serializeFragment(root: Node, skipNonRendered = false): string {
   let out = "";
@@ -70,6 +81,8 @@ function serializeFragment(root: Node, skipNonRendered = false): string {
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const el = node as Element;
     if (skipNonRendered && isNonRenderedElement(el)) return;
+    // Decorative icons (aria-hidden SVG) never contribute copy text (rich-chat-links D9).
+    if (el.tagName.toLowerCase() === "svg" && el.getAttribute("aria-hidden") === "true") return;
     if (el.tagName === "BR") {
       out += "\n";
       return;
@@ -93,6 +106,15 @@ function serializeFragment(root: Node, skipNonRendered = false): string {
  */
 export function buildSelectionClipboardText(range: Range, container: Element, skipNonRendered = false): string {
   if (range.collapsed) return "";
+
+  // A range wholly inside a substitution element clones to a bare text node
+  // (no wrapper), so resolve that case from the live DOM.
+  const common = range.commonAncestorContainer;
+  const host = (common.nodeType === Node.ELEMENT_NODE ? (common as Element) : common.parentElement)?.closest(
+    `[${COPY_TEXT_ATTR}]`,
+  );
+  if (host && container.contains(host) && isSubstitution(host)) return host.getAttribute(COPY_TEXT_ATTR) ?? "";
+
   const fragment = range.cloneContents();
 
   // Live capped elements intersecting the range, in document order, tagged with
@@ -100,7 +122,11 @@ export function buildSelectionClipboardText(range: Range, container: Element, sk
   // same intersecting capped elements in the same order, so the two lists zip.
   const liveCapped = Array.from(container.querySelectorAll(`[${COPY_TEXT_ATTR}]`))
     .filter((el) => range.intersectsNode(el))
-    .map((el) => ({ full: selectionFullyContains(range, el), text: el.getAttribute(COPY_TEXT_ATTR) ?? "" }));
+    .map((el) => ({
+      full: selectionFullyContains(range, el),
+      subst: isSubstitution(el),
+      text: el.getAttribute(COPY_TEXT_ATTR) ?? "",
+    }));
 
   const fragCapped = Array.from(fragment.querySelectorAll(`[${COPY_TEXT_ATTR}]`));
   for (let i = 0; i < fragCapped.length; i++) {
@@ -108,7 +134,7 @@ export function buildSelectionClipboardText(range: Range, container: Element, sk
     // Substitute only for a fully-contained capped element whose full text
     // starts with the rendered (clipped) prefix — the prefix guard also
     // protects against a rare live/fragment ordering desync.
-    if (info?.full && info.text.startsWith(fragCapped[i].textContent ?? "")) {
+    if (info?.subst || (info?.full && info.text.startsWith(fragCapped[i].textContent ?? ""))) {
       fragCapped[i].textContent = info.text;
     }
   }
