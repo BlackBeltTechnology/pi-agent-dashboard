@@ -6,9 +6,9 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { trustedSanitizedHtml } from "../../../lib/security/trusted-types.js";
-import { sanitizeMermaidSvg } from "../MermaidBlock.js";
-import { MarkdownContent } from "../MarkdownContent.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
+import { MarkdownContent } from "../MarkdownContent.js";
+import { sanitizeMermaidSvg } from "../MermaidBlock.js";
 
 const EVIL = '<iframe src="https://evil.example"></iframe>';
 

@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../../../lib/api/api-context.js";
 import { useI18n } from "../../../lib/i18n/i18n.js";
 import { frameSrc, isLocalOperator, localTargetUrl, type Opener, sandboxFor } from "../../../lib/live-preview/preview-policy.js";
+import { randomUuid } from "../../../lib/util/random-uuid.js";
 import { EgressBanner } from "./EgressBanner.js";
 import { AddressConfirm, ExposedNotice, InlineError, RootAbsoluteHint, UpdatedNotice } from "./LiveFrameParts.js";
 import { LiveHeader } from "./LiveHeader.js";
@@ -25,7 +26,6 @@ import { useAddressBar } from "./useAddressBar.js";
 import { useEgressReport } from "./useEgressReport.js";
 import { useFramePolicy } from "./useFramePolicy.js";
 import { useOpenExternal } from "./useOpenExternal.js";
-import { randomUuid } from "../../../lib/util/random-uuid.js";
 
 export type FramedTarget =
   | { kind: "port"; id: string; host: string; port: number; addedBy?: LiveTargetAddedBy }

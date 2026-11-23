@@ -226,6 +226,7 @@ import {
 } from "./lib/client-dist.js";
 import { readFileGuarded as guardedReadFile, runWithStateCaller } from "./lib/dashboard-state-guard.js";
 import { collectRuleSources } from "./lib/folder-project.js";
+import { resolveFramePolicyTestSeam } from "./lib/frame-policy-test-seam.js";
 import { createIndexHtmlSender } from "./lib/index-html.js";
 import { listKnownFolderCwds, type RouteAdmissionDeps } from "./lib/route-admission.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
@@ -312,6 +313,7 @@ import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-ro
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { denialBody, gateFilePath, registerFileRoutes } from "./routes/file-routes.js";
 import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
+import { registerFramePolicyRoutes } from "./routes/frame-policy-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
@@ -325,8 +327,6 @@ import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagno
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
 import { registerModelsIntrospectionRoute } from "./routes/models-introspection-routes.js";
-import { resolveFramePolicyTestSeam } from "./lib/frame-policy-test-seam.js";
-import { registerFramePolicyRoutes } from "./routes/frame-policy-routes.js";
 import { registerNavIntentRoutes } from "./routes/nav-intent-routes.js";
 import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";

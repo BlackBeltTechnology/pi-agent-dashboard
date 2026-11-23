@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import React, { useState } from "react";
+import type React from "react";
+import { useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { LinkResolutionProvider } from "../chat/LinkResolutionProvider.js";
 import { SessionAssetsProvider } from "../../lib/session/SessionAssetsContext.js";
+import { LinkResolutionProvider } from "../chat/LinkResolutionProvider.js";
 import { extractFrontmatter, formatRelativeDate, inferType } from "../preview/FrontmatterProperties.js";
 import { isFencedBlockComplete, MarkdownContent, tableToMarkdown, tableToTsv } from "../preview/MarkdownContent.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
