@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Folder-shaped directory card — concept study</title>
+<style>
+  :root, [data-theme="light"] {
+    --page:#f1f1f4; --card:#ffffff; --card-2:#f6f6f9; --tab:#eef0f7; --border:rgba(0,0,0,.09);
+    --border-2:rgba(0,0,0,.14); --rim:rgba(255,255,255,.75); --shadow:rgba(0,0,0,.08);
+    --text-1:#1c1c22; --text-2:#4a4a55; --text-3:#8a8a95; --text-mut:#adadb6;
+    --blue:#3b6ef6; --indigo:#7c74f4; --cyan:#0e9db0; --purple:#a25df0;
+    --green:#2fa960; --orange:#e0791f; --amber:#c98a12;
+    --folder-accent:#e0a94b; /* manila hint */
+  }
+  [data-theme="dark"] {
+    --page:#0f0f12; --card:#18181c; --card-2:#1f1f25; --tab:#22222a; --border:rgba(255,255,255,.09);
+    --border-2:rgba(255,255,255,.15); --rim:rgba(255,255,255,.05); --shadow:rgba(0,0,0,.45);
+    --text-1:#e5e5e5; --text-2:#b0b0b0; --text-3:#808080; --text-mut:#585858;
+    --blue:#6b8afd; --indigo:#a5a1fb; --cyan:#38bec9; --purple:#c084fc;
+    --green:#4ade80; --orange:#fb923c; --amber:#fbbf24;
+    --folder-accent:#c98a3a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--page); color:var(--text-1); padding:24px 20px 90px; -webkit-font-smoothing:antialiased; }
+  .toolbar { display:flex; gap:12px; align-items:center; max-width:1500px; margin:0 auto 24px; }
+  .toolbar h1 { font-size:15px; font-weight:700; margin:0; }
+  .toolbar .sp { flex:1; }
+  .toolbar button { font:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:8px;
+    border:1px solid var(--border-2); background:var(--card); color:var(--text-2); cursor:pointer; }
+
+  .rail { display:flex; gap:34px; align-items:flex-start; max-width:1500px; margin:0 auto; flex-wrap:wrap; }
+  .col { width:340px; }
+  .col h2 { font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase;
+    color:var(--text-3); margin:0 0 14px 2px; }
+  .col h2 .tag { color:var(--text-mut); font-weight:600; text-transform:none; letter-spacing:0; }
+  .note { font-size:11px; color:var(--text-3); line-height:1.55; margin:12px 2px 0; }
+  .note b { color:var(--text-2); }
+
+  /* ══════════════════════════════════════════════════════════════
+     Shared inner content (git row + pill grid + subactions)
+     ══════════════════════════════════════════════════════════════ */
+  .git { display:flex; align-items:center; gap:9px; font-size:12.5px; }
+  .git .branch { color:var(--blue); font-weight:600; }
+  .git .badge { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700;
+    padding:1px 8px; border-radius:999px; border:1px solid var(--orange); color:var(--orange); }
+  .git .badge .dot { width:7px; height:7px; border-radius:50%; background:var(--orange); }
+  .git .commit { color:var(--blue); font-weight:600; }
+  .git .init { margin-left:auto; font-size:11px; font-weight:700; color:var(--amber);
+    border:1px solid color-mix(in srgb,var(--amber) 45%,transparent); border-radius:8px; padding:3px 8px; }
+  .git .gear { width:26px; height:26px; border-radius:8px; border:1px solid var(--border-2);
+    color:var(--text-3); background:var(--card-2); display:inline-flex; align-items:center; justify-content:center; }
+
+  .pillgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+  .pill { display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:11px;
+    border:1px solid var(--border); background:var(--card-2); box-shadow:0 1px 2px var(--shadow); min-width:0; }
+  .pill .glyph { width:26px; height:26px; border-radius:8px; flex-shrink:0; display:flex;
+    align-items:center; justify-content:center; font-size:14px; }
+  .pill .mid { display:flex; flex-direction:column; min-width:0; line-height:1.15; flex:1; }
+  .pill .lbl { font-size:9px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3); }
+  .pill .val { font-size:13px; font-weight:800; color:var(--text-1); display:flex; align-items:baseline; gap:4px; }
+  .pill .val .unit { font-size:9.5px; font-weight:600; color:var(--text-3); }
+  .pill .act { flex-shrink:0; width:22px; height:22px; border-radius:7px; display:flex; align-items:center;
+    justify-content:center; border:1px dashed var(--border-2); color:var(--text-3); font-size:13px; }
+  .pill.auto  .glyph { color:var(--blue);   background:color-mix(in srgb,var(--blue) 12%,transparent); }
+  .pill.goals .glyph { color:var(--indigo); background:color-mix(in srgb,var(--indigo) 12%,transparent); }
+  .pill.kb    .glyph { color:var(--cyan);   background:color-mix(in srgb,var(--cyan) 12%,transparent); }
+  .pill.spec  .glyph { color:var(--purple); background:color-mix(in srgb,var(--purple) 12%,transparent); }
+  .subrow { display:flex; gap:6px; margin-top:10px; }
+  .mini { font-size:10px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid; display:inline-flex; align-items:center; gap:5px; }
+  .mini.purple { color:var(--purple); border-color:color-mix(in srgb,var(--purple) 38%,transparent); }
+  .mini.cyan { color:var(--cyan); border-color:color-mix(in srgb,var(--cyan) 38%,transparent); }
+
+  /* ══════════════════════════════════════════════════════════════
+     VARIANT 1 — Manila tab (flat, modern). Tab holds folder name;
+     body is the folder pocket. Square top-left where tab meets body.
+     ══════════════════════════════════════════════════════════════ */
+  .v-tab .tab {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:6px 16px 7px 12px; margin-left:6px;
+    background:var(--tab); color:var(--text-1);
+    border:1px solid var(--border); border-bottom:none;
+    border-radius:10px 12px 0 0;
+    font-size:14px; font-weight:800;
+    box-shadow:inset 0 1px 0 var(--rim);
+    /* angled right edge like a real folder tab */
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 100%, 0 100%);
+    padding-right:24px;
+  }
+  .v-tab .tab .chev { color:var(--text-3); font-size:12px; font-weight:400; }
+  .v-tab .body {
+    position:relative; margin-top:-1px;
+    background:var(--card); border:1px solid var(--border);
+    border-radius:0 14px 14px 14px;
+    box-shadow:inset 0 1px 0 var(--rim), 0 3px 8px var(--shadow);
+    padding:12px 14px 14px;
+  }
+  /* accent lip along the folder mouth */
+  .v-tab .body::before {
+    content:""; position:absolute; left:0; right:0; top:0; height:2px;
+    background:linear-gradient(90deg, color-mix(in srgb,var(--folder-accent) 55%,transparent), transparent 70%);
+    border-radius:0 14px 0 0;
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     VARIANT 2 — Full folder silhouette via clip-path notch.
+     One surface; the top edge steps up on the left (tab) then down.
+     ══════════════════════════════════════════════════════════════ */
+  .v-clip .folder {
+    position:relative;
+    background:var(--card); border:1px solid var(--border);
+    box-shadow:0 3px 8px var(--shadow);
+    border-radius:12px;
+    padding:34px 14px 14px;
+    /* tab carved on the top-left */
+    clip-path: polygon(
+      0 14px, 4px 6px, 12px 2px, 44% 2px, 48% 14px, 52% 22px, 58% 22px,
+      100% 22px, 100% 100%, 0 100%
+    );
+  }
+  .v-clip .tablabel {
+    position:absolute; top:5px; left:14px;
+    font-size:12px; font-weight:800; color:var(--text-2);
+    display:flex; align-items:center; gap:5px;
+  }
+  .v-clip .tablabel .chev { color:var(--text-3); font-weight:400; }
+  /* accent seam under the tab shelf */
+  .v-clip .folder::after {
+    content:""; position:absolute; left:0; right:0; top:22px; height:2px;
+    background:color-mix(in srgb,var(--folder-accent) 40%,transparent);
+  }
+  .v-clip .name { font-size:16px; font-weight:800; margin-bottom:8px; }
+
+  /* ══════════════════════════════════════════════════════════════
+     VARIANT 3 — Subtle nub. Current rounded card, plus a small
+     folder-tab nub on the top-left. Name stays in the body header.
+     ══════════════════════════════════════════════════════════════ */
+  .v-nub .wrap { position:relative; padding-top:9px; }
+  .v-nub .nub {
+    position:absolute; top:0; left:14px; width:78px; height:12px;
+    background:var(--card); border:1px solid var(--border); border-bottom:none;
+    border-radius:8px 8px 0 0;
+  }
+  .v-nub .card {
+    position:relative; background:var(--card); border:1px solid var(--border);
+    border-radius:12px; box-shadow:inset 0 1px 0 var(--rim), 0 2px 4px var(--shadow);
+    padding:12px 14px 14px;
+  }
+  .v-nub .hdr { display:flex; align-items:center; gap:7px; margin-bottom:2px; }
+  .v-nub .hdr .name { font-size:16px; font-weight:800; }
+  .v-nub .hdr .sp { flex:1; }
+</style>
+</head>
+<body data-theme="light">
+<div class="toolbar">
+  <h1>Folder-shaped directory card — concept study</h1>
+  <span class="sp"></span>
+  <button onclick="document.body.dataset.theme = document.body.dataset.theme==='dark'?'light':'dark'">◑ Toggle theme</button>
+</div>
+
+<div class="rail" id="rail"></div>
+
+<script>
+  const INNER = `
+    <div class="git"><span class="branch">⑂ develop</span><span class="badge"><span class="dot"></span>3</span><span class="commit">Commit</span><span class="init">⚙ Initialize</span></div>
+    <div class="pillgrid">
+      <div class="pill auto"><span class="glyph">⚙</span><span class="mid"><span class="lbl">Automations</span><span class="val">0 <span class="unit">flows</span></span></span><span class="act">+</span></div>
+      <div class="pill goals"><span class="glyph">◎</span><span class="mid"><span class="lbl">Goals</span><span class="val">0 <span class="unit">active</span></span></span><span class="act">+</span></div>
+      <div class="pill kb"><span class="glyph">▤</span><span class="mid"><span class="lbl">KB</span><span class="val">16.5k <span class="unit">chunks</span></span></span><span class="act">⟳</span></div>
+      <div class="pill spec"><span class="glyph">▦</span><span class="mid"><span class="lbl">OpenSpec</span><span class="val">57 <span class="unit">changes</span></span></span><span class="act">⟳</span></div>
+    </div>
+    <div class="subrow"><span class="mini purple">▤ Archive</span><span class="mini cyan">▤ Specs</span></div>`;
+
+  const CARDS = {
+    "v-tab": `<div class="v-tab">
+      <div class="tab"><span class="chev">▾</span>pi-agent-dashboard</div>
+      <div class="body">${INNER}</div>
+    </div>`,
+    "v-clip": `<div class="v-clip">
+      <div class="folder">
+        <div class="tablabel"><span class="chev">▾</span>pi-agent-dashboard</div>
+        ${INNER}
+      </div>
+    </div>`,
+    "v-nub": `<div class="v-nub"><div class="wrap">
+      <div class="nub"></div>
+      <div class="card">
+        <div class="hdr"><span class="chev">▾</span><span class="name">pi-agent-dashboard</span><span class="sp"></span></div>
+        ${INNER}
+      </div>
+    </div></div>`,
+  };
+
+  const VARIANTS = [
+    ["v-tab",  "Variant 1 — Manila tab", "tab = folder label, body = pocket", "The card literally IS a folder: the name sits on an angled tab, the pills read as documents inside. Strongest 'folder' signal, still flat & on-brand. Adds one wrapper + a tab element."],
+    ["v-clip", "Variant 2 — Carved silhouette", "single surface, clip-path notch", "One clipped surface with the tab stepped into the top edge + an accent seam. Purest folder outline, but clip-path corners can't be rounded independently and the tab text sits in a tight shelf — fussier to tune across themes."],
+    ["v-nub",  "Variant 3 — Subtle nub", "rounded card + small tab nub", "Keeps today's card almost intact; just a small tab nub peeks above the top-left. Least disruptive, reads as folder at a glance without reshaping the whole card. Lowest risk."],
+  ];
+
+  document.getElementById("rail").innerHTML = VARIANTS.map(([cls,title,tag,note]) =>
+    `<div class="col"><h2>${title} <span class="tag">· ${tag}</span></h2>${CARDS[cls]}<p class="note">${note}</p></div>`
+  ).join("");
+</script>
+</body>
+</html>

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenSpec lifecycle bar (Option C) — refined</title>
+<style>
+  :root, [data-theme="studio"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-strong:#808080;
+    --blue:#3b82f6; --green:#22c55e; --orange:#f97316; --purple:#a855f7;
+    --seg-todo:#2e2e2e; --seg-done:#22c55e; --seg-cur:#fb923c; --seg-cur-track:#5a3a22;
+    --lbl-done:#4ade80; --lbl-cur:#fb923c; --focus:#60a5fa; --name:#60a5fa;
+  }
+  [data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f3f3f3; --bg-surface:#e9e9e9;
+    --text-primary:#171717; --text-secondary:#404040; --text-tertiary:#5e5e5e; --text-muted:#8a8a8a;
+    --border-primary:#e0e0e0; --border-secondary:#d0d0d0; --border-strong:#767676;
+    --seg-todo:#dcdcdc; --seg-done:#16a34a; --seg-cur:#ea580c; --seg-cur-track:#fed7aa;
+    --lbl-done:#15803d; --lbl-cur:#c2410c; --focus:#2563eb; --name:#1d4ed8;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-primary); color:var(--text-secondary);
+    font:12px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; padding:24px 28px 60px; }
+  h1 { color:var(--text-primary); font-size:18px; margin:0 0 4px; }
+  h2 { color:var(--text-primary); font-size:14px; margin:34px 0 4px; border-top:1px solid var(--border-primary); padding-top:18px; }
+  p.lead, p.sub { margin:0 0 12px; max-width:980px; color:var(--text-tertiary); }
+  code { font-size:11px; color:var(--text-primary); background:var(--bg-surface); padding:0 4px; border-radius:3px; }
+  .toolbar { position:sticky; top:0; z-index:5; background:var(--bg-primary); padding:8px 0; display:flex; gap:8px; align-items:center; }
+  .toolbar button { font:inherit; font-size:11px; padding:3px 9px; border-radius:5px; border:1px solid var(--border-secondary); background:var(--bg-surface); color:var(--text-primary); cursor:pointer; }
+  .toolbar button[aria-pressed="true"] { border-color:var(--focus); }
+  .toolbar label { font-size:11px; display:flex; gap:5px; align-items:center; }
+
+  .grid { display:grid; grid-template-columns: 130px repeat(4, 300px); gap:12px 16px; align-items:start; }
+  .colhead { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-tertiary); }
+  .rowhead { font-size:11px; color:var(--text-tertiary); padding-top:8px; }
+  .rowhead b { display:block; color:var(--text-primary); font-size:12px; }
+
+  .card { background:var(--bg-tertiary); border:1px solid var(--border-primary); border-radius:8px; padding:8px 10px 6px; width:300px; position:relative; }
+  .row { display:flex; align-items:center; gap:6px; min-width:0; }
+  .spacer { flex:1; }
+  .name { color:var(--name); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .clip { color:var(--text-tertiary); font-size:10px; }
+
+  .btn { display:inline-flex; align-items:center; gap:3px; font:inherit; font-size:10px; padding:2px 7px; border-radius:4px; min-height:20px;
+    border:1px solid var(--border-secondary); background:var(--bg-surface); color:var(--text-secondary); cursor:pointer; white-space:nowrap; }
+  .btn.primary { border-color:color-mix(in srgb,var(--blue) 55%,transparent); color:color-mix(in srgb,var(--blue) 55%,var(--text-primary)); background:color-mix(in srgb,var(--blue) 14%,var(--bg-tertiary)); }
+  .btn.neutral { color:var(--text-primary); }
+  .btn.accent { border-color:color-mix(in srgb,var(--purple) 55%,transparent); color:color-mix(in srgb,var(--purple) 50%,var(--text-primary)); background:color-mix(in srgb,var(--purple) 12%,var(--bg-tertiary)); }
+  .btn[aria-disabled="true"] { opacity:.45; cursor:not-allowed; }
+  .btn.icon { padding:2px 6px; min-width:24px; justify-content:center; }
+  .btn:focus-visible, .seg:focus-visible { outline:2px solid var(--focus); outline-offset:1px; }
+
+  /* ---- lifecycle bar ---- */
+  .bar { display:flex; gap:3px; margin-top:4px; }
+  .seg { all:unset; box-sizing:border-box; flex:0 1 auto; min-width:18px; display:flex; flex-direction:column; gap:3px; padding:4px 0 3px; min-height:24px; cursor:pointer; border-radius:4px; position:relative; }
+  .seg.impl { flex:1 1 0; min-width:44px; }
+  .bar { container-type:inline-size; }
+  .seg .s { display:none; }
+  @container (max-width: 250px) { .seg .f { display:none; } .seg .s { display:inline; } }
+  .seg[data-inert] { cursor:default; }
+  .seg .track { height:6px; border-radius:3px; background:var(--seg-todo); position:relative; overflow:hidden; }
+  .seg .lbl { font-size:9px; line-height:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-tertiary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .seg .lbl .n { font-variant-numeric:tabular-nums; text-transform:none; letter-spacing:0; font-size:10px; }
+  .seg[data-state="done"] .track { background:var(--seg-done); }
+  .seg[data-state="done"] .lbl { color:var(--lbl-done); }
+  .seg[data-state="done"] .lbl::before { content:"✓ "; }
+  .seg[data-state="current"] .track { background:var(--seg-cur-track); }
+  .seg[data-state="current"] .lbl { color:var(--lbl-cur); font-weight:600; }
+  .seg[data-state="current"]:not(.impl) .track { background:var(--seg-cur); animation:pulse 1.6s ease-in-out infinite; }
+  .seg[data-state="skipped"] .track { background:repeating-linear-gradient(135deg,var(--seg-done) 0 3px,transparent 3px 6px); }
+  .seg[data-state="skipped"] .lbl { color:var(--lbl-done); }
+  .seg[data-state="skipped"] .lbl::before { content:"– "; }
+  .seg .fill { position:absolute; inset:0 auto 0 0; background:var(--seg-cur); border-radius:3px; }
+  .seg[data-state="done"] .fill { background:var(--seg-done); }
+  .seg:not([data-inert]):hover .track { filter:brightness(1.35); }
+  .seg:not([data-inert]):hover .lbl { color:var(--text-primary); }
+  @keyframes pulse { 50% { opacity:.55; } }
+  @media (prefers-reduced-motion: reduce) { .seg .track { animation:none !important; } }
+
+  /* hit-target debug overlay */
+  body.hit .seg, body.hit .btn { box-shadow:inset 0 0 0 1px #ef4444; background-color:rgba(239,68,68,.08); }
+
+  /* tooltip + menu (static renders) */
+  .tip { position:absolute; z-index:3; background:var(--bg-surface); color:var(--text-primary); border:1px solid var(--border-strong); border-radius:5px; padding:3px 7px; font-size:10px; white-space:nowrap; box-shadow:0 4px 14px rgba(0,0,0,.35); }
+  .menu { position:absolute; right:8px; top:32px; z-index:3; min-width:170px; background:var(--bg-secondary); border:1px solid var(--border-strong); border-radius:6px; padding:4px; box-shadow:0 8px 24px rgba(0,0,0,.45); }
+  .menu .mi { display:flex; gap:8px; align-items:center; padding:5px 8px; font-size:11px; border-radius:4px; color:var(--text-primary); min-height:26px; }
+  .menu .mi:hover, .menu .mi.hl { background:var(--bg-surface); }
+  .menu .mi .k { margin-left:auto; color:var(--text-muted); font-size:10px; }
+  .menu .mi.dis { opacity:.45; }
+  .menu hr { border:0; border-top:1px solid var(--border-primary); margin:4px 2px; }
+  .menu .warn { color:color-mix(in srgb,var(--purple) 55%,var(--text-primary)); }
+
+  /* board card */
+  .bcard { background:var(--bg-tertiary); border:1px solid var(--border-primary); border-radius:10px; padding:8px 10px; width:260px; }
+  .bname { color:var(--text-primary); font-weight:600; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pill { font-size:9px; padding:1px 6px; border-radius:4px; border:1px solid var(--border-secondary); text-transform:uppercase; letter-spacing:.04em; color:var(--text-tertiary); flex:none; }
+  .old-stepper { display:flex; gap:0; margin-top:8px; align-items:center; }
+  .od { width:17px; height:17px; border-radius:50%; border:2px solid var(--border-secondary); font-size:8px; display:grid; place-items:center; color:var(--text-muted); flex:none; }
+  .od.d { border-color:var(--seg-done); color:var(--lbl-done); } .od.c { border-color:var(--seg-cur); color:var(--lbl-cur); }
+  .ol { flex:1; height:2px; background:var(--border-secondary); } .ol.on { background:var(--seg-done); }
+  .oldprog { margin-top:6px; } .oldprog .t { height:4px; background:var(--bg-secondary); border-radius:3px; overflow:hidden; } .oldprog i { display:block; height:100%; background:var(--seg-done); }
+  .oldprog .x { font-size:9px; color:var(--text-tertiary); margin-top:2px; }
+  .sess { font-size:10px; color:var(--text-tertiary); margin-top:6px; border-top:1px solid var(--border-primary); padding-top:5px; }
+
+  /* composer chips */
+  .statusbar { display:flex; align-items:center; gap:4px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:6px; padding:4px 8px; width:max-content; }
+  .gl { font-size:9px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); margin-right:2px; }
+  .chip { font-size:9px; font-weight:700; min-width:18px; height:18px; padding:0 4px; border-radius:4px; display:inline-grid; place-items:center; border:1px solid var(--border-secondary); color:var(--text-muted); font-variant-numeric:tabular-nums; }
+  .chip.d { border-color:color-mix(in srgb,var(--seg-done) 60%,transparent); color:var(--lbl-done); }
+  .chip.c { border-color:var(--seg-cur); color:var(--lbl-cur); }
+  .chip.wide { position:relative; overflow:hidden; padding:0 6px; }
+  .chip.wide i { position:absolute; inset:auto auto 0 0; height:2px; background:var(--seg-cur); }
+
+  table.map { border-collapse:collapse; font-size:11px; margin-top:6px; }
+  table.map th, table.map td { border:1px solid var(--border-primary); padding:4px 8px; text-align:left; vertical-align:top; }
+  table.map th { color:var(--text-primary); background:var(--bg-secondary); font-weight:600; }
+  .notes { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:14px; max-width:1330px; margin-top:10px; }
+  .note { background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px; padding:12px; }
+  .note h3 { margin:0 0 6px; color:var(--text-primary); font-size:13px; }
+  .note ul { margin:0; padding-left:16px; } .note li { margin:2px 0; }
+  .cap { font-size:10px; color:var(--text-muted); margin-top:4px; }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button id="th-studio" aria-pressed="true">Studio</button>
+  <button id="th-light" aria-pressed="false">Light</button>
+  <label><input type="checkbox" id="hit" /> Show hit targets (≥24 px)</label>
+  <a href="options.html" style="color:var(--name);font-size:11px;margin-left:auto">← A/B/C comparison</a>
+</div>
+
+<h1>Option C — OpenSpec lifecycle bar (refined)</h1>
+<p class="lead">5 segments: <b>Proposal · Design · Specs · Tasks · Archive</b>. Explore dropped from the bar; Tasks + Apply merged (shared <code>deriveStepperState</code>).
+Every segment is a single button: 6 px track + 10 px label + padding = <b>24 px</b> hit row (WCAG 2.2 SC 2.5.8). One primary action; the rest in <code>⋯</code>.</p>
+
+<!-- ============ 1. STATES ============ -->
+<h2>1 · Session card — ChangeStates</h2>
+<p class="sub">Block height ≈ 20 (header) + 4 + 24 (bar) = <b>~48 px</b> (was ~112). State pill removed — segment colour + label + primary action carry it.</p>
+<div class="grid" id="states">
+  <div></div>
+  <div class="colhead">Planning</div><div class="colhead">Ready</div><div class="colhead">Implementing 12/39</div><div class="colhead">Complete 39/39</div>
+  <div class="rowhead"><b>Default</b>idle session</div>
+  <div class="card" data-mk="planning"></div>
+  <div class="card" data-mk="ready"></div>
+  <div class="card" data-mk="impl"></div>
+  <div class="card" data-mk="complete"></div>
+  <div class="rowhead"><b>Streaming</b>primary aria-disabled + tooltip; bar still clickable (read-only preview)</div>
+  <div class="card" data-mk="planning" data-streaming></div>
+  <div class="card" data-mk="ready" data-streaming></div>
+  <div class="card" data-mk="impl" data-streaming></div>
+  <div class="card" data-mk="complete" data-streaming></div>
+  <div class="rowhead"><b>Ended</b>no actions; bar only</div>
+  <div class="card" data-mk="planning" data-ended></div>
+  <div class="card" data-mk="ready" data-ended></div>
+  <div class="card" data-mk="impl" data-ended></div>
+  <div class="card" data-mk="complete" data-ended></div>
+</div>
+
+<!-- ============ 2. EDGE CASES ============ -->
+<h2>2 · Edge cases</h2>
+<div class="grid" style="grid-template-columns:130px repeat(4,300px)">
+  <div></div>
+  <div class="colhead">Specs skipped (skip_specs)</div><div class="colhead">Ready, no parseable tasks</div><div class="colhead">All ticked, not COMPLETE</div><div class="colhead">Narrow card (bar &lt;250 px → letters)</div>
+  <div class="rowhead"><b>Variants</b></div>
+  <div class="card" data-mk="skipped"></div>
+  <div class="card" data-mk="notasks"></div>
+  <div class="card" data-mk="anyway"></div>
+  <div class="card" data-mk="impl" data-longname style="width:240px"></div>
+</div>
+<p class="cap">"All ticked, not COMPLETE" = today's <code>showArchiveAnyway</code> (IMPLEMENTING + isComplete + all artifacts done): primary stays Apply, <i>Archive anyway</i> lives in ⋯. Skipped = hatched green, "–" glyph (not colour-only).</p>
+
+<!-- ============ 3. INTERACTION ============ -->
+<h2>3 · Interaction — hover, focus, ⋯ menu</h2>
+<div class="grid" style="grid-template-columns:130px repeat(4,300px)">
+  <div></div>
+  <div class="colhead">Hover Design → tooltip</div><div class="colhead">Hover Tasks → tooltip</div><div class="colhead">Keyboard focus (Tab)</div><div class="colhead">⋯ open (Implementing)</div>
+  <div class="rowhead"><b>States</b></div>
+  <div class="card" data-mk="planning" data-hover="1" style="margin-bottom:34px"></div>
+  <div class="card" data-mk="impl" data-hover="3" style="margin-bottom:34px"></div>
+  <div class="card" data-mk="impl" data-focus="3"></div>
+  <div class="card" data-mk="anyway" data-menu style="margin-bottom:150px"></div>
+</div>
+
+<div class="grid" style="grid-template-columns:130px repeat(4,300px);margin-top:-110px">
+  <div></div>
+  <div class="colhead">⋯ open (Planning)</div><div class="colhead">⋯ open (Complete)</div><div class="colhead">⋯ open while streaming</div><div></div>
+  <div class="rowhead"><b>Menus</b></div>
+  <div class="card" data-mk="planning" data-menu style="margin-bottom:70px"></div>
+  <div class="card" data-mk="complete" data-menu style="margin-bottom:70px"></div>
+  <div class="card" data-mk="impl" data-menu data-streaming style="margin-bottom:70px"></div>
+  <div></div>
+</div>
+
+<!-- ============ 4. BOARD ============ -->
+<h2>4 · OpenSpec Board card (<code>variant="compact"</code>)</h2>
+<p class="sub">Today the board card shows the 7-dot stepper <i>and</i> a separate progress bar + "12/39 tasks · 31%". The bar's Tasks segment subsumes both. Same component, <code>compact</code> = no ⋯/actions. Bar &lt;250 px → container query swaps labels to letters (P D S · 12/39 · A); full name stays in aria-label + tooltip.</p>
+<div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
+  <div>
+    <div class="colhead" style="margin-bottom:6px">Before</div>
+    <div class="bcard">
+      <div class="row"><span class="bname" style="flex:1">electron-runtime-overlay-updates</span><span class="pill">Implementing</span></div>
+      <div class="old-stepper"><span class="od d">✓</span><span class="ol on"></span><span class="od d">P</span><span class="ol on"></span><span class="od d">D</span><span class="ol on"></span><span class="od d">S</span><span class="ol on"></span><span class="od c">T</span><span class="ol on"></span><span class="od c">▶</span><span class="ol"></span><span class="od" style="opacity:.4">▤</span></div>
+      <div class="oldprog"><div class="t"><i style="width:31%"></i></div><div class="x">12/39 tasks · 31%</div></div>
+      <div class="sess">● 2 sessions</div>
+    </div>
+  </div>
+  <div>
+    <div class="colhead" style="margin-bottom:6px">After — Implementing</div>
+    <div class="bcard"><div class="row"><span class="bname">electron-runtime-overlay-updates</span></div><div data-bar="impl"></div><div class="sess">● 2 sessions</div></div>
+  </div>
+  <div>
+    <div class="colhead" style="margin-bottom:6px">After — Planning</div>
+    <div class="bcard"><div class="row"><span class="bname">add-blackhole-plugin</span></div><div data-bar="planning"></div><div class="sess">no sessions</div></div>
+  </div>
+  <div>
+    <div class="colhead" style="margin-bottom:6px">After — Complete</div>
+    <div class="bcard"><div class="row"><span class="bname">fix-replay-pill-a11y</span></div><div data-bar="complete"></div><div class="sess">● 1 session</div></div>
+  </div>
+</div>
+<p class="cap">Board column already groups by state, so dropping the board state pill loses nothing. Keep it if columns are user-defined groups rather than states — open question.</p>
+
+<!-- ============ 5. COMPOSER ============ -->
+<h2>5 · Composer status-bar chips (<code>ComposerSessionActions</code>)</h2>
+<p class="sub">Chips read <code>deriveStepperState</code>, so the merge reaches them. T chip becomes a Tasks count chip with a 2 px progress underline.</p>
+<div style="display:flex;gap:24px;flex-wrap:wrap">
+  <div><div class="colhead" style="margin-bottom:6px">Before</div>
+    <div class="statusbar"><span class="gl">OpenSpec</span><span class="btn icon" aria-disabled="true">🧭</span><span class="chip d">P</span><span class="chip d">D</span><span class="chip d">S</span><span class="chip c">T</span><span class="btn icon primary">▶</span><span class="btn icon accent" aria-disabled="true">▤</span></div></div>
+  <div><div class="colhead" style="margin-bottom:6px">After</div>
+    <div class="statusbar"><span class="gl">OpenSpec</span><span class="chip d">P</span><span class="chip d">D</span><span class="chip d">S</span><span class="chip c wide">12/39<i style="width:31%"></i></span><span class="btn primary">▶ Apply</span><span class="btn icon">⋯</span></div></div>
+</div>
+
+<!-- ============ 6. MODEL ============ -->
+<h2>6 · State model (shared <code>deriveStepperState</code>)</h2>
+<table class="map">
+  <tr><th>Segment</th><th>done</th><th>current</th><th>todo</th><th>Click</th></tr>
+  <tr><td>Proposal / Design / Specs</td><td>artifact <code>done</code> · <code>skipped</code> → <i>skipped</i> variant</td><td>artifact <code>ready</code></td><td>otherwise</td><td>artifact preview (<code>onReadArtifact</code>)</td></tr>
+  <tr><td>Tasks (was Tasks + Apply)</td><td>total &gt; 0 ∧ completed = total</td><td>ChangeState READY ∨ IMPLEMENTING (fill = completed/total)</td><td>PLANNING</td><td>TasksPopover (inert if total = 0)</td></tr>
+  <tr><td>Archive</td><td>— (archived changes leave the list)</td><td>ChangeState COMPLETE</td><td>otherwise (no longer <code>disabled</code> when unattached)</td><td>none — use primary / ⋯</td></tr>
+  <tr><td><s>Explore</s></td><td colspan="4">removed from bar. Unattached sessions keep the Explore button in their own row (unchanged).</td></tr>
+</table>
+<table class="map" style="margin-top:10px">
+  <tr><th>ChangeState</th><th>Primary</th><th>⋯ menu</th></tr>
+  <tr><td>PLANNING</td><td>› Continue</td><td>Fast-forward · Detach</td></tr>
+  <tr><td>READY</td><td>▶ Apply</td><td>Detach</td></tr>
+  <tr><td>IMPLEMENTING</td><td>▶ Apply</td><td>Archive anyway (when all ticked) · Detach</td></tr>
+  <tr><td>COMPLETE</td><td>▤ Archive</td><td>Verify · Detach</td></tr>
+</table>
+
+<div class="notes">
+  <div class="note"><h3>A11y</h3><ul>
+    <li>Bar = <code>role="list"</code>; each segment a <code>&lt;button&gt;</code> with <code>aria-label="Design — ready, open"</code>.</li>
+    <li>Tasks: <code>aria-label="Tasks 12 of 39 done, open"</code>; fill is decorative.</li>
+    <li>Disabled primary uses <code>aria-disabled</code> (focusable, tooltip reachable), not <code>disabled</code>.</li>
+    <li>Pulse off under <code>prefers-reduced-motion</code>.</li>
+    <li>State via glyph (✓ / – / none) + weight, not colour alone.</li>
+  </ul></div>
+  <div class="note"><h3>Blast radius</h3><ul>
+    <li><code>OpenSpecStepper.tsx</code> — rewrite render; <code>NodeId</code> loses <code>explore</code>, <code>apply</code>.</li>
+    <li><code>SessionOpenSpecActions.tsx</code> — drop StatePill, Explore/Archive buttons; add ⋯ menu.</li>
+    <li><code>ComposerSessionActions.tsx</code> — T chip → count chip; Explore/Archive icon buttons?</li>
+    <li><code>OpenSpecBoardView.tsx</code> — drop separate progress block.</li>
+    <li>Tests: <code>OpenSpecStepper.test.tsx</code>, StatePill usage, testIds <code>stepper-node-*</code>, <code>explore-btn</code>, <code>archive-btn</code>.</li>
+  </ul></div>
+  <div class="note"><h3>Open questions</h3><ul>
+    <li>Composer: also drop disabled Explore / Archive icons there (same rule)?</li>
+    <li>Board: keep state pill if columns aren't state-based?</li>
+    <li>Archive segment click — no-op, or opens archive confirm (= primary)?</li>
+    <li>Keep testId <code>stepper-node-tasks</code> for the merged segment to limit E2E churn?</li>
+  </ul></div>
+</div>
+
+<script>
+const NAME = "electron-runtime-overlay-updates";
+const LONG = "electron-runtime-overlay-updates-with-a-very-long-change-name";
+const S = {
+  planning: { segs:["done","current","todo","todo","todo"], done:0, total:0, primary:["neutral","› Continue"], menu:[["» Fast-forward",""],["hr"],["⛓ Detach",""]] },
+  ready:    { segs:["done","done","done","current","todo"], done:0, total:39, primary:["primary","▶ Apply"], menu:[["⛓ Detach",""]] },
+  impl:     { segs:["done","done","done","current","todo"], done:12, total:39, primary:["primary","▶ Apply"], menu:[["⛓ Detach",""]] },
+  complete: { segs:["done","done","done","done","current"], done:39, total:39, primary:["accent","▤ Archive"], menu:[["✓ Verify",""],["hr"],["⛓ Detach",""]] },
+  skipped:  { segs:["done","done","skipped","current","todo"], done:4, total:18, primary:["primary","▶ Apply"], menu:[["⛓ Detach",""]] },
+  notasks:  { segs:["done","done","done","current","todo"], done:0, total:0, primary:["primary","▶ Apply"], menu:[["⛓ Detach",""]] },
+  anyway:   { segs:["done","done","done","current","todo"], done:37, total:39, primary:["primary","▶ Apply"], menu:[["▤ Archive anyway…","2 unticked","warn"],["hr"],["⛓ Detach",""]] },
+};
+const LBL = ["Proposal","Design","Specs","Tasks","Archive"];
+const STATE_WORD = { done:"done", current:"ready", todo:"not started", skipped:"skipped" };
+
+function bar(k, opts={}) {
+  const s = S[k];
+  const segs = s.segs.map((st,i) => {
+    const isT = i===3, isA = i===4;
+    const inert = isA || (isT && s.total===0);
+    let label = `<span class="f">${LBL[i]}</span><span class="s">${LBL[i][0]}</span>`;
+    if (isT) label = s.total ? `<span class="n">${s.done}/${s.total}</span><span class="f"> tasks</span>` : `Tasks <span class="n">—</span>`;
+    const pct = isT && s.total ? Math.round(100*s.done/s.total) : 0;
+    const fill = isT && (st==="current"||st==="done") && s.total ? `<span class="fill" style="width:${pct}%"></span>` : "";
+    const aria = isT ? (s.total ? `Tasks ${s.done} of ${s.total} done` : "Tasks, none parsed") : `${LBL[i]} — ${STATE_WORD[st]}`;
+    const tag = inert ? "div" : "button";
+    const focus = opts.focus===i ? ' style="outline:2px solid var(--focus);outline-offset:1px"' : "";
+    const hover = opts.hover===i;
+    const tip = hover ? `<span class="tip" style="top:30px;left:0">${isT ? `${s.done} of ${s.total} tasks · click to open list` : `${LBL[i]} · ${STATE_WORD[st]} · click to preview`}</span>` : "";
+    return `<${tag} class="seg${isT?" impl":""}" data-state="${st}" ${inert?"data-inert":""} aria-label="${aria}${inert?"":", open"}" title="${aria}"${focus}>
+      <span class="track"${hover?' style="filter:brightness(1.35)"':""}>${fill}</span><span class="lbl"${hover?' style="color:var(--text-primary)"':""}>${label}</span>${tip}</${tag}>`;
+  }).join("");
+  return `<div class="bar" role="list" aria-label="OpenSpec lifecycle" style="position:relative">${segs}</div>`;
+}
+
+function card(el) {
+  const k = el.dataset.mk, s = S[k];
+  const streaming = "streaming" in el.dataset, ended = "ended" in el.dataset;
+  const name = "longname" in el.dataset ? LONG : NAME;
+  let actions = "";
+  if (!ended) {
+    const dis = streaming ? ' aria-disabled="true" title="Session is streaming"' : "";
+    actions = `<button class="btn ${s.primary[0]}"${dis}>${s.primary[1]}</button><button class="btn icon" aria-label="More actions" aria-haspopup="menu"${"menu" in el.dataset?' aria-expanded="true" style="border-color:var(--focus)"':""}>⋯</button>`;
+  }
+  let menu = "";
+  if ("menu" in el.dataset) {
+    menu = `<div class="menu" role="menu">` + s.menu.map(([l,k2,cls]) => l==="hr" ? "<hr>" :
+      `<div class="mi ${cls||""} ${streaming && !l.includes("Detach") ? "dis" : ""}" role="menuitem">${l}<span class="k">${streaming && !l.includes("Detach") ? "streaming" : k2}</span></div>`).join("") + `</div>`;
+  }
+  el.innerHTML = `<div class="row"><span class="clip">📎</span><span class="name" title="${name}">${name}</span><span class="spacer"></span>${actions}</div>
+    ${bar(k, { hover: el.dataset.hover!=null ? +el.dataset.hover : null, focus: el.dataset.focus!=null ? +el.dataset.focus : null })}${menu}`;
+}
+document.querySelectorAll("[data-mk]").forEach(card);
+document.querySelectorAll("[data-bar]").forEach(el => el.outerHTML = bar(el.dataset.bar).replace('class="bar"','class="bar" style="margin-top:6px"'));
+
+const setTheme = t => { document.documentElement.dataset.theme = t;
+  document.getElementById("th-studio").setAttribute("aria-pressed", t==="studio");
+  document.getElementById("th-light").setAttribute("aria-pressed", t==="light"); };
+document.getElementById("th-studio").onclick = () => setTheme("studio");
+document.getElementById("th-light").onclick = () => setTheme("light");
+document.getElementById("hit").onchange = e => document.body.classList.toggle("hit", e.target.checked);
+</script>
+</body>
+</html>

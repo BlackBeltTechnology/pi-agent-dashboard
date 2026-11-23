@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Wiring — Full-replacement model</title>
+<link rel="stylesheet" href="shell.css" />
+</head>
+<body>
+<div class="page">
+  <h1>Automation dialog — Full-replacement model <span class="pill">alternative</span></h1>
+  <p class="sub">Per task 5.2's literal wording + the original <code>wiring.html</code> mockup: the flows-plugin editor
+  <b>replaces</b> the generic <code>ActionPayloadForm</code> entirely and owns Flow + Task + Inputs as one card.
+  Because it renders the Flow dropdown itself and only gets <code>{payload, onChange, cwd}</code>, it needs a
+  <b>new</b> <code>GET /api/plugins/flows/list?cwd=</code> endpoint to populate the dropdown.</p>
+  <div class="nav">
+    <a href="additive.html">Additive (chosen)</a>
+    <a href="replacement.html" class="on">Full replacement</a>
+    <a href="index.html">Side by side</a>
+  </div>
+
+  <div class="cols">
+    <div>
+      <div class="colhead"><span>Create Automation</span><span class="tag">file trigger → flows.run</span></div>
+      <div class="dialog">
+        <div class="dhead">
+          <b>Create Automation</b>
+          <span class="chip"><span class="dot"></span>armed on save</span>
+        </div>
+        <div class="dbody">
+
+          <div class="group">
+            <p class="gtitle">Trigger</p>
+            <div class="pills">
+              <span class="tpill">Scheduled</span>
+              <span class="tpill">OpenSpec</span>
+              <span class="tpill soon">Git<span class="soon-tag">soon</span></span>
+              <span class="tpill on">File</span>
+              <span class="tpill soon">Webhook<span class="soon-tag">soon</span></span>
+            </div>
+            <div class="field">
+              <label>Folder to watch</label>
+              <input class="input" value="/spool/invoices" />
+              <span class="help">Fires once per new file that arrives here (<code>settle: rename-only</code>).</span>
+            </div>
+            <div class="field">
+              <label>Events</label>
+              <div class="evgrid">
+                <label class="ev"><input type="checkbox" checked /><span class="mono">created</span><span class="lbl">File created</span></label>
+                <label class="ev"><input type="checkbox" /><span class="mono">changed</span><span class="lbl">File changed</span></label>
+                <label class="ev"><input type="checkbox" /><span class="mono">deleted</span><span class="lbl">File deleted</span></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
+            <p class="gtitle">Action</p>
+            <div class="apick">
+              <div class="asrc"><span>▾</span><span style="text-transform:capitalize">flows</span><span class="count">1 action</span></div>
+              <div class="arow on"><span class="mono"><span class="mut">flows.</span>run</span><span class="desc">Run a flow with a task.</span></div>
+            </div>
+
+            <!-- ENTIRE payload editor owned by flows-plugin (replaces ActionPayloadForm) -->
+            <div class="inputs card">
+              <div class="inputs-lab"><span>flows.run editor</span><span class="src">owned by flows-plugin</span></div>
+
+              <div class="field">
+                <label>Flow</label>
+                <select class="input"><option>invoicebot:process</option></select>
+                <span class="help">from GET /api/plugins/flows/list?cwd= <b>(new endpoint)</b></span>
+              </div>
+              <div class="field">
+                <label>Task</label>
+                <textarea class="input" rows="2"></textarea>
+              </div>
+
+              <div class="inputs-lab" style="margin-top:6px"><span>Inputs</span><span class="src">from invoicebot:process</span></div>
+              <div class="irow">
+                <label>invoice <span class="ty">string</span><span class="req"> *</span></label>
+                <div class="ictl">
+                  <div class="bindtoggle"><button>literal</button><button class="on">trigger</button></div>
+                  <div class="triggerval">$&#123;&#123;trigger&#125;&#125; · the file that fired</div>
+                </div>
+              </div>
+              <div class="irow">
+                <label>priority <span class="ty">number</span></label>
+                <div class="ictl">
+                  <div class="bindtoggle"><button class="on">literal</button><button>trigger</button></div>
+                  <input class="input" value="5" />
+                </div>
+              </div>
+              <div class="irow">
+                <label>dry_run <span class="ty">boolean</span></label>
+                <div class="ictl">
+                  <div class="bindtoggle"><button class="on">literal</button><button>trigger</button></div>
+                  <select class="input"><option>false</option><option>true</option></select>
+                </div>
+              </div>
+              <p class="newnote">One self-contained card. Host renders it in place of the generic form for any action id with a contributed editor.</p>
+            </div>
+          </div>
+
+          <div class="group">
+            <p class="gtitle">Model</p>
+            <div class="modes"><button class="on">@role</button><button>specific model</button></div>
+            <select class="input"><option>@fast</option><option>@coding</option></select>
+          </div>
+
+          <div class="adv">▸ Advanced</div>
+        </div>
+        <div class="btns">
+          <span class="cap">.pi/automation/&lt;name&gt;/automation.yaml</span>
+          <span><span class="btn">Cancel</span> <span class="btn primary">Create</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="colhead"><span>Persisted output</span><span class="tag">automation.yaml</span></div>
+      <div class="callout">
+        <h3>What gets written</h3>
+        <div class="yaml"><span class="k">on:</span>
+  <span class="k">kind:</span> <span class="v">file</span>
+  <span class="k">path:</span> <span class="v">/spool/invoices</span>
+  <span class="k">events:</span> [<span class="v">created</span>]
+  <span class="k">settle:</span> <span class="v">rename-only</span>
+<span class="k">action:</span>
+  <span class="k">kind:</span> <span class="v">flows.run</span>
+  <span class="k">payload:</span>
+    <span class="k">flow:</span> <span class="v">invoicebot:process</span>
+    <span class="k">inputs:</span>
+      <span class="k">invoice:</span> <span class="t">$&#123;&#123;trigger&#125;&#125;</span>
+      <span class="k">priority:</span> <span class="v">5</span>
+      <span class="k">dry_run:</span> <span class="v">false</span></div>
+      </div>
+
+      <div class="callout">
+        <h3>Trade-offs vs additive</h3>
+        <ul>
+          <li>✔ Matches 5.2's literal <i>"in place of ActionPayloadForm"</i> + original mockup.</li>
+          <li>✔ One cohesive flows card.</li>
+          <li>✘ Needs a <b>new flows-list endpoint</b> (editor gets only <code>{payload,onChange,cwd}</code>).</li>
+          <li>✘ flows-plugin re-implements the Flow dropdown + Task the generic form already renders.</li>
+          <li>✘ Tension with 6.3 (<i>"writes only payload.inputs"</i>) — editor now writes flow + task too.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

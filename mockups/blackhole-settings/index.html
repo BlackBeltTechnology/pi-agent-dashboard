@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings → Blackhole (mockup)</title>
+<style>
+  /* ---- studio theme tokens (from packages/client/src/index.css) ---- */
+  :root, [data-theme="studio"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+    --accent-purple:#a855f7; --accent-primary:#3b82f6;
+    --on-accent:#ffffff;
+  }
+  [data-theme="light"]{
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+    --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#5f5f5f; --text-muted:#8a8a8a;
+    --border-primary:#e0e0e0; --border-secondary:#cccccc; --border-subtle:rgba(0,0,0,.06);
+    --accent-primary:#2563eb; --accent-blue:#2563eb; --accent-green:#15803d;
+    --accent-yellow:#a16207; --accent-red:#dc2626; --accent-purple:#7e22ce;
+    --on-accent:#ffffff;
+  }
+  :focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;border-radius:4px;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg-primary);color:var(--text-secondary);font-size:14px;line-height:1.45;}
+  .wrap{max-width:780px;margin:0 auto;padding:0 20px;}
+
+  /* ── topbar ── */
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 0 0;flex-wrap:wrap;}
+  .topbar h1{font-size:13px;font-weight:600;color:var(--text-tertiary);margin:0;letter-spacing:.02em;text-transform:uppercase;}
+  .topbar-tools{display:flex;gap:6px;align-items:center;}
+  .tbtn{font:inherit;font-size:12px;color:var(--text-secondary);background:var(--bg-tertiary);
+    border:1px solid var(--border-secondary);border-radius:6px;padding:6px 10px;cursor:pointer;min-height:32px;}
+  .tbtn:hover{background:var(--bg-hover);}
+  .statesel{font:inherit;font-size:12px;color:var(--text-secondary);background:var(--bg-tertiary);
+    border:1px solid var(--border-secondary);border-radius:6px;padding:6px 8px;min-height:32px;}
+
+  /* ── tabs ── */
+  .tabs{display:flex;gap:2px;margin:14px 0 0;border-bottom:1px solid var(--border-secondary);}
+  .tab{font:inherit;font-size:13px;font-weight:500;background:none;border:none;color:var(--text-tertiary);
+    padding:9px 14px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;min-height:40px;}
+  .tab:hover{color:var(--text-secondary);}
+  .tab[aria-selected="true"]{color:var(--text-primary);border-bottom-color:var(--accent-primary);}
+
+  .panel{padding:16px 0 110px;}
+  .sec-title{font-size:15px;font-weight:600;color:var(--text-primary);margin:0 0 4px;
+    display:flex;align-items:center;gap:8px;}
+  .sec-sub{font-size:12.5px;color:var(--text-secondary);margin:0 0 10px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--text-primary);
+    background:var(--bg-tertiary);padding:1px 5px;border-radius:4px;}
+
+  .path-line{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text-tertiary);
+    display:flex;align-items:center;gap:6px;margin:2px 0 16px;flex-wrap:wrap;}
+  .path-line .pill{border:1px solid var(--border-secondary);border-radius:4px;padding:2px 6px;color:var(--accent-green);}
+
+  /* ── notices ── */
+  .notice{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:var(--text-secondary);
+    border-radius:8px;padding:10px 12px;margin:0 0 16px;}
+  .notice svg{flex:0 0 auto;margin-top:2px;}
+  .notice.info{background:color-mix(in srgb,var(--accent-blue) 12%,transparent);
+    border:1px solid color-mix(in srgb,var(--accent-blue) 40%,transparent);}
+  .notice.warn{background:color-mix(in srgb,var(--accent-yellow) 12%,transparent);
+    border:1px solid color-mix(in srgb,var(--accent-yellow) 40%,transparent);}
+  .notice.error{background:color-mix(in srgb,var(--accent-red) 12%,transparent);
+    border:1px solid color-mix(in srgb,var(--accent-red) 45%,transparent);}
+  .notice strong{color:var(--text-primary);}
+  .notice-title{display:block;color:var(--text-primary);font-weight:600;margin-bottom:3px;}
+
+  /* ── accordion group ── */
+  .group{border:1px solid var(--border-secondary);border-radius:10px;overflow:hidden;
+    margin-bottom:10px;background:var(--bg-secondary);}
+  .group > summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;
+    padding:12px 14px;font-size:13px;font-weight:600;color:var(--text-primary);user-select:none;min-height:44px;}
+  .group > summary::-webkit-details-marker{display:none;}
+  .group > summary:hover{background:var(--bg-hover);}
+  .chev{transition:transform .15s;color:var(--text-tertiary);flex:0 0 auto;}
+  .group[open] > summary .chev{transform:rotate(90deg);}
+  .group .count{margin-left:auto;font-size:11px;color:var(--text-tertiary);font-weight:500;white-space:nowrap;}
+  .group .badge-dot{width:7px;height:7px;border-radius:50%;background:var(--accent-blue);flex:0 0 auto;}
+  .group-body{padding:4px 14px 12px;border-top:1px solid var(--border-subtle);}
+
+  /* ── field row ── */
+  .field{padding:12px 0;border-bottom:1px solid var(--border-subtle);position:relative;}
+  .field:last-child{border-bottom:none;}
+  .field-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+  .field-label{font-size:13px;color:var(--text-primary);font-weight:500;}
+  .field-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text-tertiary);}
+  .default-badge{font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
+    color:var(--text-tertiary);border:1px solid var(--border-secondary);border-radius:4px;padding:1px 5px;}
+  .reset{font:inherit;margin-left:auto;font-size:11px;color:var(--accent-blue);background:none;border:none;
+    cursor:pointer;padding:6px 4px;visibility:hidden;}
+  .field.dirty .reset{visibility:visible;}
+  .field.dirty .default-badge{display:none;}
+  .field-help{font-size:12px;color:var(--text-tertiary);margin:5px 0 0;}
+  .field-ctl{margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+
+  input[type=text],input[type=number],select,textarea{
+    font:inherit;font-size:12.5px;color:var(--text-primary);background:var(--bg-tertiary);
+    border:1px solid var(--border-secondary);border-radius:6px;padding:7px 9px;outline:none;
+    width:100%;max-width:340px;min-height:34px;}
+  input[type=number]{max-width:160px;}
+  textarea{max-width:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+    resize:vertical;min-height:64px;}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent-primary);
+    box-shadow:0 0 0 2px color-mix(in srgb,var(--accent-primary) 25%,transparent);}
+  .unit{font-size:11px;color:var(--text-tertiary);}
+
+  /* toggle — visual 34×19, hit target padded to ~44px (WCAG 2.5.8) */
+  .switch{position:relative;display:inline-block;width:34px;height:19px;flex:0 0 auto;padding:12px 6px;margin:-12px -6px;}
+  .switch input{position:absolute;opacity:0;width:0;height:0;}
+  .track{position:absolute;top:12px;left:6px;width:34px;height:19px;background:var(--bg-surface);
+    border:1px solid var(--border-secondary);border-radius:999px;transition:.15s;pointer-events:none;}
+  .knob{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--text-tertiary);transition:.15s;}
+  .switch input:checked + .track{background:color-mix(in srgb,var(--accent-green) 55%,transparent);border-color:transparent;}
+  .switch input:checked + .track .knob{transform:translateX(15px);background:var(--on-accent);}
+  .switch-label{font-size:12px;color:var(--text-secondary);margin-left:6px;}
+
+  /* ══ ZONE 2 — fallback chain rail ══ */
+  .worker{border:1px solid var(--border-secondary);border-radius:10px;background:var(--bg-secondary);margin-bottom:10px;}
+  .worker-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;}
+  .worker-icon{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;flex:0 0 auto;
+    background:var(--bg-tertiary);border:1px solid var(--border-secondary);color:var(--text-secondary);}
+  .worker-name{font-size:13px;font-weight:600;color:var(--text-primary);}
+  .worker-role{font-size:11.5px;color:var(--text-tertiary);}
+  .worker-meta{margin-left:auto;font-size:11px;color:var(--text-tertiary);white-space:nowrap;}
+  .chain{padding:8px 10px 12px;display:flex;flex-direction:column;gap:6px;}
+
+  .step{display:flex;align-items:stretch;gap:0;}
+  .step-rank{flex:0 0 auto;width:30px;display:flex;flex-direction:column;align-items:center;padding-top:11px;color:var(--text-muted);}
+  .rank-num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--text-tertiary);
+    border:1px solid var(--border-secondary);border-radius:4px;width:20px;height:20px;display:grid;place-items:center;}
+  .step-line{flex:1 1 auto;width:1px;background:var(--border-secondary);margin:4px 0 0;min-height:8px;}
+  .step:last-child .step-line{background:transparent;}
+
+  .mcard{flex:1 1 auto;border:1px solid var(--border-secondary);border-radius:8px;background:var(--bg-tertiary);overflow:hidden;}
+  .mcard.primary{border-color:color-mix(in srgb,var(--accent-primary) 45%,var(--border-secondary));}
+  .mcard > summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:9px 11px;min-height:44px;flex-wrap:wrap;}
+  .mcard > summary::-webkit-details-marker{display:none;}
+  .mcard > summary:hover{background:var(--bg-hover);}
+  .m-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--text-primary);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+  .m-prov{font-size:11px;color:var(--text-secondary);border:1px solid var(--border-secondary);
+    border-radius:4px;padding:1px 6px;flex:0 0 auto;}
+  .tag{font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;border-radius:4px;padding:2px 6px;flex:0 0 auto;}
+  .tag.pri{color:var(--accent-blue);border:1px solid color-mix(in srgb,var(--accent-blue) 45%,transparent);
+    background:color-mix(in srgb,var(--accent-blue) 12%,transparent);}
+  .tag.cool{color:color-mix(in srgb,var(--accent-yellow) 78%,var(--text-primary));
+    border:1px solid color-mix(in srgb,var(--accent-yellow) 45%,transparent);
+    background:color-mix(in srgb,var(--accent-yellow) 12%,transparent);}
+  .tag.ok{color:var(--accent-green);border:1px solid color-mix(in srgb,var(--accent-green) 45%,transparent);
+    background:color-mix(in srgb,var(--accent-green) 12%,transparent);}
+  .m-actions{margin-left:auto;display:flex;gap:2px;flex:0 0 auto;}
+  .iconbtn{font:inherit;width:32px;height:32px;display:grid;place-items:center;border-radius:6px;cursor:pointer;
+    background:none;border:1px solid transparent;color:var(--text-tertiary);}
+  .iconbtn:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--border-secondary);}
+  .iconbtn:disabled{opacity:.3;cursor:not-allowed;}
+  .iconbtn.danger:hover{color:var(--accent-red);}
+  .mcard-body{padding:2px 11px 11px;border-top:1px solid var(--border-subtle);
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+  .mfield{display:flex;flex-direction:column;gap:4px;padding-top:9px;}
+  .mfield label{font-size:11px;color:var(--text-secondary);}
+  .mfield input,.mfield select{max-width:none;}
+
+  .chain-add{font:inherit;font-size:12px;color:var(--text-secondary);background:none;cursor:pointer;
+    border:1px dashed var(--border-secondary);border-radius:8px;padding:9px;min-height:40px;margin-left:30px;}
+  .chain-add:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--accent-primary);}
+
+  .chain-tail{margin-left:30px;font-size:11.5px;color:var(--text-tertiary);display:flex;align-items:center;
+    gap:7px;padding:8px 2px 2px;flex-wrap:wrap;}
+  .chain-tail .t{border:1px dashed var(--border-secondary);border-radius:6px;padding:3px 8px;color:var(--text-tertiary);}
+  .chain-tail .t.off{text-decoration:line-through;opacity:.55;}
+
+  /* ── pipeline panel ── */
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;}
+  .stat{border:1px solid var(--border-secondary);border-radius:10px;background:var(--bg-secondary);padding:12px 13px;}
+  .stat-k{font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.03em;}
+  .stat-v{font-size:21px;font-weight:600;color:var(--text-primary);margin-top:5px;line-height:1.15;
+    font-variant-numeric:tabular-nums;}
+  .stat-sub{font-size:11.5px;color:var(--text-tertiary);margin-top:3px;}
+
+  .meter{margin:16px 0 6px;}
+  .meter-head{display:flex;align-items:baseline;gap:8px;font-size:12.5px;margin-bottom:7px;flex-wrap:wrap;}
+  .meter-head .mk{color:var(--text-primary);font-weight:500;}
+  .meter-head .mv{margin-left:auto;color:var(--text-tertiary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;}
+  .bar{height:8px;border-radius:999px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);
+    overflow:hidden;position:relative;}
+  .bar > i{display:block;height:100%;border-radius:999px;}
+  .bar > i.blue{background:var(--accent-blue);}
+  .bar > i.green{background:var(--accent-green);}
+  .bar > i.yellow{background:var(--accent-yellow);}
+  /* marks are positioned PROPORTIONALLY to the value they name — never evenly spread */
+  .marks{position:relative;height:15px;margin-top:5px;font-size:10.5px;color:var(--text-tertiary);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .marks > span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap;}
+  .marks > span::before{content:"";position:absolute;left:50%;top:-6px;width:1px;height:4px;background:var(--border-secondary);}
+  .marks > span.first{transform:none;}
+  .marks > span.first::before{left:0;}
+  .marks > span.last{transform:translateX(-100%);}
+  .marks > span.last::before{left:100%;}
+
+  /* broken-file panel */
+  .broken-body{border:1px solid var(--border-secondary);border-radius:10px;background:var(--bg-secondary);padding:14px;}
+  .broken-body h3{font-size:13px;color:var(--text-primary);margin:0 0 4px;}
+  .broken-body p{font-size:12.5px;color:var(--text-tertiary);margin:0 0 12px;}
+  .codeblock{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;background:var(--bg-code);
+    border:1px solid var(--border-subtle);border-radius:8px;padding:10px 0;overflow:auto;}
+  .codeblock .ln{display:flex;gap:12px;padding:1px 12px;color:var(--text-secondary);white-space:pre;}
+  .codeblock .ln .n{color:var(--text-secondary);min-width:22px;text-align:right;user-select:none;}
+  .codeblock .ln.bad{background:color-mix(in srgb,var(--accent-red) 16%,transparent);color:var(--text-primary);}
+  .codeblock .ln.bad .n{color:color-mix(in srgb,var(--accent-red) 75%,var(--text-primary));}
+  .caretline{color:color-mix(in srgb,var(--accent-red) 80%,var(--text-primary));}
+  .broken-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+
+  table.log{width:100%;border-collapse:collapse;font-size:12px;}
+  table.log th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;
+    color:var(--text-tertiary);font-weight:600;padding:7px 8px;border-bottom:1px solid var(--border-secondary);}
+  table.log td{padding:9px 8px;border-bottom:1px solid var(--border-subtle);color:var(--text-secondary);vertical-align:top;}
+  table.log tr:last-child td{border-bottom:none;}
+  table.log td.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--text-tertiary);white-space:nowrap;}
+  .card{border:1px solid var(--border-secondary);border-radius:10px;background:var(--bg-secondary);padding:4px 12px;margin-bottom:14px;}
+  .card-title{font-size:13px;font-weight:600;color:var(--text-primary);padding:11px 0 2px;}
+
+  /* ── empty / blocked states ── */
+  .blank{border:1px dashed var(--border-secondary);border-radius:12px;padding:34px 22px;text-align:center;}
+  .blank h3{font-size:15px;color:var(--text-primary);margin:12px 0 6px;}
+  .blank p{font-size:12.5px;color:var(--text-tertiary);margin:0 auto 16px;max-width:400px;}
+  .blank .cmd{display:inline-block;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+    background:var(--bg-code);border:1px solid var(--border-secondary);border-radius:6px;padding:8px 12px;color:var(--text-primary);}
+  .blank-icon{color:var(--text-tertiary);}
+
+  /* ── sticky save bar ── */
+  .savebar{position:fixed;left:0;right:0;bottom:0;background:var(--bg-secondary);border-top:1px solid var(--border-secondary);z-index:5;}
+  .savebar-in{max-width:780px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .savebar .status{font-size:12px;color:var(--text-tertiary);}
+  .savebar .status.changed{color:var(--accent-yellow);}
+  .spacer{margin-left:auto;}
+  .btn{font:inherit;font-size:12.5px;padding:9px 14px;border-radius:6px;border:1px solid var(--border-secondary);
+    background:var(--bg-tertiary);color:var(--text-primary);cursor:pointer;min-height:38px;}
+  .btn:hover{background:var(--bg-hover);}
+  /* NOTE: white on raw --accent-primary is 3.68:1 in dark theme (fails AA 4.5).
+     Darkened here so the mockup passes; the underlying token pair is a
+     design-system-level finding, not a mockup-local one. */
+  .btn.primary{background:color-mix(in srgb,var(--accent-primary) 78%,#000);
+    border-color:transparent;color:var(--on-accent);font-weight:600;}
+  .btn.primary:disabled{opacity:.45;cursor:not-allowed;}
+  .btn.ghost{background:none;}
+
+  dialog{border:1px solid var(--border-secondary);border-radius:12px;background:var(--bg-secondary);
+    color:var(--text-primary);max-width:660px;width:92vw;padding:0;}
+  dialog::backdrop{background:rgba(0,0,0,.55);}
+  .dlg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;
+    border-bottom:1px solid var(--border-secondary);font-size:13px;font-weight:600;}
+  .dlg-body{padding:14px 16px;}
+  pre{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--text-secondary);
+    background:var(--bg-code);border:1px solid var(--border-subtle);border-radius:8px;padding:12px;
+    max-height:52vh;overflow:auto;white-space:pre;}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
+  [hidden]{display:none !important;}
+
+  @media (max-width:520px){
+    .step-rank{width:22px;}
+    .chain-add,.chain-tail{margin-left:22px;}
+    .worker-meta{margin-left:0;width:100%;}
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="topbar">
+    <h1>Settings · Plugins · Blackhole</h1>
+    <div class="topbar-tools">
+      <label class="sr" for="stateSel">Mockup state</label>
+      <select class="statesel" id="stateSel">
+        <option value="ok">State: healthy</option>
+        <option value="broken">State: invalid JSON</option>
+        <option value="missing">State: not installed</option>
+      </select>
+      <button class="tbtn" id="themeBtn">◐ Light</button>
+    </div>
+  </div>
+
+
+</div>
+
+<!-- ══════════════════ NOT INSTALLED ══════════════════ -->
+<div class="wrap" id="view-missing" hidden>
+  <div class="panel">
+    <div class="blank">
+      <svg class="blank-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>
+      </svg>
+      <h3>pi-blackhole isn't installed</h3>
+      <p>This page configures the <code>pi-blackhole</code> extension — unified algorithmic compaction plus observational memory. Install it in any pi session, then reload.</p>
+      <div class="cmd">pi install npm:pi-blackhole</div>
+      <p style="margin-top:16px">Already have <code>pi-vcc</code> or <code>pi-observational-memory</code>? Uninstall them first — they conflict.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ CONFIGURATION ══════════════════ -->
+<div class="wrap" id="view-cfg">
+  <div class="panel">
+    <h2 class="sec-title">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="4"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M12 22a10 10 0 0 1 0-20" opacity=".35"/>
+      </svg>
+      Blackhole
+    </h2>
+    <p class="sec-sub">Compaction and observational memory for the <code>pi-blackhole</code> extension.</p>
+
+    <div class="path-line">
+      <span>File:</span><span class="pill">~/.pi/agent/pi-blackhole/pi-blackhole-config.json</span><span id="fileState">· valid · 4 unknown keys preserved</span>
+    </div>
+
+    <!-- invalid-JSON blocked banner -->
+    <div class="notice error" id="jsonErr" hidden>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-red)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+      <span>
+        <strong class="notice-title">Config file can't be parsed — editing is disabled</strong>
+        <code>Unexpected token } at line 34, column 3</code> — likely a trailing comma.
+        Saving is blocked so your model chains aren't overwritten. Fix the file on disk, then reload this page.
+      </span>
+    </div>
+
+    <div class="notice info" id="applyNote">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      <span>Saved changes apply <strong>immediately to running sessions</strong> — blackhole re-reads this file after every write. Keys this page doesn't manage (including <code>_comment</code> notes) are preserved untouched.</span>
+    </div>
+
+    <!-- blocked: no parsable values exist, so NO form is rendered -->
+    <div class="broken-body" id="brokenBody" hidden>
+      <h3>Nothing to show until the file parses</h3>
+      <p>Blackhole's settings all live in this one file. Because it can't be read, this page has no values to display — showing defaults here would misrepresent what your sessions are actually running.</p>
+      <div class="codeblock">
+        <div class="ln"><span class="n">31</span><span>  "memory": true,</span></div>
+        <div class="ln"><span class="n">32</span><span>  "sessionFallback": true,</span></div>
+        <div class="ln"><span class="n">33</span><span>  "debug": false,</span></div>
+        <div class="ln bad"><span class="n">34</span><span>  }</span></div>
+        <div class="ln"><span class="n"></span><span class="caretline">  ^ unexpected token — line 33 ends with a comma</span></div>
+      </div>
+      <div class="broken-actions">
+        <button class="btn">Copy file path</button>
+        <button class="btn">Open in editor</button>
+        <button class="btn ghost" id="retryBtn">Re-check file</button>
+      </div>
+    </div>
+
+    <div id="cfgForm">
+    <!-- ── Compaction behaviour ── -->
+    <details class="group" open>
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Compaction behaviour <span class="count">4 fields</span></summary>
+      <div class="group-body">
+        <div class="field">
+          <div class="field-head"><span class="field-label">Trigger</span><span class="field-key">compaction</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help"><code>auto</code> — blackhole fires on its own. <code>manual</code> — only <code>/blackhole</code>. <code>off</code> — pi handles auto-compaction and <code>/compact</code>.</p>
+          <div class="field-ctl"><select><option>auto</option><option>manual</option><option>off</option></select></div>
+        </div>
+        <div class="field">
+          <div class="field-head"><span class="field-label">Engine</span><span class="field-key">compactionEngine</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">Who produces the summary — blackhole's algorithmic pipeline (no LLM cost, deterministic) or pi's built-in LLM compaction.</p>
+          <div class="field-ctl"><select><option>blackhole</option><option>pi-default</option></select></div>
+        </div>
+        <div class="field">
+          <div class="field-head"><span class="field-label">Tail behaviour</span><span class="field-key">tailBehavior</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">How much conversation stays visible after a compaction. <code>minimal</code> keeps the last user message; <code>pi-default</code> keeps roughly 20k tokens.</p>
+          <div class="field-ctl"><select><option>minimal</option><option>pi-default</option></select></div>
+        </div>
+        <div class="field">
+          <div class="field-head"><span class="field-label">Mid-run compaction</span><span class="field-key">midRunCompaction</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">Whether the threshold is checked during a long tool loop. <code>resume</code> is experimental and fails closed on unsupported pi internals.</p>
+          <div class="field-ctl"><select><option>off</option><option>pause</option><option>resume — experimental</option></select></div>
+        </div>
+      </div>
+    </details>
+
+    <!-- ── Observational memory ── -->
+    <details class="group" open>
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Observational memory <span class="count">2 fields</span></summary>
+      <div class="group-body">
+        <div class="field">
+          <div class="field-head"><span class="field-label">Enable memory workers</span><span class="field-key">memory</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">Off = no observer/reflector/dropper and no memory injection. Compaction still runs. Same as <code>/blackhole om-off</code>.</p>
+          <div class="field-ctl"><label class="switch"><input type="checkbox" checked aria-label="Enable memory workers"><span class="track"><span class="knob"></span></span></label><span class="switch-label">On</span></div>
+        </div>
+        <div class="field">
+          <div class="field-head"><span class="field-label">Fall back to the session model</span><span class="field-key">sessionFallback</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">When every configured model is exhausted or cooling down, run the worker on the session's own model instead of skipping it.</p>
+          <div class="field-ctl"><label class="switch"><input type="checkbox" checked id="sessFb" aria-label="Fall back to the session model"><span class="track"><span class="knob"></span></span></label><span class="switch-label">On</span></div>
+        </div>
+      </div>
+    </details>
+
+    <!-- ══ ZONE 2 — model chains ══ -->
+    <details class="group" open>
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Worker models <span class="badge-dot" title="has user-set values"></span><span class="count">3 chains</span></summary>
+      <div class="group-body" style="padding-bottom:14px">
+        <p class="field-help" style="margin:10px 0 12px">Each worker tries its models top to bottom. A model that returns a retryable error is skipped for its cooldown window, and the next one runs.</p>
+
+        <!-- OBSERVER -->
+        <section class="worker" aria-labelledby="w-obs">
+          <div class="worker-head">
+            <span class="worker-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
+            <span><span class="worker-name" id="w-obs">Observer</span><br><span class="worker-role">Extracts timestamped facts · runs most often</span></span>
+            <span class="worker-meta">3 models</span>
+          </div>
+          <div class="chain">
+            <div class="step">
+              <div class="step-rank"><span class="rank-num" aria-hidden="true">1</span><span class="step-line"></span></div>
+              <details class="mcard primary">
+                <summary>
+                  <span class="tag pri">Primary</span>
+                  <span class="m-id">qwen/qwen3-next-80b-a3b-instruct:free</span>
+                  <span class="m-prov">openrouter</span>
+                  <span class="m-actions">
+                    <button class="iconbtn" disabled aria-label="Move up — already first"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+                    <button class="iconbtn" aria-label="Move Qwen3 Next 80B down"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+                    <button class="iconbtn danger" aria-label="Remove Qwen3 Next 80B from the observer chain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                  </span>
+                </summary>
+                <div class="mcard-body">
+                  <div class="mfield"><label for="o1p">Provider</label><input id="o1p" type="text" value="openrouter"></div>
+                  <div class="mfield"><label for="o1i">Model ID</label><input id="o1i" type="text" value="qwen/qwen3-next-80b-a3b-instruct:free"></div>
+                  <div class="mfield"><label for="o1t">Thinking</label><select id="o1t"><option>off</option><option>minimal</option><option selected>low</option><option>medium</option><option>high</option><option>xhigh</option></select></div>
+                  <div class="mfield"><label for="o1c">Cooldown (hours)</label><input id="o1c" type="number" value="12"></div>
+                  <div class="mfield"><label for="o1w">Context window</label><input id="o1w" type="number" placeholder="inherit from pi"></div>
+                </div>
+              </details>
+            </div>
+            <div class="step">
+              <div class="step-rank"><span class="rank-num" aria-hidden="true">2</span><span class="step-line"></span></div>
+              <details class="mcard">
+                <summary>
+                  <span class="m-id">gemma4:31b-cloud</span>
+                  <span class="m-prov">ollama</span>
+                  <span class="tag cool" title="Skipped until 18:40 after a retryable error">Cooling 2h</span>
+                  <span class="m-actions">
+                    <button class="iconbtn" aria-label="Move Gemma4 31B up"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+                    <button class="iconbtn" aria-label="Move Gemma4 31B down"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+                    <button class="iconbtn danger" aria-label="Remove Gemma4 31B from the observer chain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                  </span>
+                </summary>
+                <div class="mcard-body">
+                  <div class="mfield"><label for="o2p">Provider</label><input id="o2p" type="text" value="ollama"></div>
+                  <div class="mfield"><label for="o2i">Model ID</label><input id="o2i" type="text" value="gemma4:31b-cloud"></div>
+                  <div class="mfield"><label for="o2t">Thinking</label><select id="o2t"><option selected>off</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></div>
+                  <div class="mfield"><label for="o2c">Cooldown (hours)</label><input id="o2c" type="number" value="6"></div>
+                  <div class="mfield"><label for="o2w">Context window</label><input id="o2w" type="number" placeholder="inherit from pi"></div>
+                </div>
+              </details>
+            </div>
+            <div class="step">
+              <div class="step-rank"><span class="rank-num" aria-hidden="true">3</span><span class="step-line"></span></div>
+              <details class="mcard">
+                <summary>
+                  <span class="m-id">google/gemma-4-31b-it:free</span>
+                  <span class="m-prov">openrouter</span>
+                  <span class="m-actions">
+                    <button class="iconbtn" aria-label="Move Gemma 4 31B IT up"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+                    <button class="iconbtn" disabled aria-label="Move down — already last"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+                    <button class="iconbtn danger" aria-label="Remove Gemma 4 31B IT from the observer chain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                  </span>
+                </summary>
+                <div class="mcard-body">
+                  <div class="mfield"><label for="o3p">Provider</label><input id="o3p" type="text" value="openrouter"></div>
+                  <div class="mfield"><label for="o3i">Model ID</label><input id="o3i" type="text" value="google/gemma-4-31b-it:free"></div>
+                  <div class="mfield"><label for="o3t">Thinking</label><select id="o3t"><option selected>off</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></div>
+                  <div class="mfield"><label for="o3c">Cooldown (hours)</label><input id="o3c" type="number" value="6"></div>
+                  <div class="mfield"><label for="o3w">Context window</label><input id="o3w" type="number" placeholder="inherit from pi"></div>
+                </div>
+              </details>
+            </div>
+            <button class="chain-add">+ Add fallback model</button>
+            <div class="chain-tail">
+              <span>then</span><span class="t">base model · gemma-4-31b-it</span>
+              <span>→</span><span class="t" id="tailSess">session model</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- REFLECTOR -->
+        <section class="worker" aria-labelledby="w-ref">
+          <div class="worker-head">
+            <span class="worker-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18" opacity=".4"/><circle cx="12" cy="12" r="7"/></svg></span>
+            <span><span class="worker-name" id="w-ref">Reflector</span><br><span class="worker-role">Distils observations into durable reflections</span></span>
+            <span class="worker-meta">3 models</span>
+          </div>
+          <div class="chain">
+            <div class="step">
+              <div class="step-rank"><span class="rank-num" aria-hidden="true">1</span><span class="step-line"></span></div>
+              <details class="mcard primary">
+                <summary>
+                  <span class="tag pri">Primary</span><span class="m-id">gpt-oss-120b</span><span class="m-prov">cerebras</span>
+                  <span class="m-actions">
+                    <button class="iconbtn" disabled aria-label="Move up — already first"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+                    <button class="iconbtn" aria-label="Move GPT OSS 120B down"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+                    <button class="iconbtn danger" aria-label="Remove GPT OSS 120B from the reflector chain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                  </span>
+                </summary>
+                <div class="mcard-body">
+                  <div class="mfield"><label for="r1p">Provider</label><input id="r1p" type="text" value="cerebras"></div>
+                  <div class="mfield"><label for="r1i">Model ID</label><input id="r1i" type="text" value="gpt-oss-120b"></div>
+                  <div class="mfield"><label for="r1t">Thinking</label><select id="r1t"><option>off</option><option>minimal</option><option selected>low</option><option>medium</option><option>high</option><option>xhigh</option></select></div>
+                  <div class="mfield"><label for="r1c">Cooldown (hours)</label><input id="r1c" type="number" value="12"></div>
+                  <div class="mfield"><label for="r1w">Context window</label><input id="r1w" type="number" placeholder="inherit from pi"></div>
+                </div>
+              </details>
+            </div>
+            <div class="step">
+              <div class="step-rank"><span class="rank-num" aria-hidden="true">2</span><span class="step-line"></span></div>
+              <details class="mcard">
+                <summary>
+                  <span class="m-id">glm-4.7</span><span class="m-prov">zai</span>
+                  <span class="m-actions">
+                    <button class="iconbtn" aria-label="Move GLM-4.7 up"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+                    <button class="iconbtn" aria-label="Move GLM-4.7 down"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+                    <button class="iconbtn danger" aria-label="Remove GLM-4.7 from the reflector chain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                  </span>
+                </summary>
+                <div class="mcard-body">
+                  <div class="mfield"><label for="r2p">Provider</label><input id="r2p" type="text" value="zai"></div>
+                  <div class="mfield"><label for="r2i">Model ID</label><input id="r2i" type="text" value="glm-4.7"></div>
+                  <div class="mfield"><label for="r2t">Thinking</label><select id="r2t"><option>off</option><option>minimal</option><option selected>low</option><option>medium</option><option>high</option><option>xhigh</option></select></div>
+                  <div class="mfield"><label for="r2c">Cooldown (hours)</label><input id="r2c" type="number" value="6"></div>
+                  <div class="mfield"><label for="r2w">Context window</label><input id="r2w" type="number" placeholder="inherit from pi"></div>
+                </div>
+              </details>
+            </div>
+            <div class="step">
+              <div class="step-rank"><span class="rank-num" aria-hidden="true">3</span><span class="step-line"></span></div>
+              <details class="mcard">
+                <summary>
+                  <span class="m-id">openai/gpt-oss-120b:free</span><span class="m-prov">openrouter</span>
+                  <span class="m-actions">
+                    <button class="iconbtn" aria-label="Move GPT OSS 120B free up"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+                    <button class="iconbtn" disabled aria-label="Move down — already last"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+                    <button class="iconbtn danger" aria-label="Remove GPT OSS 120B free from the reflector chain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                  </span>
+                </summary>
+                <div class="mcard-body">
+                  <div class="mfield"><label for="r3p">Provider</label><input id="r3p" type="text" value="openrouter"></div>
+                  <div class="mfield"><label for="r3i">Model ID</label><input id="r3i" type="text" value="openai/gpt-oss-120b:free"></div>
+                  <div class="mfield"><label for="r3t">Thinking</label><select id="r3t"><option>off</option><option>minimal</option><option selected>low</option><option>medium</option><option>high</option><option>xhigh</option></select></div>
+                  <div class="mfield"><label for="r3c">Cooldown (hours)</label><input id="r3c" type="number" value="6"></div>
+                  <div class="mfield"><label for="r3w">Context window</label><input id="r3w" type="number" placeholder="inherit from pi"></div>
+                </div>
+              </details>
+            </div>
+            <button class="chain-add">+ Add fallback model</button>
+            <div class="chain-tail"><span>then</span><span class="t">base model · gemma-4-31b-it</span><span>→</span><span class="t">session model</span></div>
+          </div>
+        </section>
+
+        <!-- DROPPER -->
+        <section class="worker" aria-labelledby="w-drop">
+          <div class="worker-head">
+            <span class="worker-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13"/></svg></span>
+            <span><span class="worker-name" id="w-drop">Dropper</span><br><span class="worker-role">Prunes low-value observations under pressure</span></span>
+            <span class="worker-meta">1 model</span>
+          </div>
+          <div class="chain">
+            <div class="step">
+              <div class="step-rank"><span class="rank-num" aria-hidden="true">1</span><span class="step-line"></span></div>
+              <details class="mcard primary">
+                <summary>
+                  <span class="tag pri">Primary</span><span class="m-id">gpt-oss-120b</span><span class="m-prov">cerebras</span>
+                  <span class="m-actions">
+                    <button class="iconbtn" disabled aria-label="Move up — already first"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+                    <button class="iconbtn" disabled aria-label="Move down — already last"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+                    <button class="iconbtn danger" aria-label="Remove GPT OSS 120B from the dropper chain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                  </span>
+                </summary>
+                <div class="mcard-body">
+                  <div class="mfield"><label for="d1p">Provider</label><input id="d1p" type="text" value="cerebras"></div>
+                  <div class="mfield"><label for="d1i">Model ID</label><input id="d1i" type="text" value="gpt-oss-120b"></div>
+                  <div class="mfield"><label for="d1t">Thinking</label><select id="d1t"><option selected>off</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></div>
+                  <div class="mfield"><label for="d1c">Cooldown (hours)</label><input id="d1c" type="number" value="12"></div>
+                  <div class="mfield"><label for="d1w">Context window</label><input id="d1w" type="number" placeholder="inherit from pi"></div>
+                </div>
+              </details>
+            </div>
+            <button class="chain-add">+ Add fallback model</button>
+            <div class="chain-tail"><span>then</span><span class="t">base model · gemma-4-31b-it</span><span>→</span><span class="t">session model</span></div>
+          </div>
+        </section>
+
+        <!-- BASE -->
+        <section class="worker" aria-labelledby="w-base">
+          <div class="worker-head">
+            <span class="worker-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16M6 20V9l6-5 6 5v11"/></svg></span>
+            <span><span class="worker-name" id="w-base">Base model</span><br><span class="worker-role">Last resort for every worker, before the session model</span></span>
+            <span class="worker-meta"><code>model</code></span>
+          </div>
+          <div class="chain">
+            <div class="step">
+              <div class="step-rank"><span class="rank-num" aria-hidden="true">∗</span><span class="step-line"></span></div>
+              <details class="mcard">
+                <summary><span class="m-id">google/gemma-4-31b-it:free</span><span class="m-prov">openrouter</span>
+                  <span class="m-actions"><button class="iconbtn danger" aria-label="Clear the base model"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>
+                </summary>
+                <div class="mcard-body">
+                  <div class="mfield"><label for="b1p">Provider</label><input id="b1p" type="text" value="openrouter"></div>
+                  <div class="mfield"><label for="b1i">Model ID</label><input id="b1i" type="text" value="google/gemma-4-31b-it:free"></div>
+                  <div class="mfield"><label for="b1t">Thinking</label><select id="b1t"><option>off</option><option>minimal</option><option selected>low</option><option>medium</option><option>high</option><option>xhigh</option></select></div>
+                  <div class="mfield"><label for="b1c">Cooldown (hours)</label><input id="b1c" type="number" value="6"></div>
+                  <div class="mfield"><label for="b1w">Context window</label><input id="b1w" type="number" placeholder="inherit from pi"></div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </section>
+      </div>
+    </details>
+
+    <!-- ── Thresholds ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Trigger thresholds <span class="count">3 fields</span></summary>
+      <div class="group-body">
+        <div class="field">
+          <div class="field-head"><span class="field-label">Observe after</span><span class="field-key">observeAfterTokens</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">Accumulated tokens before the observer runs.</p>
+          <div class="field-ctl"><input type="number" value="15000" aria-label="Observe after tokens"><span class="unit">tokens</span></div>
+        </div>
+        <div class="field">
+          <div class="field-head"><span class="field-label">Reflect after</span><span class="field-key">reflectAfterTokens</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">Accumulated tokens before the reflector runs.</p>
+          <div class="field-ctl"><input type="number" value="25000" aria-label="Reflect after tokens"><span class="unit">tokens</span></div>
+        </div>
+        <div class="field">
+          <div class="field-head"><span class="field-label">Compact after</span><span class="field-key">compactAfterTokens</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">The one to tune first — aim for 60–70% of your model's context window. Too low and compaction interrupts your flow; too high and the agent loses context first.</p>
+          <div class="field-ctl"><input type="number" value="81000" aria-label="Compact after tokens"><span class="unit">tokens · ~40% of a 200k window</span></div>
+        </div>
+      </div>
+    </details>
+
+    <!-- ── Budgets ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Token budgets <span class="count">7 fields · advanced</span></summary>
+      <div class="group-body">
+        <div class="field"><div class="field-head"><span class="field-label">Observation pool max</span><span class="field-key">observationsPoolMaxTokens</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Pool size that makes the dropper start pruning.</p><div class="field-ctl"><input type="number" value="20000" aria-label="Observation pool max"><span class="unit">tokens</span></div></div>
+        <div class="field"><div class="field-head"><span class="field-label">Observation pool target</span><span class="field-key">observationsPoolTargetTokens</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Size the dropper prunes down to.</p><div class="field-ctl"><input type="number" value="10000" aria-label="Observation pool target"><span class="unit">tokens</span></div></div>
+        <div class="field"><div class="field-head"><span class="field-label">Observer chunk max</span><span class="field-key">observerChunkMaxTokens</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Newest-first cap on the observer's input.</p><div class="field-ctl"><input type="number" value="40000" aria-label="Observer chunk max"><span class="unit">tokens</span></div></div>
+        <div class="field"><div class="field-head"><span class="field-label">Observer preamble max</span><span class="field-key">observerPreambleMaxTokens</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Older context prepended to the chunk. <code>0</code> disables.</p><div class="field-ctl"><input type="number" value="0" aria-label="Observer preamble max"><span class="unit">tokens</span></div></div>
+        <div class="field"><div class="field-head"><span class="field-label">Reflector input max</span><span class="field-key">reflectorInputMaxTokens</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Cap on what the reflector reads per run.</p><div class="field-ctl"><input type="number" value="80000" aria-label="Reflector input max"><span class="unit">tokens</span></div></div>
+        <div class="field"><div class="field-head"><span class="field-label">Dropper input max</span><span class="field-key">dropperInputMaxTokens</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Cap on what the dropper reads per run.</p><div class="field-ctl"><input type="number" value="80000" aria-label="Dropper input max"><span class="unit">tokens</span></div></div>
+        <div class="field"><div class="field-head"><span class="field-label">Dropper pressure threshold</span><span class="field-key">dropperPressureThreshold</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Pressure-relief valve — fraction of the reflector input cap at which the dropper fires even with no new data.</p><div class="field-ctl"><input type="number" step="0.05" min="0" max="1" value="0.70" aria-label="Dropper pressure threshold"><span class="unit">0–1</span></div></div>
+      </div>
+    </details>
+
+    <!-- ── Runtime ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Runtime &amp; diagnostics <span class="count">4 fields · advanced</span></summary>
+      <div class="group-body">
+        <div class="field"><div class="field-head"><span class="field-label">Max agent turns</span><span class="field-key">agentMaxTurns</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Tool-calling turns a worker's agent loop may take.</p><div class="field-ctl"><input type="number" value="16" aria-label="Max agent turns"><span class="unit">turns</span></div></div>
+        <div class="field"><div class="field-head"><span class="field-label">Provider idle timeout</span><span class="field-key">providerIdleTimeoutMs</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Body-idle timeout for background provider streams. <code>0</code> disables.</p><div class="field-ctl"><input type="number" value="0" aria-label="Provider idle timeout"><span class="unit">ms · 0 = off</span></div></div>
+        <div class="field"><div class="field-head"><span class="field-label">Debug output</span><span class="field-key">debug</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Verbose worker diagnostics in the session.</p><div class="field-ctl"><label class="switch"><input type="checkbox" aria-label="Debug output"><span class="track"><span class="knob"></span></span></label><span class="switch-label">Off</span></div></div>
+        <div class="field"><div class="field-head"><span class="field-label">Debug log file</span><span class="field-key">debugLog</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Write worker diagnostics to disk.</p><div class="field-ctl"><label class="switch"><input type="checkbox" aria-label="Debug log file"><span class="track"><span class="knob"></span></span></label><span class="switch-label">Off</span></div></div>
+      </div>
+    </details>
+    </div><!-- /#cfgForm -->
+  </div>
+</div>
+
+<!-- ── save bar ── -->
+<div class="savebar" id="savebar">
+  <div class="savebar-in">
+    <span class="status" id="status" role="status">No changes</span>
+    <span class="spacer"></span>
+    <button class="btn ghost" id="rawBtn">View raw JSON</button>
+    <button class="btn" id="revertBtn">Revert</button>
+    <button class="btn primary" id="saveBtn" disabled>Save</button>
+  </div>
+</div>
+
+<dialog id="rawDlg" aria-labelledby="rawTitle">
+  <div class="dlg-head"><span id="rawTitle">pi-blackhole-config.json (as it will be written)</span><button class="btn ghost" id="rawClose">Close</button></div>
+  <div class="dlg-body"><pre id="rawPre"></pre></div>
+</dialog>
+
+<script>
+  const html=document.documentElement, tb=document.getElementById('themeBtn');
+  tb.onclick=()=>{const light=html.getAttribute('data-theme')==='light';
+    html.setAttribute('data-theme',light?'studio':'light');tb.textContent=light?'◐ Light':'◑ Dark';};
+
+  // tabs
+  const vCfg=document.getElementById('view-cfg'),vMiss=document.getElementById('view-missing');
+  const savebar=document.getElementById('savebar');
+  let state='ok';
+  function render(){
+    const missing = state==='missing';
+    vMiss.hidden=!missing;
+    vCfg.hidden = missing;
+    savebar.hidden = missing;
+    const broken = state==='broken';
+    document.getElementById('jsonErr').hidden=!broken;
+    document.getElementById('applyNote').hidden=broken;
+    // no parsable values exist → render no form at all, rather than fabricating one
+    document.getElementById('brokenBody').hidden=!broken;
+    document.getElementById('cfgForm').hidden=broken;
+    document.getElementById('fileState').textContent = broken? '· parse error' : '· valid · 4 unknown keys preserved';
+    recount();
+  }
+  document.getElementById('stateSel').onchange=e=>{state=e.target.value;render();};
+
+  // dirty tracking
+  function recount(){
+    const n=document.querySelectorAll('#view-cfg .field.dirty, #view-cfg .mcard.dirty').length;
+    const s=document.getElementById('status');
+    const broken = state==='broken';
+    if(broken){ s.textContent='Config unreadable — nothing loaded'; s.classList.remove('changed'); }
+    else { s.textContent=n?`${n} setting${n>1?'s':''} changed · not yet saved`:'No changes'; s.classList.toggle('changed',!!n); }
+    document.getElementById('saveBtn').disabled = broken || !n;
+    document.getElementById('revertBtn').disabled = broken || !n;
+  }
+  document.querySelectorAll('#view-cfg .field').forEach(f=>{
+    const mark=()=>{f.classList.add('dirty');recount();};
+    f.addEventListener('input',mark); f.addEventListener('change',mark);
+    const r=f.querySelector('.reset');
+    if(r)r.addEventListener('click',e=>{e.preventDefault();f.classList.remove('dirty');recount();});
+  });
+  document.querySelectorAll('#view-cfg .mcard').forEach(c=>{
+    const mark=()=>{c.classList.add('dirty');recount();};
+    c.addEventListener('input',mark); c.addEventListener('change',mark);
+  });
+
+  // sessionFallback drives the chain-tail affordance
+  const sess=document.getElementById('sessFb');
+  sess.addEventListener('change',()=>{
+    document.querySelectorAll('.chain-tail .t:last-child').forEach(t=>t.classList.toggle('off',!sess.checked));
+  });
+
+  const dlg=document.getElementById('rawDlg');
+  const sample={_comment:"preserved — this page never drops keys it doesn't manage",
+    compaction:"auto",compactionEngine:"blackhole",tailBehavior:"minimal",midRunCompaction:"off",
+    model:{provider:"openrouter",id:"google/gemma-4-31b-it:free",thinking:"low",cooldownHours:6},
+    observerModel:{provider:"openrouter",id:"qwen/qwen3-next-80b-a3b-instruct:free",thinking:"low",cooldownHours:12},
+    observerFallbackModels:[{provider:"ollama",id:"gemma4:31b-cloud",thinking:"off",cooldownHours:6},
+                            {provider:"openrouter",id:"google/gemma-4-31b-it:free",thinking:"off",cooldownHours:6}],
+    reflectorModel:{provider:"cerebras",id:"gpt-oss-120b",thinking:"low",cooldownHours:12},
+    dropperModel:{provider:"cerebras",id:"gpt-oss-120b",thinking:"off",cooldownHours:12},
+    observeAfterTokens:15000,reflectAfterTokens:25000,compactAfterTokens:81000,
+    observationsPoolMaxTokens:20000,dropperPressureThreshold:0.7,agentMaxTurns:16,
+    memory:true,sessionFallback:true,debug:false,
+    _notes:["preserved verbatim"]};
+  document.getElementById('rawBtn').onclick=()=>{document.getElementById('rawPre').textContent=JSON.stringify(sample,null,2);dlg.showModal();};
+  document.getElementById('rawClose').onclick=()=>dlg.close();
+  document.getElementById('revertBtn').onclick=()=>location.reload();
+  document.getElementById('saveBtn').onclick=()=>{
+    document.querySelectorAll('.dirty').forEach(f=>f.classList.remove('dirty'));recount();};
+  render();
+</script>
+</body>
+</html>

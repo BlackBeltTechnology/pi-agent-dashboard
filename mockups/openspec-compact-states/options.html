@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenSpec compact states — mockup</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-strong:#808080;
+    --blue:#3b82f6; --green:#22c55e; --orange:#f97316; --amber:#f59e0b; --purple:#a855f7; --teal:#14b8a6;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-primary); color:var(--text-secondary);
+    font:12px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; padding:24px; }
+  h1 { color:var(--text-primary); font-size:18px; margin:0 0 4px; }
+  h2 { color:var(--text-primary); font-size:14px; margin:32px 0 4px; }
+  p.lead { margin:0 0 12px; max-width:900px; color:var(--text-tertiary); }
+  .grid { display:grid; grid-template-columns: 120px repeat(4, 300px); gap:12px 16px; align-items:start; }
+  .colhead { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-tertiary); }
+  .rowhead { font-size:11px; color:var(--text-tertiary); padding-top:10px; }
+  .rowhead b { display:block; color:var(--text-primary); font-size:12px; }
+  .card { background:var(--bg-tertiary); border:1px solid var(--border-primary); border-radius:8px; padding:8px 10px; width:300px; }
+  .meta { font-size:10px; color:var(--text-muted); margin-top:4px; }
+  .name { color:#60a5fa; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .row { display:flex; align-items:center; gap:6px; min-width:0; }
+  .spacer { flex:1; }
+  .clip { color:var(--text-tertiary); font-size:10px; }
+
+  /* buttons */
+  .btn { display:inline-flex; align-items:center; gap:3px; font-size:10px; padding:2px 7px; border-radius:4px;
+    border:1px solid var(--border-secondary); background:var(--bg-surface); color:var(--text-secondary); cursor:pointer; white-space:nowrap; }
+  .btn.primary { border-color:color-mix(in srgb,var(--blue) 50%,transparent); color:#93c5fd; background:color-mix(in srgb,var(--blue) 14%,var(--bg-tertiary)); }
+  .btn.success { border-color:color-mix(in srgb,var(--green) 50%,transparent); color:#86efac; background:color-mix(in srgb,var(--green) 12%,var(--bg-tertiary)); }
+  .btn.accent { border-color:color-mix(in srgb,var(--purple) 50%,transparent); color:#d8b4fe; background:color-mix(in srgb,var(--purple) 12%,var(--bg-tertiary)); }
+  .btn.dis { opacity:.4; cursor:default; }
+  .btn.icon { padding:2px 5px; }
+  .pill { font-size:9px; padding:1px 6px; border-radius:4px; border:1px solid; text-transform:uppercase; letter-spacing:.04em; }
+  .pill.impl { color:var(--amber); border-color:color-mix(in srgb,var(--amber) 60%,transparent); }
+
+  /* ---------- CURRENT (reference) ---------- */
+  .cur-stepper { display:flex; margin:6px 0 4px; }
+  .cur-node { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; position:relative; }
+  .cur-node::before { content:""; position:absolute; top:10px; left:-50%; right:50%; height:2px; background:var(--border-secondary); }
+  .cur-node:first-child::before { display:none; }
+  .cur-node.on::before { background:var(--green); }
+  .cur-dot { width:22px; height:22px; border-radius:50%; border:2px solid var(--border-secondary); background:var(--bg-tertiary);
+    display:grid; place-items:center; font-size:10px; font-weight:700; z-index:1; color:var(--text-muted); }
+  .cur-dot.d { border-color:var(--green); color:#4ade80; }
+  .cur-dot.c { border-color:#fb923c; color:#fb923c; box-shadow:0 0 0 4px rgba(251,146,60,.2); }
+  .cur-lbl { font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-tertiary); }
+  .cur-lbl.d { color:#4ade80; } .cur-lbl.c { color:#fb923c; font-weight:600; }
+
+  /* ---------- OPTION A: two-line rail ---------- */
+  .rail { display:flex; align-items:center; gap:0; margin-top:6px; height:16px; }
+  .rn { width:16px; height:16px; flex:none; border-radius:50%; border:1.5px solid var(--border-secondary); background:var(--bg-tertiary);
+    display:grid; place-items:center; font-size:8px; font-weight:700; color:var(--text-muted); cursor:pointer; }
+  .rn.d { border-color:var(--green); color:#4ade80; background:color-mix(in srgb,var(--green) 16%,var(--bg-tertiary)); }
+  .rn.c { border-color:#fb923c; color:#fb923c; background:color-mix(in srgb,#fb923c 16%,var(--bg-tertiary)); }
+  .rl { height:2px; flex:0 0 8px; background:var(--border-secondary); }
+  .rl.on { background:var(--green); }
+  .impl { flex:1; height:16px; border-radius:8px; border:1.5px solid var(--border-secondary); position:relative; overflow:hidden;
+    display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--text-tertiary); cursor:pointer; }
+  .impl .fill { position:absolute; inset:0 auto 0 0; background:color-mix(in srgb,#fb923c 30%,transparent); }
+  .impl.c { border-color:#fb923c; color:#fdba74; }
+  .impl.d { border-color:var(--green); color:#86efac; }
+  .impl.d .fill { background:color-mix(in srgb,var(--green) 26%,transparent); }
+  .impl span { position:relative; font-variant-numeric:tabular-nums; }
+
+  /* ---------- OPTION B: single line ---------- */
+  .chips { display:inline-flex; gap:2px; flex:none; }
+  .chip { width:14px; height:14px; border-radius:3px; display:grid; place-items:center; font-size:8px; font-weight:700;
+    border:1px solid var(--border-secondary); color:var(--text-muted); cursor:pointer; }
+  .chip.d { border-color:color-mix(in srgb,var(--green) 60%,transparent); color:#4ade80; background:color-mix(in srgb,var(--green) 14%,transparent); }
+  .chip.c { border-color:#fb923c; color:#fb923c; }
+  .mini { width:44px; height:5px; border-radius:3px; background:var(--bg-surface); overflow:hidden; flex:none; }
+  .mini i { display:block; height:100%; background:#fb923c; }
+  .mini.d i { background:var(--green); }
+  .num { font-size:9px; color:var(--text-tertiary); font-variant-numeric:tabular-nums; flex:none; }
+
+  /* ---------- OPTION C: segmented bar ---------- */
+  .seg { display:flex; gap:2px; margin-top:6px; height:6px; }
+  .seg i { flex:1; border-radius:2px; background:var(--bg-surface); position:relative; overflow:hidden; }
+  .seg i.d { background:var(--green); }
+  .seg i.c { background:color-mix(in srgb,#fb923c 35%,var(--bg-surface)); }
+  .seg i.t { flex:3; }
+  .seg i b { position:absolute; inset:0 auto 0 0; background:#fb923c; }
+  .seg i.t.d b { background:var(--green); }
+  .seglbl { display:flex; gap:2px; font-size:8.5px; color:var(--text-muted); margin-top:2px; text-transform:uppercase; letter-spacing:.03em; }
+  .seglbl span { flex:1; } .seglbl span.t { flex:3; }
+  .seglbl .d { color:#4ade80; } .seglbl .c { color:#fb923c; }
+
+  .notes { max-width:1360px; display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:28px; }
+  .note { background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px; padding:12px; }
+  .note h3 { margin:0 0 6px; color:var(--text-primary); font-size:13px; }
+  .note ul { margin:0; padding-left:16px; } .note li { margin:2px 0; }
+  .h { font-variant-numeric:tabular-nums; color:#fbbf24; }
+</style>
+</head>
+<body>
+<h1>OpenSpec session-card block — compact variants</h1>
+<p class="lead">Same four ChangeStates (PLANNING · READY · IMPLEMENTING · COMPLETE) rendered in the 300&nbsp;px sidebar card.
+Height figures are the block's own vertical footprint. Hover a node/chip in the real thing for label + click-to-open (preserved).</p>
+
+<div class="grid">
+  <div></div>
+  <div class="colhead">Planning (P✓ D ready, S/T todo)</div>
+  <div class="colhead">Ready (all artifacts, 0 tasks)</div>
+  <div class="colhead">Implementing (12/39)</div>
+  <div class="colhead">Complete (39/39)</div>
+
+  <!-- ================= CURRENT ================= -->
+  <div class="rowhead"><b>Current</b>4 rows · <span class="h">~112 px</span></div>
+  <!-- planning -->
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="pill impl" style="color:#93c5fd;border-color:#3b82f680">Planning</span><span class="btn">⛓ Detach</span></div>
+    <div class="cur-stepper">
+      <div class="cur-node"><div class="cur-dot d">✓</div><div class="cur-lbl d">Explore</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Proposal</div></div>
+      <div class="cur-node on"><div class="cur-dot c">D</div><div class="cur-lbl c">Design</div></div>
+      <div class="cur-node"><div class="cur-dot">S</div><div class="cur-lbl">Specs</div></div>
+      <div class="cur-node"><div class="cur-dot">T</div><div class="cur-lbl">Tasks</div></div>
+      <div class="cur-node"><div class="cur-dot">▶</div><div class="cur-lbl">Apply</div></div>
+      <div class="cur-node"><div class="cur-dot">▤</div><div class="cur-lbl">Archive</div></div>
+    </div>
+    <div class="row" style="flex-wrap:wrap"><span class="btn dis">Explore</span><span class="btn">› Continue</span><span class="btn">» FF</span><span class="btn accent dis">Archive</span></div>
+  </div>
+  <!-- ready -->
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="pill" style="color:#86efac;border-color:#22c55e80">Ready</span><span class="btn">⛓ Detach</span></div>
+    <div class="cur-stepper">
+      <div class="cur-node"><div class="cur-dot d">✓</div><div class="cur-lbl d">Explore</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Proposal</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Design</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Specs</div></div>
+      <div class="cur-node"><div class="cur-dot">T</div><div class="cur-lbl">Tasks</div></div>
+      <div class="cur-node"><div class="cur-dot c">▶</div><div class="cur-lbl c">Apply</div></div>
+      <div class="cur-node"><div class="cur-dot">▤</div><div class="cur-lbl">Archive</div></div>
+    </div>
+    <div class="row"><span class="btn dis">Explore</span><span class="btn primary">▶ Apply</span><span class="btn accent dis">Archive</span></div>
+  </div>
+  <!-- implementing -->
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="pill impl">Implementing</span><span class="btn">⛓ Detach</span></div>
+    <div class="cur-stepper">
+      <div class="cur-node"><div class="cur-dot d">✓</div><div class="cur-lbl d">Explore</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Proposal</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Design</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Specs</div></div>
+      <div class="cur-node on"><div class="cur-dot c">T</div><div class="cur-lbl c">Tasks</div><div class="cur-lbl">12/39</div></div>
+      <div class="cur-node on"><div class="cur-dot c">▶</div><div class="cur-lbl c">Apply</div></div>
+      <div class="cur-node"><div class="cur-dot">▤</div><div class="cur-lbl">Archive</div></div>
+    </div>
+    <div class="row" style="flex-wrap:wrap"><span class="btn dis">Explore</span><span class="btn primary">▶ Apply</span><span class="btn accent dis">Archive</span><span class="btn accent">Archive anyway</span></div>
+  </div>
+  <!-- complete -->
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="pill" style="color:#d8b4fe;border-color:#a855f780">Complete</span><span class="btn">⛓ Detach</span></div>
+    <div class="cur-stepper">
+      <div class="cur-node"><div class="cur-dot d">✓</div><div class="cur-lbl d">Explore</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Proposal</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Design</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Specs</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Tasks</div><div class="cur-lbl">39/39</div></div>
+      <div class="cur-node on"><div class="cur-dot d">✓</div><div class="cur-lbl d">Apply</div></div>
+      <div class="cur-node"><div class="cur-dot c">▤</div><div class="cur-lbl c">Archive</div></div>
+    </div>
+    <div class="row"><span class="btn dis">Explore</span><span class="btn success">✓ Verify</span><span class="btn accent">Archive</span></div>
+  </div>
+
+  <!-- ================= OPTION A ================= -->
+  <div class="rowhead"><b>A · Two-line rail</b>merged Implement node · <span class="h">~44 px</span></div>
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span><span class="btn">› Continue</span><span class="btn icon" title="FF · Detach">⋯</span></div>
+    <div class="rail"><span class="rn d" title="Proposal">✓</span><span class="rl on"></span><span class="rn c" title="Design — ready">D</span><span class="rl"></span><span class="rn" title="Specs">S</span><span class="rl"></span>
+      <span class="impl"><span>Tasks —</span></span><span class="rl"></span><span class="rn" title="Archive">▤</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span><span class="btn primary">▶ Apply</span><span class="btn icon">⋯</span></div>
+    <div class="rail"><span class="rn d">✓</span><span class="rl on"></span><span class="rn d">✓</span><span class="rl on"></span><span class="rn d">✓</span><span class="rl on"></span>
+      <span class="impl c"><span>0 / 39 · ready</span></span><span class="rl"></span><span class="rn">▤</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span><span class="btn primary">▶ Apply</span><span class="btn icon" title="Archive anyway · Detach">⋯</span></div>
+    <div class="rail"><span class="rn d">✓</span><span class="rl on"></span><span class="rn d">✓</span><span class="rl on"></span><span class="rn d">✓</span><span class="rl on"></span>
+      <span class="impl c"><span class="fill" style="width:31%"></span><span>12 / 39</span></span><span class="rl"></span><span class="rn">▤</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span><span class="btn accent">▤ Archive</span><span class="btn icon" title="Verify · Detach">⋯</span></div>
+    <div class="rail"><span class="rn d">✓</span><span class="rl on"></span><span class="rn d">✓</span><span class="rl on"></span><span class="rn d">✓</span><span class="rl on"></span>
+      <span class="impl d"><span class="fill" style="width:100%"></span><span>39 / 39 ✓</span></span><span class="rl on"></span><span class="rn c">▤</span></div>
+  </div>
+
+  <!-- ================= OPTION B ================= -->
+  <div class="rowhead"><b>B · Single line</b>chips + mini bar · <span class="h">~22 px</span></div>
+  <div class="card">
+    <div class="row"><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span>
+      <span class="chips"><span class="chip d">P</span><span class="chip c">D</span><span class="chip">S</span></span><span class="btn icon" title="Continue">›</span><span class="btn icon">⋯</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span>
+      <span class="chips"><span class="chip d">P</span><span class="chip d">D</span><span class="chip d">S</span></span><span class="num">0/39</span><span class="btn icon primary" title="Apply">▶</span><span class="btn icon">⋯</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span>
+      <span class="mini"><i style="width:31%"></i></span><span class="num">12/39</span><span class="btn icon primary" title="Apply">▶</span><span class="btn icon">⋯</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span>
+      <span class="mini d"><i style="width:100%"></i></span><span class="num">39/39</span><span class="btn icon accent" title="Archive">▤</span><span class="btn icon">⋯</span></div>
+  </div>
+
+  <!-- ================= OPTION C ================= -->
+  <div class="rowhead"><b>C · Segmented bar</b>labelled track · <span class="h">~48 px</span></div>
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span><span class="btn">› Continue</span><span class="btn icon">⋯</span></div>
+    <div class="seg"><i class="d"></i><i class="c"></i><i></i><i class="t"></i><i></i></div>
+    <div class="seglbl"><span class="d">Prop</span><span class="c">Design</span><span>Specs</span><span class="t">Tasks</span><span>Arch</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span><span class="btn primary">▶ Apply</span><span class="btn icon">⋯</span></div>
+    <div class="seg"><i class="d"></i><i class="d"></i><i class="d"></i><i class="t c"></i><i></i></div>
+    <div class="seglbl"><span class="d">Prop</span><span class="d">Design</span><span class="d">Specs</span><span class="t c">Tasks 0/39</span><span>Arch</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span><span class="btn primary">▶ Apply</span><span class="btn icon">⋯</span></div>
+    <div class="seg"><i class="d"></i><i class="d"></i><i class="d"></i><i class="t c"><b style="width:31%"></b></i><i></i></div>
+    <div class="seglbl"><span class="d">Prop</span><span class="d">Design</span><span class="d">Specs</span><span class="t c">Tasks 12/39</span><span>Arch</span></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="clip">📎</span><span class="name">electron-runtime-overlay-updates</span><span class="spacer"></span><span class="btn accent">▤ Archive</span><span class="btn icon">⋯</span></div>
+    <div class="seg"><i class="d"></i><i class="d"></i><i class="d"></i><i class="t d"><b style="width:100%"></b></i><i class="c"></i></div>
+    <div class="seglbl"><span class="d">Prop</span><span class="d">Design</span><span class="d">Specs</span><span class="t d">Tasks 39/39</span><span class="c">Arch</span></div>
+  </div>
+</div>
+
+<div class="notes">
+  <div class="note"><h3>What gets cut (all options)</h3><ul>
+    <li><b>Explore</b> node + button when attached — always disabled/done there; pure noise.</li>
+    <li><b>State pill</b> — duplicates the rail; state = rail + primary action.</li>
+    <li><b>Tasks + Apply</b> merge into one "Implement" segment — today both go orange at once (two "current" nodes).</li>
+    <li>Disabled <b>Archive</b> button — the Archive node already says "not yet".</li>
+    <li>Exactly <b>one primary action</b> by state: Continue → Apply → Archive. FF, Verify, Archive anyway, Detach → <code>⋯</code>.</li>
+  </ul></div>
+  <div class="note"><h3>What must survive</h3><ul>
+    <li>Click P/D/S → artifact preview; click tasks segment → TasksPopover.</li>
+    <li>Label via <code>title</code> + <code>aria-label</code> (letters alone fail 1.3.1 otherwise).</li>
+    <li>Color is never the only cue: ✓ vs letter vs fill-width.</li>
+    <li>Streaming → primary disabled with tooltip (unchanged gating).</li>
+    <li>Compact variant on Board keeps working (same derive fn).</li>
+  </ul></div>
+  <div class="note"><h3>Trade-offs</h3><ul>
+    <li><b>A</b>: closest to today's mental model, 60% shorter, 16px nodes are ok hit-targets with padding.</li>
+    <li><b>B</b>: densest; loses artifact detail once implementing (chips swap to bar). Good as a "collapsed" mode.</li>
+    <li><b>C</b>: clearest progress read, but 6px segments are poor click targets → needs label row as hit area.</li>
+    <li>Hybrid: <b>A</b> default, <b>B</b> for non-selected / collapsed cards.</li>
+  </ul></div>
+</div>
+</body>
+</html>

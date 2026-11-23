@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>+ws button redesign — mockup</title>
+<style>
+  /* ---- Real dashboard tokens (subset from packages/client/src/index.css) ---- */
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --bg-surface: #2a2a2a;
+    --bg-hover: rgba(255,255,255,0.06);
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --text-muted: #585858;
+    --border-primary: #252525;
+    --border-subtle: rgba(255,255,255,0.06);
+    --accent-blue: #3b82f6;
+    --elevation-rim: rgba(255,255,255,0.04);
+    --shadow-card: rgba(0,0,0,0.4);
+  }
+  [data-theme="light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #fafafa;
+    --bg-tertiary: #f0f0f0;
+    --bg-surface: #eaeaea;
+    --bg-hover: rgba(0,0,0,0.05);
+    --text-primary: #1a1a1a;
+    --text-secondary: #444444;
+    --text-tertiary: #777777;
+    --text-muted: #aaaaaa;
+    --border-primary: #e0e0e0;
+    --border-subtle: rgba(0,0,0,0.06);
+    --accent-blue: #2563eb;
+    --elevation-rim: rgba(0,0,0,0.03);
+    --shadow-card: rgba(0,0,0,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    padding: 32px 20px 80px;
+  }
+  .page { max-width: 900px; margin: 0 auto; }
+  h1 { color: var(--text-primary); font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--text-tertiary); font-size: 13px; margin: 0 0 28px; }
+  h2 { color: var(--text-primary); font-size: 14px; margin: 34px 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .note { color: var(--text-tertiary); font-size: 12.5px; margin: 0 0 14px; line-height: 1.5; }
+  .tag { display:inline-block; font-size:10px; padding:1px 7px; border-radius:99px; margin-left:8px; vertical-align:middle; }
+  .tag.bad  { background: color-mix(in srgb, #ef4444 18%, transparent); color:#f87171; }
+  .tag.good { background: color-mix(in srgb, var(--accent-blue) 18%, transparent); color: var(--accent-blue); }
+
+  /* ---- Folder card (approx of renderGroup in SessionList.tsx) ---- */
+  .stage { background: var(--bg-secondary); padding: 20px; border-radius: 12px; }
+  .folder-wrap { position: relative; padding-top: 9px; margin-bottom: 18px; }
+  .folder-nub {
+    position:absolute; top:0; left:14px; width:78px; height:12px;
+    background: color-mix(in srgb, var(--accent-blue) 5%, var(--bg-primary));
+    border:1px solid color-mix(in srgb, var(--accent-blue) 22%, var(--border-subtle));
+    border-bottom:0; border-radius: 8px 8px 0 0;
+  }
+  .folder-card {
+    position: relative; overflow: hidden;
+    background: color-mix(in srgb, var(--accent-blue) 5%, var(--bg-primary));
+    border:1px solid color-mix(in srgb, var(--accent-blue) 22%, var(--border-subtle));
+    border-radius: 14px; padding: 6px;
+    box-shadow: inset 0 1px 0 var(--elevation-rim), 0 2px 4px var(--shadow-card);
+  }
+  .folder-head { display:flex; align-items:center; gap:6px; padding:6px 6px; min-height:44px; }
+  .chev { color: var(--text-tertiary); font-size: 14px; width: 16px; text-align:center; }
+  .folder-name { display:flex; align-items:center; gap:6px; flex:1; min-width:0; }
+  .folder-name .parent { font-size:12px; color: var(--text-secondary); }
+  .folder-name .leaf { font-size:16px; font-weight:700; color: var(--text-secondary); }
+  .folder-name .count { font-size:10px; color: var(--text-muted); }
+  .icon-btn { color: var(--text-tertiary); padding:2px 4px; border-radius:6px; font-size:14px; background:none; border:0; cursor:pointer; }
+  .icon-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
+
+  /* ---- CURRENT tiny +ws (top-1 right-7, text-[10px]) ---- */
+  .cur-ws {
+    position:absolute; top:4px; right:28px;
+    font-size:10px; padding:1px 4px; border-radius:4px;
+    color: var(--text-tertiary); background:none; border:0; cursor:pointer;
+  }
+  .cur-ws:hover { color: var(--accent-blue); }
+  .highlight-ring { outline: 2px dashed #ef4444; outline-offset: 2px; border-radius:6px; }
+
+  /* =====================================================================
+     PROPOSED variants
+     ===================================================================== */
+
+  /* A — labelled pill in the header action row (icon + text) */
+  .ws-pill {
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:12px; font-weight:600; line-height:1;
+    padding:6px 10px; border-radius:8px; cursor:pointer;
+    color: var(--accent-blue);
+    background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
+    border:1px solid color-mix(in srgb, var(--accent-blue) 40%, transparent);
+    transition: background .12s, border-color .12s;
+  }
+  .ws-pill:hover {
+    background: color-mix(in srgb, var(--accent-blue) 20%, transparent);
+    border-color: color-mix(in srgb, var(--accent-blue) 60%, transparent);
+  }
+  .ws-pill svg { width:15px; height:15px; }
+
+  /* B — icon-only square, but real button surface (44x44 touch) */
+  .ws-square {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:32px; height:32px; border-radius:8px; cursor:pointer;
+    color: var(--accent-blue);
+    background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
+    border:1px solid color-mix(in srgb, var(--accent-blue) 35%, transparent);
+  }
+  .ws-square:hover { background: color-mix(in srgb, var(--accent-blue) 20%, transparent); }
+  .ws-square svg { width:17px; height:17px; }
+
+  /* C — solid primary, most prominent */
+  .ws-solid {
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:12px; font-weight:600; line-height:1;
+    padding:7px 12px; border-radius:8px; cursor:pointer;
+    color:#fff; border:0;
+    background: var(--accent-blue);
+  }
+  .ws-solid:hover { background: color-mix(in srgb, var(--accent-blue) 85%, #000); }
+  .ws-solid svg { width:15px; height:15px; }
+
+  .theme-toggle {
+    position: fixed; top: 16px; right: 16px; z-index:10;
+    font-size:12px; padding:6px 12px; border-radius:8px; cursor:pointer;
+    background: var(--bg-surface); color: var(--text-primary);
+    border:1px solid var(--border-primary);
+  }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin: 8px 0 4px; }
+  .lbl { font-size:11px; color: var(--text-muted); width:64px; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark')">Toggle theme</button>
+
+<div class="page">
+  <h1>&ldquo;Add to workspace&rdquo; button redesign</h1>
+  <p class="sub">Folder-card header affordance in <code>SessionList.tsx</code>. Currently a 10px gray <code>+ws</code> label tucked in the corner.</p>
+
+  <!-- CURRENT -->
+  <h2>Current <span class="tag bad">hard to see</span></h2>
+  <p class="note">
+    A <code>text-[10px]</code> label, absolutely positioned at <code>top-1 right-7</code>, colored <code>--text-tertiary</code>.
+    Cryptic (&ldquo;+ws&rdquo;), tiny, and easy to miss — no border, no fill, blends into the header. Fails a comfortable touch target.
+  </p>
+  <div class="stage">
+    <div class="folder-wrap">
+      <div class="folder-nub"></div>
+      <div class="folder-card">
+        <div class="folder-head">
+          <span class="chev">▾</span>
+          <span class="folder-name">
+            <span>📂</span>
+            <span class="parent">~/Project/</span>
+            <span class="leaf">pi-agent-dashboard</span>
+            <span class="count">(4)</span>
+          </span>
+          <button class="icon-btn" title="Open folder home">⤢</button>
+          <button class="icon-btn" title="Pin">📌</button>
+        </div>
+        <button class="cur-ws highlight-ring">+ws</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION A -->
+  <h2>Option A — Labelled pill (recommended) <span class="tag good">clear + compact</span></h2>
+  <p class="note">
+    Icon + <strong>&ldquo;Workspace&rdquo;</strong> text with a soft blue tint and a real border, placed inline in the header action row (no longer floating).
+    Self-explanatory, keyboard/touch friendly, still lightweight. Uses <code>mdiViewGridPlus</code> to match the existing &ldquo;New Workspace&rdquo; button.
+  </p>
+  <div class="stage">
+    <div class="folder-wrap">
+      <div class="folder-nub"></div>
+      <div class="folder-card">
+        <div class="folder-head">
+          <span class="chev">▾</span>
+          <span class="folder-name">
+            <span>📂</span>
+            <span class="parent">~/Project/</span>
+            <span class="leaf">pi-agent-dashboard</span>
+            <span class="count">(4)</span>
+          </span>
+          <button class="ws-pill" title="Add this folder to a workspace">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 3v6h8V3M13 21h8V11h-8M3 21h8v-6H3M3 13h8V3H3v10Z"/></svg>
+            Workspace
+          </button>
+          <button class="icon-btn" title="Open folder home">⤢</button>
+          <button class="icon-btn" title="Pin">📌</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION B -->
+  <h2>Option B — Icon square <span class="tag good">smallest footprint</span></h2>
+  <p class="note">
+    Keeps it icon-only but gives it a proper 32&times;32 surface (fill + border) so it reads as a button. Needs a tooltip/aria-label for the meaning.
+    Good if header space is tight.
+  </p>
+  <div class="stage">
+    <div class="folder-wrap">
+      <div class="folder-nub"></div>
+      <div class="folder-card">
+        <div class="folder-head">
+          <span class="chev">▾</span>
+          <span class="folder-name">
+            <span>📂</span>
+            <span class="parent">~/Project/</span>
+            <span class="leaf">pi-agent-dashboard</span>
+            <span class="count">(4)</span>
+          </span>
+          <button class="ws-square" title="Add to workspace" aria-label="Add to workspace">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 3v6h8V3M13 21h8V11h-8M3 21h8v-6H3M3 13h8V3H3v10Z"/></svg>
+          </button>
+          <button class="icon-btn" title="Open folder home">⤢</button>
+          <button class="icon-btn" title="Pin">📌</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION C -->
+  <h2>Option C — Solid primary <span class="tag good">most prominent</span></h2>
+  <p class="note">
+    Filled accent button — maximum visibility. Might be visually heavy repeated on every folder card, so best reserved for empty/onboarding states.
+  </p>
+  <div class="stage">
+    <div class="folder-wrap">
+      <div class="folder-nub"></div>
+      <div class="folder-card">
+        <div class="folder-head">
+          <span class="chev">▾</span>
+          <span class="folder-name">
+            <span>📂</span>
+            <span class="parent">~/Project/</span>
+            <span class="leaf">pi-agent-dashboard</span>
+            <span class="count">(4)</span>
+          </span>
+          <button class="ws-solid" title="Add this folder to a workspace">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 3v6h8V3M13 21h8V11h-8M3 21h8v-6H3M3 13h8V3H3v10Z"/></svg>
+            Add to workspace
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SIZE COMPARISON -->
+  <h2>Side by side</h2>
+  <div class="stage">
+    <div class="row"><span class="lbl">Current</span><button class="cur-ws" style="position:static">+ws</button></div>
+    <div class="row"><span class="lbl">A</span>
+      <button class="ws-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 3v6h8V3M13 21h8V11h-8M3 21h8v-6H3M3 13h8V3H3v10Z"/></svg>Workspace</button>
+    </div>
+    <div class="row"><span class="lbl">B</span>
+      <button class="ws-square"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 3v6h8V3M13 21h8V11h-8M3 21h8v-6H3M3 13h8V3H3v10Z"/></svg></button>
+    </div>
+    <div class="row"><span class="lbl">C</span>
+      <button class="ws-solid"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 3v6h8V3M13 21h8V11h-8M3 21h8v-6H3M3 13h8V3H3v10Z"/></svg>Add to workspace</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

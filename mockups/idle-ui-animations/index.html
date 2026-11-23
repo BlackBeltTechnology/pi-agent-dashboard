@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Idle UI animations mockup — pi-dashboard</title>
+<style>
+  /* ============================================================
+     THEME TOKENS — copied verbatim from packages/client/src/index.css
+     ============================================================ */
+  :root, [data-theme="dark"] {
+    --bg-primary:   #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary:  #1e1e1e;
+    --bg-surface:   #2a2a2a;
+    --text-primary:   #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary:  #808080;
+    --text-muted:     #585858;
+    --border-secondary: #333333;
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --shadow-card: rgba(0, 0, 0, 0.4);
+    /* Selected-card iridescent ring alphas */
+    --neon-rim-alpha: 0.45;
+    --neon-glow-alpha: 0.10;
+    --neon-glow-blur: 8px;
+    --neon-glow-opacity: 0.42;
+  }
+  [data-theme="light"] {
+    --bg-primary:   #ffffff;
+    --bg-secondary: #fafafa;
+    --bg-tertiary:  #f0f0f0;
+    --bg-surface:   #e0e0e0;
+    --text-primary:   #1a1a1a;
+    --text-secondary: #444444;
+    --text-tertiary:  #777777;
+    --text-muted:     #aaaaaa;
+    --border-secondary: #cccccc;
+    --border-subtle: rgba(0, 0, 0, 0.06);
+    --shadow-card: rgba(0, 0, 0, 0.08);
+    --neon-rim-alpha: 0.50;
+    --neon-glow-alpha: 0.18;
+    --neon-glow-blur: 11px;
+    --neon-glow-opacity: 0.52;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    padding: 28px;
+    line-height: 1.4;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--text-tertiary); font-size: 13px; margin: 0 0 20px; max-width: 760px; }
+  .sub code { background: var(--bg-surface); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 22px; flex-wrap: wrap; }
+  .toolbar button {
+    background: var(--bg-tertiary); color: var(--text-secondary);
+    border: 1px solid var(--border-secondary); border-radius: 8px;
+    padding: 6px 12px; font-size: 13px; cursor: pointer;
+  }
+  .toolbar button:hover { color: var(--text-primary); border-color: var(--text-muted); }
+  .toolbar .hint { color: var(--text-muted); font-size: 12px; }
+  :root.app-hidden .toolbar .pause-state { color: var(--accent-red, #ef4444); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 26px 20px; max-width: 1180px; }
+  .cell-label { font-size: 12px; color: var(--text-tertiary); margin: 0 0 8px; font-weight: 600; letter-spacing: 0.02em; }
+  .cell-label small { font-weight: 400; color: var(--text-muted); }
+
+  /* ============================================================
+     SESSION-CARD CHROME — plain-CSS equivalents of the Tailwind
+     utilities on the desktop card <li> in SessionCard.tsx.
+     ============================================================ */
+  ul.cards { list-style: none; margin: 0; padding: 0; }
+  .card {
+    /* px-2 py-2 rounded-xl shadow-md border + relative isolate */
+    position: relative;
+    isolation: isolate;
+    padding: 8px;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-tertiary);
+    box-shadow: 0 4px 6px -1px var(--shadow-card);
+    cursor: pointer;
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+  .card:hover { box-shadow: 0 10px 15px -3px var(--shadow-card); transform: translateY(-2px); }
+  .card.selected {
+    /* border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30 */
+    border-color: rgba(59, 130, 246, 0.6);
+    background: rgba(59, 130, 246, 0.05);
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3), 0 4px 6px -1px var(--shadow-card);
+  }
+
+  .card-body { display: flex; gap: 6px; }
+  .gutter { width: 30px; display: flex; align-items: flex-start; justify-content: center; padding-top: 2px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 3px; }
+  .dot.green { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.6); }
+  .dot.yellow { background: #eab308; box-shadow: 0 0 6px rgba(234,179,8,0.6); }
+  .dot.gray { background: #585858; }
+  .content { flex: 1; min-width: 0; }
+  .row1 { display: flex; align-items: center; gap: 8px; }
+  .name { font-size: 14px; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .age { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .row2 { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; }
+  .model { color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status { white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; }
+  .status.yellow { color: #facc15; }
+  .status.purple { color: #c084fc; }
+  .status.cyan { color: #22d3ee; }
+  .status.green { color: #4ade80; }
+  .status.muted { color: var(--text-tertiary); }
+  .spacer { flex: 1; }
+  .bar { width: 64px; height: 6px; border-radius: 999px; background: #374151; overflow: hidden; flex-shrink: 0; }
+  .bar > i { display: block; height: 100%; border-radius: 999px; background: #22c55e; }
+  .cost { color: var(--text-tertiary); flex-shrink: 0; font-size: 12px; }
+  .branch { margin-top: 4px; font-size: 11px; color: #60a5fa; display: flex; align-items: center; gap: 5px; }
+  .branch .ico { opacity: 0.7; }
+
+  /* a non-portaled dropdown menu, like WorktreeActionsMenu (absolute, escapes card) */
+  .menu-host { position: relative; }
+  .menu {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 50;
+    background: var(--bg-secondary); border: 1px solid var(--border-secondary);
+    border-radius: 6px; padding: 4px; min-width: 150px; font-size: 12px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+  }
+  .menu div { padding: 5px 8px; border-radius: 4px; color: var(--text-secondary); }
+  .menu div:hover { background: var(--bg-hover, rgba(255,255,255,0.06)); color: var(--text-primary); }
+  .menu-note { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+  /* ============================================================
+     NEW ANIMATION CSS — copied verbatim from the change
+     `throttle-idle-ui-animations` (packages/client/src/index.css).
+     ============================================================ */
+
+  /* Pause all animations while the window is hidden */
+  :root.app-hidden *,
+  :root.app-hidden *::before,
+  :root.app-hidden *::after { animation-play-state: paused !important; }
+
+  /* ── Session-card status stripes (compositor-only) ───────────── */
+  @keyframes card-stripe-scroll {
+    to { transform: translateX(28.2843px); } /* 1 × (20√2) px across stripes */
+  }
+  @keyframes card-working-opacity-pulse {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1;   }
+  }
+  .card-stripes-fx {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: -1;
+  }
+  .card-stripes-fx::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -28.2843px;
+    right: -28.2843px;
+    /* No background-size: gradient fills naturally; translateX by one horizontal
+       period (28.2843px) loops seamlessly without seaming the 20px/45° pattern. */
+    animation:
+      card-stripe-scroll 2s linear infinite,
+      card-working-opacity-pulse 3s ease-in-out infinite;
+  }
+  .card-stripes-running::before {
+    background-image:
+      repeating-linear-gradient(45deg, transparent 0 10px, rgba(234, 179, 8, 0.10) 10px 20px),
+      linear-gradient(rgba(234, 179, 8, 0.06), rgba(234, 179, 8, 0.06));
+  }
+  .card-stripes-unread::before {
+    background-image:
+      repeating-linear-gradient(45deg, transparent 0 10px, rgba(34, 211, 238, 0.18) 10px 20px),
+      linear-gradient(rgba(34, 211, 238, 0.07), rgba(34, 211, 238, 0.07));
+  }
+  .card-stripes-input::before {
+    background-image:
+      repeating-linear-gradient(45deg, transparent 0 10px, rgba(168, 85, 247, 0.18) 10px 20px),
+      linear-gradient(rgba(168, 85, 247, 0.07), rgba(168, 85, 247, 0.07));
+  }
+
+  /* ── Selected-card iridescent ring (compositor-only) ─────────── */
+  @keyframes neon-rotate { to { transform: rotate(360deg); } }
+
+  .card-selected-ring { position: relative; isolation: isolate; }
+  .card-selected-ring > * { position: relative; z-index: 2; }
+  /* Double rotating glow — two clipped+blurred conic layers. overflow:hidden
+     clips each rotating conic to a halo band so rotation stays contained (no
+     page-background bleed); filter:blur on the LAYER then spreads a soft halo
+     just beyond the card. Inner + wider outer layer = a double glow border. */
+  .card-glow-fx {
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: -2;
+    filter: blur(var(--neon-glow-blur));
+    opacity: var(--neon-glow-opacity);
+    /* Query container so the rotating child can size to the LARGER edge
+       (cqmax) and cover the card diagonal at every rotation angle. */
+    container-type: size;
+  }
+  .card-glow-fx-outer {
+    inset: -7px;
+    z-index: -3;
+    filter: blur(calc(var(--neon-glow-blur) * 2));
+    opacity: calc(var(--neon-glow-opacity) * 0.7);
+  }
+  .card-glow-fx::before {
+    content: "";
+    position: absolute;
+    /* Square = 2× the layer's larger edge, centered. 2·max ≥ the W×H diagonal,
+       so a full rotation never sweeps an uncovered gap on wide cards. */
+    left: 50%; top: 50%;
+    width: 200cqmax; height: 200cqmax;
+    margin-left: -100cqmax; margin-top: -100cqmax;
+    background: conic-gradient(
+      from 0deg,
+      rgb(59 130 246 / var(--neon-glow-alpha)),
+      rgb(139 92 246 / var(--neon-glow-alpha)),
+      rgb(236 72 153 / var(--neon-glow-alpha)),
+      rgb(34 211 238 / var(--neon-glow-alpha)),
+      rgb(59 130 246 / var(--neon-glow-alpha))
+    );
+    transform-origin: center;
+    will-change: transform;
+    animation: neon-rotate 13s linear infinite;
+  }
+  .card-ring-fx {
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: -1;
+    padding: 1px;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    container-type: size;
+  }
+  .card-ring-fx::before {
+    content: "";
+    position: absolute;
+    /* Square covering the card diagonal at every angle (see glow note). */
+    left: 50%; top: 50%;
+    width: 200cqmax; height: 200cqmax;
+    margin-left: -100cqmax; margin-top: -100cqmax;
+    background: conic-gradient(
+      from 0deg,
+      rgb(59 130 246 / var(--neon-rim-alpha)),
+      rgb(139 92 246 / var(--neon-rim-alpha)),
+      rgb(236 72 153 / var(--neon-rim-alpha)),
+      rgb(34 211 238 / var(--neon-rim-alpha)),
+      rgb(59 130 246 / var(--neon-rim-alpha))
+    );
+    transform-origin: center;
+    will-change: transform;
+    animation: neon-rotate 13s linear infinite;
+  }
+  .card-stripes-fx,
+  .card-ring-fx,
+  .card-glow-fx { position: absolute; }
+  .card-stripes-fx,
+  .card-ring-fx { z-index: -1; }
+  .card-glow-fx { z-index: -2; }
+  .card-glow-fx-outer { z-index: -3; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card-stripes-fx::before,
+    .card-ring-fx::before,
+    .card-glow-fx::before { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <h1>Idle UI animations — session card mockup</h1>
+  <p class="sub">
+    Change <code>throttle-idle-ui-animations</code>. All card animations here are
+    <strong>compositor-only</strong>: the neon ring rotates a static
+    <code>conic-gradient</code> via <code>transform: rotate</code> (no per-frame
+    re-raster, blur cached once); the status stripes scroll a static gradient via
+    <code>transform: translateX</code> (no <code>background-position</code> repaint).
+    The crisp rim and stripes live on clipped overlay layers behind card content
+    (<code>.card-ring-fx</code> / <code>.card-stripes-fx</code>) so the dropdown menu
+    and outer glow stay unclipped on the card root. Use the buttons to verify the
+    hidden-window pause and theme.
+  </p>
+
+  <div class="toolbar">
+    <button id="themeBtn">Toggle theme</button>
+    <button id="hideBtn">Toggle <code>app-hidden</code> (pause)</button>
+    <span class="hint pause-state" id="pauseState">animations: running</span>
+    <span class="hint">· enable OS “Reduce Motion” to confirm the <code>prefers-reduced-motion</code> guard</span>
+  </div>
+
+  <div class="grid">
+
+    <div>
+      <p class="cell-label">Selected <small>— neon ring (rotating rim + double rotating glow)</small></p>
+      <ul class="cards">
+        <li class="card selected card-selected-ring">
+          <div class="card-glow-fx card-glow-fx-outer" aria-hidden="true"></div>
+          <div class="card-glow-fx" aria-hidden="true"></div>
+          <div class="card-ring-fx" aria-hidden="true"></div>
+          <div class="card-body">
+            <div class="gutter"><span class="dot gray"></span></div>
+            <div class="content">
+              <div class="row1"><span class="name">pi-agent-dashboard</span><span class="age">1d</span></div>
+              <div class="row2"><span class="model">anthropic/claude-opus-4-8</span><span class="status muted">Waiting for input</span><span class="spacer"></span><span class="cost">$7.49</span></div>
+              <div class="branch"><span class="ico">⑂</span> main</div>
+            </div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div>
+      <p class="cell-label">Selected + running <small>— ring AND yellow stripes together</small></p>
+      <ul class="cards">
+        <li class="card selected card-selected-ring card-working-pulse">
+          <div class="card-glow-fx card-glow-fx-outer" aria-hidden="true"></div>
+          <div class="card-glow-fx" aria-hidden="true"></div>
+          <div class="card-stripes-fx card-stripes-running" aria-hidden="true"></div>
+          <div class="card-ring-fx" aria-hidden="true"></div>
+          <div class="card-body">
+            <div class="gutter"><span class="dot yellow"></span></div>
+            <div class="content">
+              <div class="row1"><span class="name">throttle-idle-ui-animations</span><span class="age">24s</span></div>
+              <div class="row2"><span class="model">anthropic/claude-opus-4-8</span><span class="status yellow">⚡ bash</span><span class="spacer"></span><span class="bar"><i style="width:20%"></i></span><span class="cost">$9.14</span></div>
+              <div class="branch"><span class="ico">⑂</span> os/throttle-idle-ui-animations</div>
+            </div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div>
+      <p class="cell-label">Running <small>— yellow stripes (streaming / resuming)</small></p>
+      <ul class="cards">
+        <li class="card card-working-pulse">
+          <div class="card-stripes-fx card-stripes-running" aria-hidden="true"></div>
+          <div class="card-body">
+            <div class="gutter"><span class="dot yellow"></span></div>
+            <div class="content">
+              <div class="row1"><span class="name">memory-introspection</span><span class="age">3m</span></div>
+              <div class="row2"><span class="model">anthropic/claude-opus-4-8</span><span class="status yellow">⚡ Read</span><span class="spacer"></span><span class="bar"><i style="width:42%"></i></span><span class="cost">$2.10</span></div>
+            </div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div>
+      <p class="cell-label">ask_user <small>— purple stripes (waiting for question)</small></p>
+      <ul class="cards">
+        <li class="card card-input-stripes menu-host">
+          <div class="card-stripes-fx card-stripes-input" aria-hidden="true"></div>
+          <div class="card-body">
+            <div class="gutter"><span class="dot green"></span></div>
+            <div class="content">
+              <div class="row1"><span class="name">spec-coherence-check</span><span class="age">12s</span></div>
+              <div class="row2"><span class="model">anthropic/claude-opus-4-8</span><span class="status purple">❔ Waiting for input</span><span class="spacer"></span><span class="cost">$0.88</span></div>
+            </div>
+          </div>
+          <div class="menu">
+            <div>Open worktree</div><div>Rename</div><div>Shut down</div>
+          </div>
+        </li>
+      </ul>
+      <p class="menu-note">↑ dropdown escapes the card border — proves the stripe/ring clip layers do NOT clip the menu.</p>
+    </div>
+
+    <div>
+      <p class="cell-label">Unread <small>— cyan stripes (unviewed activity)</small></p>
+      <ul class="cards">
+        <li class="card card-unread-pulse">
+          <div class="card-stripes-fx card-stripes-unread" aria-hidden="true"></div>
+          <div class="card-body">
+            <div class="gutter"><span class="dot gray"></span></div>
+            <div class="content">
+              <div class="row1"><span class="name">release-cut-v0-5-4</span><span class="age">8m</span></div>
+              <div class="row2"><span class="model">anthropic/claude-opus-4-8</span><span class="status cyan">new activity</span><span class="spacer"></span><span class="cost">$3.02</span></div>
+            </div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div>
+      <p class="cell-label">Idle <small>— no decorative animation (reference)</small></p>
+      <ul class="cards">
+        <li class="card">
+          <div class="card-body">
+            <div class="gutter"><span class="dot gray"></span></div>
+            <div class="content">
+              <div class="row1"><span class="name">archived-session</span><span class="age">2d</span></div>
+              <div class="row2"><span class="model">anthropic/claude-opus-4-8</span><span class="status muted">ended</span><span class="spacer"></span><span class="cost">$5.41</span></div>
+            </div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+  </div>
+
+  <script>
+    const root = document.documentElement;
+    document.getElementById('themeBtn').onclick = () => {
+      root.setAttribute('data-theme', root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    };
+    const pauseState = document.getElementById('pauseState');
+    document.getElementById('hideBtn').onclick = () => {
+      const hidden = root.classList.toggle('app-hidden');
+      pauseState.textContent = hidden ? 'animations: PAUSED (app-hidden)' : 'animations: running';
+    };
+  </script>
+</body>
+</html>

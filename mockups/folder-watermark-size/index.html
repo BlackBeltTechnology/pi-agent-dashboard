@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Folder watermark — size / placement UX study</title>
+<style>
+  :root, [data-theme="light"] {
+    --page:#f1f1f4; --card:#ffffff; --card-2:#f6f6f9; --border:rgba(0,0,0,.08);
+    --border-2:rgba(0,0,0,.14); --rim:rgba(255,255,255,.7); --shadow:rgba(0,0,0,.08);
+    --text-1:#1c1c22; --text-2:#4a4a55; --text-3:#8a8a95; --text-mut:#adadb6;
+    --blue:#3b6ef6; --indigo:#7c74f4; --cyan:#0e9db0; --purple:#a25df0;
+    --green:#2fa960; --orange:#e0791f; --amber:#c98a12;
+  }
+  [data-theme="dark"] {
+    --page:#0f0f12; --card:#18181c; --card-2:#1f1f25; --border:rgba(255,255,255,.08);
+    --border-2:rgba(255,255,255,.14); --rim:rgba(255,255,255,.05); --shadow:rgba(0,0,0,.4);
+    --text-1:#e5e5e5; --text-2:#b0b0b0; --text-3:#808080; --text-mut:#585858;
+    --blue:#6b8afd; --indigo:#a5a1fb; --cyan:#38bec9; --purple:#c084fc;
+    --green:#4ade80; --orange:#fb923c; --amber:#fbbf24;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--page); color:var(--text-1); padding:24px 20px 80px; -webkit-font-smoothing:antialiased; }
+  .toolbar { display:flex; gap:12px; align-items:center; max-width:1500px; margin:0 auto 20px; }
+  .toolbar h1 { font-size:15px; font-weight:700; margin:0; }
+  .toolbar .sp { flex:1; }
+  .toolbar button { font:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:8px;
+    border:1px solid var(--border-2); background:var(--card); color:var(--text-2); cursor:pointer; }
+
+  .rail { display:flex; gap:28px; align-items:flex-start; max-width:1500px; margin:0 auto; flex-wrap:wrap; }
+  .col { width:340px; }           /* real pinned-sidebar card width */
+  .col h2 { font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase;
+    color:var(--text-3); margin:0 0 10px 2px; }
+  .col h2 .tag { color:var(--text-mut); font-weight:600; text-transform:none; letter-spacing:0; }
+  .note { font-size:11px; color:var(--text-3); line-height:1.55; margin:10px 2px 0; }
+  .note b { color:var(--text-2); }
+
+  /* ── card shell (mirrors SessionList.renderGroup) ─────────────── */
+  .card { position:relative; overflow:hidden; background:var(--card); border:1px solid var(--border);
+    border-radius:14px; box-shadow:inset 0 1px 0 var(--rim),0 2px 4px var(--shadow); padding:6px; }
+  .card > .z { position:relative; z-index:1; padding:4px; }
+
+  /* watermark layer — the thing under study */
+  .mark { position:absolute; inset:0; z-index:0; pointer-events:none; display:flex;
+    align-items:center; justify-content:center; }
+  .mark img { height:auto; filter:saturate(.85); }
+  /* variants */
+  .m-current img { width:188px; max-width:70%; opacity:.13; }
+  .m-small   img { width:120px; max-width:46%; opacity:.10; }
+  .m-corner  { align-items:flex-end; justify-content:flex-end; }
+  .m-corner img { width:132px; max-width:52%; opacity:.11; transform:translate(14%,20%); }
+  .m-none    img { display:none; }
+  [data-theme="light"] .m-current img { opacity:.16; }
+  [data-theme="light"] .m-small img { opacity:.12; }
+  [data-theme="light"] .m-corner img { opacity:.13; }
+
+  /* header row */
+  .hdr { display:flex; align-items:center; gap:7px; padding:2px 4px; }
+  .hdr .chev { color:var(--text-3); }
+  .hdr .name { color:var(--text-1); font-size:16px; font-weight:800; }
+  .hdr .sp { flex:1; }
+  .git { display:flex; align-items:center; gap:9px; margin-top:6px; padding:2px 4px; font-size:12.5px; }
+  .git .branch { color:var(--blue); font-weight:600; }
+  .git .badge { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700;
+    padding:1px 8px; border-radius:999px; border:1px solid var(--orange); color:var(--orange); }
+  .git .badge .dot { width:7px; height:7px; border-radius:50%; background:var(--orange); }
+  .git .commit { color:var(--blue); font-weight:600; }
+  .git .init { margin-left:auto; font-size:11px; font-weight:700; color:var(--amber);
+    border:1px solid color-mix(in srgb,var(--amber) 45%,transparent); border-radius:8px; padding:3px 8px; }
+  .git .gear { width:26px; height:26px; border-radius:8px; border:1px solid var(--border-2);
+    color:var(--text-3); background:var(--card-2); display:inline-flex; align-items:center; justify-content:center; }
+
+  /* slot pill grid */
+  .pillgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+  .pill { display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:11px;
+    border:1px solid var(--border); background:var(--card-2); box-shadow:0 1px 2px var(--shadow); min-width:0; }
+  .pill .glyph { width:26px; height:26px; border-radius:8px; flex-shrink:0; display:flex;
+    align-items:center; justify-content:center; font-size:14px; }
+  .pill .mid { display:flex; flex-direction:column; min-width:0; line-height:1.15; flex:1; }
+  .pill .lbl { font-size:9px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3); }
+  .pill .val { font-size:13px; font-weight:800; color:var(--text-1); display:flex; align-items:baseline; gap:4px; }
+  .pill .val .unit { font-size:9.5px; font-weight:600; color:var(--text-3); }
+  .pill .act { flex-shrink:0; width:22px; height:22px; border-radius:7px; display:flex; align-items:center;
+    justify-content:center; border:1px dashed var(--border-2); color:var(--text-3); font-size:13px; }
+  .pill.auto  .glyph { color:var(--blue);   background:color-mix(in srgb,var(--blue) 12%,transparent); }
+  .pill.goals .glyph { color:var(--indigo); background:color-mix(in srgb,var(--indigo) 12%,transparent); }
+  .pill.kb    .glyph { color:var(--cyan);   background:color-mix(in srgb,var(--cyan) 12%,transparent); }
+  .pill.spec  .glyph { color:var(--purple); background:color-mix(in srgb,var(--purple) 12%,transparent); }
+  .subrow { display:flex; gap:6px; margin-top:8px; padding:0 2px; }
+  .mini { font-size:10px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid; display:inline-flex; align-items:center; gap:5px; }
+  .mini.purple { color:var(--purple); border-color:color-mix(in srgb,var(--purple) 38%,transparent); }
+  .mini.cyan { color:var(--cyan); border-color:color-mix(in srgb,var(--cyan) 38%,transparent); }
+</style>
+</head>
+<body data-theme="light">
+<div class="toolbar">
+  <h1>Folder watermark — size / placement UX study</h1>
+  <span class="sp"></span>
+  <button onclick="document.body.dataset.theme = document.body.dataset.theme==='dark'?'light':'dark'">◑ Toggle theme</button>
+</div>
+
+<div class="rail" id="rail"></div>
+
+<script>
+  const CARD = (markClass) => `
+    <div class="card">
+      <div class="mark ${markClass}"><img src="assets/folder-3d.svg" alt=""></div>
+      <div class="z">
+        <div class="hdr"><span class="chev">▾</span><span class="name">pi-agent-dashboard</span><span class="sp"></span><span class="gear">⚙</span></div>
+        <div class="git"><span class="branch">⑂ develop</span><span class="badge"><span class="dot"></span>3</span><span class="commit">Commit</span><span class="init">⚙ Initialize</span></div>
+        <div class="pillgrid">
+          <div class="pill auto"><span class="glyph">⚙</span><span class="mid"><span class="lbl">Automations</span><span class="val">0 <span class="unit">flows</span></span></span><span class="act">+</span></div>
+          <div class="pill goals"><span class="glyph">◎</span><span class="mid"><span class="lbl">Goals</span><span class="val">0 <span class="unit">active</span></span></span><span class="act">+</span></div>
+          <div class="pill kb"><span class="glyph">▤</span><span class="mid"><span class="lbl">KB</span><span class="val">16.5k <span class="unit">chunks</span></span></span><span class="act">⟳</span></div>
+          <div class="pill spec"><span class="glyph">▦</span><span class="mid"><span class="lbl">OpenSpec</span><span class="val">57 <span class="unit">changes</span></span></span><span class="act">⟳</span></div>
+        </div>
+        <div class="subrow"><span class="mini purple">▤ Archive</span><span class="mini cyan">▤ Specs</span></div>
+      </div>
+    </div>`;
+
+  const VARIANTS = [
+    ["m-current", "Current", "188px · max 70% · opacity .13/.16", "Half-open flap edge pokes above the pill grid; hard vector edges read as a real UI element, not texture. Dominates the negative space between the four pills."],
+    ["m-small", "Option A — Smaller & fainter", "120px · max 46% · opacity .10/.12", "Sits fully behind the pill grid; reads as subtle paper texture. Lower opacity keeps it legible-but-quiet. Least code change — one className."],
+    ["m-corner", "Option B — Corner anchor", "132px · bottom-right · opacity .11/.13", "Moves the mark out of the content column entirely; anchors the card without competing with pills. Bleeds off the clipped corner like a debossed stamp."],
+    ["m-none", "Option C — Remove", "no watermark", "Maximum clarity, zero decorative noise. Loses the folder-identity cue the redesign spec introduced — include as the baseline to judge the others against."],
+  ];
+
+  document.getElementById("rail").innerHTML = VARIANTS.map(([cls,title,tag,note]) =>
+    `<div class="col"><h2>${title} <span class="tag">${tag}</span></h2>${CARD(cls)}<p class="note">${note}</p></div>`
+  ).join("");
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Automation input wiring — mockups</title>
+<link rel="stylesheet" href="shell.css" />
+<style>
+  .frames{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  @media(max-width:900px){.frames{grid-template-columns:1fr}}
+  .frames iframe{width:100%;height:1180px;border:1px solid var(--border-secondary);border-radius:12px;background:var(--bg)}
+  .frames .cap{font-size:12px;color:var(--text-muted);margin:0 0 8px;text-align:center}
+  .frames .cap b{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Automation input wiring — design mockups</h1>
+  <p class="sub">Groups 5–7 of <code>wire-flow-inputs-in-automation</code>. A <b>file trigger</b> fires per new file;
+  its path is wired into a flow's declared inputs via a new dialog form. Two integration models below.</p>
+  <div class="nav">
+    <a href="additive.html">Additive (chosen) →</a>
+    <a href="replacement.html">Full replacement →</a>
+    <a href="index.html" class="on">Side by side</a>
+    <a href="wiring.html">Original sketch</a>
+  </div>
+
+  <div class="frames">
+    <div>
+      <p class="cap"><b>Additive</b> — generic Flow+Task form + inputs rows below (chosen)</p>
+      <iframe src="additive.html" title="additive"></iframe>
+    </div>
+    <div>
+      <p class="cap"><b>Full replacement</b> — flows editor owns Flow+Task+Inputs (needs new endpoint)</p>
+      <iframe src="replacement.html" title="replacement"></iframe>
+    </div>
+  </div>
+</div>
+</body>
+</html>

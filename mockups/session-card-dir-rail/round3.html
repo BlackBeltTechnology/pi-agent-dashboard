@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Round 3 — separating the drag grip from the directory rail</title>
+<style>
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --bg-hover:rgba(255,255,255,.06);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+  --border-subtle:rgba(255,255,255,.06); --border-secondary:#333;
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+  --shadow-card:rgba(0,0,0,.5); --elevation-rim:rgba(255,255,255,.04);
+  --rail-directory:rgba(255,255,255,.22);
+  --grip-dot:#7a7a7a;
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --bg-hover:rgba(0,0,0,.04);
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+  --border-subtle:rgba(0,0,0,.06); --border-secondary:#ccc;
+  --shadow-card:rgba(0,0,0,.08); --elevation-rim:rgba(255,255,255,.9);
+  --rail-directory:rgba(0,0,0,.18);
+  --grip-dot:#8a8a8a;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:24px;background:var(--bg-secondary);color:var(--text-primary);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+h1{font-size:15px;margin:0 0 4px;font-weight:700}
+.sub{font-size:12px;color:var(--text-tertiary);margin:0 0 18px;max-width:920px}
+.bar{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap}
+.bar button{font:600 12px/1 inherit;padding:7px 12px;border-radius:9px;cursor:pointer;
+  background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-subtle)}
+.bar button[aria-pressed="true"]{color:var(--accent-blue);border-color:color-mix(in srgb,var(--accent-blue) 45%,transparent);
+  background:color-mix(in srgb,var(--accent-blue) 8%,var(--bg-tertiary))}
+.grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start}
+.pane h2{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-tertiary);margin:0 0 3px}
+.pane p{font-size:11px;color:var(--text-muted);margin:0 0 10px;min-height:44px}
+.pane p b{color:var(--text-secondary);font-weight:600}
+.panel{background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:14px;padding:8px 6px 6px;
+  box-shadow:0 2px 4px var(--shadow-card)}
+.zoom{zoom:1.9}
+
+/* ── B geometry + S1 status (chip only) ───────────────────────── */
+.list{position:relative;display:flex;flex-direction:column;gap:4px;padding-left:18px}
+.list::before{content:"";position:absolute;left:7px;top:2px;bottom:14px;width:2px;border-radius:999px;
+  background:var(--rail-directory);transition:background .12s}
+.card{position:relative;padding:8px 8px 8px 6px;border-radius:12px;border:1px solid var(--border-subtle);
+  background:var(--bg-primary);cursor:pointer;box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card)}
+.card::before{content:"";position:absolute;left:-11px;top:19px;width:9px;height:2px;border-radius:999px;background:var(--rail-directory)}
+.l1{display:flex;align-items:center;gap:6px}
+.nm{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.age{font-size:10px;color:var(--text-muted);flex:none}
+.l2{display:flex;gap:4px;margin-top:3px;flex-wrap:wrap}
+.tag{font-size:9px;padding:1px 4px;border-radius:4px;border:1px solid;line-height:1.5}
+.tag.g{color:#4ade80;border-color:color-mix(in srgb,var(--accent-green) 30%,transparent)}
+.tag.b{color:#60a5fa;border-color:color-mix(in srgb,var(--accent-blue) 30%,transparent)}
+.l3{display:flex;align-items:center;gap:8px;margin-top:3px;font-size:11px;color:var(--text-tertiary)}
+.l3 .act{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meter{flex:0 0 54px;height:4px;border-radius:999px;background:var(--bg-surface);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent-blue)}
+.ichip{flex:none;width:16px;height:16px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:var(--bg-tertiary)}
+.ichip svg{width:10px;height:10px}
+.st-run{color:var(--accent-green)}.st-idle{color:var(--text-tertiary)}.st-err{color:var(--accent-red)}.st-wait{color:var(--accent-yellow)}
+
+/* ── grip: shared dot pattern (2 cols x 3 rows) ───────────────── */
+.grip{position:absolute;display:flex;align-items:center;justify-content:center;cursor:grab;
+  opacity:0;transition:opacity .12s,background .12s}
+.card:hover .grip,.forcehover .grip{opacity:1}
+/* Real 7x13 glyph box — flex-centering now centers the GLYPH, not a seed dot.
+   (The old 3px span + box-shadow trick centered the seed, pushing the icon
+   up-left inside the pill.) */
+.dots{display:block;width:7px;height:13px;color:var(--grip-dot)}
+.dots svg{display:block;width:7px;height:13px;fill:currentColor}
+
+/* G0 — round 2 as-is: grip sits ON the rail, no separation */
+.g0 .grip{left:-17px;top:0;bottom:0;width:16px}
+
+/* G1 — opaque bead: grip masks the rail behind an opaque pill + border */
+.g1 .grip{left:-19px;top:50%;transform:translateY(-50%);width:15px;height:26px;border-radius:8px;
+  background:var(--bg-primary);border:1px solid var(--border-subtle)}
+.g1 .card:hover .grip,.forcehover .g1 .grip{background:var(--bg-tertiary)}
+
+/* G2 — rail gap: no border, opaque background only; the line simply breaks */
+.g2 .grip{left:-19px;top:50%;transform:translateY(-50%);width:15px;height:24px;background:var(--bg-primary)}
+
+/* G3 — moved off the line: wider offset, grip lives BETWEEN rail and card */
+.g3.list{padding-left:26px}
+.g3 .card::before{left:-19px;width:7px}
+.g3 .grip{left:-14px;top:0;bottom:0;width:12px}
+
+/* G4 — rail dims while the row is hovered, so the grip pops off a faint line */
+.g4 .grip{left:-17px;top:0;bottom:0;width:16px}
+.g4.list:hover::before,.forcehover .g4.list::before{background:color-mix(in srgb,var(--rail-directory) 35%,transparent)}
+.g4 .dots{color:var(--text-secondary)}
+
+/* G5 — elevated chip: raised surface + shadow, unmistakably above the line */
+.g5 .grip{left:-20px;top:50%;transform:translateY(-50%);width:17px;height:28px;border-radius:9px;
+  background:var(--bg-surface);border:1px solid var(--border-secondary);
+  box-shadow:0 2px 6px var(--shadow-card)}
+.g5 .dots{color:var(--text-secondary)}
+
+/* G6 — vertical bar glyph instead of dots, offset off the rail */
+.g6.list{padding-left:24px}
+.g6 .card::before{left:-17px;width:7px}
+.g6 .grip{left:-13px;top:50%;transform:translateY(-50%);width:12px;height:22px;border-radius:6px;
+  background:var(--bg-primary)}
+.g6 .dots{width:6px;height:14px}
+.g6 .dots svg{width:6px;height:14px}
+</style>
+</head>
+<body>
+
+<h1>Round 3 — separating the drag grip from the gray directory rail</h1>
+<p class="sub">Locked in: <b>variant B</b> geometry + <b>S1</b> status (icon chip only) + <b>D2</b> grip in the rail band, hover-revealed. Problem to solve: at 2px the rail runs straight through the 6-dot grip, so the handle mushes into the line. Panels are zoomed <b>1.9×</b> so the collision is visible. All handles are hover-revealed — <b>Force hover</b> is on by default here.</p>
+
+<div class="bar">
+  <button id="theme" aria-pressed="false">Toggle light / dark</button>
+  <button id="fh" aria-pressed="true">Force hover</button>
+  <button id="zoom" aria-pressed="true">Zoom 1.9×</button>
+</div>
+
+<div class="grid" id="grid">
+  <section class="pane"><h2>G0 · Round 2 as-is</h2><p><b>The problem.</b> Grip is centered on the rail; the line bisects the dot columns.</p><div class="panel"><div class="zoom"><div class="list g0" data-l></div></div></div></section>
+  <section class="pane"><h2>G1 · Opaque bead</h2><p>15×26 pill in <code>--bg-primary</code> + subtle border <b>masks</b> the rail. Reads as a bead threaded on the line.</p><div class="panel"><div class="zoom"><div class="list g1" data-l></div></div></div></section>
+  <section class="pane"><h2>G2 · Rail gap</h2><p>Same mask, <b>no border</b> — the line just breaks where the handle is. Quietest.</p><div class="panel"><div class="zoom"><div class="list g2" data-l></div></div></div></section>
+  <section class="pane"><h2>G3 · Moved off the line</h2><p>Offset 18→26px; grip sits <b>between</b> rail and card, never touching either. Costs 8px of content.</p><div class="panel"><div class="zoom"><div class="list g3" data-l></div></div></div></section>
+  <section class="pane"><h2>G4 · Rail dims on hover</h2><p>Line fades to 35% while the row is hovered, dots brighten to <code>--text-secondary</code>. <b>Zero geometry change.</b></p><div class="panel"><div class="zoom"><div class="list g4" data-l></div></div></div></section>
+  <section class="pane"><h2>G5 · Elevated chip</h2><p>Raised <code>--bg-surface</code> chip + shadow, clearly <b>above</b> the line. Loudest; most "button-like".</p><div class="panel"><div class="zoom"><div class="list g5" data-l></div></div></div></section>
+  <section class="pane"><h2>G6 · Two bars, off the line</h2><p>Grip glyph is two 2×14 bars instead of 6 dots — <b>reads at small size</b>, and offset clears the rail.</p><div class="panel"><div class="zoom"><div class="list g6" data-l></div></div></div></section>
+</div>
+
+<script>
+const ICON='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>';
+// 6-dot grip on an exact 7x13 canvas — no box-shadow fakery, so it centers.
+const GRIP='<svg viewBox="0 0 7 13" aria-hidden="true"><circle cx="1.5" cy="1.5" r="1.5"/><circle cx="1.5" cy="6.5" r="1.5"/><circle cx="1.5" cy="11.5" r="1.5"/><circle cx="5.5" cy="1.5" r="1.5"/><circle cx="5.5" cy="6.5" r="1.5"/><circle cx="5.5" cy="11.5" r="1.5"/></svg>';
+// two-bar variant for G6, exact 6x14 canvas
+const GRIP_BARS='<svg viewBox="0 0 6 14" aria-hidden="true"><rect x="0" y="0" width="2" height="14" rx="1"/><rect x="4" y="0" width="2" height="14" rx="1"/></svg>';
+const S=[
+  {n:'folder-card-enclosure',st:'run', age:'2m', act:'Edit SessionList.tsx',tags:[['g','worktree'],['b','openspec']],ctx:62,c:'0.62'},
+  {n:'bump-pi-version',      st:'wait',age:'14m',act:'Waiting for input',   tags:[],                                 ctx:38,c:'0.38'},
+  {n:'fix-replay-cache',     st:'err', age:'3h', act:'2 failing tests',     tags:[['b','openspec']],                 ctx:81,c:'0.81'},
+];
+const card=s=>`<article class="card" data-st="${s.st}">
+  <span class="grip" data-testid="drag-handle-session" title="Drag to reorder"><span class="dots">${GRIP}</span></span>
+  <div class="l1"><span class="ichip st-${s.st}">${ICON}</span><span class="nm">${s.n}</span><span class="age">${s.age}</span></div>
+  ${s.tags.length?`<div class="l2">${s.tags.map(([c,t])=>`<span class="tag ${c}">${t}</span>`).join('')}</div>`:''}
+  <div class="l3"><span class="act">${s.act}</span><span class="meter"><i style="width:${s.ctx}%"></i></span><span>$${s.c}</span></div>
+</article>`;
+document.querySelectorAll('[data-l]').forEach(el=>{
+  el.innerHTML=S.map(card).join('');
+  if(el.classList.contains('g6'))el.querySelectorAll('.dots').forEach(d=>d.innerHTML=GRIP_BARS);
+});
+document.body.classList.add('forcehover');
+const q=new URLSearchParams(location.search);
+if(q.get('theme')==='light')document.documentElement.dataset.theme='light';
+const t=document.getElementById('theme');
+t.onclick=()=>{const d=document.documentElement.dataset.theme==='dark';
+  document.documentElement.dataset.theme=d?'light':'dark';t.setAttribute('aria-pressed',String(d));};
+const f=document.getElementById('fh');
+f.onclick=()=>{const on=document.body.classList.toggle('forcehover');f.setAttribute('aria-pressed',String(on));};
+const z=document.getElementById('zoom');
+z.onclick=()=>{const on=z.getAttribute('aria-pressed')!=='true';z.setAttribute('aria-pressed',String(on));
+  document.querySelectorAll('.zoom').forEach(e=>{e.style.zoom=on?'1.9':'1';});};
+if(q.get('zoom')==='0')z.click();
+</script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tapered name-tab — iteration</title>
+<style>
+  :root, [data-theme="light"] {
+    --page:#f1f1f4; --card:#ffffff; --card-2:#f6f6f9; --tab:#eef0f7; --border:rgba(0,0,0,.09);
+    --border-2:rgba(0,0,0,.14); --rim:rgba(255,255,255,.75); --shadow:rgba(0,0,0,.08);
+    --text-1:#1c1c22; --text-2:#4a4a55; --text-3:#8a8a95; --text-mut:#adadb6;
+    --blue:#3b6ef6; --indigo:#7c74f4; --cyan:#0e9db0; --purple:#a25df0;
+    --green:#2fa960; --orange:#e0791f; --amber:#c98a12;
+  }
+  [data-theme="dark"] {
+    --page:#0f0f12; --card:#18181c; --card-2:#1f1f25; --tab:#24242c; --border:rgba(255,255,255,.09);
+    --border-2:rgba(255,255,255,.15); --rim:rgba(255,255,255,.05); --shadow:rgba(0,0,0,.45);
+    --text-1:#e5e5e5; --text-2:#b0b0b0; --text-3:#808080; --text-mut:#585858;
+    --blue:#6b8afd; --indigo:#a5a1fb; --cyan:#38bec9; --purple:#c084fc;
+    --green:#4ade80; --orange:#fb923c; --amber:#fbbf24;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--page); color:var(--text-1); padding:24px 22px 90px; -webkit-font-smoothing:antialiased; }
+  .toolbar { display:flex; gap:12px; align-items:center; max-width:1500px; margin:0 auto 8px; }
+  .toolbar h1 { font-size:15px; font-weight:700; margin:0; }
+  .toolbar .sp { flex:1; }
+  .toolbar button { font:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:8px;
+    border:1px solid var(--border-2); background:var(--card); color:var(--text-2); cursor:pointer; }
+  .lead { max-width:1500px; margin:8px auto 26px; font-size:12px; color:var(--text-3); line-height:1.55; }
+  .lead b { color:var(--text-2); }
+  .rail { display:flex; gap:36px; align-items:flex-start; max-width:1500px; margin:0 auto; flex-wrap:wrap; }
+  .item { width:330px; }
+  .item .cap { font-size:10.5px; font-weight:800; color:var(--text-3); margin:0 0 16px 2px; text-transform:uppercase; letter-spacing:.05em; }
+  .item .sub { font-size:10.5px; color:var(--text-mut); margin:12px 2px 0; line-height:1.55; }
+
+  /* ── shared inner ─────────────────────────────────────── */
+  .git { display:flex; align-items:center; gap:8px; font-size:12px; }
+  .git .branch { color:var(--blue); font-weight:600; }
+  .git .badge { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:999px; border:1px solid var(--orange); color:var(--orange); }
+  .git .badge .dot { width:6px; height:6px; border-radius:50%; background:var(--orange); }
+  .git .commit { color:var(--blue); font-weight:600; }
+  .git .gear { margin-left:auto; width:24px; height:24px; border-radius:7px; border:1px solid var(--border-2); color:var(--text-3); background:var(--card-2); display:inline-flex; align-items:center; justify-content:center; font-size:13px; }
+  .pillgrid { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:11px; }
+  .pill { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px; border:1px solid var(--border); background:var(--card-2); box-shadow:0 1px 2px var(--shadow); min-width:0; }
+  .pill .glyph { width:24px; height:24px; border-radius:7px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:13px; }
+  .pill .mid { display:flex; flex-direction:column; min-width:0; line-height:1.15; flex:1; }
+  .pill .lbl { font-size:8.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-3); }
+  .pill .val { font-size:12px; font-weight:800; color:var(--text-1); }
+  .pill .val .unit { font-size:9px; font-weight:600; color:var(--text-3); }
+  .pill.auto  .glyph { color:var(--blue);   background:color-mix(in srgb,var(--blue) 12%,transparent); }
+  .pill.goals .glyph { color:var(--indigo); background:color-mix(in srgb,var(--indigo) 12%,transparent); }
+  .pill.kb    .glyph { color:var(--cyan);   background:color-mix(in srgb,var(--cyan) 12%,transparent); }
+  .pill.spec  .glyph { color:var(--purple); background:color-mix(in srgb,var(--purple) 12%,transparent); }
+  .subrow { display:flex; gap:6px; margin-top:9px; }
+  .mini { font-size:9.5px; font-weight:700; padding:2px 8px; border-radius:999px; border:1px solid; }
+  .mini.purple { color:var(--purple); border-color:color-mix(in srgb,var(--purple) 38%,transparent); }
+  .mini.cyan { color:var(--cyan); border-color:color-mix(in srgb,var(--cyan) 38%,transparent); }
+
+  /* ══ Tapered name-tab: the tab is sized to the NAME and its right
+     edge tapers (a diagonal LINE) down into the card mouth. The name
+     lives ON the tab; the taper visually "leads toward" the content. ══ */
+  .folder { position:relative; }
+  .tab {
+    position:relative; z-index:2; display:inline-flex; align-items:center; gap:6px;
+    margin-left:10px; padding:6px 12px 8px 12px;
+    background:var(--tab); color:var(--text-1); font-size:14px; font-weight:800;
+    border:1px solid var(--border); border-bottom:none;
+    box-shadow:inset 0 1px 0 var(--rim); cursor:pointer;
+  }
+  .tab .chev { color:var(--text-3); font-size:11px; font-weight:400; }
+  .body {
+    position:relative; z-index:1; margin-top:-1px;
+    background:var(--card); border:1px solid var(--border);
+    border-radius:0 13px 13px 13px;
+    box-shadow:inset 0 1px 0 var(--rim), 0 3px 8px var(--shadow);
+    padding:11px 13px 13px;
+  }
+
+  /* TAPER RIGHT — line slopes down-right, leading the eye into the body.
+     Longer taper = the "line has to go toward" the content. */
+  .t-right .tab { border-radius:10px 3px 0 0; padding-right:30px;
+    clip-path:polygon(0 0, calc(100% - 20px) 0, 100% 100%, 0 100%); }
+
+  /* TAPER BOTH — classic symmetric folder tab, both edges angle inward */
+  .t-both .tab { border-radius:8px 8px 0 0; padding-left:26px; padding-right:26px;
+    clip-path:polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%); }
+
+  /* GROW LEFT — tab starts flush at the card's left corner and widens
+     out to the name; taper on the right leads back into the mouth */
+  .t-grow .tab { margin-left:0; border-radius:12px 4px 0 0; padding-left:14px; padding-right:28px;
+    clip-path:polygon(0 0, calc(100% - 18px) 0, 100% 100%, 0 100%); }
+  .t-grow .body { border-radius:0 13px 13px 13px; }
+
+  /* UNDERLINE NAME — name in body header; a tapered nub sits UNDER the
+     name and connects up to it with a widening line (no name on tab) */
+  .t-under .body { border-radius:13px; padding-top:13px; margin-top:11px; }
+  .t-under .nubwrap { position:relative; }
+  .t-under .nub {
+    position:absolute; top:0; left:12px; height:11px; width:150px;
+    background:var(--tab); border:1px solid var(--border); border-bottom:none;
+    border-radius:9px 4px 0 0;
+    clip-path:polygon(0 0, calc(100% - 16px) 0, 100% 100%, 0 100%);
+  }
+  .t-under .hdr { display:flex; align-items:center; gap:7px; margin-bottom:4px; }
+  .t-under .hdr .name { font-size:15px; font-weight:800; }
+  .t-under .hdr .chev { color:var(--text-3); font-size:11px; }
+</style>
+</head>
+<body data-theme="light">
+<div class="toolbar">
+  <h1>Tapered name-tab — iteration</h1>
+  <span class="sp"></span>
+  <button onclick="document.body.dataset.theme=document.body.dataset.theme==='dark'?'light':'dark'">◑ Toggle theme</button>
+</div>
+<p class="lead">The tab is sized to the folder <b>name</b>; its edge tapers into a diagonal <b>line</b> that leads toward the card's content. Four ways the line can run.</p>
+
+<div class="rail" id="rail"></div>
+
+<script>
+  const INNER = `
+    <div class="git"><span class="branch">⑂ develop</span><span class="badge"><span class="dot"></span>3</span><span class="commit">Commit</span><span class="gear">⚙</span></div>
+    <div class="pillgrid">
+      <div class="pill auto"><span class="glyph">⚙</span><span class="mid"><span class="lbl">Automations</span><span class="val">0 <span class="unit">flows</span></span></span></div>
+      <div class="pill goals"><span class="glyph">◎</span><span class="mid"><span class="lbl">Goals</span><span class="val">0 <span class="unit">active</span></span></span></div>
+      <div class="pill kb"><span class="glyph">▤</span><span class="mid"><span class="lbl">KB</span><span class="val">16.5k <span class="unit">chunks</span></span></span></div>
+      <div class="pill spec"><span class="glyph">▦</span><span class="mid"><span class="lbl">OpenSpec</span><span class="val">57 <span class="unit">changes</span></span></span></div>
+    </div>
+    <div class="subrow"><span class="mini purple">▤ Archive</span><span class="mini cyan">▤ Specs</span></div>`;
+
+  const NAMETAB = (mods) => `<div class="folder ${mods}">
+      <div class="tab"><span class="chev">▾</span>pi-agent-dashboard</div>
+      <div class="body">${INNER}</div>
+    </div>`;
+
+  const UNDER = `<div class="folder t-under"><div class="nubwrap">
+      <div class="nub"></div>
+      <div class="body">
+        <div class="hdr"><span class="chev">▾</span><span class="name">pi-agent-dashboard</span></div>
+        ${INNER}
+      </div>
+    </div></div>`;
+
+  const VARIANTS = [
+    ["t-right", "A · Taper right", "name on tab; right edge slopes down into the mouth", NAMETAB("t-right"),
+      "The tab holds the name; its right edge is a long diagonal that runs down-right INTO the card body — the clearest 'line leads toward content' read. Recommended."],
+    ["t-both", "B · Taper both sides", "classic symmetric folder tab", NAMETAB("t-both"),
+      "Both edges angle inward — the most literal manila-folder tab. Symmetric, but the line points nowhere in particular (leads down on both sides)."],
+    ["t-grow", "C · Grow from left corner", "tab flush at corner, widens to the name", NAMETAB("t-grow"),
+      "Tab starts at the card's left edge and grows out to fit the name, tapering back on the right. Anchors hard to the corner like a real folder."],
+    ["t-under", "D · Underline the name", "name in body; tapered nub sits under it", UNDER,
+      "Name stays in the body header; a small tapered nub sits UNDER the name and connects up. Least disruptive — closest to the original 'subtle nub' but the nub now leads to the name."],
+  ];
+
+  document.getElementById("rail").innerHTML = VARIANTS.map(([_,cap,sub,html,note]) =>
+    `<div class="item"><p class="cap">${cap}</p>${html}<p class="sub"><b style="color:var(--text-3)">${sub}.</b> ${note}</p></div>`
+  ).join("");
+</script>
+</body>
+</html>

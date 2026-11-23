@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plugin settings as left-nav pages — mockup</title>
+<style>
+  /* ── Base tokens (dark) — mirror packages/client/src/index.css :root ── */
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --bg-surface: #2a2a2a;
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --text-muted: #585858;
+    --border-primary: rgba(255,255,255,0.10);
+    --border-secondary: rgba(255,255,255,0.08);
+    --border-subtle: rgba(255,255,255,0.06);
+    --accent-green: #22c55e;
+    --accent-yellow: #eab308;
+    --accent-red: #ef4444;
+    --accent-blue: #3b82f6;
+    --accent-purple: #a855f7;
+    --radius: 6px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font: 13px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .app { display: flex; flex-direction: column; height: 100%; }
+
+  /* ── Header ── */
+  .hdr {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px; border-bottom: 1px solid var(--border-primary); flex: none;
+  }
+  .hdr h1 { font-size: 17px; font-weight: 700; margin: 0; }
+  .hdr .spacer { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: var(--radius); cursor: pointer;
+    background: var(--bg-tertiary); color: var(--text-secondary);
+    border: 1px solid var(--border-secondary); font-size: 13px; font-weight: 500;
+  }
+  .btn:hover { background: var(--bg-surface); }
+  .btn.primary {
+    background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
+    color: var(--accent-blue);
+    border-color: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  /* ── Left nav rail ── */
+  nav.rail {
+    width: 236px; flex: none; padding: 8px;
+    border-right: 1px solid var(--border-primary);
+    overflow-y: auto;
+  }
+  .grp { padding: 12px 12px 4px; font-size: 11px; font-weight: 700;
+         letter-spacing: .04em; text-transform: uppercase; color: var(--text-tertiary); }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 7px 12px; border-radius: var(--radius);
+    background: none; border: 0; cursor: pointer; text-align: left;
+    color: var(--text-muted); font-size: 13px; font-family: inherit;
+  }
+  .nav-item:hover { background: var(--bg-secondary); color: var(--text-secondary); }
+  .nav-item.active {
+    background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
+    color: var(--text-primary); font-weight: 600;
+  }
+  .nav-item .ico { width: 16px; height: 16px; flex: none; opacity: .9; }
+  .nav-item .count {
+    margin-left: auto; font-size: 10px; padding: 1px 6px; border-radius: 99px;
+    background: var(--bg-tertiary); color: var(--text-tertiary);
+    border: 1px solid var(--border-secondary);
+  }
+  .chev { margin-left: auto; transition: transform .15s; opacity: .7; }
+  .chev.open { transform: rotate(90deg); }
+
+  /* child rows — plugin pages */
+  .kids { margin: 2px 0 6px; }
+  .kids .nav-item {
+    padding-left: 34px; font-size: 12.5px; position: relative;
+  }
+  /* the guide rail that makes the nesting legible */
+  .kids .nav-item::before {
+    content: ""; position: absolute; left: 20px; top: 0; bottom: 0;
+    border-left: 1px solid var(--border-subtle);
+  }
+  .kids .nav-item.active::before { border-left-color: color-mix(in srgb, var(--accent-blue) 55%, transparent); }
+  .dot { width: 6px; height: 6px; border-radius: 99px; flex: none; }
+  .dot.on { background: var(--accent-green); }
+  .dot.off { background: var(--text-muted); }
+  .dot.err { background: var(--accent-red); }
+  .dot.warn { background: var(--accent-yellow); }
+  .nav-item.dim { opacity: .5; }
+  .dirty { margin-left: auto; width: 6px; height: 6px; border-radius: 99px; background: var(--accent-yellow); flex: none; }
+
+  /* ── Content ── */
+  main { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px 80px; }
+  .page { max-width: 760px; }
+  .crumbs { font-size: 11.5px; color: var(--text-tertiary); margin-bottom: 12px; }
+  .crumbs a { color: var(--text-secondary); text-decoration: none; cursor: pointer; }
+  .crumbs a:hover { text-decoration: underline; }
+
+  /* plugin page header — the consistent chrome every plugin page gets */
+  .phdr {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding-bottom: 14px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--border-primary);
+  }
+  .phdr .glyph {
+    width: 34px; height: 34px; border-radius: 8px; flex: none;
+    display: grid; place-items: center;
+    background: var(--bg-tertiary); border: 1px solid var(--border-secondary);
+  }
+  .phdr h2 { margin: 0; font-size: 16px; font-weight: 650; }
+  .phdr .sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .phdr .desc { font-size: 12.5px; color: var(--text-secondary); margin-top: 6px; max-width: 60ch; }
+  .phdr .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  .pill { font-size: 10px; padding: 2px 7px; border-radius: 4px; border: 1px solid; white-space: nowrap; }
+  .pill.ok   { color: var(--accent-green);  background: color-mix(in srgb, var(--accent-green) 15%, transparent);  border-color: color-mix(in srgb, var(--accent-green) 40%, transparent); }
+  .pill.warn { color: var(--accent-yellow); background: color-mix(in srgb, var(--accent-yellow) 12%, transparent); border-color: color-mix(in srgb, var(--accent-yellow) 40%, transparent); }
+  .pill.err  { color: var(--accent-red);    background: color-mix(in srgb, var(--accent-red) 12%, transparent);    border-color: color-mix(in srgb, var(--accent-red) 40%, transparent); }
+  .pill.mute { color: var(--text-muted); background: var(--bg-tertiary); border-color: var(--border-secondary); }
+
+  /* toggle */
+  .sw { position: relative; width: 34px; height: 19px; border-radius: 99px; cursor: pointer;
+        background: var(--bg-surface); border: 1px solid var(--border-secondary); transition: .15s; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px;
+               border-radius: 99px; background: var(--text-tertiary); transition: .15s; }
+  .sw.on { background: color-mix(in srgb, var(--accent-blue) 45%, transparent);
+           border-color: color-mix(in srgb, var(--accent-blue) 60%, transparent); }
+  .sw.on::after { left: 17px; background: #fff; }
+
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+  .chip {
+    font-size: 10.5px; padding: 2px 7px; border-radius: 4px;
+    background: var(--bg-tertiary); color: var(--text-secondary);
+    border: 1px solid var(--border-secondary);
+  }
+  .chip .k { color: var(--text-muted); }
+
+  /* Section — matches built-in <Section> chrome */
+  .sec { margin-bottom: 20px; }
+  .sec > h3 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text-secondary); margin: 0 0 8px;
+  }
+  .card {
+    background: var(--bg-secondary); border: 1px solid var(--border-secondary);
+    border-radius: var(--radius); padding: 14px 16px;
+  }
+  .row { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
+  .row + .row { border-top: 1px solid var(--border-subtle); }
+  .row .lbl { font-size: 12.5px; color: var(--text-secondary); }
+  .row .hint { font-size: 11px; color: var(--text-muted); }
+  .row .ctl { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  select, input[type=text], input[type=number] {
+    background: var(--bg-tertiary); border: 1px solid var(--border-secondary);
+    color: var(--text-primary); border-radius: 4px; padding: 4px 8px; font: inherit; font-size: 12px;
+  }
+  .banner {
+    display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: var(--radius);
+    font-size: 12.5px; margin-bottom: 16px; border: 1px solid;
+  }
+  .banner.warn { color: var(--accent-yellow); background: color-mix(in srgb, var(--accent-yellow) 12%, transparent); border-color: color-mix(in srgb, var(--accent-yellow) 40%, transparent); }
+  .banner.err  { color: var(--accent-red);  background: color-mix(in srgb, var(--accent-red) 12%, transparent);  border-color: color-mix(in srgb, var(--accent-red) 40%, transparent); }
+  .banner .spacer { flex: 1; }
+
+  .empty {
+    padding: 22px; text-align: center; border-radius: var(--radius);
+    border: 1px dashed var(--border-secondary); color: var(--text-muted); font-size: 12.5px;
+  }
+
+  /* plugins index (root page) */
+  .plist { display: flex; flex-direction: column; gap: 6px; }
+  .prow {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    background: var(--bg-secondary); border: 1px solid var(--border-secondary);
+    border-radius: var(--radius); cursor: pointer;
+  }
+  .prow:hover { border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent); }
+  .prow .nm { font-size: 13px; font-weight: 550; }
+  .prow .id { font-size: 10.5px; color: var(--text-muted); }
+  .prow .go { color: var(--text-tertiary); font-size: 11px; }
+
+  /* sticky page footer for dirty state */
+  .footer {
+    position: sticky; bottom: 0; margin: 22px -24px -80px; padding: 12px 24px;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    border-top: 1px solid var(--border-primary);
+    display: flex; align-items: center; gap: 10px;
+    backdrop-filter: blur(6px);
+  }
+  .footer .note { font-size: 11.5px; color: var(--text-muted); }
+  .footer .spacer { flex: 1; }
+
+  .note-callout {
+    margin-top: 26px; padding: 12px 14px; border-radius: var(--radius);
+    border: 1px dashed var(--border-secondary); color: var(--text-tertiary); font-size: 12px;
+  }
+  .note-callout b { color: var(--text-secondary); }
+
+  /* ── global save bar (one Save for the whole Settings panel) ── */
+  .savebar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 16px;
+    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    border-top: 1px solid var(--border-primary);
+    backdrop-filter: blur(8px);
+  }
+  .savebar .note { font-size: 12px; color: var(--text-secondary); }
+  .savebar .spacer { flex: 1; }
+  .pagechip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; padding: 2px 8px; border-radius: 99px; cursor: pointer;
+    background: color-mix(in srgb, var(--accent-yellow) 12%, transparent);
+    color: var(--accent-yellow);
+    border: 1px solid color-mix(in srgb, var(--accent-yellow) 40%, transparent);
+  }
+  .pagechip:hover { background: color-mix(in srgb, var(--accent-yellow) 22%, transparent); }
+  .badge-count {
+    font-size: 10px; padding: 1px 6px; border-radius: 99px;
+    background: color-mix(in srgb, var(--accent-yellow) 18%, transparent);
+    color: var(--accent-yellow);
+    border: 1px solid color-mix(in srgb, var(--accent-yellow) 40%, transparent);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="hdr">
+    <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="color:var(--text-muted)"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    <h1>Settings</h1>
+    <div class="spacer"></div>
+    <span id="hdr-dirty"></span>
+    <button class="btn">Restart</button>
+    <button class="btn primary" id="hdr-save">Save</button>
+  </header>
+
+  <div class="body">
+    <nav class="rail" id="rail"></nav>
+    <main><div class="page" id="page"></div></main>
+  </div>
+</div>
+
+<script>
+// ── icons ───────────────────────────────────────────────────────────────
+const I = {
+  cog:'M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z',
+  server:'M4 1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1m0 2v4h16V3H4m0 8h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1m0 2v4h16v-4H4m5-8h2v2H9V5m0 8h2v2H9v-2Z',
+  dash:'M3 3h8v8H3V3m10 0h8v5h-8V3M3 13h8v8H3v-8m10 3h8v5h-8v-5Z',
+  web:'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m6.9 6h-2.95a15.6 15.6 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.9 8M12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96M4.26 14A7.8 7.8 0 0 1 4 12c0-.69.1-1.36.26-2h3.38a16.5 16.5 0 0 0 0 4H4.26m.82 2h2.95c.32 1.25.78 2.45 1.38 3.56A8 8 0 0 1 5.08 16m2.95-8H5.08a8 8 0 0 1 4.33-3.56A15.6 15.6 0 0 0 8.03 8M12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82A15.6 15.6 0 0 1 12 19.96M14.34 14H9.66a14.7 14.7 0 0 1 0-4h4.68a14.7 14.7 0 0 1 0 4m.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8 8 0 0 1-4.33 3.56M16.36 14a16.5 16.5 0 0 0 0-4h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38Z',
+  lock:'M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 10 0v2h1M12 3a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3Z',
+  key:'M7 14a2 2 0 0 1-2-2 2 2 0 0 1 2-2 2 2 0 0 1 2 2 2 2 0 0 1-2 2m5.65-4A6 6 0 0 0 7 6a6 6 0 0 0-6 6 6 6 0 0 0 6 6 6 6 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65Z',
+  pkg:'M12 2 4 6v12l8 4 8-4V6l-8-4m0 2.2 5.6 2.8L12 9.8 6.4 7 12 4.2M6 8.6l5 2.5v7.3l-5-2.5V8.6m7 9.8v-7.3l5-2.5v7.3l-5 2.5Z',
+  puzzle:'M20.5 11H19V7a2 2 0 0 0-2-2h-4V3.5A2.5 2.5 0 0 0 10.5 1 2.5 2.5 0 0 0 8 3.5V5H4a2 2 0 0 0-2 2v3.8h1.5c1.5 0 2.7 1.2 2.7 2.7S5 16.2 3.5 16.2H2V20a2 2 0 0 0 2 2h3.8v-1.5c0-1.5 1.2-2.7 2.7-2.7s2.7 1.2 2.7 2.7V22H17a2 2 0 0 0 2-2v-4h1.5a2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5Z',
+  clip:'M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2m-7 0a1 1 0 0 1 1 1 1 1 0 0 1-1 1 1 1 0 0 1-1-1 1 1 0 0 1 1-1M7 7h10V5h2v14H5V5h2v2Z',
+  chev:'M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6-1.4-1.4Z',
+  book:'M19 2H6a3 3 0 0 0-3 3v14a3 3 0 0 0 3 3h13V2M8 4h9v12H8a3 3 0 0 0-3 1V5a1 1 0 0 1 1-1Z',
+  robot:'M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5Z',
+  brain:'M12 3a4 4 0 0 0-4 4c-1.66 0-3 1.34-3 3 0 .74.27 1.42.72 1.94A2.99 2.99 0 0 0 5 14a3 3 0 0 0 3 3v1a3 3 0 0 0 6 0v-1a3 3 0 0 0 3-3c0-.79-.31-1.5-.81-2.03.45-.52.81-1.23.81-1.97 0-1.66-1.34-3-3-3a4 4 0 0 0-4-4Z',
+  flow:'M4 3h6v4H4V3m10 7h6v4h-6v-4M4 17h6v4H4v-4m6-8h2v6h-2V9m2 2h2v2h-2v-2Z',
+  target:'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 3a7 7 0 1 1 0 14 7 7 0 0 1 0-14m0 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8m0 2.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z',
+  bolt:'M11 21h-1l1-7H6.5c-.88 0-.33-.75-.31-.78C7.48 10.94 9.66 7.57 12.87 2h1l-1 7h4.51c.4 0 .62.19.4.66C12.97 17.55 11 21 11 21Z',
+  wrench:'M22.7 19 13.6 9.9a5.99 5.99 0 0 0-7.9-7.7l3.9 3.9-2.8 2.8-4-3.9a6 6 0 0 0 7.7 7.9L19.6 22a1 1 0 0 0 1.4 0l1.7-1.7a1 1 0 0 0 0-1.3Z',
+  doc:'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6m4 18H6V4h7v5h5v11Z',
+  palette:'M12 22A10 10 0 0 1 2 12 10 10 0 0 1 12 2c5.5 0 10 4 10 9a5.98 5.98 0 0 1-6 6h-1.8c-.3 0-.5.2-.5.5 0 .1.1.2.1.4.3.4.5.9.5 1.4 0 1.5-1.2 2.7-2.3 2.7M12 4a8 8 0 0 0-8 8 8 8 0 0 0 8 8c.2 0 .3-.1.3-.3 0-.1 0-.2-.1-.3-.3-.4-.5-.9-.5-1.4 0-1.4 1.1-2.5 2.5-2.5H16a4 4 0 0 0 4-4c0-3.9-3.6-7-8-7m-5.5 6a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3m3-4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3m5 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3m3 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z',
+  txt:'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2m2 4v2h10V7H7m0 4v2h10v-2H7m0 4v2h7v-2H7Z',
+  tunnel:'M12 2C6.5 2 2 6.5 2 12v10h6v-10a4 4 0 0 1 8 0v10h6V12c0-5.5-4.5-10-10-10Z',
+};
+function svg(p, size=15, color) {
+  return `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor"${color?` style="color:${color}"`:''}><path d="${p}"/></svg>`;
+}
+
+// ── plugin model ────────────────────────────────────────────────────────
+const PLUGINS = [
+  { id:'roles', name:'Roles', icon:I.robot, status:'on', settings:true, source:'monorepo', version:'0.9.4',
+    desc:'Bind model refs to named roles (@fast, @deep) and manage presets shared by every session.',
+    claims:['settings-section','command-route'], deps:[],
+    body:'roles' },
+  { id:'hermes-memory', name:'Hermes Memory', icon:I.brain, status:'on', settings:true, source:'global', version:'1.2.0',
+    desc:'Persistent user / project / failure memory stores, surfaced per session.',
+    claims:['settings-section','session-card-memory'], deps:[],
+    body:'hermes' },
+  { id:'goal', name:'Goal', icon:I.target, status:'warn', settings:true, source:'monorepo', version:'0.4.1',
+    desc:'Goal loop: judge-driven iteration until an exit condition passes.',
+    claims:['settings-section','content-view'], deps:['flows'],
+    warn:'requires pi extension <code>pi-goal</code> — not installed',
+    body:'goal' },
+  { id:'flows', name:'Flows', icon:I.flow, status:'on', settings:true, source:'monorepo', version:'2.1.0',
+    desc:'Multi-agent flow orchestration and run inspection.',
+    claims:['settings-section','content-view','sidebar-folder-section'], deps:[],
+    body:'flows' },
+  { id:'subagents', name:'Subagents', icon:I.bolt, status:'off', settings:true, source:'monorepo', version:'1.0.3',
+    desc:'Spawn and inspect isolated subagent contexts from a parent session.',
+    claims:['settings-section','session-card-badge'], deps:[],
+    body:'subagents' },
+  { id:'automation', name:'Automation', icon:I.cog, status:'err', settings:true, source:'local-detected', version:'0.2.0',
+    desc:'Scheduled and event-triggered session automation.',
+    claims:['settings-section'], deps:[],
+    err:'Failed to load: bridge path conflict — /api/automation already claimed by "cron-plugin"',
+    body:'automation' },
+  { id:'demo', name:'Demo', icon:I.puzzle, status:'on', settings:false, source:'bundled', version:'0.0.1',
+    desc:'Reference plugin used by the slot-contract tests. Contributes no settings.',
+    claims:['session-card-badge'], deps:[] },
+];
+
+const NAV = [
+  { group:'Dashboard', items:[
+    { id:'general', label:'General', icon:I.cog },
+    { id:'server',  label:'Server',  icon:I.server },
+    { id:'sessions',label:'Sessions',icon:I.dash },
+  ]},
+  { group:'Network', items:[
+    { id:'remote',  label:'Remote Servers', icon:I.web },
+    { id:'gateway', label:'Gateway', icon:I.tunnel },
+    { id:'security',label:'Security', icon:I.lock },
+  ]},
+  { group:'Extensions', items:[
+    { id:'providers', label:'Providers', icon:I.key },
+    { id:'packages',  label:'Packages',  icon:I.pkg },
+    { id:'plugins',   label:'Plugins',   icon:I.puzzle, expandable:true },
+    { id:'openspec',  label:'OpenSpec',  icon:I.clip },
+  ]},
+  { group:'Resources', items:[
+    { id:'skills', label:'Skills', icon:I.book },
+    { id:'agents', label:'Agents', icon:I.robot },
+    { id:'extensions', label:'Extensions', icon:I.puzzle },
+    { id:'prompts', label:'Prompts', icon:I.txt },
+    { id:'themes',  label:'Themes',  icon:I.palette },
+  ]},
+  { group:'Advanced', items:[
+    { id:'developer', label:'Developer', icon:I.wrench },
+    { id:'instructions', label:'Instructions', icon:I.doc },
+  ]},
+];
+
+let route = 'plugins/roles';
+let pluginsOpen = true;
+// Pages with uncommitted edits. One global Save commits them all; the nav and
+// the save bar are the only places that tell you WHICH pages changed.
+const dirty = new Set(['plugins/hermes-memory']);
+const pageLabel = (r) =>
+  r.startsWith('plugins/')
+    ? 'Plugins › ' + (PLUGINS.find(p => p.id === r.slice(8))?.name ?? r.slice(8))
+    : (NAV.flatMap(g => g.items).find(i => i.id === r)?.label ?? r);
+
+// ── nav render ──────────────────────────────────────────────────────────
+function renderRail() {
+  const el = document.getElementById('rail');
+  el.innerHTML = NAV.map(g => `
+    <div class="grp">${g.group}</div>
+    ${g.items.map(it => {
+      if (it.expandable) return renderPluginsNav(it);
+      const active = route === it.id;
+      return `<button class="nav-item${active?' active':''}" data-route="${it.id}">
+        ${svg(it.icon)}<span>${it.label}</span>
+      </button>`;
+    }).join('')}
+  `).join('');
+  el.querySelectorAll('[data-route]').forEach(b =>
+    b.onclick = () => { route = b.dataset.route; render(); });
+  const t = el.querySelector('[data-toggle]');
+  if (t) t.onclick = (e) => { e.stopPropagation(); pluginsOpen = !pluginsOpen; render(); };
+}
+
+// Decision 1: the nav lists ENABLED plugins that contribute settings only.
+// Disabled plugins stay reachable through the Plugins index page, so the rail
+// length tracks what you actually run, not what is merely installed.
+const navPlugins = () => PLUGINS.filter(p => p.settings && p.status !== 'off');
+
+function renderPluginsNav(it) {
+  const active = route === 'plugins';
+  const kids = navPlugins();
+  const hiddenCount = PLUGINS.length - kids.length;
+  return `
+    <button class="nav-item${active?' active':''}" data-route="plugins">
+      ${svg(it.icon)}<span>${it.label}</span>
+      <span class="count" title="${kids.length} shown · ${hiddenCount} hidden (disabled or no settings)">${kids.length}</span>
+      <span data-toggle class="chev${pluginsOpen?' open':''}">${svg(I.chev,14)}</span>
+    </button>
+    ${pluginsOpen ? `<div class="kids">${kids.map(p => {
+      const r = 'plugins/' + p.id;
+      return `<button class="nav-item${route===r?' active':''}" data-route="${r}">
+        <span class="dot ${p.status==='on'?'on':p.status==='err'?'err':'warn'}"></span>
+        <span>${p.name}</span>
+        ${dirty.has(r)?'<span class="dirty" title="Unsaved changes on this page"></span>':''}
+      </button>`;
+    }).join('')}</div>` : ''}
+  `;
+}
+
+// ── plugin settings bodies (deliberately different content, identical chrome) ──
+const BODIES = {
+  roles: `
+    <div class="sec"><h3>Role bindings</h3><div class="card">
+      ${[['@fast','anthropic/claude-haiku-4-5'],['@deep','anthropic/claude-opus-4-6'],['@judge','openai/gpt-5.2']].map(([r,m])=>`
+      <div class="row"><span class="lbl mono">${r}</span>
+        <span class="ctl"><select><option>${m}</option></select></span></div>`).join('')}
+    </div></div>
+    <div class="sec"><h3>Presets</h3><div class="card">
+      <div class="row"><span class="lbl">Active preset</span>
+        <span class="ctl"><select><option>default</option><option>budget</option></select></span></div>
+      <div class="row"><span class="lbl">Create preset from current map</span>
+        <span class="ctl"><button class="btn">New preset</button></span></div>
+    </div></div>`,
+  hermes: `
+    <div class="sec"><h3>Stores</h3><div class="card">
+      <div class="row"><div><div class="lbl">User memory</div><div class="hint mono">~/.pi/agent/pi-hermes-memory/USER.md · 4.1 KB</div></div>
+        <span class="ctl"><span class="pill mute">72% of cap</span><button class="btn">Open</button></span></div>
+      <div class="row"><div><div class="lbl">Project memory</div><div class="hint mono">projects-memory/pi-agent-dashboard/MEMORY.md · 11.3 KB</div></div>
+        <span class="ctl"><span class="pill warn">94% of cap</span><button class="btn">Open</button></span></div>
+      <div class="row"><div><div class="lbl">Failures</div><div class="hint mono">failures.md · 6.7 KB</div></div>
+        <span class="ctl"><span class="pill mute">51% of cap</span><button class="btn">Open</button></span></div>
+    </div></div>
+    <div class="sec"><h3>Capture</h3><div class="card">
+      <div class="row"><div><div class="lbl">Auto-capture corrections</div><div class="hint">Write a memory when the user corrects the agent.</div></div>
+        <span class="ctl"><span class="sw on"></span></span></div>
+      <div class="row"><div><div class="lbl">Store byte cap</div><div class="hint">Consolidation prompt fires above this.</div></div>
+        <span class="ctl"><input type="number" value="30000" style="width:96px"></span></div>
+    </div></div>`,
+  goal: `
+    <div class="sec"><h3>Loop</h3><div class="card">
+      <div class="row"><div><div class="lbl">Max iterations</div><div class="hint">Hard stop for a single goal run.</div></div>
+        <span class="ctl"><input type="number" value="12" style="width:80px"></span></div>
+      <div class="row"><div><div class="lbl">Judge model</div></div>
+        <span class="ctl"><select><option>@judge</option><option>@deep</option></select></span></div>
+      <div class="row"><div><div class="lbl">Stop on judge pass</div></div>
+        <span class="ctl"><span class="sw on"></span></span></div>
+    </div></div>`,
+  flows: `
+    <div class="sec"><h3>Execution</h3><div class="card">
+      <div class="row"><div><div class="lbl">Default concurrency</div></div>
+        <span class="ctl"><input type="number" value="4" style="width:80px"></span></div>
+      <div class="row"><div><div class="lbl">Persist run artifacts</div><div class="hint mono">~/.pi/dashboard/flows/runs/</div></div>
+        <span class="ctl"><span class="sw on"></span></span></div>
+    </div></div>
+    <div class="sec"><h3>Anthropic bridge</h3><div class="card">
+      <div class="row"><div><div class="lbl">Bridge status</div></div>
+        <span class="ctl"><span class="pill ok">connected</span></span></div>
+    </div></div>`,
+  subagents: `
+    <div class="sec"><h3>Context inheritance</h3><div class="card">
+      <div class="row"><div><div class="lbl">Inherit parent context</div></div>
+        <span class="ctl"><span class="sw on"></span></span></div>
+      <div class="row"><div><div class="lbl">Max snapshot chars</div></div>
+        <span class="ctl"><input type="number" value="20000" style="width:96px"></span></div>
+    </div></div>`,
+  automation: `
+    <div class="sec"><h3>Schedules</h3><div class="card">
+      <div class="row"><span class="lbl">Settings unavailable while the plugin fails to load.</span></div>
+    </div></div>`,
+};
+
+// ── pages ───────────────────────────────────────────────────────────────
+function pluginPage(p) {
+  const statusPill =
+    p.status === 'on'   ? '<span class="pill ok">enabled</span>' :
+    p.status === 'off'  ? '<span class="pill mute">disabled</span>' :
+    p.status === 'err'  ? '<span class="pill err">error</span>' :
+                          '<span class="pill warn">not loaded</span>';
+  const isDirty = dirty.has('plugins/' + p.id);
+  return `
+    <div class="crumbs"><a data-route="plugins">Plugins</a> &rsaquo; ${p.name}</div>
+
+    <div class="phdr">
+      <div class="glyph">${svg(p.icon, 18, 'var(--text-secondary)')}</div>
+      <div>
+        <h2>${p.name}</h2>
+        <div class="sub mono">${p.id} · v${p.version}</div>
+        <div class="desc">${p.desc}</div>
+      </div>
+      <div class="right">
+        ${statusPill}
+        <span class="sw${p.status==='off'?'':' on'}" title="Enable plugin"></span>
+      </div>
+    </div>
+
+    <div class="meta">
+      <span class="chip"><span class="k">source</span> ${p.source}</span>
+      ${p.deps.length?`<span class="chip"><span class="k">depends on</span> ${p.deps.join(', ')}</span>`:''}
+      <span class="chip"><span class="k">slots</span> ${p.claims.join(', ')}</span>
+    </div>
+
+    ${p.err?`<div class="banner err">${svg(I.bolt,14)}<span>${p.err}</span></div>`:''}
+    ${p.warn?`<div class="banner warn">${svg(I.bolt,14)}<span>${p.warn}</span><span class="spacer"></span><button class="btn">Install</button></div>`:''}
+    ${p.status==='off'?`<div class="banner warn">${svg(I.bolt,14)}<span>This plugin is disabled — it is hidden from the left nav and its settings are read-only. Reachable from the <a data-route="plugins" style="color:inherit;cursor:pointer;text-decoration:underline">Plugins</a> list.</span></div>`:''}
+
+    ${isDirty ? `<div class="banner warn">${svg(I.bolt,14)}<span>This page has unsaved changes. Commit them with <b>Save</b> in the header.</span></div>`:''}
+
+    ${p.settings
+      ? (BODIES[p.body] ?? '')
+      : `<div class="empty">This plugin contributes no settings.</div>`}
+  `;
+}
+
+function pluginsIndex() {
+  return `
+    <div class="phdr"><div class="glyph">${svg(I.puzzle,18,'var(--text-secondary)')}</div>
+      <div><h2>Plugins</h2>
+      <div class="desc">Activation and health for every discovered dashboard plugin. Each plugin with settings also has its own page in the left nav.</div></div>
+    </div>
+    <div class="banner warn">${svg(I.bolt,14)}<span>Plugin changes take effect after a server restart.</span><span class="spacer"></span><button class="btn">Restart now</button></div>
+    <div class="sec"><h3>Installed (${PLUGINS.length})</h3>
+    <div class="plist">
+      ${PLUGINS.map(p => `
+        <div class="prow${p.status==='off'?' dim':''}" data-route="${p.settings?'plugins/'+p.id:'plugins'}">
+          <span class="dot ${p.status==='on'?'on':p.status==='off'?'off':p.status==='err'?'err':'warn'}"></span>
+          ${svg(p.icon,16,'var(--text-muted)')}
+          <div><div class="nm">${p.name}</div><div class="id mono">${p.id} · v${p.version}</div></div>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:10px">
+            ${p.status==='off'?'<span class="pill mute">not in nav</span>':''}
+            ${p.settings?'<span class="go">Settings &rsaquo;</span>':'<span class="go" style="opacity:.45">no settings</span>'}
+            <span class="sw${p.status==='off'?'':' on'}"></span>
+          </span>
+        </div>`).join('')}
+    </div></div>
+    <div class="note-callout"><b>Change vs today:</b> this page keeps activation / health / dependency cascade only.
+    Per-plugin configuration moved out of the inline expander and out of Settings ▸ General into dedicated
+    <span class="mono">/settings/plugins/&lt;id&gt;</span> pages, each with identical page chrome.<br>
+    Only <b>enabled</b> plugins with settings appear in the left nav (${navPlugins().length} of ${PLUGINS.length});
+    disabled ones are reached from this list.</div>
+  `;
+}
+
+function generalPage() {
+  return `
+    <div class="phdr"><div class="glyph">${svg(I.cog,18,'var(--text-secondary)')}</div>
+      <div><h2>General</h2><div class="desc">Dashboard-wide interface preferences.</div></div>
+    </div>
+    <div class="sec"><h3>Interface</h3><div class="card">
+      <div class="row"><div><div class="lbl">Language</div><div class="hint">Saved in this browser.</div></div>
+        <span class="ctl"><select><option>English</option><option>Magyar</option></select></span></div>
+      <div class="row"><div><div class="lbl">Theme</div></div>
+        <span class="ctl"><select><option>studio</option><option>earth</option><option>athlete</option><option>gradient</option></select></span></div>
+    </div></div>
+    <div class="sec"><h3>Display</h3><div class="card">
+      <div class="row"><div><div class="lbl">Compact session cards</div></div><span class="ctl"><span class="sw"></span></span></div>
+      <div class="row"><div><div class="lbl">Show token counters</div></div><span class="ctl"><span class="sw on"></span></span></div>
+    </div></div>
+    <div class="note-callout"><b>Change vs today:</b> General no longer hosts unlabelled, unframed plugin blocks
+    (roles / goal / hermes-memory). Those live at <span class="mono">/settings/plugins/&lt;id&gt;</span>.
+    General now contains only built-in, consistently framed sections.<br>
+    The claim's <span class="mono">tab</span> field is <b>inert</b>: a
+    <span class="mono">settings-section</span> claim renders on its owning plugin's page regardless of
+    <span class="mono">tab: "general"</span> / <span class="mono">"providers"</span> / anything else.</div>
+  `;
+}
+
+function stubPage(id) {
+  const label = NAV.flatMap(g=>g.items).find(i=>i.id===id)?.label ?? id;
+  return `<div class="phdr"><div class="glyph">${svg(I.cog,18,'var(--text-secondary)')}</div>
+    <div><h2>${label}</h2><div class="desc">Unchanged by this proposal.</div></div></div>
+    <div class="empty">Existing page — not part of this mockup.</div>`;
+}
+
+// Decision 3: ONE global Save. Its affordance names every page that changed,
+// and each name jumps to that page — so "what am I about to commit?" is
+// answerable without hunting the nav.
+function renderSaveBar() {
+  document.getElementById('savebar')?.remove();
+  const hdr = document.getElementById('hdr-dirty');
+  const save = document.getElementById('hdr-save');
+  const n = dirty.size;
+  hdr.innerHTML = n ? `<span class="badge-count">${n} page${n>1?'s':''} changed</span>` : '';
+  save.style.opacity = n ? '1' : '.45';
+  save.style.pointerEvents = n ? 'auto' : 'none';
+  if (!n) return;
+  const bar = document.createElement('div');
+  bar.className = 'savebar';
+  bar.id = 'savebar';
+  bar.innerHTML = `
+    <span class="note">Unsaved changes on:</span>
+    ${[...dirty].map(r => `<span class="pagechip" data-route="${r}">${pageLabel(r)}</span>`).join('')}
+    <span class="spacer"></span>
+    <button class="btn" id="discard-all">Discard all</button>
+    <button class="btn primary" id="save-all">Save all</button>`;
+  document.body.appendChild(bar);
+  bar.querySelectorAll('[data-route]').forEach(b =>
+    b.onclick = () => { route = b.dataset.route; render(); });
+  const clear = () => { dirty.clear(); render(); };
+  bar.querySelector('#discard-all').onclick = clear;
+  bar.querySelector('#save-all').onclick = clear;
+}
+
+function render() {
+  renderRail();
+  const page = document.getElementById('page');
+  if (route === 'plugins') page.innerHTML = pluginsIndex();
+  else if (route.startsWith('plugins/')) {
+    const p = PLUGINS.find(x => x.id === route.slice(8));
+    page.innerHTML = p ? pluginPage(p) : stubPage(route);
+  }
+  else if (route === 'general') page.innerHTML = generalPage();
+  else page.innerHTML = stubPage(route);
+  page.querySelectorAll('[data-route]').forEach(b =>
+    b.onclick = (e) => { e.stopPropagation(); route = b.dataset.route; render(); });
+  // Editing any control inside a page marks THAT page dirty.
+  page.querySelectorAll('.card .sw').forEach(el =>
+    el.onclick = () => { el.classList.toggle('on'); dirty.add(route); render(); });
+  page.querySelectorAll('.card select, .card input').forEach(el =>
+    el.onchange = () => { dirty.add(route); render(); });
+  renderSaveBar();
+  document.querySelector('main').scrollTop = 0;
+}
+document.getElementById('hdr-save').onclick = () => { dirty.clear(); render(); };
+render();
+</script>
+</body>
+</html>

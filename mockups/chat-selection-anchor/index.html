@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat selection anchoring — row-growth mockup</title>
+<style>
+  :root{
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --border-primary:#e0e0e0;
+    --text-primary:#1a1a1a; --text-muted:#aaa; --text-tertiary:#777;
+    --accent-primary:#2563eb; --ok:#16a34a; --bad:#dc2626; --anchor:#f59e0b;
+  }
+  html[data-theme="dark"]{
+    --bg-primary:#141414; --bg-secondary:#1b1b1b; --bg-tertiary:#232323;
+    --border-primary:#2e2e2e;
+    --text-primary:#ededed; --text-muted:#666; --text-tertiary:#8a8a8a;
+    --accent-primary:#60a5fa; --anchor:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg-primary); color:var(--text-primary);
+    font:13px/1.45 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:12px 16px; border-bottom:1px solid var(--border-primary);
+    background:var(--bg-secondary);
+  }
+  header h1{font-size:14px; margin:0; font-weight:700; letter-spacing:-.01em}
+  header .sub{color:var(--text-tertiary); font-size:12px}
+  .spacer{margin-left:auto}
+  .btn{
+    border:1px solid var(--border-primary); background:var(--bg-primary);
+    color:var(--text-primary); border-radius:7px; padding:5px 11px;
+    font-size:12px; cursor:pointer; font-family:inherit;
+  }
+  .btn:hover{background:var(--bg-tertiary)}
+  .btn[aria-pressed="true"]{border-color:var(--ok); color:var(--ok); font-weight:600}
+  .btn[aria-pressed="false"]{border-color:var(--bad); color:var(--bad); font-weight:600}
+
+  main{display:flex; gap:16px; padding:16px; align-items:flex-start; flex-wrap:wrap}
+
+  /* The scroll container mirrors ChatView: overflow-anchor:none, absolutely
+     positioned rows at translateY(start) over a total-size spacer, and NO
+     scroll-behavior:smooth. */
+  #scroller{
+    position:relative; width:520px; height:420px; overflow-y:auto;
+    overflow-anchor:none; overscroll-behavior:none;
+    border:1px solid var(--border-primary); border-radius:10px;
+    background:var(--bg-secondary); padding:8px;
+  }
+  #spacer{position:relative; width:100%}
+  .row{
+    position:absolute; top:0; left:0; width:100%;
+    padding:8px 10px; border-radius:8px;
+    background:var(--bg-primary); border:1px solid var(--border-primary);
+    white-space:pre-wrap;
+  }
+  .row .tag{
+    display:inline-block; font-size:10px; font-weight:700; letter-spacing:.04em;
+    color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;
+  }
+  .row.tool{background:var(--bg-tertiary)}
+  .row.is-anchor{outline:2px solid var(--anchor); outline-offset:-2px}
+
+  aside{width:420px; display:flex; flex-direction:column; gap:10px}
+  .panel{
+    border:1px solid var(--border-primary); border-radius:10px;
+    background:var(--bg-secondary); padding:10px 12px;
+  }
+  .panel h2{font-size:12px; margin:0 0 8px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-tertiary)}
+  .kv{display:grid; grid-template-columns:auto 1fr; gap:3px 10px; font-size:12px}
+  .kv dt{color:var(--text-tertiary)}
+  .kv dd{margin:0; font-variant-numeric:tabular-nums; font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .verdict{font-weight:700}
+  .verdict.ok{color:var(--ok)}
+  .verdict.bad{color:var(--bad)}
+  pre{
+    margin:0; max-height:120px; overflow:auto; font-size:11px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    background:var(--bg-primary); border:1px solid var(--border-primary);
+    border-radius:6px; padding:7px; white-space:pre-wrap; word-break:break-word;
+  }
+  ol{margin:0; padding-left:18px; font-size:12px; color:var(--text-tertiary)}
+  ol li{margin-bottom:4px}
+  .row-controls{display:flex; gap:6px; flex-wrap:wrap; align-items:center}
+  label{font-size:12px; color:var(--text-tertiary)}
+  input[type=number]{
+    width:70px; font:inherit; padding:4px 6px; border-radius:6px;
+    border:1px solid var(--border-primary); background:var(--bg-primary); color:var(--text-primary);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Chat selection anchoring</h1>
+  <span class="sub">change: anchor-chat-selection-against-row-growth (D8)</span>
+  <span class="spacer"></span>
+  <button class="btn" id="fixToggle" aria-pressed="true">Fixes: ON</button>
+  <button class="btn" id="themeToggle">Theme</button>
+  <button class="btn" id="reset">Reset</button>
+</header>
+
+<main>
+  <div id="scroller"><div id="spacer"></div></div>
+
+  <aside>
+    <div class="panel">
+      <h2>Trigger a layout shift</h2>
+      <div class="row-controls">
+        <label>row <input type="number" id="growIndex" value="2" min="0" /></label>
+        <label>by <input type="number" id="growAmount" value="800" step="50" /> px</label>
+        <button class="btn" id="growBtn">Grow</button>
+        <button class="btn" id="shrinkBtn">Shrink</button>
+      </div>
+      <div class="row-controls" style="margin-top:8px">
+        <button class="btn" id="growAboveViewport">Grow a row ABOVE the viewport (virtualizer corrects)</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Measurement</h2>
+      <dl class="kv">
+        <dt>anchor row</dt><dd id="mAnchor">—</dd>
+        <dt>Δ anchorTop</dt><dd id="mDeltaTop">—</dd>
+        <dt>Δ scrollTop</dt><dd id="mDeltaScroll">—</dd>
+        <dt>user scrolled?</dt><dd id="mUserScrolled">—</dd>
+        <dt>correction</dt><dd id="mCorrection">—</dd>
+        <dt>anchor drift</dt><dd id="mDrift">—</dd>
+        <dt>selection</dt><dd id="mVerdict" class="verdict">—</dd>
+      </dl>
+    </div>
+
+    <div class="panel">
+      <h2>getSelection().toString()</h2>
+      <pre id="selText">(nothing selected)</pre>
+    </div>
+
+    <div class="panel">
+      <h2>Repro (1.2 / 1.3 / 1.4)</h2>
+      <ol>
+        <li><b>1.2</b> Fixes <b>OFF</b>: drag-select inside prose row <b>7</b>, keep the button held, click <i>Grow</i> on tool row <b>2</b>. The selection runs backwards (35 → 545 chars).</li>
+        <li><b>1.3</b> Fixes <b>ON</b>: same drag. The selected string does not change. Try <i>Shrink</i>, then wheel-scroll mid-drag — the wheel must NOT be fought.</li>
+        <li><b>1.4</b> Shift+→ is a <b>no-op</b> here (arrow keys do not extend a selection in non-editable content without caret browsing / F7). Keyboard extension moves by character offset, not by hit-test, so it never retargets — see design.md.</li>
+        <li><b>above viewport</b>: scroll down, then use the ABOVE-viewport button — correction must be applied exactly once.</li>
+      </ol>
+    </div>
+  </aside>
+</main>
+
+<script>
+"use strict";
+
+// ── D5: the shipped pure arithmetic, copied verbatim in behaviour ────────────
+// Mirrors packages/client/src/lib/chat/selection-anchor.ts. Any divergence here
+// is either a bug or a deliberate adaptation (task 5.6).
+const ANCHOR_EPSILON = 1;
+function computeAnchorCorrection({ prevTop, nextTop, prevScrollTop, nextScrollTop, epsilon }) {
+  if (![prevTop, nextTop, prevScrollTop, nextScrollTop].every(Number.isFinite)) return 0;
+  const residual = nextTop - prevTop;
+  const band = epsilon ?? ANCHOR_EPSILON;
+  // Pure viewport move (user scroll / drag-autoscroll): the two deltas are
+  // anti-correlated. Magnitude comes from Δtop; the sum is only the veto.
+  if (Math.abs(residual + (nextScrollTop - prevScrollTop)) < band) return 0;
+  return Math.abs(residual) < band ? 0 : residual;
+}
+
+// ── model ───────────────────────────────────────────────────────────────────
+const LOREM = "the prose you are selecting — drag across these words and watch whether the selection follows your pointer or runs backwards through earlier text ";
+function makeRows() {
+  const rows = [];
+  for (let i = 0; i < 14; i++) {
+    const tool = i % 4 === 2;
+    rows.push({
+      id: "r" + i,
+      tool,
+      height: tool ? 64 : 96,
+      text: tool
+        ? "▸ Bash  npm test   ⟳ running"
+        : "message " + i + ": " + LOREM.repeat(1),
+    });
+  }
+  return rows;
+}
+let rows = makeRows();
+let fixesOn = true;
+
+const scroller = document.getElementById("scroller");
+const spacer = document.getElementById("spacer");
+
+function offsets() {
+  const out = [];
+  let acc = 0;
+  for (const r of rows) { out.push(acc); acc += r.height + 6; }
+  return { starts: out, total: acc };
+}
+
+/** Render rows absolutely at translateY(start) over a total-size spacer. */
+function render() {
+  const { starts, total } = offsets();
+  spacer.style.height = total + "px";
+  for (const [i, r] of rows.entries()) {
+    let el = spacer.querySelector('[data-index="' + i + '"]');
+    if (!el) {
+      el = document.createElement("div");
+      el.setAttribute("data-index", String(i));
+      spacer.appendChild(el);
+    }
+    el.className = "row" + (r.tool ? " tool" : "");
+    el.style.transform = "translateY(" + starts[i] + "px)";
+    el.style.height = r.height + "px";
+    el.style.overflow = "hidden";
+    if (el.dataset.text !== r.text) {
+      el.innerHTML = '<span class="tag">' + (r.tool ? "tool" : "assistant") + "</span><br>";
+      el.appendChild(document.createTextNode(r.text));
+      el.dataset.text = r.text;
+    }
+  }
+  if (anchorEl) {
+    for (const el of spacer.children) el.classList.toggle("is-anchor", el === anchorEl);
+  }
+}
+
+// ── D6: selection signal on one clock + D4 anchor capture ───────────────────
+let isSelecting = false;
+let anchorEl = null;
+
+function rowElementFor(node) {
+  if (!node || !scroller.contains(node)) return null;
+  const start = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  const row = start && start.closest("[data-index]");
+  return row && scroller.contains(row) ? row : null;
+}
+
+document.addEventListener("selectionchange", () => {
+  const sel = window.getSelection();
+  const active = !!(sel && sel.rangeCount && !sel.isCollapsed &&
+    ((sel.anchorNode && scroller.contains(sel.anchorNode)) ||
+     (sel.focusNode && scroller.contains(sel.focusNode))));
+  isSelecting = active;
+  if (!active) {
+    anchorEl = null;
+    prevTop = null;
+    baselineSelText = null;
+  } else if (!anchorEl) {
+    // Capture ONCE, on the collapsed→non-collapsed transition (D4).
+    anchorEl = rowElementFor(sel.anchorNode);
+    prevTop = null;
+    prevScrollTop = scroller.scrollTop;
+    baselineSelText = sel.toString();
+    render();
+    // Baseline immediately, so the FIRST layout shift is already compensated.
+    // In ChatView the no-dep layout effect runs on every commit and has always
+    // baselined by then; the mockup has no idle commits, so it must do this here.
+    compensate();
+  }
+  paint();
+});
+
+// ── D2: veto flag fed by the real scroll event ───────────────────────────────
+// No scroll-event flag: it cannot tell the virtualizer's programmatic write
+// from a user gesture, and a stale flag skips a real compensation for good.
+scroller.addEventListener("scroll", () => {
+  measured.dScroll = scroller.scrollTop - (measured.prevScroll ?? scroller.scrollTop);
+});
+
+// ── D3: compensate after every layout change, before paint ──────────────────
+let prevTop = null;
+let prevScrollTop = 0;
+let baselineSelText = null;
+const measured = { dTop: 0, dScroll: 0, correction: 0, prevScroll: 0, drift: 0 };
+
+function compensate() {
+  if (!fixesOn || !isSelecting || !anchorEl || !anchorEl.isConnected) {
+    prevTop = null;
+    return;
+  }
+  const nextTop = anchorEl.getBoundingClientRect().top;
+  const nextScrollTop = scroller.scrollTop;
+  if (prevTop === null) { prevTop = nextTop; prevScrollTop = nextScrollTop; return; }
+  if (nextTop === prevTop && nextScrollTop === prevScrollTop) return; // idle frame
+
+  measured.dTop = nextTop - prevTop;
+  const correction = computeAnchorCorrection({ prevTop, nextTop, prevScrollTop, nextScrollTop });
+  measured.correction = correction;
+  if (correction === 0) { prevTop = nextTop; prevScrollTop = nextScrollTop; return; }
+
+  // Derived re-baseline, never a second getBoundingClientRect — one forced
+  // reflow per commit. `applied` (read back from scrollTop) keeps it exact when
+  // the browser clamps the write. Mirrors ChatView.tsx.
+  scroller.scrollTop = nextScrollTop + correction;
+  const applied = scroller.scrollTop - nextScrollTop;
+  prevTop = nextTop - applied;
+  prevScrollTop = scroller.scrollTop;
+}
+
+/**
+ * A layout mutation, then the compensator — the mockup's stand-in for a React
+ * commit followed by our useLayoutEffect.
+ */
+function commit(mutate, afterRender) {
+  const anchorBefore = anchorEl && anchorEl.isConnected ? anchorEl.getBoundingClientRect().top : null;
+  measured.prevScroll = scroller.scrollTop;
+  mutate();
+  render();
+  // The virtualizer's own correction lands AFTER the DOM has grown (writing
+  // scrollTop before the spacer grows would be clamped to the old maximum) and
+  // BEFORE our layout effect — that ordering is the whole of D1.
+  afterRender?.();
+  compensate();
+  const anchorAfter = anchorEl && anchorEl.isConnected ? anchorEl.getBoundingClientRect().top : null;
+  // Anchor drift is the headline number: with the fix ON it must be ~0, with the
+  // fix OFF it is the full row-growth delta.
+  measured.drift = anchorBefore === null || anchorAfter === null ? 0 : anchorAfter - anchorBefore;
+  paint();
+}
+
+// ── readout ─────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+function paint() {
+  const sel = window.getSelection();
+  const text = sel && !sel.isCollapsed ? sel.toString() : "";
+  $("selText").textContent = text || "(nothing selected)";
+  $("mAnchor").textContent = anchorEl ? "[data-index=" + anchorEl.getAttribute("data-index") + "]" : "—";
+  $("mDeltaTop").textContent = measured.dTop.toFixed(1) + " px";
+  $("mDeltaScroll").textContent = measured.dScroll.toFixed(1) + " px";
+  $("mUserScrolled").textContent =
+    Math.abs(measured.dTop + measured.dScroll) < ANCHOR_EPSILON ? "yes — viewport move (vetoed)" : "no";
+  $("mCorrection").textContent = measured.correction.toFixed(1) + " px";
+  $("mDrift").textContent = measured.drift.toFixed(1) + " px";
+
+  const v = $("mVerdict");
+  if (!baselineSelText) { v.textContent = "—"; v.className = "verdict"; }
+  else if (text === baselineSelText) { v.textContent = "unchanged ✓"; v.className = "verdict ok"; }
+  else { v.textContent = "RETARGETED ✗"; v.className = "verdict bad"; }
+}
+
+// ── controls ────────────────────────────────────────────────────────────────
+function growBy(index, delta) {
+  commit(() => {
+    const r = rows[index];
+    if (!r) return;
+    r.height = Math.max(32, r.height + delta);
+    if (r.tool && delta > 0) {
+      r.text = "▸ Bash  npm test   ✓ 0\n" + "…tool output line…\n".repeat(Math.round(delta / 40));
+    }
+  });
+}
+
+$("growBtn").addEventListener("click", () => growBy(+$("growIndex").value, +$("growAmount").value));
+$("shrinkBtn").addEventListener("click", () => growBy(+$("growIndex").value, -Math.abs(+$("growAmount").value)));
+
+/**
+ * Simulate TanStack's `resizeItem`: for a row whose `start < scrollOffset`, the
+ * virtualizer adjusts scrollTop by the delta ITSELF. Verified against
+ * @tanstack/virtual-core@3.13.12 index.cjs:536-541. Our compensator must then
+ * write NOTHING, or the resize is applied twice.
+ */
+$("growAboveViewport").addEventListener("click", () => {
+  const delta = Math.abs(+$("growAmount").value);
+  const { starts } = offsets();
+  const idx = starts.findIndex((s) => s >= scroller.scrollTop);
+  const above = Math.max(0, (idx === -1 ? rows.length : idx) - 1);
+  commit(
+    () => { rows[above].height += delta; },
+    () => {
+      // `resizeItem` adjusts scrollTop itself for a row with start < scrollOffset.
+      scroller.scrollTop += delta;
+    },
+  );
+});
+
+$("fixToggle").addEventListener("click", (e) => {
+  fixesOn = !fixesOn;
+  e.currentTarget.setAttribute("aria-pressed", String(fixesOn));
+  e.currentTarget.textContent = "Fixes: " + (fixesOn ? "ON" : "OFF");
+  prevTop = null;
+});
+
+$("themeToggle").addEventListener("click", () => {
+  const el = document.documentElement;
+  el.dataset.theme = el.dataset.theme === "dark" ? "light" : "dark";
+});
+
+$("reset").addEventListener("click", () => {
+  rows = makeRows();
+  spacer.innerHTML = "";
+  anchorEl = null; prevTop = null; prevScrollTop = 0; baselineSelText = null;
+  measured.dTop = measured.dScroll = measured.correction = measured.drift = 0;
+  window.getSelection() && window.getSelection().removeAllRanges();
+  render(); paint();
+});
+
+render();
+paint();
+
+// D3 stand-in: ChatView's compensator runs after EVERY React commit. The mockup
+// has no commit loop, so drive it from rAF — same "measure once per frame,
+// before paint" cadence, and it stays correct no matter what moved a row.
+// Started LAST: `compensate()` closes over `let` bindings declared above, so
+// starting the loop earlier would hit them in their temporal dead zone.
+(function tick() {
+  compensate();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Folder-shaped card — iteration board</title>
+<style>
+  :root, [data-theme="light"] {
+    --page:#f1f1f4; --card:#ffffff; --card-2:#f6f6f9; --tab:#eef0f7; --border:rgba(0,0,0,.09);
+    --border-2:rgba(0,0,0,.14); --rim:rgba(255,255,255,.75); --shadow:rgba(0,0,0,.08);
+    --text-1:#1c1c22; --text-2:#4a4a55; --text-3:#8a8a95; --text-mut:#adadb6;
+    --blue:#3b6ef6; --indigo:#7c74f4; --cyan:#0e9db0; --purple:#a25df0;
+    --green:#2fa960; --orange:#e0791f; --amber:#c98a12;
+    --accent:#3b6ef6;                 /* selection accent */
+    --manila:#e7b866;                 /* warm folder tint */
+    --manila-soft:rgba(231,184,102,.18);
+  }
+  [data-theme="dark"] {
+    --page:#0f0f12; --card:#18181c; --card-2:#1f1f25; --tab:#24242c; --border:rgba(255,255,255,.09);
+    --border-2:rgba(255,255,255,.15); --rim:rgba(255,255,255,.05); --shadow:rgba(0,0,0,.45);
+    --text-1:#e5e5e5; --text-2:#b0b0b0; --text-3:#808080; --text-mut:#585858;
+    --blue:#6b8afd; --indigo:#a5a1fb; --cyan:#38bec9; --purple:#c084fc;
+    --green:#4ade80; --orange:#fb923c; --amber:#fbbf24;
+    --accent:#6b8afd; --manila:#c98a3a; --manila-soft:rgba(201,138,58,.20);
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--page); color:var(--text-1); padding:24px 22px 100px; -webkit-font-smoothing:antialiased; }
+  .toolbar { display:flex; gap:12px; align-items:center; max-width:1600px; margin:0 auto 8px; }
+  .toolbar h1 { font-size:15px; font-weight:700; margin:0; }
+  .toolbar .sp { flex:1; }
+  .toolbar button { font:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:8px;
+    border:1px solid var(--border-2); background:var(--card); color:var(--text-2); cursor:pointer; }
+  .wrap { max-width:1600px; margin:0 auto; }
+
+  section { margin-top:38px; }
+  section > h2 { font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--text-2); margin:0 0 4px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+  section > .desc { font-size:11.5px; color:var(--text-3); margin:8px 2px 18px; line-height:1.5; max-width:760px; }
+  .row { display:flex; gap:30px; align-items:flex-start; flex-wrap:wrap; }
+  .item { width:330px; }
+  .item .cap { font-size:10.5px; font-weight:700; color:var(--text-3); margin:0 0 12px 2px; text-transform:uppercase; letter-spacing:.04em; }
+  .item .cap .n { color:var(--text-mut); font-weight:600; text-transform:none; letter-spacing:0; }
+  .item .sub { font-size:10.5px; color:var(--text-mut); margin:10px 2px 0; line-height:1.5; }
+
+  /* ── shared inner content ─────────────────────────────────── */
+  .git { display:flex; align-items:center; gap:8px; font-size:12px; }
+  .git .branch { color:var(--blue); font-weight:600; }
+  .git .badge { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700;
+    padding:1px 7px; border-radius:999px; border:1px solid var(--orange); color:var(--orange); }
+  .git .badge .dot { width:6px; height:6px; border-radius:50%; background:var(--orange); }
+  .git .commit { color:var(--blue); font-weight:600; }
+  .git .gear { margin-left:auto; width:24px; height:24px; border-radius:7px; border:1px solid var(--border-2);
+    color:var(--text-3); background:var(--card-2); display:inline-flex; align-items:center; justify-content:center; font-size:13px; }
+  .pillgrid { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:11px; }
+  .pill { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px;
+    border:1px solid var(--border); background:var(--card-2); box-shadow:0 1px 2px var(--shadow); min-width:0; }
+  .pill .glyph { width:24px; height:24px; border-radius:7px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:13px; }
+  .pill .mid { display:flex; flex-direction:column; min-width:0; line-height:1.15; flex:1; }
+  .pill .lbl { font-size:8.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-3); }
+  .pill .val { font-size:12px; font-weight:800; color:var(--text-1); }
+  .pill .val .unit { font-size:9px; font-weight:600; color:var(--text-3); }
+  .pill.auto  .glyph { color:var(--blue);   background:color-mix(in srgb,var(--blue) 12%,transparent); }
+  .pill.goals .glyph { color:var(--indigo); background:color-mix(in srgb,var(--indigo) 12%,transparent); }
+  .pill.kb    .glyph { color:var(--cyan);   background:color-mix(in srgb,var(--cyan) 12%,transparent); }
+  .pill.spec  .glyph { color:var(--purple); background:color-mix(in srgb,var(--purple) 12%,transparent); }
+  .subrow { display:flex; gap:6px; margin-top:9px; }
+  .mini { font-size:9.5px; font-weight:700; padding:2px 8px; border-radius:999px; border:1px solid; }
+  .mini.purple { color:var(--purple); border-color:color-mix(in srgb,var(--purple) 38%,transparent); }
+  .mini.cyan { color:var(--cyan); border-color:color-mix(in srgb,var(--cyan) 38%,transparent); }
+
+  /* ══ FOLDER PARTS ════════════════════════════════════════════
+     .folder = wrapper; .tab = the label tab; .body = the pocket
+     Tab-shape modifiers on .folder: .sq .ang .rnd .center .wide
+     Tint modifier: .tinted   State: .selected .collapsed
+     ═══════════════════════════════════════════════════════════ */
+  .folder { position:relative; }
+  .tab {
+    position:relative; z-index:2; display:inline-flex; align-items:center; gap:6px;
+    margin-left:8px; padding:6px 16px 8px 11px;
+    background:var(--tab); color:var(--text-1); font-size:13.5px; font-weight:800;
+    border:1px solid var(--border); border-bottom:none; box-shadow:inset 0 1px 0 var(--rim);
+    cursor:pointer;
+  }
+  .tab .chev { color:var(--text-3); font-size:11px; font-weight:400; }
+  .tab .ctl { display:inline-flex; align-items:center; gap:5px; margin-left:auto; padding-left:12px; }
+  .tab .cbtn { font-size:10px; font-weight:700; padding:2px 7px; border-radius:6px; border:1px solid var(--border-2); color:var(--text-3); background:color-mix(in srgb,var(--card) 60%,transparent); }
+  .tab .cbtn.amber { color:var(--amber); border-color:color-mix(in srgb,var(--amber) 45%,transparent); }
+  .body {
+    position:relative; z-index:1; margin-top:-1px;
+    background:var(--card); border:1px solid var(--border);
+    border-radius:0 13px 13px 13px;
+    box-shadow:inset 0 1px 0 var(--rim), 0 3px 8px var(--shadow);
+    padding:11px 13px 13px;
+  }
+  /* accent lip along the mouth */
+  .body::before { content:""; position:absolute; left:0; right:0; top:0; height:2px;
+    background:linear-gradient(90deg, var(--manila-soft), transparent 65%); border-radius:0 13px 0 0; }
+
+  /* tab-shape modifiers */
+  .sq  .tab { border-radius:8px 8px 0 0; }
+  .ang .tab { border-radius:10px 4px 0 0; clip-path:polygon(0 0, calc(100% - 13px) 0, 100% 100%, 0 100%); padding-right:24px; }
+  .rnd .tab { border-radius:14px 14px 0 0; padding:6px 18px 8px 14px; }
+  .center { text-align:center; }
+  .center .tab { margin-left:auto; margin-right:auto; }
+  .wide .tab { display:flex; width:calc(100% - 16px); }
+  .narrow .tab { padding-right:12px; }
+
+  /* tint modifier — warm manila tab */
+  .tinted .tab { background:linear-gradient(180deg, var(--manila-soft), var(--tab)); border-color:color-mix(in srgb,var(--manila) 40%,var(--border)); }
+  .tinted .body::before { background:linear-gradient(90deg, color-mix(in srgb,var(--manila) 45%,transparent), transparent 60%); }
+
+  /* selected state — accent ring + tab */
+  .selected .tab { border-color:var(--accent); color:var(--accent); background:color-mix(in srgb,var(--accent) 12%, var(--tab)); }
+  .selected .body { border-color:var(--accent); box-shadow:inset 0 1px 0 var(--rim), 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent), 0 3px 10px var(--shadow); }
+  .selected .body::before { background:linear-gradient(90deg, color-mix(in srgb,var(--accent) 55%,transparent), transparent 70%); }
+
+  /* collapsed — closed folder: tab + slim spine, no contents */
+  .collapsed .body { padding:9px 13px; border-radius:0 13px 13px 13px; }
+  .collapsed .spine { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-2); }
+  .collapsed .spine .rollup { display:flex; gap:5px; margin-left:auto; }
+  .collapsed .spine .dot { width:8px; height:8px; border-radius:50%; }
+
+  /* stacked — pages peeking behind the folder */
+  .stack { position:relative; }
+  .stack::before, .stack::after {
+    content:""; position:absolute; left:10px; right:10px; border:1px solid var(--border);
+    background:var(--card-2); border-radius:12px; z-index:0;
+  }
+  .stack::before { bottom:-6px; height:20px; opacity:.85; }
+  .stack::after { bottom:-11px; left:18px; right:18px; height:20px; opacity:.6; }
+  .stack .folder { position:relative; z-index:1; }
+  .stack .count { position:absolute; right:14px; bottom:-4px; z-index:2; font-size:9.5px; font-weight:700;
+    color:var(--text-3); background:var(--card); padding:1px 7px; border-radius:999px; border:1px solid var(--border); }
+</style>
+</head>
+<body data-theme="light">
+<div class="toolbar">
+  <h1>Folder-shaped card — iteration board</h1>
+  <span class="sp"></span>
+  <button onclick="document.body.dataset.theme=document.body.dataset.theme==='dark'?'light':'dark'">◑ Toggle theme</button>
+</div>
+
+<div class="wrap" id="wrap"></div>
+
+<script>
+  const INNER = `
+    <div class="git"><span class="branch">⑂ develop</span><span class="badge"><span class="dot"></span>3</span><span class="commit">Commit</span><span class="gear">⚙</span></div>
+    <div class="pillgrid">
+      <div class="pill auto"><span class="glyph">⚙</span><span class="mid"><span class="lbl">Automations</span><span class="val">0 <span class="unit">flows</span></span></span></div>
+      <div class="pill goals"><span class="glyph">◎</span><span class="mid"><span class="lbl">Goals</span><span class="val">0 <span class="unit">active</span></span></span></div>
+      <div class="pill kb"><span class="glyph">▤</span><span class="mid"><span class="lbl">KB</span><span class="val">16.5k <span class="unit">chunks</span></span></span></div>
+      <div class="pill spec"><span class="glyph">▦</span><span class="mid"><span class="lbl">OpenSpec</span><span class="val">57 <span class="unit">changes</span></span></span></div>
+    </div>
+    <div class="subrow"><span class="mini purple">▤ Archive</span><span class="mini cyan">▤ Specs</span></div>`;
+
+  const TAB = (extra='') => `<div class="tab"><span class="chev">▾</span>pi-agent-dashboard${extra}</div>`;
+  const FOLDER = (mods, tab, body) => `<div class="folder ${mods}">${tab}<div class="body">${body}</div></div>`;
+
+  // shorthand builders
+  const plain  = (mods) => FOLDER(mods, TAB(), INNER);
+
+  const SECTIONS = [
+    { h:"1 · Tab shape & position", d:"Same folder, four tab treatments. Square = flat/modern. Angled = classic manila. Rounded = softer, matches the 14px card radius. Center = symmetric. Pick the silhouette that feels most 'folder' without fighting the sidebar's rounded language.",
+      items:[
+        ["Square", "border-radius 8px 8px 0 0", plain("sq")],
+        ["Angled (manila)", "slanted right edge, clip-path", plain("ang")],
+        ["Rounded", "14px top corners, echoes card radius", plain("rnd")],
+        ["Centered tab", "symmetric, tab centered on the mouth", plain("center rnd")],
+      ]},
+    { h:"2 · Tab as the real control surface", d:"The tab is the primary click target (collapse + open-home, per your call). These put the secondary controls ON the tab strip instead of the git row — so the tab behaves like a real folder header.",
+      items:[
+        ["Controls on a wide tab", "chevron+name left · Initialize+gear right", FOLDER("wide rnd", `<div class="tab"><span class="chev">▾</span>pi-agent-dashboard<span class="ctl"><span class="cbtn amber">⚙ Initialize</span><span class="cbtn">⚙</span></span></div>`, INNER)],
+        ["Compact tab, controls stay below", "tab = name only; Initialize/gear in git row", plain("rnd narrow")],
+      ]},
+    { h:"3 · Collapsed = closed folder", d:"When the folder is collapsed it should read as CLOSED — no pills, just the tab and a slim spine carrying the rollup (session count + status dots). Expanding opens the pocket.",
+      items:[
+        ["Closed (collapsed)", "slim spine + status rollup", FOLDER("rnd collapsed", `<div class="tab"><span class="chev">▸</span>pi-agent-dashboard</div>`, `<div class="spine"><span>4 sessions</span><span class="rollup"><span class="dot" style="background:var(--green)"></span><span class="dot" style="background:var(--orange)"></span><span class="dot" style="background:var(--text-mut)"></span></span></div>`)],
+        ["Open (expanded)", "for comparison", plain("rnd")],
+      ]},
+    { h:"4 · Selected / active state", d:"When a session inside the folder is focused, the folder gets an accent ring + accent tab — the open folder on your desk. Neutral vs selected side by side.",
+      items:[
+        ["Default", "neutral tab + card", plain("rnd")],
+        ["Selected", "accent tab + ring on the pocket", plain("rnd selected")],
+      ]},
+    { h:"5 · Tab tint — neutral vs warm", d:"Neutral keeps it tokened & calm. Warm 'manila' adds a subtle folder-yellow gradient on the tab + lip. Warm reads MORE folder-y but risks looking themed/decorative — judge against the anti-slop bar.",
+      items:[
+        ["Neutral tab", "var(--tab), tokened", plain("rnd")],
+        ["Warm manila tab", "subtle folder-yellow gradient", plain("rnd tinted")],
+      ]},
+    { h:"6 · Stacked — many sessions in the dir", d:"When a directory holds multiple sessions, peek 1–2 'pages' behind the folder to signal depth, with a small count. Purely a hint on the expanded card; the pages are non-interactive.",
+      items:[
+        ["Single session", "flat, no stack", plain("rnd")],
+        ["Multiple sessions", "pages peek + count badge", `<div class="stack">${plain("rnd")}<span class="count">4 in folder</span></div>`],
+      ]},
+  ];
+
+  document.getElementById("wrap").innerHTML = SECTIONS.map(s => `
+    <section>
+      <h2>${s.h}</h2>
+      <p class="desc">${s.d}</p>
+      <div class="row">
+        ${s.items.map(([cap,sub,html]) => `<div class="item"><p class="cap">${cap} <span class="n">· ${sub}</span></p>${html}<p class="sub">${sub}</p></div>`).join("")}
+      </div>
+    </section>`).join("");
+</script>
+</body>
+</html>

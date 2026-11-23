@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="base">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Internal Monaco Editor Pane — v1 mockup</title>
+<style>
+  /* ── Theme token maps mirror packages/client/src/lib/themes.ts ──
+     The editor pane derives Monaco colors from these exact tokens via
+     buildMonacoTheme(): editor.background←--bg-code, foreground←--text-primary,
+     keyword←--accent-purple, string←--accent-green, number←--accent-orange,
+     comment←--text-tertiary, type/function←--accent-blue. */
+  :root, [data-theme="base"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-selected:#1e1e1e;
+    --bg-code:#1a1a1a; --text-primary:#e5e5e5; --text-secondary:#b0b0b0;
+    --text-tertiary:#808080; --text-muted:#585858; --border-primary:#252525;
+    --border-secondary:#333; --accent-blue:#3b82f6; --accent-green:#22c55e;
+    --accent-yellow:#eab308; --accent-red:#ef4444; --accent-purple:#a855f7;
+    --accent-orange:#f97316; --link:#60a5fa;
+  }
+  [data-theme="dracula"] {
+    --bg-primary:#282a36; --bg-secondary:#21222c; --bg-tertiary:#343746;
+    --bg-surface:#44475a; --bg-hover:rgba(255,255,255,.08); --bg-selected:#44475a;
+    --bg-code:#1e1f29; --text-primary:#f8f8f2; --text-secondary:#ccc9e7;
+    --text-tertiary:#6272a4; --text-muted:#4d5681; --border-primary:#343746;
+    --border-secondary:#44475a; --accent-blue:#8be9fd; --accent-green:#50fa7b;
+    --accent-yellow:#f1fa8c; --accent-red:#ff5555; --accent-purple:#bd93f9;
+    --accent-orange:#ffb86c; --link:#8be9fd;
+  }
+  [data-theme="nord"] {
+    --bg-primary:#2e3440; --bg-secondary:#292e39; --bg-tertiary:#3b4252;
+    --bg-surface:#434c5e; --bg-hover:rgba(255,255,255,.06); --bg-selected:#3b4252;
+    --bg-code:#272c36; --text-primary:#eceff4; --text-secondary:#d8dee9;
+    --text-tertiary:#81899b; --text-muted:#5b6375; --border-primary:#3b4252;
+    --border-secondary:#434c5e; --accent-blue:#88c0d0; --accent-green:#a3be8c;
+    --accent-yellow:#ebcb8b; --accent-red:#bf616a; --accent-purple:#b48ead;
+    --accent-orange:#d08770; --link:#88c0d0;
+  }
+  [data-theme="github-light"] {
+    --bg-primary:#fff; --bg-secondary:#f6f8fa; --bg-tertiary:#ebedf0;
+    --bg-surface:#d0d7de; --bg-hover:rgba(0,0,0,.04); --bg-selected:#e8ebee;
+    --bg-code:#f6f8fa; --text-primary:#1f2328; --text-secondary:#424a53;
+    --text-tertiary:#656d76; --text-muted:#a1a9b1; --border-primary:#d0d7de;
+    --border-secondary:#c4c9cf; --accent-blue:#0969da; --accent-green:#1a7f37;
+    --accent-yellow:#9a6700; --accent-red:#cf222e; --accent-purple:#8250df;
+    --accent-orange:#bc4c00; --link:#0969da;
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    background:var(--bg-primary); color:var(--text-primary);
+    transition:background .25s,color .25s;
+  }
+  code,pre,.mono { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+  .wrap { max-width:1180px; margin:0 auto; padding:24px 20px 64px; }
+
+  /* ── top bar ── */
+  .topbar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:8px; }
+  h1 { font-size:19px; font-weight:650; letter-spacing:-.02em; }
+  .sub { color:var(--text-tertiary); font-size:12.5px; margin-bottom:24px; }
+  .badge { font-size:10.5px; padding:2px 8px; border-radius:999px;
+    background:var(--bg-tertiary); color:var(--text-secondary); border:1px solid var(--border-secondary); }
+  .themebar { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .themebar span { font-size:11px; color:var(--text-tertiary); margin-right:2px; }
+  .tbtn { cursor:pointer; font-size:11.5px; padding:5px 10px; border-radius:7px;
+    border:1px solid var(--border-secondary); background:var(--bg-secondary); color:var(--text-secondary); }
+  .tbtn.active { border-color:var(--accent-blue); color:var(--text-primary); background:var(--bg-tertiary); }
+
+  .grid { display:grid; gap:20px; }
+  .card { background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:12px; overflow:hidden; }
+  .card-h { padding:11px 14px; border-bottom:1px solid var(--border-primary);
+    font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-tertiary); }
+
+  /* ── integration flow ── */
+  .flow { display:flex; align-items:stretch; gap:10px; padding:18px; flex-wrap:wrap; }
+  .node { flex:1; min-width:140px; background:var(--bg-tertiary); border:1px solid var(--border-secondary);
+    border-radius:9px; padding:11px 12px; }
+  .node b { display:block; font-size:12.5px; margin-bottom:3px; }
+  .node small { color:var(--text-tertiary); font-size:11px; line-height:1.45; display:block; }
+  .node .file { color:var(--accent-blue); }
+  .arrow { align-self:center; color:var(--text-muted); font-size:18px; }
+  .reg { display:flex; gap:6px; flex-wrap:wrap; margin-top:7px; }
+  .reg span { font-size:10px; padding:2px 7px; border-radius:6px; background:var(--bg-surface);
+    color:var(--text-secondary); border:1px solid var(--border-secondary); }
+  .reg .hot { color:var(--accent-purple); border-color:var(--accent-purple); }
+
+  /* ── chat → pane transition ── */
+  .duo { display:grid; grid-template-columns:300px 1fr; gap:18px; align-items:start; }
+  @media (max-width:880px){ .duo{ grid-template-columns:1fr; } }
+
+  .chatcard { background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:12px; padding:14px; }
+  .toolrow { display:flex; align-items:center; gap:8px; padding:9px 11px; background:var(--bg-tertiary);
+    border:1px solid var(--border-secondary); border-radius:9px; }
+  .toolrow .ico { width:18px; height:18px; border-radius:5px; background:var(--accent-blue); opacity:.85;
+    display:grid; place-items:center; color:#fff; font-size:10px; flex:none; }
+  .toolrow .pth { font-size:12px; color:var(--text-secondary); }
+  /* split button — mirrors the real OpenFileButton */
+  .split { margin-left:auto; display:inline-flex; align-items:center; }
+  .split .body { font-size:10.5px; color:var(--text-tertiary); padding:3px 7px; border:1px solid var(--border-secondary);
+    border-right:none; border-radius:7px 0 0 7px; background:var(--bg-surface); cursor:pointer; display:flex; gap:3px; align-items:center; }
+  .split .body:hover { color:var(--accent-blue); }
+  .split .caret { font-size:10.5px; color:var(--text-tertiary); padding:3px 6px; border:1px solid var(--border-secondary);
+    border-radius:0 7px 7px 0; background:var(--bg-surface); cursor:pointer; position:relative; }
+  .split .caret:hover { color:var(--accent-blue); }
+  .menu { position:absolute; right:0; top:calc(100% + 4px); z-index:9; min-width:150px; padding:4px;
+    background:var(--bg-surface); border:1px solid var(--border-secondary); border-radius:8px;
+    box-shadow:0 8px 24px rgba(0,0,0,.4); display:none; }
+  .menu.open { display:block; }
+  .menu div { font-size:11.5px; padding:5px 9px; border-radius:6px; color:var(--text-secondary); cursor:pointer; }
+  .menu div:hover, .menu div.hl { background:var(--bg-hover); color:var(--text-primary); }
+  .hint { font-size:11px; color:var(--text-tertiary); margin-top:10px; }
+  .hint b { color:var(--text-secondary); }
+
+  /* ── editor pane ── */
+  .pane { background:var(--bg-primary); border:1px solid var(--border-primary); border-radius:12px; overflow:hidden;
+    display:flex; flex-direction:column; height:430px; }
+  .p-head { display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--border-primary); flex:none; }
+  .p-head .btn { font-size:12px; color:var(--text-tertiary); cursor:pointer; background:none; border:none; }
+  .p-head .btn:hover { color:var(--text-primary); }
+  .p-head .path { font-size:12.5px; font-weight:600; }
+  .p-head .spacer { flex:1; }
+  .tabs { display:flex; overflow-x:auto; background:var(--bg-secondary); border-bottom:1px solid var(--border-primary); flex:none; }
+  .tab { display:flex; align-items:center; gap:6px; padding:6px 11px; font-size:11.5px; white-space:nowrap;
+    border-right:1px solid var(--border-primary); color:var(--text-secondary); cursor:pointer; }
+  .tab .x { opacity:.0; font-size:13px; line-height:1; }
+  .tab:hover .x { opacity:.6; }
+  .tab.active { background:var(--bg-primary); color:var(--text-primary); }
+  .p-body { display:flex; flex:1; min-height:0; }
+  .tree { width:178px; flex:none; background:var(--bg-secondary); border-right:1px solid var(--border-primary);
+    overflow:auto; padding:6px 0; }
+  .tree .row { display:flex; align-items:center; gap:6px; padding:3.5px 10px; font-size:11.5px; color:var(--text-secondary); cursor:pointer; }
+  .tree .row:hover { background:var(--bg-hover); }
+  .tree .row.sel { background:var(--bg-selected); color:var(--text-primary); }
+  .tree .row.dir { color:var(--text-secondary); }
+  .tree .mut { color:var(--text-muted); }
+  .view { flex:1; min-width:0; overflow:auto; background:var(--bg-code); }
+  .p-foot { display:flex; gap:14px; padding:4px 12px; font-size:10.5px; color:var(--text-tertiary);
+    border-top:1px solid var(--border-primary); background:var(--bg-secondary); flex:none; }
+
+  /* ── monaco-style code ── */
+  .code { display:grid; grid-template-columns:42px 1fr; font-size:12.5px; line-height:1.65; }
+  .code .ln { text-align:right; padding:0 10px 0 0; color:var(--text-muted); user-select:none; }
+  .code .src { white-space:pre; padding-right:14px; }
+  .code .line { display:contents; }
+  .kw{color:var(--accent-purple);} .str{color:var(--accent-green);} .num{color:var(--accent-orange);}
+  .com{color:var(--text-tertiary); font-style:italic;} .ty{color:var(--accent-blue);} .fn{color:var(--accent-blue);}
+  .pn{color:var(--text-secondary);}
+  .codewrap { padding:10px 0 14px; }
+  .active-ln { background:var(--bg-hover); }
+
+  /* markdown view */
+  .md { padding:18px 22px; max-width:640px; }
+  .md h1 { font-size:22px; margin-bottom:10px; }
+  .md p { color:var(--text-secondary); margin-bottom:10px; }
+  .md code { background:var(--bg-tertiary); padding:1px 5px; border-radius:4px; font-size:12px; }
+  /* image view */
+  .imgview { display:grid; place-items:center; height:100%; position:relative; }
+  .imgview .ph { width:120px; height:120px; border-radius:10px;
+    background:repeating-conic-gradient(var(--bg-surface) 0% 25%, var(--bg-tertiary) 0% 50%) 50%/22px 22px; border:1px solid var(--border-secondary); }
+  .imgview .zoom { position:absolute; bottom:10px; right:10px; display:flex; gap:4px; font-size:11px;
+    background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:7px; padding:3px; }
+  .imgview .zoom span { padding:1px 7px; cursor:pointer; color:var(--text-secondary); }
+  /* pdf view */
+  .pdfview { display:grid; place-items:center; height:100%; }
+  .pdfview .doc { width:62%; max-width:300px; aspect-ratio:8.5/11; background:#f6f6f4; color:#222; border-radius:4px;
+    box-shadow:0 6px 22px rgba(0,0,0,.45); padding:22px; }
+  .pdfview .doc .t { height:11px; background:#cfcfca; border-radius:3px; margin-bottom:9px; width:70%; }
+  .pdfview .doc .l { height:7px; background:#e3e3df; border-radius:3px; margin-bottom:7px; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:8px 16px; padding:14px 18px; }
+  .legend .it { display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-secondary); }
+  .sw { width:13px; height:13px; border-radius:3px; border:1px solid var(--border-secondary); }
+  .note { padding:14px 18px; font-size:12px; color:var(--text-secondary); line-height:1.6; }
+  .note b { color:var(--text-primary); }
+  .kv { color:var(--accent-blue); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>Internal Monaco Editor Pane</h1>
+    <span class="badge">v1 · read-only</span>
+    <span class="badge">change: add-internal-monaco-editor-pane</span>
+    <div class="themebar">
+      <span>theme inheritance →</span>
+      <button class="tbtn active" data-t="base">Base</button>
+      <button class="tbtn" data-t="dracula">Dracula</button>
+      <button class="tbtn" data-t="nord">Nord</button>
+      <button class="tbtn" data-t="github-light">GitHub Light</button>
+    </div>
+  </div>
+  <div class="sub">Quick read-only glance at what the agent touched — without leaving the session. Switch themes above: the whole pane <i>and</i> the Monaco syntax colors recolor live, derived from the dashboard token map (<code>buildMonacoTheme</code>).</div>
+
+  <div class="grid">
+
+    <!-- 1. Integration flow -->
+    <div class="card">
+      <div class="card-h">Integration — how a click reaches a viewer</div>
+      <div class="flow">
+        <div class="node">
+          <b>OpenFileButton</b>
+          <small>Split button on every Edit/Read/Write tool card. Body click = internal pane; caret = native editors (Zed…).</small>
+        </div>
+        <div class="arrow">→</div>
+        <div class="node">
+          <b>Route takeover</b>
+          <small><span class="file">/session/:id/editor</span><br>?file=…&line=… — replaces ChatView in the content area (mirrors FileDiffView). Back returns to chat.</small>
+        </div>
+        <div class="arrow">→</div>
+        <div class="node">
+          <b>EditorPane</b>
+          <small>Tabs + collapsible tree + active viewer. State (tabs, active, tree) persists per-session in <span class="file">localStorage</span>.</small>
+        </div>
+        <div class="arrow">→</div>
+        <div class="node">
+          <b>viewer-registry</b>
+          <small>fileKind() picks the viewer:</small>
+          <div class="reg">
+            <span class="hot">monaco (lazy)</span><span>image</span><span>pdf</span><span>markdown</span><span>binary-warn</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Chat → pane -->
+    <div class="duo">
+      <div>
+        <div class="chatcard">
+          <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:9px;text-transform:uppercase;letter-spacing:.07em">Chat — Read tool card</div>
+          <div class="toolrow">
+            <span class="ico">R</span>
+            <span class="pth mono">src/foo.ts</span>
+            <span class="split">
+              <span class="body" onclick="openPane()">👁 Open</span>
+              <span class="caret" onclick="toggleMenu(event)">▾
+                <span class="menu" id="menu">
+                  <div class="hl">Open in Zed</div>
+                  <div>Open in VS Code</div>
+                </span>
+              </span>
+            </span>
+          </div>
+          <div class="hint"><b>Body click</b> → internal pane.<br><b>Caret</b> → detected native editors. No editor detected → plain “Open”, no caret.</div>
+        </div>
+      </div>
+
+      <!-- 3. The editor pane -->
+      <div class="pane">
+        <div class="p-head">
+          <button class="btn" onclick="closePane()">← Back</button>
+          <button class="btn" title="Toggle tree">🗂</button>
+          <span class="path mono" id="paneTitle">hello.txt</span>
+          <span class="spacer"></span>
+          <button class="btn" title="Reload">⟳</button>
+        </div>
+        <div class="tabs" id="tabs"></div>
+        <div class="p-body">
+          <div class="tree" id="tree"></div>
+          <div class="view" id="view"></div>
+        </div>
+        <div class="p-foot" id="foot"><span>monaco</span><span>typescript</span><span class="mono">src/foo.ts</span></div>
+      </div>
+    </div>
+
+    <!-- 4. Theme-derivation legend -->
+    <div class="card">
+      <div class="card-h">Theme inheritance — Monaco colors derived from dashboard tokens (buildMonacoTheme §7)</div>
+      <div class="legend">
+        <div class="it"><span class="sw" style="background:var(--bg-code)"></span>editor.background ← <span class="kv">--bg-code</span></div>
+        <div class="it"><span class="sw" style="background:var(--text-primary)"></span>foreground ← <span class="kv">--text-primary</span></div>
+        <div class="it"><span class="sw" style="background:var(--accent-purple)"></span>keyword ← <span class="kv">--accent-purple</span></div>
+        <div class="it"><span class="sw" style="background:var(--accent-green)"></span>string ← <span class="kv">--accent-green</span></div>
+        <div class="it"><span class="sw" style="background:var(--accent-orange)"></span>number ← <span class="kv">--accent-orange</span></div>
+        <div class="it"><span class="sw" style="background:var(--accent-blue)"></span>type/function ← <span class="kv">--accent-blue</span></div>
+        <div class="it"><span class="sw" style="background:var(--text-tertiary)"></span>comment ← <span class="kv">--text-tertiary</span></div>
+      </div>
+      <div class="note">
+        Lazy-loaded on first text-file open (≈1 MB gzip chunk). The 6 MB TypeScript language worker is <b>dropped</b> — v1 is read-only, syntax highlight via the main-thread Monarch tokenizer, no LSP. Per-kind viewers: <b>Monaco</b> (code), <b>ImageViewer</b> (<span class="mono">/api/file/raw</span> + pan/zoom), <b>PdfViewer</b> (<span class="mono">&lt;object&gt;</span>), <b>MarkdownViewer</b> (canonical renderer), <b>BinaryWarn</b> (open-externally notice). Coexists with code-server (full IDE) and native editors — nothing removed.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // ── Tab + tree + viewer model (mirrors the shipped pane) ──
+  const FILES = {
+    "src/foo.ts":   { viewer:"monaco",   lang:"typescript" },
+    "README.md":    { viewer:"markdown", lang:"markdown" },
+    "hello.txt":    { viewer:"monaco",   lang:"plaintext" },
+    "logo.png":     { viewer:"image",    lang:"image/png" },
+    "doc.pdf":      { viewer:"pdf",      lang:"application/pdf" },
+  };
+  const TREE = [
+    { name:"src", dir:true, depth:0 },
+    { name:"foo.ts", path:"src/foo.ts", depth:1 },
+    { name:".git", dir:false, depth:0, mut:true },
+    { name:"README.md", path:"README.md", depth:0 },
+    { name:"doc.pdf", path:"doc.pdf", depth:0 },
+    { name:"hello.txt", path:"hello.txt", depth:0 },
+    { name:"logo.png", path:"logo.png", depth:0 },
+  ];
+  let tabs = ["src/foo.ts","README.md","hello.txt","logo.png","doc.pdf"];
+  let active = "src/foo.ts";
+
+  const TS_CODE = [
+    [['com','// Resolved: read-only Monaco glance at agent edits']],
+    [['kw','export'],['pn',' '],['kw','function'],['pn',' '],['fn','fileKind'],['pn','(path'],['pn',': '],['ty','string'],['pn'],['pn',')'],['pn',': '],['ty','FileKindResult'],['pn',' {']],
+    [['pn','  '],['kw','const'],['pn',' ext '],['pn','= '],['fn','extOf'],['pn','(path)']],
+    [['pn','  '],['kw','if'],['pn',' (ext '],['pn','=== '],['str','".md"'],['pn',') '],['kw','return'],['pn',' { viewer'],['pn',': '],['str','"markdown"'],['pn',' }']],
+    [['pn','  '],['kw','if'],['pn',' ('],['ty','IMAGE'],['pn','.'],['fn','has'],['pn','(ext)) '],['kw','return'],['pn',' { viewer'],['pn',': '],['str','"image"'],['pn',' }']],
+    [['pn','  '],['kw','return'],['pn',' { viewer'],['pn',': '],['str','"monaco"'],['pn',', size'],['pn',': '],['num','1024'],['pn',' }']],
+    [['pn','}']],
+  ];
+  const TXT = [[['pn','hello from the sample-git fixture']]];
+
+  function renderTabs(){
+    document.getElementById('tabs').innerHTML = tabs.map(t=>{
+      const base = t.split('/').pop();
+      return `<div class="tab ${t===active?'active':''}" title="${t}" onclick="select('${t}')">${base}<span class="x">×</span></div>`;
+    }).join('');
+  }
+  function renderTree(){
+    document.getElementById('tree').innerHTML = TREE.map(n=>{
+      const pad = 8 + n.depth*12;
+      if(n.dir!==undefined && (n.dir || n.mut)){
+        const ic = n.dir ? '▸ 📁' : '📄';
+        return `<div class="row dir ${n.mut?'mut':''}" style="padding-left:${pad}px">${ic} ${n.name}</div>`;
+      }
+      const sel = n.path===active ? 'sel':'';
+      return `<div class="row ${sel}" style="padding-left:${pad+12}px" onclick="select('${n.path}')">📄 ${n.name}</div>`;
+    }).join('');
+  }
+  function codeHTML(lines, activeLine){
+    let ln='', src='';
+    lines.forEach((toks,i)=>{
+      ln += (i+1)+'\n';
+      const cls = (i+1)===activeLine ? 'active-ln':'';
+      src += `<span class="${cls}">`+toks.map(([c,t])=>`<span class="${c}">${(t??'')}</span>`).join('')+`</span>\n`;
+    });
+    return `<div class="codewrap"><div class="code"><div class="ln mono">${ln}</div><div class="src mono">${src}</div></div></div>`;
+  }
+  function renderView(){
+    const f = FILES[active]; const v = document.getElementById('view');
+    document.getElementById('paneTitle').textContent = active;
+    let foot = `<span>${f.viewer}</span><span>${f.lang}</span><span class="mono">${active}</span>`;
+    if(f.viewer==='monaco'){
+      v.innerHTML = active==='hello.txt' ? codeHTML(TXT) : codeHTML(TS_CODE, 4);
+    } else if(f.viewer==='markdown'){
+      v.style.background='var(--bg-primary)';
+      v.innerHTML = `<div class="md"><h1>sample-git</h1><p>A throwaway git fixture for exercising the pi-dashboard VCS panel.</p><p>Rendered through the dashboard's canonical <code>MarkdownContent</code> — <code>pi-asset:</code> images resolve via SessionAssetsContext.</p></div>`;
+    } else if(f.viewer==='image'){
+      v.style.background='var(--bg-primary)';
+      v.innerHTML = `<div class="imgview"><div class="ph"></div><div class="zoom"><span>−</span><span>100%</span><span>+</span></div></div>`;
+    } else if(f.viewer==='pdf'){
+      v.style.background='var(--bg-tertiary)';
+      v.innerHTML = `<div class="pdfview"><div class="doc"><div class="t"></div><div class="l" style="width:90%"></div><div class="l" style="width:80%"></div><div class="l" style="width:86%"></div></div></div>`;
+    }
+    if(f.viewer==='monaco') v.style.background='var(--bg-code)';
+    document.getElementById('foot').innerHTML = foot;
+  }
+  function select(p){ active=p; renderTabs(); renderTree(); renderView(); }
+  window.select = select;
+
+  function openPane(){ document.querySelector('.pane').scrollIntoView({behavior:'smooth',block:'center'}); }
+  function closePane(){ document.querySelector('.chatcard').scrollIntoView({behavior:'smooth',block:'center'}); }
+  function toggleMenu(e){ e.stopPropagation(); document.getElementById('menu').classList.toggle('open'); }
+  window.openPane=openPane; window.closePane=closePane; window.toggleMenu=toggleMenu;
+  document.addEventListener('click',()=>document.getElementById('menu').classList.remove('open'));
+
+  // theme switcher → demonstrates live inheritance
+  document.querySelectorAll('.tbtn').forEach(b=>b.onclick=()=>{
+    document.documentElement.setAttribute('data-theme', b.dataset.t);
+    document.querySelectorAll('.tbtn').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+  });
+
+  renderTabs(); renderTree(); renderView();
+</script>
+</body>
+</html>
