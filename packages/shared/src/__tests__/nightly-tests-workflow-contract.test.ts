@@ -21,6 +21,7 @@ import path from "node:path";
 import url from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
+// @ts-expect-error — untyped .mjs module; only the numeric constant is read.
 import { DEFER_DEADLINE_UTC_MINUTE } from "../../../../scripts/test-selection/nightly-report.mjs";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
