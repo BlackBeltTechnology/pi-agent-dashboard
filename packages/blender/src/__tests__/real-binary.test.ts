@@ -5,57 +5,20 @@
  *
  *   BLENDER_WASM_E2E=1 vitest run src/__tests__/real-binary.test.ts
  *
- * Covers E10, E12, E26–E29, E31–E35, E37, E39–E41, E43, E44, E50, E51, P1–P3.
+ * Covers E10, E12, E26–E29, E31–E35, E37, E39–E41, E43, E44, E50, E51. P1–P3 (performance budget) live in
+ * real-binary.budget.test.ts (budget lane); shared session plumbing in helpers/real-binary-session.ts.
  * See change: add-blender-wasm-mcp (test-plan.md; tasks 2.14, 2.16, 4.x).
  */
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
+import { beforeAll, beforeEach, expect, it } from "vitest";
 import { PIN } from "../pin.js";
 import { provision } from "../provision.js";
-import { hostPidBelow, type McpClient, SOCKET_GUARD, startServer, type ToolResultJson } from "./helpers/mcp-client.js";
+import { SOCKET_GUARD, startServer, type ToolResultJson } from "./helpers/mcp-client.js";
+import { boot, closeServer, ok, reset, type Session, scene, servers, tmpDir } from "./helpers/real-binary-session.js";
 import { describeReal, REAL_TIMEOUT_MS, TEST_CACHE } from "./helpers/runtime.js";
 
-// ── tmp bookkeeping + server lifecycle ──────────────────────────────────────
-
-const tmpDirs: string[] = [];
-function tmpDir(prefix = "pi-blender-real-"): string {
-  const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-  tmpDirs.push(d);
-  return d;
-}
-const servers: McpClient[] = [];
-
-interface Session {
-  ws: string;
-  c: McpClient;
-}
-
-/** A real server whose cwd (= project root) is a fresh tmp workspace. */
-function boot(env: NodeJS.ProcessEnv = {}): Session {
-  const ws = tmpDir("pi-blender-ws-");
-  const c = startServer({ cwd: ws, env });
-  servers.push(c);
-  return { ws, c };
-}
-
-async function closeServer(c: McpClient): Promise<void> {
-  c.child.stdin?.end();
-  const timer = setTimeout(() => c.child.kill("SIGKILL"), 15_000);
-  await c.exited;
-  clearTimeout(timer);
-}
-
-afterAll(async () => {
-  await Promise.all(servers.splice(0).map(closeServer));
-  for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
-});
-
 const py = (s: Session, code: string, extra: Record<string, unknown> = {}): Promise<ToolResultJson> => s.c.call("blender_python", { code, ...extra });
-const scene = (s: Session, args: Record<string, unknown> = {}): Promise<ToolResultJson> => s.c.call("blender_scene", args);
-const reset = (s: Session, mode: "factory" | "empty" = "factory"): Promise<ToolResultJson> => s.c.call("blender_reset", { mode });
 
 interface OutRef {
   path: string;
@@ -64,12 +27,6 @@ interface OutRef {
 const outputs = (r: ToolResultJson): OutRef[] => r.data.outputs as OutRef[];
 const files = (r: ToolResultJson): OutRef[] => r.data.files as OutRef[];
 const names = (r: ToolResultJson): string[] => (r.data.objects as { name: string }[]).map((o) => o.name);
-
-/** Fail with the tool's own message when a call was not a success. */
-function ok(r: ToolResultJson): ToolResultJson {
-  if (r.isError) throw new Error(`tool error: ${JSON.stringify(r.data)}${r.output ? `\n${r.output}` : ""}`);
-  return r;
-}
 
 /** Parse the `RESULT=<json>` line the test snippets print (Blender itself may print other lines). */
 function result<T>(r: ToolResultJson): T {
@@ -117,17 +74,6 @@ function hasKey(v: unknown, key: string): boolean {
   if (Array.isArray(v)) return v.some((x) => hasKey(x, key));
   if (v !== null && typeof v === "object") return Object.entries(v).some(([k, x]) => k === key || hasKey(x, key));
   return false;
-}
-
-/** Resident set size of `pid` in bytes (`ps` on POSIX, `tasklist` on Windows). */
-function rssBytes(pid: number): number {
-  if (process.platform === "win32") {
-    const out = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], { encoding: "utf8" });
-    const cells = out.trim().split('","');
-    const kb = Number((cells[cells.length - 1] ?? "").replace(/[^0-9]/g, ""));
-    return kb * 1024;
-  }
-  return Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim()) * 1024;
 }
 
 // ── E10 / E12: provisioning layout and a no-brotli boot ─────────────────────
@@ -395,48 +341,5 @@ describeReal("blender-wasm real: output size limit (E50, E51)", () => {
     expect(r.data.code).toBe("limit-exceeded");
     expect(fs.existsSync(path.join(s.ws, "tamper-out", "tamper.bin"))).toBe(false);
     expect(fs.existsSync(path.join(s.ws, "tamper-out")) ? fs.readdirSync(path.join(s.ws, "tamper-out")) : []).toEqual([]);
-  });
-});
-
-// ── P1–P3: performance budget ───────────────────────────────────────────────
-
-describeReal("blender-wasm real: performance budget (P1–P3)", () => {
-  let s: Session;
-
-  beforeAll(() => {
-    s = boot();
-  });
-
-  it("P1: the first blender_scene (boot included) from a fresh server against a valid cache takes <= 15 s", async () => {
-    const t0 = Date.now();
-    const r = ok(await scene(s));
-    const ms = Date.now() - t0;
-    expect(r.data.total).toBe(3);
-    expect(ms, `first call took ${ms} ms`).toBeLessThanOrEqual(15_000);
-  });
-
-  it("P2: the median of 5 blender_scene calls on a live factory session is <= 2 s", async () => {
-    ok(await reset(s, "factory"));
-    ok(await scene(s)); // make sure the session is live whatever ran before
-    const times: number[] = [];
-    for (let i = 0; i < 5; i++) {
-      const t0 = Date.now();
-      ok(await scene(s));
-      times.push(Date.now() - t0);
-    }
-    const median = [...times].sort((a, b) => a - b)[2];
-    expect(median, `call times ms: ${times.join(", ")}`).toBeLessThanOrEqual(2_000);
-  });
-
-  it("P3: after boot and a .glb export the Blender host process holds <= 2.5 GB RSS", async () => {
-    ok(await reset(s, "factory"));
-    ok(await s.c.call("blender_export", { path: "out/f.glb" }));
-    expect(fs.statSync(path.join(s.ws, "out", "f.glb")).size).toBeGreaterThan(0);
-    const launcher = s.c.child.pid as number;
-    const host = hostPidBelow(launcher);
-    expect(host, "host pid below the launcher").toBeDefined();
-    const rss = rssBytes(host as number);
-    expect(rss, `host RSS ${(rss / 2 ** 20).toFixed(0)} MiB`).toBeGreaterThan(0);
-    expect(rss, `host RSS ${(rss / 2 ** 20).toFixed(0)} MiB`).toBeLessThanOrEqual(2.5 * 1024 ** 3);
   });
 });

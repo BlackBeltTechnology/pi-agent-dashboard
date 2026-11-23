@@ -167,8 +167,11 @@ fail on it by design.
 ### Requirement: The check completes within a CI time budget
 
 The check SHALL complete across every non-private workspace within a declared
-CI wall-clock budget. It runs on every pull request, so an unbounded runtime
-would make it the slowest gate in the pipeline and invite disabling.
+CI wall-clock budget. The check runs on every pull request, so an unbounded runtime
+would make it the slowest gate in the pipeline and invite disabling. The
+enforcing test runs in the nightly budget lane (`nightly-tests.yml` job
+`budget`), not in a blocking pull-request lane, so a slow shared runner cannot
+fail a pull request; a breach is reported by the nightly.
 
 The budget SHALL be stated once, here, as a formula over the number of
 non-private workspaces, and SHALL be the same number the enforcing test
@@ -194,7 +197,7 @@ measured time, the budget, and the `N` the budget was derived from.
 
 #### Scenario: Full-repository run stays within budget
 
-- **WHEN** the check runs across all non-private workspaces on CI
+- **WHEN** the check runs across all non-private workspaces in the nightly budget lane
 - **THEN** total wall-clock time SHALL be within `30 + 3 * N` seconds
 
 #### Scenario: The asserted budget is the specified budget
@@ -211,7 +214,7 @@ measured time, the budget, and the `N` the budget was derived from.
 
 #### Scenario: A breach names the measurement
 
-- **WHEN** the check exceeds its budget on CI
+- **WHEN** the check exceeds its budget in the nightly budget lane
 - **THEN** the failure message SHALL carry the measured wall-clock time, the budget it exceeded, and the `N` that budget was computed from
 
 ### Requirement: The check runs in CI

@@ -221,7 +221,7 @@ sequenceDiagram
     else otherwise (green, dispatch, past the deadline, or either workflow inactive/unreadable)
         NT->>Issue: deferred: false, report as today
     end
-    NT-->>RR: workflow_run completed (failure)
+    NT-->>RR: workflow_run completed (failure or cancelled)
     RR->>RR: download nightly-attempt-1, read deferred
     alt record says deferred: true
         RR->>NT2: gh run rerun <id> --failed (actions: write)
@@ -239,7 +239,7 @@ sequenceDiagram
     WD->>Issue: latest scheduled run not green and no open issue names it → create/update
 ```
 
-- **`nightly-tests-rerun.yml`** (new). Trigger: `workflow_run: {workflows: ["Nightly tests"], types: [completed]}` only. Top-level `permissions: {}`. One job, `rerun`: `if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'develop'`. `permissions: {actions: write}`, `timeout-minutes: 5`, no checkout, no cache. Two steps, with `RUN_ID` and `GH_TOKEN` passed through `env:` and never interpolated into a script:
+- **`nightly-tests-rerun.yml`** (new). Trigger: `workflow_run: {workflows: ["Nightly tests"], types: [completed]}` only. Top-level `permissions: {}`. One job, `rerun`: `if: (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'cancelled') && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'develop'`. `permissions: {actions: write}`, `timeout-minutes: 5`, no checkout, no cache. Two steps, with `RUN_ID` and `GH_TOKEN` passed through `env:` and never interpolated into a script:
   1. `record` (`id: record`): `gh run download "$RUN_ID" --name nightly-attempt-1 --dir rec --repo "$GITHUB_REPOSITORY"`, then `jq -e '.deferred == true' rec/attempt-1.json` sets the step output `deferred` to `true` or `false`. A failed download or an unparsable file fails the step, and with it the job.
   2. `rerun`: `if: steps.record.outputs.deferred == 'true'`, runs `gh run rerun "$RUN_ID" --failed --repo "$GITHUB_REPOSITORY"`.
   So the trigger condition is the job `if:` AND the record's `deferred: true`. A night whose first attempt did not defer (deadline passed, a workflow inactive, green, or a dispatch) is never rerun automatically: attempt 1 has already opened or updated the issue, and nothing reruns or closes it before the next scheduled run. A night that deferred but whose record the `rerun` job cannot read is not rerun either; the watchdog reports it (fail-closed, later). Reading the triggering run's artifact with only `actions: write` is spike item (i). Least privilege: the token can rerun or cancel workflow runs, but cannot write contents, issues or packages. Untrusted input: only the numeric run id from the event. A `workflow_run` workflow runs the default-branch (`develop`) copy of its file, so a branch cannot change it.
