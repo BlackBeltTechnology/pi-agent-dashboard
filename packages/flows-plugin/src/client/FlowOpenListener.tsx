@@ -16,9 +16,9 @@ import { usePluginMessage, usePluginSend } from "@blackbelt-technology/dashboard
 import { newAttachmentId, setAttachment } from "./flow-attach-store.js";
 import { setFlowCollapsed } from "./flow-collapse-storage.js";
 
-export const FLOWS_OPEN_FRAME = "flows_open";
-export const FLOWS_OPEN_ACK = "flows_open_ack";
-export const MAX_SEEN_REQUESTS = 128;
+const FLOWS_OPEN_FRAME = "flows_open";
+const FLOWS_OPEN_ACK = "flows_open_ack";
+const MAX_SEEN_REQUESTS = 128;
 
 interface FlowsOpenFrame {
   sessionId?: unknown;
@@ -41,7 +41,7 @@ function markSeen(requestId: string): boolean {
 }
 
 /** Store one pin; returns the ack to send, or null for a malformed / duplicate frame. */
-export function applyFlowsOpen(msg: FlowsOpenFrame): { type: string; sessionId: string; requestId: string } | null {
+function applyFlowsOpen(msg: FlowsOpenFrame): { type: string; sessionId: string; requestId: string } | null {
   const { sessionId, requestId, attachment: a } = msg ?? {};
   if (typeof sessionId !== "string" || !sessionId || typeof requestId !== "string" || !requestId) return null;
   if (!a || typeof a.name !== "string" || !a.name) return null;

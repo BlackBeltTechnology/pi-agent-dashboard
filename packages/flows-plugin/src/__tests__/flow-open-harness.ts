@@ -9,7 +9,7 @@ import type { FlowCatalogEntry } from "../flow-catalog-contract.js";
 import { FlowFileRegistry } from "../server/flow-files.js";
 import { FLOWS_OPEN_ACK, type FlowOpenResult, registerFlowOpen } from "../server/flow-open.js";
 
-export interface OpenFrame {
+interface OpenFrame {
   type: string;
   sessionId: string;
   requestId: string;

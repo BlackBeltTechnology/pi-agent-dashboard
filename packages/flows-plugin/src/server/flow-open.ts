@@ -23,26 +23,26 @@ import type { FlowCatalogEntry } from "../flow-catalog-contract.js";
 import { isValidFlowName } from "./flow-control.js";
 import { type FlowFileRegistry, handlerPathsFromDoc, isInside, MAX_FILE_BYTES } from "./flow-files.js";
 
-export const FLOW_OPEN_REQUEST = "flow/open";
-export const FLOWS_OPEN_FRAME = "flows_open";
+const FLOW_OPEN_REQUEST = "flow/open";
+const FLOWS_OPEN_FRAME = "flows_open";
 export const FLOWS_OPEN_ACK = "flows_open_ack";
 
 /** Fixed acknowledgement window after the broadcast. */
-export const ACK_WINDOW_MS = 1_500;
+const ACK_WINDOW_MS = 1_500;
 /** Catalog poll period while waiting for a rediscovered catalog. */
-export const CATALOG_POLL_MS = 100;
+const CATALOG_POLL_MS = 100;
 /** Bounded pending-ack map (oldest dropped). */
-export const MAX_PENDING_ACKS = 64;
-export const RATE_MAX_CALLS = 10;
-export const RATE_WINDOW_MS = 10_000;
+const MAX_PENDING_ACKS = 64;
+const RATE_MAX_CALLS = 10;
+const RATE_WINDOW_MS = 10_000;
 /** Candidate walk bounds for a directory without a direct flow file. */
-export const MAX_CANDIDATES = 20;
-export const MAX_CANDIDATE_DEPTH = 6;
+const MAX_CANDIDATES = 20;
+const MAX_CANDIDATE_DEPTH = 6;
 const MAX_PATH_CHARS = 4096;
 const FLOW_FILE = /^flow\.ya?ml$/;
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 
-export type FlowOpenReason =
+type FlowOpenReason =
   | "invalid-arguments"
   | "unknown-flow"
   | "not-a-flow"
@@ -113,7 +113,7 @@ function flowFilesIn(dir: string): string[] {
  * {@link MAX_CANDIDATE_DEPTH} directory levels down, skipping `node_modules`
  * and `.git`.
  */
-export function findFlowCandidates(dir: string, cwdReal: string): string[] {
+function findFlowCandidates(dir: string, cwdReal: string): string[] {
   const out: string[] = [];
   let level: string[] = [dir];
   for (let depth = 1; depth <= MAX_CANDIDATE_DEPTH && level.length > 0; depth++) {
@@ -140,7 +140,7 @@ function directFlowFile(dir: string, cwdReal: string): Located {
  * Admission without reading content (D2): canonical location, confinement,
  * name, type, size. `cwdReal` is the realpath of the session cwd.
  */
-export function locateFlowPath(input: string, cwd: string, cwdReal: string): Located {
+function locateFlowPath(input: string, cwd: string, cwdReal: string): Located {
   const abs = path.resolve(cwd, input);
   const real = realpathOrNull(abs);
   if (real === null) {

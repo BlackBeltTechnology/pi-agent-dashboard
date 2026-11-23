@@ -15,14 +15,14 @@
 import path from "node:path";
 import { requestPluginServer } from "@blackbelt-technology/dashboard-plugin-runtime/bridge";
 
-export const FLOW_OPEN_TOOL = "flow_open";
+const FLOW_OPEN_TOOL = "flow_open";
 
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   details: Record<string, unknown>;
 }
 
-export interface FlowOpenToolDef {
+interface FlowOpenToolDef {
   name: string;
   label: string;
   description: string;
@@ -49,7 +49,7 @@ const result = (details: Record<string, unknown>): ToolResult => ({
 });
 const refused = (reason: string) => result({ status: "refused", reason });
 
-export function createFlowOpenTool(isRunning: () => boolean): FlowOpenToolDef {
+function createFlowOpenTool(isRunning: () => boolean): FlowOpenToolDef {
   return {
     name: FLOW_OPEN_TOOL,
     label: "Show a flow",
