@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "../SettingsPanel.js";
@@ -564,5 +565,182 @@ describe("settings page composition", () => {
       scroll.restore();
       pluginsFixture = null;
     }
+  });
+
+  // ── External one-shot `?scroll=<testid>` (card-sections-global-pointer, D4) ──
+
+  /** `/api/config` GET held until `resolve()` (or `reject()`). */
+  function deferConfig() {
+    let resolve!: () => void;
+    let reject!: () => void;
+    const gate = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    const inner = mockFetchConfig();
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) =>
+      url === "/api/config" && !options?.method ? gate.then(() => inner(url, options)) : inner(url, options),
+    );
+    return { resolve: () => act(async () => resolve()), reject: () => act(async () => reject()) };
+  }
+
+  const replaced = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.map((c) => c[2]);
+  const selectorFor = (v: string) => `[data-testid="${v}"]`;
+
+  it("scrolls the ?scroll= target once after config loads, then replaces the param away (#E6)", async () => {
+    const cfg = deferConfig();
+    setPath("/settings/general?scroll=card-sections-settings");
+    const scroll = stubScrollIntoView();
+    const replace = vi.spyOn(window.history, "replaceState");
+    try {
+      render(<SettingsPanel />);
+      await act(async () => {});
+      expect(scroll.fn).not.toHaveBeenCalled();
+      expect(replaced(replace)).not.toContain("/settings/general");
+      await cfg.resolve();
+      await waitFor(() => expect(scroll.fn).toHaveBeenCalledTimes(1));
+      const target = scroll.fn.mock.contexts[0] as Element;
+      expect(target.getAttribute("data-testid")).toBe("card-sections-settings");
+      await waitFor(() => expect(replaced(replace)).toContain("/settings/general"));
+      expect(window.location.pathname).toBe("/settings/general");
+      expect(window.location.search).toBe("");
+      expect(scroll.fn).toHaveBeenCalledTimes(1);
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  it("unknown ?scroll= target: no scroll, param still removed (#E7)", async () => {
+    setPath("/settings/general?scroll=does-not-exist");
+    const scroll = stubScrollIntoView();
+    try {
+      render(<SettingsPanel />);
+      await waitFor(() => screen.getByText("Interface"));
+      await waitFor(() => expect(window.location.search).toBe(""));
+      expect(window.location.pathname).toBe("/settings/general");
+      expect(scroll.fn).not.toHaveBeenCalled();
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  it("hostile ?scroll= values never reach querySelector and never throw (#E8)", async () => {
+    const rejected = ['"]', 'a"],body[x="', "a".repeat(65), "a b"];
+    const accepted = ["dep-chip-blockedBy", "a".repeat(64)];
+    for (const v of [...rejected, ...accepted]) {
+      cleanup();
+      vi.restoreAllMocks();
+      global.fetch = mockFetchConfig();
+      setPath(`/settings/general?scroll=${encodeURIComponent(v)}`);
+      const qs = vi.spyOn(document, "querySelector");
+      render(<SettingsPanel />);
+      await waitFor(() => screen.getByText("Interface"));
+      await waitFor(() => expect(window.location.search).toBe(""));
+      const selectors = qs.mock.calls.map((c) => c[0]);
+      if (rejected.includes(v)) expect(selectors).not.toContain(selectorFor(v));
+      else expect(selectors).toContain(selectorFor(v));
+    }
+  });
+
+  it("no ?scroll=: no scroll, no replace; the internal rail target still scrolls route-free (#E9)", async () => {
+    healthFixture = healthPayload(piRuntimeFixture());
+    pluginsFixture = null;
+    const scroll = stubScrollIntoView();
+    const replace = vi.spyOn(window.history, "replaceState");
+    try {
+      render(<SettingsPanel />);
+      await waitFor(() => screen.getByText("Interface"));
+      await act(async () => {});
+      expect(scroll.fn).not.toHaveBeenCalled();
+      expect(replaced(replace)).toEqual([]);
+      fireEvent.click(await waitFor(() => screen.getByTestId("pi-runtime-status-change")));
+      await waitFor(() => expect(scroll.fn).toHaveBeenCalled());
+      expect((scroll.fn.mock.contexts[0] as Element).getAttribute("data-testid")).toBe("pi-runtime-section");
+      expect(window.location.pathname).toBe("/settings/developer");
+      expect(window.location.search).toBe("");
+    } finally {
+      scroll.restore();
+      healthFixture = null;
+    }
+  });
+
+  it("StrictMode double effects scroll exactly once (#F1)", async () => {
+    const cfg = deferConfig();
+    setPath("/settings/general?scroll=card-sections-settings");
+    const scroll = stubScrollIntoView();
+    try {
+      render(
+        <StrictMode>
+          <SettingsPanel />
+        </StrictMode>,
+      );
+      await cfg.resolve();
+      await waitFor(() => expect(window.location.search).toBe(""));
+      await act(async () => {});
+      expect(scroll.fn).toHaveBeenCalledTimes(1);
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  it("rejected /api/config: no throw, no scroll, param left in the URL (#X1)", async () => {
+    const cfg = deferConfig();
+    setPath("/settings/general?scroll=card-sections-settings");
+    const scroll = stubScrollIntoView();
+    const replace = vi.spyOn(window.history, "replaceState");
+    try {
+      render(<SettingsPanel />);
+      await cfg.reject();
+      await waitFor(() => screen.getAllByText("Failed to load settings"));
+      expect(scroll.fn).not.toHaveBeenCalled();
+      expect(replaced(replace)).not.toContain("/settings/general");
+      expect(window.location.search).toBe("?scroll=card-sections-settings");
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  it("?scroll= arriving while Settings is already open is consumed (#E12)", async () => {
+    const scroll = stubScrollIntoView();
+    try {
+      render(<SettingsPanel />);
+      await waitFor(() => screen.getByText("Interface"));
+      expect(scroll.fn).not.toHaveBeenCalled();
+      act(() => window.history.pushState({}, "", "/settings/general?scroll=card-sections-settings"));
+      await waitFor(() => expect(scroll.fn).toHaveBeenCalledTimes(1));
+      expect((scroll.fn.mock.contexts[0] as Element).getAttribute("data-testid")).toBe("card-sections-settings");
+      await waitFor(() => expect(window.location.search).toBe(""));
+      expect(window.location.pathname).toBe("/settings/general");
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  it("the replace keeps a plugin :sub segment (#E13)", async () => {
+    pluginsFixture = null;
+    setPath("/settings/plugins/kb?scroll=card-sections-settings");
+    const scroll = stubScrollIntoView();
+    const replace = vi.spyOn(window.history, "replaceState");
+    try {
+      render(<SettingsPanel />);
+      await waitFor(() => expect(replaced(replace)).toContain("/settings/plugins/kb"));
+      expect(window.location.pathname).toBe("/settings/plugins/kb");
+      expect(window.location.search).toBe("");
+      expect(scroll.fn).not.toHaveBeenCalled();
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  it("page resolution ignores ?scroll=; legacy ?tab= upgrade unchanged (#E14)", async () => {
+    setPath("/settings/general?scroll=x");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(window.location.pathname).toBe("/settings/general");
+    cleanup();
+    setPath("/settings?tab=security&scroll=x");
+    render(<SettingsPanel />);
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/security"));
   });
 });

@@ -47,3 +47,5 @@ Desktop header zone = four rows, rows 2–4 on one text column (`SESSION_TEXT_CO
 Relayed `gitBranchUrl` / `gitPrUrl` render via `SafeLink`; card action `openUrl` → `openExternalUrl`. See change: harden-client-sinks.
 
 `menuListCtx` (the `ActionListMenuContext` value around the `session-card-action-bar` portal) carries `open: menuOpen` so mounted claims refetch on menu open (flows effective edit mode). See change: stop-flows-edit-mode-project-writes.
+
+Session menu actions drop `openCardDefaults`; VIEW = `Card sections…` only. See change: card-sections-global-pointer.

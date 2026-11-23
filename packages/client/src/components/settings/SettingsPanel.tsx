@@ -44,7 +44,7 @@ import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.
 import { mdiAlert, mdiAlertCircleOutline, mdiAlertOutline, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTune, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useRoute } from "wouter";
+import { useLocation, useRoute, useSearch } from "wouter";
 import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
@@ -621,6 +621,8 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
  * See change: fix-settings-back-to-launching-route.
  */
 const BACK_SENTINEL = "@@back";
+/** Allowlist for the external `?scroll=` value (card-sections-global-pointer D4). */
+const SCROLL_TARGET_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export function SettingsPanel({ availableModels, onMessage, ws, onBack, selectedCwd, groupByPrefs, onSetDefaultGroupBy }: {
   /**
@@ -1197,6 +1199,30 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
     pendingScrollTargetRef.current = null;
     document.querySelector(`[data-testid="${target}"]`)?.scrollIntoView({ block: "start" });
   }, [activeTab]);
+  // External one-shot `?scroll=<data-testid>` (canonical `/settings/:page?/:sub?`
+  // URLs only), for navigation from OUTSIDE the panel; the in-panel helper
+  // above stays route-free. Read via the reactive `useSearch()` so a param that
+  // arrives while Settings is already open is consumed too. Waits for the
+  // loaded panel (a rejected `/api/config` leaves param + URL untouched). The
+  // value is untrusted URL input: only `^[A-Za-z0-9_-]{1,64}$` reaches the
+  // selector (selector-safe by construction). The param is then replaced away
+  // whether or not the target exists, keeping any `:sub`. The consumed-ref
+  // blocks a StrictMode double scroll and resets once `scroll` is gone, so a
+  // repeat trip scrolls again. See change: card-sections-global-pointer (D4).
+  const externalScroll = new URLSearchParams(useSearch()).get("scroll");
+  const externalScrollConsumedRef = useRef(false);
+  useEffect(() => {
+    if (!externalScroll) {
+      externalScrollConsumedRef.current = false;
+      return;
+    }
+    if (loading || !config || externalScrollConsumedRef.current) return;
+    externalScrollConsumedRef.current = true;
+    if (SCROLL_TARGET_RE.test(externalScroll)) {
+      document.querySelector(`[data-testid="${externalScroll}"]`)?.scrollIntoView({ block: "start" });
+    }
+    navigate(`/settings/${activeTab}${activeSubSegment}`, { replace: true });
+  }, [loading, config, activeTab, activeSubSegment, externalScroll, navigate]);
   // The runtime row + advisory share one navigate-then-scroll affordance.
   const navigateToRuntimePicker = useCallback(() => {
     requestRailNavigate("/settings/developer", "pi-runtime-section");

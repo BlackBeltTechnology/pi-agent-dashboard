@@ -34,7 +34,6 @@ function actions(over: Partial<SessionMenuActions> = {}): SessionMenuActions {
     openPr: vi.fn(),
     openUrl: vi.fn(),
     openCardSections: vi.fn(),
-    openCardDefaults: vi.fn(),
     ...over,
   };
 }
@@ -512,15 +511,15 @@ describe("deriveSessionMenu — activation wiring", () => {
     expect(a.detach).toHaveBeenCalled();
   });
 
-  it("VIEW offers the two card-section entries", () => {
-    const s = makeSession();
-    const a = actions();
-    const view = find(deriveSessionMenu(s, makeCtx(s, { actions: a })), "view");
-    expect(ids(view)).toEqual(["card-sections", "card-defaults"]);
-    view?.items[0].onSelect?.();
-    view?.items[1].onSelect?.();
-    expect(a.openCardSections).toHaveBeenCalled();
-    expect(a.openCardDefaults).toHaveBeenCalled();
+  it("VIEW offers exactly one card-section entry (card-sections-global-pointer #E10)", () => {
+    for (const s of [makeSession(), makeSession({ gitWorktree: undefined, gitBranch: undefined })]) {
+      const a = actions();
+      const view = find(deriveSessionMenu(s, makeCtx(s, { actions: a })), "view");
+      expect(ids(view)).toEqual(["card-sections"]);
+      view?.items[0].onSelect?.();
+      expect(a.openCardSections).toHaveBeenCalled();
+      expect("openCardDefaults" in a).toBe(false);
+    }
   });
 });
 
