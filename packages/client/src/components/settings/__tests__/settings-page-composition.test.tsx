@@ -743,4 +743,28 @@ describe("settings page composition", () => {
     render(<SettingsPanel />);
     await waitFor(() => expect(window.location.pathname).toBe("/settings/security"));
   });
+
+  it("an empty ?scroll= is removed too (CodeRabbit #1201)", async () => {
+    setPath("/settings/general?scroll=");
+    const scroll = stubScrollIntoView();
+    try {
+      render(<SettingsPanel />);
+      await waitFor(() => screen.getByText("Interface"));
+      await waitFor(() => expect(window.location.search).toBe(""));
+      expect(window.location.pathname).toBe("/settings/general");
+      expect(scroll.fn).not.toHaveBeenCalled();
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  it("legacy ?tab= + ?scroll= arriving while Settings is open still lands on the legacy page (CodeRabbit #1201)", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    act(() => window.history.pushState({}, "", "/settings?tab=security&scroll=x"));
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/security"));
+    await act(async () => {});
+    expect(window.location.pathname).toBe("/settings/security");
+  });
 });
+

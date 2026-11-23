@@ -1212,17 +1212,21 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   const externalScroll = new URLSearchParams(useSearch()).get("scroll");
   const externalScrollConsumedRef = useRef(false);
   useEffect(() => {
-    if (!externalScroll) {
+    if (externalScroll === null) {
       externalScrollConsumedRef.current = false;
       return;
     }
+    // Wait until the route is canonical: the alias / invalid-page / legacy
+    // `?tab=` rewrite above owns that replace, and this render's fallback
+    // `activeTab` would otherwise clobber its destination.
+    if (!resolvedRoutePage || resolvedRoutePage !== routePage) return;
     if (loading || !config || externalScrollConsumedRef.current) return;
     externalScrollConsumedRef.current = true;
     if (SCROLL_TARGET_RE.test(externalScroll)) {
       document.querySelector(`[data-testid="${externalScroll}"]`)?.scrollIntoView({ block: "start" });
     }
     navigate(`/settings/${activeTab}${activeSubSegment}`, { replace: true });
-  }, [loading, config, activeTab, activeSubSegment, externalScroll, navigate]);
+  }, [loading, config, activeTab, activeSubSegment, externalScroll, resolvedRoutePage, routePage, navigate]);
   // The runtime row + advisory share one navigate-then-scroll affordance.
   const navigateToRuntimePicker = useCallback(() => {
     requestRailNavigate("/settings/developer", "pi-runtime-section");
