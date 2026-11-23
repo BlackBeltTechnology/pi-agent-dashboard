@@ -56,6 +56,11 @@ export function isGatedSource(source) {
   return /process\.env\.RUN_CI_SCENARIOS\b|process\.env\[\s*["'`]RUN_CI_SCENARIOS["'`]\s*\]/.test(source);
 }
 
+/** A budget-lane test file by NAME only (a code extension; `x.budget.test.ts.snap` is not one). */
+export function isBudgetFile(file) {
+  return /\.budget\.test\.[cm]?[jt]sx?$/.test(file);
+}
+
 const STRING_RE = /(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
 
 /**
@@ -150,8 +155,9 @@ export function assignShards(files, timings, shardCount = SHARD_COUNT) {
  * @param {object} input.data               { triggers, coveredElsewhere, slowTier }
  * @param {Record<string, number>} input.timings
  * @param {number} [input.shardCount]
+ * @param {string[]} [input.budgetFiles]    git-tracked budget files (filename scan; never from the index)
  */
-export function decide({ changed, forceFull = null, index, data, timings = {}, shardCount = SHARD_COUNT }) {
+export function decide({ changed, forceFull = null, index, data, timings = {}, shardCount = SHARD_COUNT, budgetFiles = [] }) {
   const tests = index.tests;
   const allTests = Object.keys(tests).sort();
   const changedSet = new Set(changed);
@@ -241,10 +247,11 @@ export function decide({ changed, forceFull = null, index, data, timings = {}, s
   }
 
   const ciScenarios = mode === "full" || (changed.length > 0 && !changed.every((f) => f.startsWith("openspec/")));
-  const gatedAll = allTests.filter((t) => tests[t].gated);
+  // Budget files run only in the nightly budget lane: defensively keep them out of every PR list.
+  const gatedAll = allTests.filter((t) => tests[t].gated && !isBudgetFile(t));
   const sel = Object.keys(selected).sort();
-  const realProcess = sel.filter((t) => tests[t].phase === "real-process" && !tests[t].gated);
-  const parallel = sel.filter((t) => tests[t].phase !== "real-process" && !tests[t].gated);
+  const realProcess = sel.filter((t) => tests[t].phase === "real-process" && !tests[t].gated && !isBudgetFile(t));
+  const parallel = sel.filter((t) => tests[t].phase !== "real-process" && !tests[t].gated && !isBudgetFile(t));
   const shardResult = assignShards(parallel, timings, shardCount);
 
   const counts = { global: globalHits.length };
@@ -265,6 +272,7 @@ export function decide({ changed, forceFull = null, index, data, timings = {}, s
     realProcess,
     ciScenarios,
     ciScenariosFiles: ciScenarios ? gatedAll : [],
+    budgetFiles: [...budgetFiles].sort(),
     counts,
     unmapped,
     leafErrors: index.leafErrors ?? [],

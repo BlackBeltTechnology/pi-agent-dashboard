@@ -21,7 +21,7 @@ const REPO_ROOT = path.resolve(here, "..", "..", "..", "..");
 const CI_TEXT = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "ci.yml"), "utf8");
 
 type Step = { name?: string; uses?: string; run?: string; if?: string; with?: Record<string, unknown>; id?: string };
-type Job = { needs?: string | string[]; if?: string; steps?: Step[]; strategy?: { matrix?: Record<string, unknown> }; outputs?: Record<string, string> };
+type Job = { needs?: string | string[]; if?: string; "continue-on-error"?: unknown; steps?: Step[]; strategy?: { matrix?: Record<string, unknown> }; outputs?: Record<string, string> };
 const CI = parseYaml(CI_TEXT) as {
   on: Record<string, unknown>;
   jobs: Record<string, Job>;
@@ -127,6 +127,32 @@ describe("ci.yml — parallel, selector-driven test jobs (E30)", () => {
 
   it("the guards job no longer installs chromium or runs the suite", () => {
     expect(runs("ci")).not.toMatch(/playwright install/);
+  });
+});
+
+describe("ci.yml — budget lane is nightly-only (E11, E108; change: stabilize-blocking-test-lanes)", () => {
+  it("E11: the `ci` job runs the Budget lane check, then the warn-only assertion guard, both after the Fixed-tick wait guard and blocking", () => {
+    const names = steps("ci").map((s) => s.name);
+    const fixedTick = names.indexOf("Fixed-tick wait guard");
+    expect(fixedTick).toBeGreaterThanOrEqual(0);
+    expect(names[fixedTick + 1]).toBe("Budget lane check");
+    expect(names[fixedTick + 2]).toBe("Budget assertion guard (warn-only)");
+    const [lane, guard] = [steps("ci")[fixedTick + 1], steps("ci")[fixedTick + 2]];
+    expect(lane.run?.trim()).toBe("node scripts/check-budget-lane.mjs");
+    expect(guard.run).toMatch(/node scripts\/check-budget-assertions\.mjs\b.*--warn/);
+    for (const step of [lane, guard]) expect(step).not.toHaveProperty("continue-on-error");
+  });
+
+  it("E11: ci-result still needs blender-real and ci-scenarios, and no job sets continue-on-error", () => {
+    expect(needsOf("ci-result")).toEqual(expect.arrayContaining(["blender-real", "ci-scenarios"]));
+    for (const [name, job] of Object.entries(CI.jobs)) expect(job, name).not.toHaveProperty("continue-on-error");
+  });
+
+  it("E108: ci.yml has no budget job, no test:budget and no RUN_BUDGET_TESTS (the nightly owns the lane)", () => {
+    expect(Object.keys(CI.jobs)).not.toContain("budget");
+    expect(CODE).not.toMatch(/test:budget/);
+    expect(CODE).not.toMatch(/RUN_BUDGET_TESTS/);
+    expect(CODE).not.toMatch(/budgetFiles/);
   });
 });
 

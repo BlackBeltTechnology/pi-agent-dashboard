@@ -1,0 +1,47 @@
+name: Nightly tests watchdog
+
+# Fail-closed backstop for the nightly rerun-once path (change:
+# stabilize-blocking-test-lanes, D7). If the latest scheduled `Nightly tests`
+# run on develop is not green and no open `nightly-tests` issue names it (the
+# rerun was not performed, its record was unreadable, or the run is still
+# red), this opens or updates that issue. 07:47 UTC is at least two hours after
+# the worst-case end of the rerun path; nightly-tests-workflow-contract.test.ts
+# derives that from the cron, the timeouts and DEFER_DEADLINE_UTC_MINUTE.
+# A manual dispatch only prints the decision (--dry-run).
+#
+# Lives in its own file so one broken workflow cannot stop both safety nets.
+
+on:
+  schedule:
+    - cron: "47 7 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    # Same set as the nightly `report` job.
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # No dependency cache: this job holds `issues: write`.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: Watchdog (opens or updates the issue)
+        if: github.event_name == 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/test-selection/nightly-report.mjs --watchdog
+      - name: Watchdog (dry run, manual dispatch)
+        if: github.event_name != 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/test-selection/nightly-report.mjs --watchdog --dry-run

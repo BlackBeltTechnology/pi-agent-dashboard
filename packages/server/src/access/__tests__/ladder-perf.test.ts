@@ -1,6 +1,6 @@
 /**
  * Denial-path cost and leak checks (change: add-access-grant-dialog, tasks
- * 10.43, 10.44; test-plan #P3, #P4).
+ * 10.43, 10.44; test-plan #P3, #P4; #P4's RSS bound: ladder-perf.budget.test.ts).
  */
 import * as fs from "node:fs";
 import os from "node:os";
@@ -65,7 +65,7 @@ describe("#P3 ladder computation on the denial path", () => {
 });
 
 describe("#P4 registry does not leak across settled entries", () => {
-  it("10k prompt -> settle cycles: registry returns to baseline, RSS delta < 10 MB", () => {
+  it("10k prompt -> settle cycles: registry returns to baseline", () => {
     const reg = new PendingGrantRegistry({ onTransition: () => {} });
     const OK = { promptable: true } as const;
     const run = (n: number, t0: number) => {
@@ -82,14 +82,9 @@ describe("#P4 registry does not leak across settled entries", () => {
     };
     run(1000, 0); // warm up
     global.gc?.();
-    const rss0 = process.memoryUsage().rss;
     run(10_000, 1e12);
     global.gc?.();
     expect(reg.size).toBe(0);
-    // RSS is process-wide: on a loaded CI fork, allocator/JIT growth from the
-    // 10k-cycle churn itself measured 11.5 MB (nightly 11-21) with reg.size 0.
-    // `reg.size` is the leak oracle; RSS only catches a gross leak.
-    expect(process.memoryUsage().rss - rss0).toBeLessThan((process.env.CI ? 32 : 10) * 1024 * 1024);
   });
 });
 

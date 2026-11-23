@@ -11,7 +11,9 @@
 | `ci-e2e-electron.yml` | Path-filtered pull request, manual | Native Electron Playwright checks on Linux and Windows | No |
 | `ci-electron.yml` | Manual | Build selected Electron installer matrix legs | No |
 | `ci-smoke.yml` | Manual | Run the standalone installation smoke matrix | No |
-| `nightly-tests.yml` | Daily cron `0 3 * * *`, manual | Full sharded vitest suite incl. the slow tier; red scheduled run opens/updates the `nightly-tests` issue with the bisect range | No |
+| `nightly-tests.yml` | Daily cron `0 3 * * *`, manual | Full sharded vitest suite incl. the slow tier and the serial `budget` lane (`*.budget.test.*`); no `concurrency` group. First attempt of a red scheduled night writes the `nightly-attempt-1` record and defers the issue; the rerun then reports (issue only if it fails again; "Passed on rerun (flaky)" lists what passed). A deferred first attempt exits red, that is expected | No |
+| `nightly-tests-rerun.yml` | `workflow_run` of `Nightly tests` completed (failure or cancelled, attempt 1, scheduled, develop) | Reads the `nightly-attempt-1` record; when `deferred: true` runs `gh run rerun --failed` once. Only `actions: write` | No |
+| `nightly-tests-watchdog.yml` | Daily cron `47 7 * * *`, manual (dry run) | `nightly-report.mjs --watchdog`: latest scheduled run not green and no open issue names it → opens/updates the `nightly-tests` issue ("rerun not performed or not reported") | No |
 | `nightly.yml` | Manual; schedule currently disabled | Full-fidelity Verdaccio and Electron round-trip | No public release mutation |
 | `publish.yml` | `v*` tag or manual version dispatch | Gate, tag when dispatched, publish npm packages, build Electron, create GitHub Release | Yes |
 | `sync-release-version.yml` | Release published or edited, manual | Write release metadata to the site and push `develop` | Site metadata commit |
@@ -29,6 +31,8 @@
 flowchart LR
   ci[ci.yml] --> checks[guards + lint + build<br/>+ affected tests]
   nightlyTests[nightly-tests.yml] --> full[full suite]
+  nightlyTests -->|red, deferred| rerun[nightly-tests-rerun.yml]
+  watchdog[nightly-tests-watchdog.yml] -.-> full
   deploy[deploy-site.yml] --> pages[GitHub Pages]
   native[ci-e2e-electron.yml] --> nativeTests[native Electron E2E]
   ciSmoke[ci-smoke.yml] --> smoke[_smoke.yml]

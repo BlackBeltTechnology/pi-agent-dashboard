@@ -13,7 +13,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PARALLEL_MAX_WORKERS } from '../../vitest.workers';
 
 const REPO_ROOT = join(import.meta.dirname, '..', '..');
@@ -133,5 +133,28 @@ describe('effective worker count unchanged (P1)', () => {
       resolvedValues.push(config?.test?.maxWorkers);
     }
     expect(resolvedValues).toContain(PARALLEL_MAX_WORKERS);
+  });
+});
+
+describe('budget lane switch (E1, change: stabilize-blocking-test-lanes D1)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  /** Re-import the module under one `RUN_BUDGET_TESTS` value (`undefined` = unset). */
+  async function budgetExcludeFor(value) {
+    vi.resetModules();
+    if (value === undefined) vi.stubEnv('RUN_BUDGET_TESTS', undefined);
+    else vi.stubEnv('RUN_BUDGET_TESTS', value);
+    return (await import('../../vitest.workers')).BUDGET_TEST_EXCLUDE;
+  }
+
+  it.each([undefined, '0', 'true', ' 1'])('RUN_BUDGET_TESTS=%j keeps the budget glob excluded', async (value) => {
+    expect(await budgetExcludeFor(value)).toEqual(['**/*.budget.test.*']);
+  });
+
+  it('RUN_BUDGET_TESTS="1" (exactly) empties the exclusion', async () => {
+    expect(await budgetExcludeFor('1')).toEqual([]);
   });
 });

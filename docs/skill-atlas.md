@@ -174,7 +174,9 @@ See change: add-skill-atlas-forest-aura.
 
 - P1: memo hit, 100 skills, p95 < 100 ms (`atlas-perf.test.ts`).
 - Graph first paint: `performance.mark("atlas-graph-rendered")` after first visible paint per mount. e2e P4: `atlas-graph-start` → `atlas-graph-rendered` < 500 ms (`tests/e2e/skill-atlas.spec.ts`).
-- Unit P1: `presettle` 300 skills median < 350 ms (`graph-layout.test.ts`).
+- Perf P1: `presettle` 300 skills median < 350 ms (`CI` env: < 700 ms). Lives in `graph-layout.budget.test.ts`.
+- Budget lane only: runs in nightly `budget` job on `ubuntu-latest`. Never in blocking runs.
+- Determinism + separation stay in blocking `graph-layout.test.ts`.
 - P2: rebuild, 300 × 256 KiB bodies, < 500 ms (`atlas-perf.test.ts`).
 - Measured (Apple silicon dev box):
   - 300 `stat` ≈ 3–4 ms.
