@@ -21,7 +21,7 @@ import { useInTranscript } from "../chat/LinkResolutionProvider.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
-import { LinkIconSlot } from "../tool-renderers/LinkIconSlot.js";
+import { WebLinkBody, webLinkClass } from "../tool-renderers/link-pill.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 import { UrlLink } from "../tool-renderers/UrlLink.js";
 import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperties.js";
@@ -584,6 +584,13 @@ function MarkdownTable({ children }: { children?: React.ReactNode }) {
 
 const HTTP_HREF = /^https?:\/\//i;
 
+/** Transcript http(s) anchors get a provider classification; an autolink (text = URL) is shortened to its label. */
+function classifyWebAnchor(href: string, children: React.ReactNode, inTranscript: boolean) {
+  const rich = inTranscript && HTTP_HREF.test(href) ? classifyLink(href) : null;
+  const autolink = rich !== null && React.Children.toArray(children).join("") === href && rich.label !== href;
+  return { rich, autolink };
+}
+
 /**
  * Anchor renderer (rich-chat-links D7):
  *  - a relative href with a known base (`ImageBase` in a file preview, else the transcript `ToolContext.cwd`) and a
@@ -608,13 +615,13 @@ function MarkdownAnchor({ node: _node, href, children, ...props }: React.Compone
     return <>{renderFileLink({ path: mention.path, line: mention.line, absolute: mention.absolute, context: toolContext, children })}</>;
   }
   const external = isExternalHref(href);
-  const rich = inTranscript && HTTP_HREF.test(href) ? classifyLink(href) : null;
-  const autolink = rich !== null && React.Children.toArray(children).join("") === href && rich.label !== href;
+  const { rich, autolink } = classifyWebAnchor(href, children, inTranscript);
   return (
     <a
       // client-sinks: allow — href already passed safeUrlTransform (markdown protocol set, spec client-untrusted-content-sanitization)
       href={href}
-      className="text-blue-400 hover:underline"
+      // In the transcript a web anchor is a no-wrap pill (render-web-links-as-pill D1).
+      className={webLinkClass(rich !== null, "text-blue-400 hover:underline")}
       {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
       // Loopback links route into the internal live-server split viewer on a plain click, and so do other web
       // links of the pane's own session (as `url:` tabs); modifier/middle-click and the no-context fallback keep
@@ -624,8 +631,7 @@ function MarkdownAnchor({ node: _node, href, children, ...props }: React.Compone
       {...(autolink ? { "data-copy-text": href } : {})}
       {...props}
     >
-      {rich && <LinkIconSlot glyph={rich.icon} />}
-      {autolink ? rich.label : children}
+      {rich ? <WebLinkBody icon={rich.icon}>{autolink ? rich.label : children}</WebLinkBody> : children}
     </a>
   );
 }
