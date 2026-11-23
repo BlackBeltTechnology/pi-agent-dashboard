@@ -3,7 +3,7 @@ import type React from "react";
 import { classifyLink } from "../../lib/chat/classify-link.js";
 import { useWebLinkOpen } from "../../lib/use-web-link-open.js";
 import { useInTranscript } from "../chat/LinkResolutionProvider.js";
-import { LinkIconSlot } from "./LinkIconSlot.js";
+import { WebLinkBody, webLinkClass } from "./link-pill.js";
 import type { ToolContext } from "./types.js";
 
 interface Props {
@@ -58,10 +58,10 @@ export function UrlLink({ href, children, context }: Props) {
       // `blue-400` it replaces was tuned on a dark ground and measured
       // 1.80–2.52:1 on `--bg-code` in all 9 light themes.
       // See change: repair-tool-error-surfaces (test-plan #F8).
-      className="text-[var(--link)] hover:underline"
+      // In the transcript the anchor is a no-wrap pill (render-web-links-as-pill D1).
+      className={webLinkClass(rich !== null, "text-[var(--link)] hover:underline")}
     >
-      {rich && <LinkIconSlot glyph={rich.icon} />}
-      {shortened ? rich.label : children}
+      {rich ? <WebLinkBody icon={rich.icon}>{shortened ? rich.label : children}</WebLinkBody> : children}
     </a>
   );
 }

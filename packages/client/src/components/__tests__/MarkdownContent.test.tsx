@@ -1389,6 +1389,20 @@ describe("MarkdownContent — web anchors in the transcript (#E8, #E23)", () => 
     expect(a.querySelector("svg[data-link-icon]")).not.toBeNull();
   });
 
+  it("a transcript web anchor is one no-wrap pill, authored text and autolink alike (render-web-links-as-pill)", () => {
+    for (const md of [`[the fix](${GH})`, `<${GH}>`]) {
+      const { container, unmount } = renderIn(md, true);
+      const a = container.querySelector("a")!;
+      expect(a.className).toContain("whitespace-nowrap");
+      expect(a.className).toContain("rounded-full");
+      expect(a.querySelector("[data-web-link-label]")?.className).toContain("truncate");
+      unmount();
+    }
+    const { container } = renderIn(`<${GH}>`, false);
+    expect(container.querySelector("a")!.className).not.toContain("rounded-full");
+    expect(container.querySelector("[data-web-link-label]")).toBeNull();
+  });
+
   it("outside the transcript the anchor is unchanged: text = URL, no icon", () => {
     const { container } = renderIn(`<${GH}>`, false);
     const a = container.querySelector("a")!;

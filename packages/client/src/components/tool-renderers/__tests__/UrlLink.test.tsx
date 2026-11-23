@@ -144,3 +144,29 @@ describe("UrlLink provider icon and label (#E7)", () => {
     expect(a.hasAttribute("data-copy-text")).toBe(false);
   });
 });
+
+describe("UrlLink transcript pill (render-web-links-as-pill)", () => {
+  const URL_LONG = "https://github.com/BlackBeltTechnology/pi-agent-dashboard/security/dependabot";
+  const inTranscript = (ui: React.ReactElement) => render(<LinkResolutionProvider>{ui}</LinkResolutionProvider>);
+
+  it("in the transcript the anchor is one no-wrap pill with an end-truncating label", () => {
+    const { container } = inTranscript(<UrlLink href={URL_LONG}>{URL_LONG}</UrlLink>);
+    const a = container.querySelector("a")!;
+    expect(a.className).toContain("whitespace-nowrap");
+    expect(a.className).toContain("inline-flex");
+    expect(a.className).toContain("rounded-full");
+    const label = a.querySelector("[data-web-link-label]") as HTMLElement;
+    expect(label).not.toBeNull();
+    expect(label.className).toContain("truncate");
+    expect(label.style.direction).toBe("");
+    expect(a.querySelector("svg[data-link-icon]")).not.toBeNull();
+    expect(a.getAttribute("title")).toBe(URL_LONG);
+  });
+
+  it("outside the transcript the anchor has no pill and no label span", () => {
+    const { container } = render(<UrlLink href={URL_LONG}>{URL_LONG}</UrlLink>);
+    const a = container.querySelector("a")!;
+    expect(a.className).not.toContain("rounded-full");
+    expect(a.querySelector("[data-web-link-label]")).toBeNull();
+  });
+});

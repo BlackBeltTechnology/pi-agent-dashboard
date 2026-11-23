@@ -14,6 +14,7 @@ import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { HtmlModeMenu, type HtmlOpenMode } from "./HtmlModeMenu.js";
 import { LinkIconSlot } from "./LinkIconSlot.js";
+import { PILL_BASE } from "./link-pill.js";
 import { MentionPicker } from "./MentionPicker.js";
 import type { ToolContext } from "./types.js";
 import { useFileOpenRouting } from "./useFileOpenRouting.js";
@@ -140,15 +141,7 @@ function linkClass(dead: boolean, notFound: boolean, recovered: boolean): string
   return `${base} text-[var(--link)] hover:underline cursor-pointer${recovered ? " underline decoration-dotted underline-offset-2" : ""}`;
 }
 
-/**
- * Transcript links render as one no-wrap pill (render-file-links-as-pill D1-D4): glyph, name and the optional HTML
- * chevron form a single inline box that never breaks inside. Inside inline `code` the pill drops its own chrome.
- */
-const PILL_BASE =
-  "inline-flex items-center max-w-full min-w-0 whitespace-nowrap align-[-0.2em] mx-[0.1em] " +
-  "rounded-full border px-[0.5em] leading-[1.45] text-[0.92em] " +
-  "[code_&]:border-0 [code_&]:bg-transparent [code_&]:px-0 [code_&]:mx-0 [code_&]:text-[1em]";
-
+/** Transcript file links render as one no-wrap pill (render-file-links-as-pill D1-D4); chrome is shared with web links. */
 function pillClass(state: LinkState, dead: boolean): string {
   // --text-secondary, not --text-muted: a missing link is still an active control (WCAG 1.4.3, 4.5:1 in both themes).
   if (dead) return `${PILL_BASE} border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-secondary)]`;
