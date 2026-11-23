@@ -73,7 +73,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/knip-scan.test.mjs` | Live Knip scan assertions. → see `__tests__/knip-scan.test.mjs.AGENTS.md` |
 | `__tests__/knip-scan.budget.test.mjs` | Knip scan time budget. → see `__tests__/knip-scan.budget.test.mjs.AGENTS.md` |
 | `__tests__/mutation-journal.test.mjs` | Vitest crash-safety tests for the mutation-harness journal (test-plan #E1-#E8, #X1-#X13). → see `__tests__/mutation-journal.test.mjs.AGENTS.md` |
-| `__tests__/nightly-verdaccio-publish-standalone.budget.test.mjs` | Real standalone run of the nightly publish script (pnpm lockfile gate). → see `__tests__/nightly-verdaccio-publish-standalone.budget.test.mjs.AGENTS.md` |
+| `__tests__/nightly-verdaccio-publish-standalone.budget.test.mjs` | Standalone nightly publish run. → see `__tests__/nightly-verdaccio-publish-standalone.budget.test.mjs.AGENTS.md` |
 | `__tests__/nightly-verdaccio-publish.test.mjs` | Vitest unit tests for scripts/nightly-verdaccio-publish.mj… → see `__tests__/nightly-verdaccio-publish.test.mjs.AGENTS.md` |
 | `__tests__/qa-smoke-guards.test.mjs` | Fault-injects the clean-prefix QA smoke (`qa/tests/35-plugin-install-load.sh`) by stubbing… → see `__tests__/qa-smoke-guards.test.mjs.AGENTS.md` |
 | `__tests__/prune-memory-backups.test.mjs` | Pins `planPrune` selection + `prune` IO for the hermes store trim. → see `__tests__/prune-memory-backups.test.mjs.AGENTS.md` |
