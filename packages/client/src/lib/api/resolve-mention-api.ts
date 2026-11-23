@@ -21,7 +21,7 @@ import { fetchJson } from "./fetch-json.js";
 type ResolveMentionKind = "abs" | "tilde" | "relative" | "fuzzy";
 
 /** Tagged state the resolver reports (rich-chat-links D3). `unknown` only occurs in a batch (item past the cap). */
-export type MentionLinkState = "found" | "recovered" | "ambiguous" | "missing" | "gated";
+type MentionLinkState = "found" | "recovered" | "ambiguous" | "missing" | "gated";
 
 /** Resolved payload: an absolute path + kind, or null when no in-scope file. */
 export interface ResolveMentionResult {

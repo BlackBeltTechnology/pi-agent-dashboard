@@ -42,7 +42,7 @@ export type ExecFileLike = (
   opts: { cwd: string; timeout: number; maxBuffer: number; env?: NodeJS.ProcessEnv },
 ) => Promise<{ stdout: string }>;
 
-export type SkipReason =
+type SkipReason =
   | "not-eligible"
   | "not-a-repo"
   | "rev-parse-failed"
@@ -51,7 +51,7 @@ export type SkipReason =
   | "buffer"
   | "timeout";
 
-export type FuzzyLookup =
+type FuzzyLookup =
   | { status: "skipped"; reason: SkipReason }
   | {
       status: "ok";

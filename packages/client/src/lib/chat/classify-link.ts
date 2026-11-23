@@ -19,7 +19,7 @@ import {
   mdiYoutube,
 } from "@mdi/js";
 
-export type LinkProvider =
+type LinkProvider =
   | "github"
   | "gitlab"
   | "jira"

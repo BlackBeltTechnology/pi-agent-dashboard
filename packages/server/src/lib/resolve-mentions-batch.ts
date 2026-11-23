@@ -17,7 +17,7 @@ export const MAX_FIELD_CHARS = 1024;
 export const BATCH_BODY_LIMIT_BYTES = 512 * 1024;
 export const BATCH_RATE_PER_MINUTE = 60;
 
-export interface BatchItem {
+interface BatchItem {
   mention: string;
   toolCwd?: string;
   reRooted?: string;

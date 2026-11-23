@@ -57,7 +57,7 @@ export interface ResolvedMention {
 
 export type Containment = "contained" | "granted-missing" | "outside";
 
-export type MentionState = "found" | "recovered" | "ambiguous" | "missing" | "gated";
+type MentionState = "found" | "recovered" | "ambiguous" | "missing" | "gated";
 
 /** Result of the tagged pipeline. `resolved` is `null` for `ambiguous` and `missing`. */
 export interface TaggedMention {

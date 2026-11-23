@@ -132,7 +132,7 @@ Files in this directory. One row per source file.
 | `redaction.ts` | `REDACTION_PATTERNS_V1`, `REDACTION_VERSION`, `redactSecrets`. → see `redaction.ts.AGENTS.md` |
 | `recommended-extensions.ts` | Curated manifest of recommended pi extensions. `RecommendedExtension` (id, source, displayName, status,…). → see `recommended-extensions.ts.AGENTS.md` |
 | `remote-credentials.ts` | `stripRemoteCredentials(raw)`: http(s) ⇒ drop all userinfo; other `scheme://user:pass@host` ⇒ drop password,… → see `remote-credentials.ts.AGENTS.md` |
-| `renderer-by-ext.ts` | → see `renderer-by-ext.ts.AGENTS.md` |
+| `renderer-by-ext.ts` | → `renderer-by-ext.ts.AGENTS.md` |
 | `rest-api.ts` | REST endpoint request/response types. Sessions, events, spawn, file read/write (`FileWriteRequest` mtime… →… → see `rest-api.ts.AGENTS.md` |
 | `role-config-disk.ts` | Node-only `readRoleConfigFromDisk(home?)` + `providersJsonPath`; total — missing/garbled `providers.json` →… → see `role-config-disk.ts.AGENTS.md` |
 | `role-name-validation.ts` | Shared role-name trust boundary. `isValidRoleName(name, existing) → {ok, reason?}`: non-empty after trim;… → see `role-name-validation.ts.AGENTS.md` |
@@ -159,7 +159,7 @@ Files in this directory. One row per source file.
 | `tls-only-token.ts` | TLS-only bridge token marker. Exports `TLS_ONLY_TOKEN_PREFIX="pi_tls_"`, `isTlsOnlyToken`,… → see `tls-only-token.ts.AGENTS.md` |
 | `tls-status.ts` | Browser-safe wire types of `/api/health.tls`: `TlsGate`, `TlsSourceStatus`, `TlsCertStatus` (held, notAfter… → see `tls-status.ts.AGENTS.md` |
 | `tool-path-resolve.ts` | Shared pi-parity path resolver: `resolveToolPath`, `resolveReadTarget`, `canonicalizeTarget` (realpath… → see `tool-path-resolve.ts.AGENTS.md` |
-| `tool-workdir.ts` | `toolWorkdir(toolName, args)` — literal-only working dir of a tool call… → see `tool-workdir.ts.AGENTS.md` |
+| `tool-workdir.ts` | → `tool-workdir.ts.AGENTS.md` |
 | `trusted-types-mode.ts` | `resolveTrustedTypesMode({env,config,cspMode})` → `{mode,source,warnings}`; `recognizeTrustedTypesMode`. → see `trusted-types-mode.ts.AGENTS.md` |
 | `tunnel-concurrency.ts` | Resolves WHICH providers run and in which mode.… → see `tunnel-concurrency.ts.AGENTS.md` |
 | `tunnel-provider.ts` | Tunnel ("Gateway") provider abstraction types. Exports `TunnelProvider` interface (`id`, `kind`… → see `tunnel-provider.ts.AGENTS.md` |
