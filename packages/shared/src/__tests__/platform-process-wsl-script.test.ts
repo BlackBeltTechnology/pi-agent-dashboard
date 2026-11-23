@@ -144,11 +144,15 @@ describe.skipIf(!linux)("WSL scripts, run locally on Linux", () => {
   it("E23c: a comm field with spaces and parentheses does not break the pgid parse", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wsl-comm-"));
     tmpDirs.push(dir);
-    const sleep = ["/bin/sleep", "/usr/bin/sleep"].find((p) => fs.existsSync(p)) as string;
+    // A copy of the shell (single-purpose binary, unlike a multi-call coreutils) keeps the odd comm
+    // while it loops; `sleep` children are its group's other members.
+    const sh = ["/bin/sh", "/usr/bin/sh"].find((p) => fs.existsSync(p)) as string;
     const odd = path.join(dir, "a b) 1 (c");
-    fs.copyFileSync(sleep, odd);
+    fs.copyFileSync(sh, odd);
     fs.chmodSync(odd, 0o755);
-    const { pid } = await spawnLeader("", odd, ["300"]);
+    const { pid } = await spawnLeader("", odd, ["-c", "while :; do sleep 1; done"]);
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    expect(stat).toContain("(a b) 1 (c)"); // the hostile comm really is in /proc/<pid>/stat
     expect(await verifyAndKillWsl(pid, D, { ...opts(), timeoutMs: 500 })).toBe("killed");
     expect(isDead(pid)).toBe(true);
   });
