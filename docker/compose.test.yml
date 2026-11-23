@@ -195,6 +195,10 @@ services:
       # Trusted Types mode: off | report | enforce. Empty = follow the baseline CSP
       # (report unless PI_DASHBOARD_CSP=off). See change: harden-client-sinks (D7).
       PI_DASHBOARD_TRUSTED_TYPES: "${PI_DASHBOARD_TRUSTED_TYPES:-}"
+      # Test-only frame-policy verdict seam (`<host>.test=allowed|refused,…`): rich-chat-links F10/F-rendered specs
+      # frame `https://framed-allowed.test` without contacting the internet. Honoured only with PI_E2E_SEED=1
+      # and refused when NODE_ENV=production. See change: rich-chat-links (task 9.12).
+      PI_E2E_FRAME_POLICY_VERDICTS: "${PI_E2E_FRAME_POLICY_VERDICTS:-framed-allowed.test=allowed,framed-refused.test=refused}"
 
     volumes:
       # Path-parity: host CWD as the read-only overlay lower layer. The

@@ -76,7 +76,7 @@ The provider also exposes `paneSessionId`. Pane routing (D7) and the HTML menu (
 
 - **Settled.** A link registers only when its tool call `status` is not `running` and its text belongs to a committed message, not `state.streamingText`.
 - **Visible.** A link registers on its first intersection with the scroller, through one shared `IntersectionObserver`.
-- **Flush.** The client flushes 250 ms after the last registration, and never later than 1 s after the first pending one. Requests are grouped by session, with at most 200 items each. Overflow and cap-`unknown` items go into the next window.
+- **Flush.** The client flushes 250 ms after the last registration, and never later than 1 s after the first pending one. Consecutive flushes are at least 1 s apart (enforces the P3 budget of at most 1 batch per second while scrolling). Requests are grouped by session, with at most 200 items each. Overflow and cap-`unknown` items go into the next window.
 - **Client-side guards.** The client never sends a mention or toolCwd over 1024 characters; those links stay `unknown`. A 429 causes a retry with exponential back-off (1 s → 30 s) while the links stay visible.
 - **Cache.** Entries live 60 s. The client drops every cached entry of a session in these cases, and in-view links then re-register immediately:
   - a tool call of that session completes: a `tool_execution_end` event, or the stale-tool reconcile in `useStaleToolReconcile` when that event was dropped under load;
@@ -295,6 +295,8 @@ Produced by running the `security-hardening` discipline (trust boundaries → as
 | T20 | frame | **E** — an embedded page reads the dashboard or calls its API with credentials | `sandbox="allow-scripts allow-forms"` without `allow-same-origin` (opaque origin, no popups, no top navigation), `referrerpolicy="no-referrer"`; holds even if the page navigates itself onto the dashboard origin (client tests in group 8) | E36, E37 |
 
 **Accepted / residual.** A scripted `control`-tier client that forges a browser `Origin` is an operator by definition (T15). Localhost clients without a principal share one rate-limit bucket (T7, T16). `YouTubePreview` frames a fixed host without a sandbox and the widening unblocks it in `enforce` mode (D13); `Audit` signs off. In-frame navigation of an embedded page is not tracked. Fuzzy candidates reveal tracked-file names that are already inside the admitted scope. Not covered by any gate: the page's own content once framed, which only the opaque sandbox contains.
+
+**Audit follow-up hardening.** T16: DNS lookups are counted outstanding until they settle (not until the 5 s deadline) and capped at 3 — below libuv's 4-thread pool — with ≤2 probes in flight per principal (429). T7: items past the 200 cap are validated but never materialised. T8: `git` runs with `-c core.fsmonitor=false -c core.untrackedCache=false` and `GIT_OPTIONAL_LOCKS=0` (untrusted repo config can name a program to run), and the root/index caches are LRU-capped at 16.
 
 Sign-off: task 3.17 (`Audit`) reviews T11–T20 against the implemented probe and CSP diff and amends this table if the code departs from the design.
 

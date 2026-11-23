@@ -13,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMentionFuzzyIndex, type ExecFileLike, MAX_BUFFER_BYTES, MAX_ENTRIES, TTL_MS } from "../mention-fuzzy-index.js";
 
 let cwd: string;
+/** An untrusted repo's own config (core.fsmonitor = a command) must never run: overridden on every git call. */
+const HARDENING = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
 
 beforeEach(async () => {
   cwd = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "mfi-")));
@@ -29,13 +31,13 @@ afterEach(async () => {
 /** `execFile` stub: `rev-parse` answers the cwd; `ls-files` answers `lsFiles()`. */
 function stub(lsFiles: () => Promise<{ stdout: string }> | { stdout: string }): ExecFileLike & ReturnType<typeof vi.fn> {
   return vi.fn(async (_file: string, args: readonly string[]) => {
-    if (args[0] === "rev-parse") return { stdout: `${cwd}\n` };
+    if (args.includes("rev-parse")) return { stdout: `${cwd}\n` };
     return lsFiles();
   }) as unknown as ExecFileLike & ReturnType<typeof vi.fn>;
 }
 
 const nul = (n: number): string => `${Array.from({ length: n }, (_, i) => `d/p${i}.ts`).join("\0")}\0`;
-const lsFilesCalls = (fn: ReturnType<typeof vi.fn>): number => fn.mock.calls.filter((c) => (c[1] as string[])[0] === "ls-files").length;
+const lsFilesCalls = (fn: ReturnType<typeof vi.fn>): number => fn.mock.calls.filter((c) => (c[1] as string[]).includes("ls-files")).length;
 
 describe("MentionFuzzyIndex — entry cap (E18)", () => {
   it.each([[MAX_ENTRIES - 1], [MAX_ENTRIES]])("builds with %i entries", async (n) => {
@@ -204,9 +206,41 @@ describe("MentionFuzzyIndex — failure isolation (X4)", () => {
   it("passes the 3 s timeout and 64 MiB buffer to git, with NUL-delimited tracked-only output", async () => {
     const exec = stub(() => ({ stdout: nul(1) }));
     await createMentionFuzzyIndex({ execFile: exec }).lookup(cwd, "p0.ts");
-    const call = exec.mock.calls.find((c) => (c[1] as string[])[0] === "ls-files");
+    const call = exec.mock.calls.find((c) => (c[1] as string[]).includes("ls-files"));
     expect(call?.[0]).toBe("git");
-    expect(call?.[1]).toEqual(["ls-files", "-z"]);
+    expect(call?.[1]).toEqual([...HARDENING, "ls-files", "-z"]);
     expect(call?.[2]).toMatchObject({ timeout: 3000, maxBuffer: MAX_BUFFER_BYTES, cwd });
+  });
+
+  it("every git call carries the hardening -c options before the subcommand and GIT_OPTIONAL_LOCKS=0", async () => {
+    const exec = stub(() => ({ stdout: nul(1) }));
+    await createMentionFuzzyIndex({ execFile: exec }).lookup(cwd, "p0.ts");
+    expect(exec.mock.calls.length).toBeGreaterThanOrEqual(2); // rev-parse + ls-files
+    for (const c of exec.mock.calls) {
+      expect((c[1] as string[]).slice(0, 4)).toEqual(HARDENING);
+      expect((c[2] as { env?: NodeJS.ProcessEnv }).env?.GIT_OPTIONAL_LOCKS).toBe("0");
+    }
+  });
+});
+
+describe("MentionFuzzyIndex — bounded caches", () => {
+  it("keeps at most 16 roots (least recently used evicted)", async () => {
+    const dirs: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const d = path.join(cwd, `r${i}`);
+      await fsp.mkdir(path.join(d, ".git"), { recursive: true });
+      dirs.push(d);
+    }
+    const exec = vi.fn(async (_f: string, args: readonly string[], o: { cwd: string }) =>
+      args.includes("rev-parse") ? { stdout: `${o.cwd}\n` } : { stdout: nul(1) },
+    ) as unknown as ExecFileLike & ReturnType<typeof vi.fn>;
+    const revParses = () => exec.mock.calls.filter((c) => (c[1] as string[]).includes("rev-parse")).length;
+    const idx = createMentionFuzzyIndex({ execFile: exec });
+    for (const d of dirs) await idx.lookup(d, "p0.ts");
+    expect(revParses()).toBe(20);
+    await idx.lookup(dirs[19], "p0.ts"); // newest: still cached
+    expect(revParses()).toBe(20);
+    await idx.lookup(dirs[0], "p0.ts"); // oldest: evicted by the 17th root
+    expect(revParses()).toBe(21);
   });
 });

@@ -184,13 +184,28 @@ describe("LinkResolutionProvider — settled + visible batching (F2)", () => {
     expect(batchCalls[0].items).toHaveLength(10);
   });
 
+  it("never flushes more than once per second, even when registrations arrive in bursts 300 ms apart (test-plan P3)", async () => {
+    const store = new LinkResolutionStore();
+    const item = (i: number) => ({ key: makeLinkKey("S", undefined, `f${i}.ts`), sessionId: "S", cwd: "/repo", mention: `f${i}.ts` });
+    store.register(item(0));
+    await advance(250);
+    expect(batchCalls).toHaveLength(1); // t = 250: the first flush
+    await advance(50);
+    store.register(item(1)); // t = 300: the 250 ms debounce alone would flush at 550
+    await advance(900); // t = 1200: still inside the 1 s window that opened at the first flush
+    expect(batchCalls).toHaveLength(1);
+    await advance(50); // t = 1250: 1 s after the first flush
+    expect(batchCalls).toHaveLength(2);
+    expect(batchCalls[1].items).toHaveLength(1);
+  });
+
   it("caps a request at 200 items per session; the overflow goes into the next window", async () => {
     const store = new LinkResolutionStore();
     for (let i = 0; i < 250; i++) store.register({ key: makeLinkKey("S", undefined, `f${i}`), sessionId: "S", cwd: "/repo", mention: `f${i}` });
     await advance(250);
     expect(batchCalls).toHaveLength(1);
     expect(batchCalls[0].items).toHaveLength(200);
-    await advance(250);
+    await advance(1000); // the next flush window opens 1 s after the previous flush
     expect(batchCalls).toHaveLength(2);
     expect(batchCalls[1].items).toHaveLength(50);
   });
@@ -226,7 +241,8 @@ describe("LinkResolutionProvider — cache refresh (F3)", () => {
   it("a tool completion of S re-requests S's visible links; T's cache is kept", async () => {
     const { m } = await seeded();
     m.update({ toolCompletions: 1 });
-    await advance(250);
+    // a refresh right after the seeding flush waits for the 1 s flush window (test-plan P3)
+    await advance(1000);
     expect(cwds()).toEqual(["/repoS"]);
   });
 
@@ -246,7 +262,8 @@ describe("LinkResolutionProvider — cache refresh (F3)", () => {
   it("an access-grant change drops every session's entries", async () => {
     await seeded();
     act(() => notifyAccessGrantsChanged());
-    await advance(250);
+    // a refresh right after the seeding flush waits for the 1 s flush window (test-plan P3)
+    await advance(1000);
     expect(cwds().sort()).toEqual(["/repoS", "/repoT"]);
   });
 
@@ -271,7 +288,8 @@ describe("LinkResolutionProvider — cache refresh (F3)", () => {
     release(json({ success: true, data: { results: [found("a.ts")] } }));
     await advance(0);
     expect(stateOf("a.ts")).toBe("unknown");
-    await advance(250);
+    // a refresh right after the seeding flush waits for the 1 s flush window (test-plan P3)
+    await advance(1000);
     await advance(0);
     expect(stateOf("a.ts")).toBe("missing");
   });

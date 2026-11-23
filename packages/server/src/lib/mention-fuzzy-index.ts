@@ -25,13 +25,21 @@ export const MAX_ENTRIES = 200_000;
 export const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export const GIT_TIMEOUT_MS = 3000;
 export const TTL_MS = 60_000;
+/** Roots (and root lookups) kept per cache; least recently used is evicted beyond this. */
+export const MAX_CACHED_ROOTS = 16;
+/**
+ * `git` runs inside a repo we do not trust, and a repo's own config can name a program to run
+ * (`core.fsmonitor`). Command-line `-c` outranks every config file, so these always win; the
+ * untracked cache is off because it is only used by status-style scans we never need.
+ */
+const GIT_HARDENING_ARGS = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"] as const;
 /** Matches handed to the resolver per lookup (its per-mention stat budget). */
 export const MAX_MATCHES = 25;
 
 export type ExecFileLike = (
   file: string,
   args: readonly string[],
-  opts: { cwd: string; timeout: number; maxBuffer: number },
+  opts: { cwd: string; timeout: number; maxBuffer: number; env?: NodeJS.ProcessEnv },
 ) => Promise<{ stdout: string }>;
 
 export type SkipReason =
@@ -115,7 +123,12 @@ export function createMentionFuzzyIndex(deps: MentionFuzzyIndexDeps = {}): Menti
       timer = setTimeout(() => reject(Object.assign(new Error("git timed out"), { killed: true })), GIT_TIMEOUT_MS);
     });
     try {
-      const { stdout } = await Promise.race([exec("git", args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_BUFFER_BYTES }), deadline]);
+      const { stdout } = await Promise.race([exec("git", [...GIT_HARDENING_ARGS, ...args], {
+          cwd,
+          timeout: GIT_TIMEOUT_MS,
+          maxBuffer: MAX_BUFFER_BYTES,
+          env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+        }), deadline]);
       return stdout;
     } finally {
       clearTimeout(timer);
@@ -188,12 +201,19 @@ export function createMentionFuzzyIndex(deps: MentionFuzzyIndexDeps = {}): Menti
     produce: () => Promise<T>,
   ): { cached: T } | { pending: Promise<T> } {
     const hit = cache.get(key);
-    if (fresh(hit)) return { cached: hit.value };
+    if (fresh(hit)) {
+      cache.delete(key); // most recently used goes last
+      cache.set(key, hit);
+      return { cached: hit.value };
+    }
+    if (hit) cache.delete(key); // expired
     let pending = inflight.get(key);
     if (!pending) {
       pending = produce()
         .then((value) => {
+          cache.delete(key);
           cache.set(key, { at: now(), value });
+          if (cache.size > MAX_CACHED_ROOTS) cache.delete(cache.keys().next().value as string);
           return value;
         })
         .finally(() => inflight.delete(key));

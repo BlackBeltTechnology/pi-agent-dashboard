@@ -44,6 +44,8 @@ export interface ProbeDeps {
   /** Transport seam (default `https.request`). */
   request?: ProbeRequestFn;
   deadlineMs?: number;
+  /** Bounds DNS lookups that are still outstanding (default: one process-wide gate). */
+  lookupGate?: LookupGate;
 }
 
 export interface ProbeResult {
@@ -58,6 +60,41 @@ export const MAX_PROBE_REQUESTS = 3;
 const MAX_HEADER_BYTES = 64 * 1024;
 const USER_AGENT = "pi-dashboard-frame-probe/1";
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * `getaddrinfo` runs on libuv's 4-thread pool and cannot be cancelled: a hostname with slow DNS
+ * keeps its thread long after the 5 s deadline abandoned the promise. The gate therefore counts a
+ * lookup as outstanding until it actually SETTLES (not until the deadline), and refuses a new one
+ * beyond `max` — kept below the pool size so file I/O and other DNS are never starved.
+ */
+export const MAX_OUTSTANDING_LOOKUPS = 3;
+
+export interface LookupGate {
+  /** A one-shot release, or null when `max` lookups are already outstanding. */
+  tryAcquire(): (() => void) | null;
+  readonly outstanding: number;
+}
+
+export function createLookupGate(max: number = MAX_OUTSTANDING_LOOKUPS): LookupGate {
+  let outstanding = 0;
+  return {
+    get outstanding() {
+      return outstanding;
+    },
+    tryAcquire() {
+      if (outstanding >= max) return null;
+      outstanding++;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        outstanding--;
+      };
+    },
+  };
+}
+
+const processLookupGate = createLookupGate();
 
 const defaultLookup = async (hostname: string): Promise<ResolvedAddress[]> =>
   (await dns.promises.lookup(hostname, { all: true, verbatim: true })).map((a) => ({
@@ -141,6 +178,7 @@ export async function probeFramePolicy(
   deps: ProbeDeps,
 ): Promise<ProbeResult> {
   const lookup = deps.lookup ?? defaultLookup;
+  const gate = deps.lookupGate ?? processLookupGate;
   const request: ProbeRequestFn = deps.request ?? ((o, cb) => https.request(o, cb));
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), deps.deadlineMs ?? PROBE_DEADLINE_MS);
@@ -166,7 +204,15 @@ export async function probeFramePolicy(
       const host = bareHost(url);
       let addresses: ResolvedAddress[];
       try {
-        addresses = net.isIP(host) ? [{ address: host, family: net.isIP(host) }] : await Promise.race([lookup(host), aborted]);
+        if (net.isIP(host)) addresses = [{ address: host, family: net.isIP(host) }];
+        else {
+          // Held until the lookup settles, however the probe ends. Over the cap: no lookup, transient.
+          const release = gate.tryAcquire();
+          if (!release) return { verdict: "undetermined", hops };
+          const pending = (async () => lookup(host))();
+          pending.then(release, release);
+          addresses = await Promise.race([pending, aborted]);
+        }
       } catch {
         return { verdict: "ineligible", hops };
       }

@@ -1,4 +1,4 @@
-# HTTP route inventory — core server (364 routes)
+# HTTP route inventory — core server (365 routes)
 > Evidence base: HEAD e54074304 · Parent chapter: [http-gates-and-routes.md](http-gates-and-routes.md) · Map index: [security-map.md](../security-map.md) · Register: [residual-risks.md](residual-risks.md)
 
 | Method | Path | Handler path:line | Required tier / per-route guard | Mutating | Danger class |
@@ -273,7 +273,8 @@
 | GET | `/api/file/md-candidates` | `packages/server/src/routes/file-routes.ts:1052` | observe + `networkGuard` | N | fs-read |
 | GET | `/api/file/md-read` | `packages/server/src/routes/file-routes.ts:1077` | observe + `networkGuard` | N | fs-read |
 | GET | `/api/file/exists` | `packages/server/src/routes/file-routes.ts:1117` | observe + `networkGuard` | N | fs-read |
-| POST | `/api/file/resolve-mention` | `packages/server/src/routes/file-routes.ts:1204` | observe + `networkGuard` | Y | state; payload may carry `outside:true` (no stat; echoes normalized candidate incl. expanded home) |
+| POST | `/api/file/resolve-mention` | `packages/server/src/routes/file-routes.ts:1288` | observe + `networkGuard` | Y | state ∈ found, recovered, ambiguous, missing, gated; opt-in `recover:true` enables `toolCwd` (≤1024 chars, else 400) + tool-dir + fuzzy; `via` (tool-dir, fuzzy), `kind` (tilde, abs, relative, fuzzy), `candidates` (ambiguous, ≤10); `gated` → `outside:true` (no stat; echoes normalized candidate incl. expanded home) |
+| POST | `/api/file/resolve-mentions` | `packages/server/src/routes/file-routes.ts:1323` | observe + `networkGuard` | Y | state; batch `{cwd, items:[{mention, toolCwd?, reRooted?}]}`, always recovers; ≤200 items (rest `unknown`); body ≤512 KB (413); field >1024 chars → 400; 60/min/principal (429); `cwd` admitted once, containment re-run per item; `toolCwd`/`reRooted` untrusted hints; `gated`/`missing` → state only; out-of-scope → `gated` (no stat) |
 | GET | `/api/pinned-dirs` | `packages/server/src/routes/file-routes.ts:1226` | observe | N | info |
 | GET | `/api/favorite-models` | `packages/server/src/routes/file-routes.ts:1232` | observe | N | info |
 | GET | `/api/file/raw` | `packages/server/src/routes/file-routes.ts:1241` | observe + `networkGuard` | N | fs-read |
@@ -367,3 +368,4 @@
 | POST | `/__pi/csp-report/:policy` | `packages/server/src/auth/csp-report-sink.ts:271` | n/a + `admit+screen` | Y | state |
 | POST | `/api/services/:id/heartbeat` | `packages/server/src/services/routes.ts:110` | operate + `write`=[networkGuard, mutationGuard] | Y | exec/spawn |
 | POST | `/api/services/:id/release` | `packages/server/src/services/routes.ts:110` | operate + `write`=[networkGuard, mutationGuard] | Y | exec/spawn |
+| POST | `/api/web/frame-policy` | `packages/server/src/routes/frame-policy-routes.ts:93` | control + `networkGuard` | Y | network-egress; CSRF: global mutation-origin gate (cross-site → 403), no own `Origin` → 400; body `{origin}` only (origin root only, path/query dropped, ≤512 chars, 2 KB body); `HEAD /` on origin; https:443 public unicast only, DNS pinned, vetted every hop, ≤3 requests, 5 s deadline, no cookies/`Authorization`; response bare `{verdict}` (allowed, refused, undetermined, ineligible); cache allowed/refused 10 min (undetermined never cached); 30/min/principal (429); 8 in flight (503) |

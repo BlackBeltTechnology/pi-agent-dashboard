@@ -298,6 +298,13 @@ flowchart LR
 ### CLI-C3 Dashboard CSP
 - `csp.ts:74` baseline `script-src 'self' 'unsafe-inline' 'unsafe-eval'`; `:79` strict nonce; `:83-84` default `report`. Enforce only with `PI_DASHBOARD_CSP=enforce`. Test `packages/server/src/__tests__/csp.test.ts`. Detail owned by HTTP mapper ([http-gates-and-routes.md](http-gates-and-routes.md)).
 
+#### Frame sources (rich-chat-links D13)
+- `csp.ts:72` `frame-src 'self' https:`. Was `'self'` only. Under enforce: YouTube embed (`YouTubePreview.tsx`) now allowed; was blocked.
+- Still blocked: `http:`, `data:`, `blob:`, `*`.
+- Web-page frame (`WebPagePreview.tsx`): `sandbox="allow-scripts allow-forms"`. Opaque origin. No `allow-same-origin`, no `allow-popups`, no top navigation. No referrer.
+- Frame created only on `POST /api/web/frame-policy` verdict `allowed`, or operator "Try to embed" on `undetermined`. See [http-route-inventory.md](http-route-inventory.md).
+- Untrusted markdown cannot create frames: `iframe` in `MARKDOWN_SCHEMA` strip list (`components/preview/markdown-sanitize.ts`).
+
 ### CLI-C4 Preview sandbox policy
 - `preview-policy.ts:26-31`; server capability + response CSP (arch "Live Preview" D1–D10). Fail-closed defaults: absent egress → restricted, absent scripts → false (arch lead). Tests `client/src/lib/live-preview/__tests__/preview-policy.test.ts`, `server/src/__tests__/live-preview-policy.test.ts`.
 

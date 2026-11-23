@@ -325,6 +325,7 @@ import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagno
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
 import { registerModelsIntrospectionRoute } from "./routes/models-introspection-routes.js";
+import { resolveFramePolicyTestSeam } from "./lib/frame-policy-test-seam.js";
 import { registerFramePolicyRoutes } from "./routes/frame-policy-routes.js";
 import { registerNavIntentRoutes } from "./routes/nav-intent-routes.js";
 import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
@@ -2909,6 +2910,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const tls = loadConfig().tls;
       return [config.port, ...(tls?.enabled ? [tls.port] : [])];
     },
+    // Test-only verdict seam (PI_E2E_SEED + PI_E2E_FRAME_POLICY_VERDICTS, refused in production): undefined = real probe.
+    probe: resolveFramePolicyTestSeam(process.env, console),
   });
   // On-demand AI mermaid repair (opt-in via `mermaidRepair` config; 404 when off).
   // See change: add-mermaid-ai-repair.

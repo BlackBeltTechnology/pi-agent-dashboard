@@ -130,7 +130,6 @@ import {
   type BatchResult,
   createWindowLimiter,
   formatBatchLog,
-  MAX_BATCH_ITEMS,
   MAX_FIELD_CHARS,
   mapConcurrent,
   parseBatchBody,
@@ -829,6 +828,7 @@ export function registerFileRoutes(
           if (
             kindResult.viewer === "monaco" ||
             kindResult.viewer === "markdown" ||
+            kindResult.kind === "html" || // read-only Source tab (rich-chat-links)
             kindResult.editable === true
           ) {
             content = await fh.readFile("utf-8");
@@ -1357,28 +1357,30 @@ export function registerFileRoutes(
           return r;
         },
       };
-      const results = await mapConcurrent(parsed.items, BATCH_CONCURRENCY, async (item, i): Promise<BatchResult> =>
-        i >= MAX_BATCH_ITEMS
-          ? { state: "unknown" }
-          : toBatchResult(
-              await resolveMentionTagged(item.mention, {
-                cwd: admitted.cwd,
-                canonCwd: admitted.canonCwd,
-                recover: true,
-                toolCwd: item.toolCwd,
-                reRooted: item.reRooted,
-                fuzzyIndex,
-                counters,
-                containmentMemo,
-              }),
-            ),
+      const resolved = await mapConcurrent(parsed.items, BATCH_CONCURRENCY, async (item): Promise<BatchResult> =>
+        toBatchResult(
+          await resolveMentionTagged(item.mention, {
+            cwd: admitted.cwd,
+            canonCwd: admitted.canonCwd,
+            recover: true,
+            toolCwd: item.toolCwd,
+            reRooted: item.reRooted,
+            fuzzyIndex,
+            counters,
+            containmentMemo,
+          }),
+        ),
       );
+      // Items past the cap are never materialised: one shared `unknown`, same order and length as the request.
+      const overflow = parsed.total - parsed.items.length;
+      const results: BatchResult[] = overflow > 0 ? resolved.concat(new Array<BatchResult>(overflow).fill({ state: "unknown" })) : resolved;
       const counts: Partial<Record<BatchResult["state"], number>> = {};
-      for (const r of results) counts[r.state] = (counts[r.state] ?? 0) + 1;
+      for (const r of resolved) counts[r.state] = (counts[r.state] ?? 0) + 1;
+      if (overflow > 0) counts.unknown = overflow;
       console.log(
         formatBatchLog({
           cwd: admitted.cwd,
-          items: parsed.items.length,
+          items: parsed.total,
           counts,
           fuzzy,
           stats: counters.stats,

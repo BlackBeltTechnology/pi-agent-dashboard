@@ -405,12 +405,50 @@ describe("X9 — limits and cache", () => {
   });
 
   it("never opens a 9th concurrent probe socket", async () => {
-    await mk({ deadlineMs: 600 });
+    // one principal each: the per-principal in-flight limit (2) is exercised separately below
+    await mk({ deadlineMs: 600, principal: (h) => String(h["x-principal"] ?? "p") });
     for (let i = 0; i < 9; i++) handlers.set(`h${i}.example.com`, () => {});
-    const results = await Promise.all(Array.from({ length: 9 }, (_, i) => call(`https://h${i}.example.com`)));
+    const results = await Promise.all(
+      Array.from({ length: 9 }, (_, i) => call(`https://h${i}.example.com`, { "x-principal": `p${i}` })),
+    );
     expect(peakOpen).toBeLessThanOrEqual(8);
     expect(results.filter((r) => r.statusCode === 503)).toHaveLength(1);
     expect(results.filter((r) => r.statusCode === 200)).toHaveLength(8);
+  });
+
+  it("a principal never has a 3rd probe in flight (429, no socket); another principal is unaffected", async () => {
+    await mk({ deadlineMs: 600, principal: (h) => String(h["x-principal"] ?? "p") });
+    for (let i = 0; i < 4; i++) handlers.set(`h${i}.example.com`, () => {});
+    const results = await Promise.all(
+      [0, 1, 2].map((i) => call(`https://h${i}.example.com`, { "x-principal": "one" })).concat(
+        call("https://h3.example.com", { "x-principal": "two" }),
+      ),
+    );
+    expect(results.map((r) => r.statusCode)).toEqual([200, 200, 429, 200]);
+    expect(seen.map((s) => s.host).sort()).toEqual(["h0.example.com", "h1.example.com", "h3.example.com"]);
+    // the slot is released when the probe ends
+    expect((await call("https://example.com", { "x-principal": "one" })).statusCode).toBe(200);
+  });
+
+  it("outstanding DNS lookups stay bounded after the deadline abandons them, and free when they settle", async () => {
+    await mk({ deadlineMs: 80, principal: (h) => String(h["x-principal"] ?? "p") });
+    const pending: Array<(a: ResolvedAddress[]) => void> = [];
+    lookup.mockImplementation(() => new Promise<ResolvedAddress[]>((r) => pending.push(r)));
+    const hang = await Promise.all(
+      [0, 1, 2].map((i) => verdictOf(`https://dns${i}.example.com`, { "x-principal": `p${i}` })),
+    );
+    expect(hang).toEqual(["ineligible", "ineligible", "ineligible"]); // deadline, lookups still outstanding
+    expect(lookup).toHaveBeenCalledTimes(3);
+    // a 4th is refused without ever reaching getaddrinfo, even though every probe above is over
+    expect(await verdictOf("https://dns3.example.com", { "x-principal": "p3" })).toBe("undetermined");
+    expect(lookup).toHaveBeenCalledTimes(3);
+    // IP-literal hosts need no lookup and are unaffected
+    expect(await verdictOf("https://8.8.8.8", { "x-principal": "p4" })).not.toBe("undetermined");
+    for (const r of pending) r([{ address: PUBLIC_A, family: 4 }]);
+    await new Promise((r) => setTimeout(r, 10));
+    lookup.mockImplementation(async () => [{ address: PUBLIC_A, family: 4 }]);
+    expect(await verdictOf("https://example.com", { "x-principal": "p5" })).toBe("allowed");
+    expect(lookup).toHaveBeenCalledTimes(4);
   });
 
   it("the same principal probing the same origin twice makes one outbound request; another principal its own", async () => {

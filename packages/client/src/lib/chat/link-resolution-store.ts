@@ -7,7 +7,8 @@
  * `FileLink` subscribes per key through `useSyncExternalStore`.
  *
  * Timing (the starting values of design D2):
- *  - flush 250 ms after the last registration, never later than 1 s after the first pending one;
+ *  - flush 250 ms after the last registration, never later than 1 s after the first pending one, and never
+ *    sooner than 1 s after the previous flush (design budget: at most 1 batch flush per second, test-plan P3);
  *  - at most {@link MAX_BATCH_ITEMS} items per request; the overflow waits for the next window;
  *  - a mention / toolCwd / reRooted over {@link MAX_FIELD_CHARS} is never sent (that link stays unknown);
  *  - a 429 retries with exponential back-off, 1 s → 30 s; any other failure leaves the links unknown;
@@ -25,6 +26,7 @@ export const MAX_FIELD_CHARS = 1024;
 export const CACHE_TTL_MS = 60_000;
 const FLUSH_DEBOUNCE_MS = 250;
 const FLUSH_MAX_WAIT_MS = 1000;
+const FLUSH_MIN_INTERVAL_MS = 1000;
 const BACKOFF_START_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
 
@@ -76,6 +78,7 @@ export class LinkResolutionStore {
   private readonly sessionGen = new Map<string, number>();
   private globalGen = 0;
   private firstPendingAt: number | null = null;
+  private lastFlushAt = Number.NEGATIVE_INFINITY;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private sweepTimer: ReturnType<typeof setTimeout> | null = null;
   private backoffMs = 0;
@@ -177,7 +180,8 @@ export class LinkResolutionStore {
   private schedule(): void {
     const now = Date.now();
     if (this.firstPendingAt === null) this.firstPendingAt = now;
-    const delay = Math.max(0, Math.min(FLUSH_DEBOUNCE_MS, this.firstPendingAt + FLUSH_MAX_WAIT_MS - now));
+    const due = Math.min(now + FLUSH_DEBOUNCE_MS, this.firstPendingAt + FLUSH_MAX_WAIT_MS);
+    const delay = Math.max(0, due - now, this.lastFlushAt + FLUSH_MIN_INTERVAL_MS - now);
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = setTimeout(() => this.flush(), delay);
   }
@@ -190,6 +194,7 @@ export class LinkResolutionStore {
       return;
     }
     this.firstPendingAt = null;
+    this.lastFlushAt = now;
     const groups = new Map<string, LinkRequest[]>();
     let overflow = false;
     for (const [key, req] of this.pending) {

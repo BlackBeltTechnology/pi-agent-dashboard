@@ -5,7 +5,7 @@
  *   200   { verdict: "allowed" | "refused" | "undetermined" | "ineligible" }
  *   400   no/invalid body, or the request `Origin` is missing / not one of the dashboard's own
  *   403   cross-site (mutation-origin gate) or tier below `control` (route tier gate)
- *   429   30/min per principal;  503  8 probes already in flight
+ *   429   30/min per principal, or 2 probes of that principal already in flight;  503  8 probes already in flight
  *
  * The outbound work (SSRF defence, DNS pinning, redirects, deadline) lives in
  * `lib/frame-policy-probe.ts`; this module owns request gating, the per-principal
@@ -16,12 +16,13 @@ import crypto from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { CorsOriginOptions } from "../auth/cors-origin.js";
 import { requestPrincipalKey } from "../auth/request-principal.js";
-import { type ProbeDeps, type ProbeVerdict, probeFramePolicy } from "../lib/frame-policy-probe.js";
+import { createLookupGate, type ProbeDeps, type ProbeVerdict, probeFramePolicy } from "../lib/frame-policy-probe.js";
 import { createWindowLimiter } from "../lib/resolve-mentions-batch.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export const FRAME_POLICY_RATE_PER_MINUTE = 30;
 export const FRAME_POLICY_MAX_CONCURRENT = 8;
+export const FRAME_POLICY_MAX_PER_PRINCIPAL = 2;
 export const FRAME_POLICY_CACHE_ENTRIES = 500;
 export const FRAME_POLICY_CACHE_TTL_MS = 10 * 60_000;
 const BODY_LIMIT = 2 * 1024;
@@ -75,6 +76,9 @@ export function registerFramePolicyRoutes(fastify: FastifyInstance, deps: FrameP
   const hashHost = (host: string): string => crypto.createHash("sha256").update(salt).update(host).digest("hex").slice(0, 12);
   const cache = new Map<string, { verdict: ProbeVerdict; at: number }>();
   let inflight = 0;
+  const inflightBy = new Map<string, number>();
+  // One gate per registration: outstanding DNS lookups (incl. abandoned ones) stay under the libuv pool size.
+  const lookupGate = createLookupGate();
 
   const cacheGet = (key: string): ProbeVerdict | null => {
     const hit = cache.get(key);
@@ -101,7 +105,8 @@ export function registerFramePolicyRoutes(fastify: FastifyInstance, deps: FrameP
       }
       const principal = principalOf(request);
       // Without a real principal every local caller shares one bucket per address.
-      if (!limiter.take(principal === "local-operator" ? `${principal}@${request.ip}` : principal)) {
+      const bucket = principal === "local-operator" ? `${principal}@${request.ip}` : principal;
+      if (!limiter.take(bucket)) {
         reply.code(429);
         return { success: false, error: "rate limited" };
       }
@@ -132,11 +137,17 @@ export function registerFramePolicyRoutes(fastify: FastifyInstance, deps: FrameP
         reply.code(503);
         return { success: false, error: "busy" };
       }
+      if ((inflightBy.get(bucket) ?? 0) >= FRAME_POLICY_MAX_PER_PRINCIPAL) {
+        reply.code(429);
+        return { success: false, error: "too many probes in flight" };
+      }
       inflight++;
+      inflightBy.set(bucket, (inflightBy.get(bucket) ?? 0) + 1);
       try {
         const result = await probeFramePolicy(raw, dashboardOrigin, {
           ownOrigins: deps.ownOrigins(),
           corsOpts: deps.corsOpts(),
+          lookupGate,
           ...deps.probe,
         });
         // A transient `undetermined` is never cached, so "Try to embed" re-probes.
@@ -145,6 +156,9 @@ export function registerFramePolicyRoutes(fastify: FastifyInstance, deps: FrameP
         return { verdict: result.verdict };
       } finally {
         inflight--;
+        const left = (inflightBy.get(bucket) ?? 1) - 1;
+        if (left > 0) inflightBy.set(bucket, left);
+        else inflightBy.delete(bucket);
       }
     },
   );

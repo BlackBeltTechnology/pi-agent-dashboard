@@ -15,3 +15,5 @@ Passes `PI_E2E_CANARY` + `PI_DASHBOARD_CSP` to the container (the entrypoint rea
 Passes `PI_E2E_OAUTH_NO_BYPASS` through to the container. See change: harden-cors-and-csp-reporting.
 
 Top-level `pi-key` overridden to a tmpfs (`size=16m`), like `pi-state`: key and encrypted files vanish together each run. Precondition for the credential e2e rows F4/F5. See change: encrypt-credentials-at-rest.
+
+See change: rich-chat-links (task 9.12) — `PI_E2E_FRAME_POLICY_VERDICTS` (default `framed-allowed.test=allowed,framed-refused.test=refused`) arms the test-only frame-policy verdict seam (`packages/server/src/lib/frame-policy-test-seam.ts`); honoured only with `PI_E2E_SEED=1`, refused when `NODE_ENV=production`.
