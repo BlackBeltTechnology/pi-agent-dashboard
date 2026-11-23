@@ -26,5 +26,6 @@ export default defineMockSite({
     "@flows": pkg("flows-plugin/src"),
     "@automation": pkg("automation-plugin/src"),
     "@atlas": pkg("skill-atlas-plugin/src"),
+    "@gmail": pkg("gmail-plugin/src"),
   },
 });
