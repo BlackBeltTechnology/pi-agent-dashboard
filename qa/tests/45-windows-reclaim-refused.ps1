@@ -16,6 +16,8 @@
 # The filename is kept (CI/QA references); the assertion it names is now the
 # verified reclaim. See change: add-windows-process-identity (test-plan #E54).
 
+# No space in the -e program: Start-Process joins -ArgumentList unquoted, so a space would
+# split it and node would exit on a syntax error.
 $ErrorActionPreference = "Stop"
 $repo = if ($env:QA_REPO_ROOT) { $env:QA_REPO_ROOT } else { (Get-Location).Path }
 
@@ -38,10 +40,10 @@ trap { Cleanup; break }
 
 try {
   # The stand-in for a tmux/wt-hosted pi: a long-lived node process.
-  $child = Start-Process -FilePath "node" -ArgumentList @("-e", "setTimeout(()=>{}, 600000)") -PassThru -WindowStyle Hidden
+  $child = Start-Process -FilePath "node" -ArgumentList @("-e", "setTimeout(()=>{},600000)") -PassThru -WindowStyle Hidden
   Start-Sleep -Milliseconds 500
   if ($child.HasExited) { Write-Error "FAIL: the stand-in process exited early"; exit 1 }
-  $child2 = Start-Process -FilePath "node" -ArgumentList @("-e", "setTimeout(()=>{}, 600000)") -PassThru -WindowStyle Hidden
+  $child2 = Start-Process -FilePath "node" -ArgumentList @("-e", "setTimeout(()=>{},600000)") -PassThru -WindowStyle Hidden
   Start-Sleep -Milliseconds 500
   if ($child2.HasExited) { Write-Error "FAIL: the second stand-in process exited early"; exit 1 }
 

@@ -22,6 +22,7 @@ Write-Host "=== Test: Windows / WSL process identity (real processes) ==="
 # Stream the driver output live (a hung case must be visible in the job log).
 $lines = New-Object System.Collections.Generic.List[string]
 & npx --yes tsx qa/tests/lib/windows-process-identity-probe.ts 2>&1 | ForEach-Object { $s = "$_"; Write-Host $s; $lines.Add($s) }
+$driverExit = $LASTEXITCODE
 $out = $lines -join "`n"
 $rows = $out -split "`n" | Where-Object { $_ -match '^\{"case"' } | ForEach-Object { $_ | ConvertFrom-Json }
 if (-not $rows) { Write-Host "FAIL: the probe printed no case rows"; exit 1 }
@@ -30,4 +31,5 @@ if ($bad.Count -gt 0) {
   foreach ($b in $bad) { Write-Host "FAIL $($b.case): $($b.detail)" }
   exit 1
 }
+if ($driverExit -ne 0) { Write-Host "FAIL: the driver exited $driverExit after its case rows (crash or watchdog)"; exit 1 }
 Write-Host "PASS: $($rows.Count) case(s) ok"

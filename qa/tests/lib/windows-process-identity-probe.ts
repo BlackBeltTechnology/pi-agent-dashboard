@@ -214,12 +214,19 @@ async function wslCases(): Promise<void> {
   const goneW = !wslTry("kill", "-0", String(W));
   emit("E56", k === "killed" && goneL && goneW && elapsed >= 2000, `result=${k} elapsed=${elapsed}ms leaderGone=${goneL} workerGone=${goneW}`);
 
-  // E57: a Windows sentinel pid is never touched by a WSL kill/liveness call.
+  // E57: a WSL kill is confined to D. The kill target is a process THIS test created in D (never a
+  // Windows pid number reused as a WSL pid): an age guard far above its age yields `mismatch` and
+  // signals nothing; a Windows sentinel is only ever the subject of a read-only liveness call.
   const sentinel = await startNode();
   const sp = sentinel.pid as number;
-  const kr = await verifyAndKillWsl(sp, DISTRO, { minAgeMs: 3_600_000, timeoutMs: 2000 }); // old-enough guard: mismatch even if D has that pid
-  const lr = await wslLiveness(sp, DISTRO);
-  emit("E57", ["absent", "mismatch"].includes(kr) && ["absent", "alive"].includes(lr) && alive(sp), `kill=${kr} liveness=${lr} sentinelAlive=${alive(sp)}`);
+  const h57 = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+  kids.push(h57);
+  const p57 = Number((await tokens(h57, 1))[0]);
+  const kr = await verifyAndKillWsl(p57, DISTRO, { minAgeMs: 3_600_000, timeoutMs: 2000 });
+  const stillThere = wslTry("kill", "-0", String(p57));
+  const lr = await wslLiveness(sp, DISTRO); // read-only
+  wslTry("kill", "-9", String(p57));
+  emit("E57", kr === "mismatch" && stillThere && ["absent", "alive"].includes(lr) && alive(sp), `kill=${kr} wslProcessSurvived=${stillThere} liveness=${lr} sentinelAlive=${alive(sp)}`);
 
   // E59: a restarted distro (pid gone) reads absent; nothing on Windows is signalled.
   const h2 = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
