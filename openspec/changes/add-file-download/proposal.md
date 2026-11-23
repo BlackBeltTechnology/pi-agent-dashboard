@@ -12,6 +12,7 @@ Agents produce files (Markdown reports, PDFs, spreadsheets, images) that users w
   - otherwise (a cross-origin/paired API base, or a file outside the pane cwd that may need an access grant) → fetch through the app's `fetch` wrapper (bearer + grant headers, grant prompt allowed) → Blob → save under the file's basename. A failed fetch shows an error toast.
 - **Document bar More menu** (`⋯`): file tabs get a **Download** item. When the tab has unsaved changes it stays enabled and shows the hint "Unsaved changes not included". `MenuItem` gains an optional second-line `hint`.
 - **File-tree rows**: the per-row copy-path popup becomes a **row actions menu** built on the shared `MenuPopover` (menu keyboard model). It opens from the row glyph, from a secondary click (right-click) on the row, or from the context-menu key / Shift+F10. The glyph is always visible on hover-less (touch) devices. File rows offer the three copy actions plus **Download**. Directory rows offer the copy actions only.
+- Mockup: mockups/2026-11-23-file-download (in this change)
 - Out of scope: folder/zip download, downloading unsaved buffer contents, and changes to the existing fallback/truncation links.
 
 ## Capabilities
