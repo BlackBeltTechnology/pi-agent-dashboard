@@ -2025,11 +2025,11 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.5.0 lockstep floor). No session-kind probe, no keeper UDS route.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.6.0 lockstep floor). No session-kind probe, no keeper UDS route.
 
 Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.5.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
+Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.6.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
 
 Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
@@ -2132,6 +2132,18 @@ Recovery order:
 Diagnostic: `ps -p <piPid>` after Shutdown. Alive after 3 s indicates regression.
 
 See change: `fix-keeper-kill-escalation`. See also `docs/architecture.md` § "RPC keeper sidecar".
+
+## Why does pi exit late after Shutdown, `/quit` or `/exit`?
+
+Symptom: session card clears up to 5 s after Shutdown, `/quit` or `/exit`. Busy session on Windows ends without clean dispose.
+
+Cause: bridge `shutdown` calls `ctx.shutdown()`, then arms unref'd `process.exit(0)` fallback after `BRIDGE_SHUTDOWN_FALLBACK_MS` = 5000 (was 500). pi >=1.5.1 exits by itself when idle. Its `dispose()` saves rotated OAuth refresh token; fallback leaves that time.
+
+Residual risks (full list): `docs/architecture.md` § "Bridge shutdown fallback". Windows `taskkill /F` skips dispose. POSIX SIGKILL 2 s after SIGTERM can cut slow save. Headless 5 s fallback may beat last SIGKILL; process ends either way.
+
+Diagnostic: `ps -p <piPid>` still alive 5 s after Shutdown on POSIX → check residual risks above.
+
+See change: `update-pi-core-1-6-adopt-apis`.
 
 ## Why does my session die whenever it spawns subagents?
 
