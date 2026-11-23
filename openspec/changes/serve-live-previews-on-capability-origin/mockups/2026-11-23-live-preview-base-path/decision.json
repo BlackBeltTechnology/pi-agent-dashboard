@@ -1,0 +1,6 @@
+{
+  "status": "accepted",
+  "by": "agent",
+  "note": "User reviewed on LAN 2026-11-23: all 6 frames OK (tier-5 base hint + copy, copy flow, narrow wrap, path changed, cookie reset, mock-site opaque notice)",
+  "at": "2026-11-23T22:45:08.712Z"
+}
