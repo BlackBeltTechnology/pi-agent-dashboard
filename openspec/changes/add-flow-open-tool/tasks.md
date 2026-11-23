@@ -72,4 +72,4 @@
 
 - [x] 6.1 L3 test (test-plan #F8): input docker harness, session with flows bridge, browser viewing it; trigger agent-side `flow_open {flow:"test:capabilities"}` via bridge test hook; observable flow panel shows `test:capabilities` not-started, expanded; tool result `shown, acks:1` — see tests/e2e/flow-attach-before-run.spec.ts
 - [x] 6.2 L3 test (test-plan #F9): input docker harness, 375 px viewport viewing S; trigger `flow_open` for S; observable mobile flow bar shows the pinned flow; `acks:1` — see tests/e2e/flow-attach-before-run.spec.ts
-- [ ] 6.3 Manual check (test-plan: manual-only, test-plan #F10): in a real session, dark and light themes, call `flow_open` on a path flow and confirm the label is legible, the header is not crowded, and it matches accepted mock frame 3.
+- [x] 6.3 Manual check (test-plan: manual-only, test-plan #F10): in a real session, dark and light themes, call `flow_open` on a path flow and confirm the label is legible, the header is not crowded, and it matches accepted mock frame 3.
