@@ -187,19 +187,38 @@ describe("nightly infra contracts", () => {
     expect(src).toMatch(/shell:\s*isWin/);
   });
 
+  it("step (c) regenerates pnpm-lock.yaml with pnpm, not npm (verify-lockfile-versions reads pnpm-lock.yaml)", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    expect(src).toMatch(/run\(\s*"pnpm"\s*,\s*\[\s*"install"\s*,\s*"--lockfile-only"\s*\]\s*\)/);
+  });
+
+  it("step order: sync-versions < pnpm lockfile regen < verify-lockfile-versions", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    const sync = src.search(/run\(\s*"node"\s*,\s*\[\s*"scripts\/sync-versions\.js"/);
+    const pnpm = src.search(/run\(\s*"pnpm"\s*,\s*\[\s*"install"/);
+    const verify = src.search(/run\(\s*"node"\s*,\s*\[\s*"scripts\/verify-lockfile-versions\.mjs"/);
+    expect(sync).toBeGreaterThan(-1);
+    expect(pnpm).toBeGreaterThan(sync);
+    expect(verify).toBeGreaterThan(pnpm);
+  });
+
+  it("no npm lockfile regeneration in the publish script; the runtime lock still uses npm", () => {
+    expect(read("scripts", "nightly-verdaccio-publish.mjs")).not.toContain("--package-lock-only");
+    expect(read("scripts", "generate-runtime-lock.mjs")).toContain("--package-lock-only");
+  });
+
+  it("win32 spawn: shell covers npm and pnpm; only npm maps to npm.cmd", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    expect(src).toMatch(/shell:\s*isWin\s*&&\s*\(\s*cmd\s*===\s*"npm"\s*\|\|\s*cmd\s*===\s*"pnpm"\s*\)/);
+    expect(src).toMatch(/isWin\s*&&\s*cmd\s*===\s*"npm"\s*\?\s*"npm\.cmd"\s*:\s*cmd/);
+    expect(src).not.toContain('"pnpm.cmd"');
+  });
+
   it("verify-publish installs with pnpm (the repo has no package-lock.json)", () => {
     const wf = read(".github", "workflows", "nightly.yml");
     const job = wf.slice(wf.indexOf("  verify-publish:"), wf.indexOf("  knip:"));
     expect(job).toContain("pnpm install --frozen-lockfile");
     expect(job).not.toMatch(/npm ci|cache:\s*npm/);
-  });
-
-  it("E63: step (c) regenerates the lockfile with --allow-remote=all (npm 12 refuses the xlsx remote tarball)", () => {
-    const src = read("scripts", "nightly-verdaccio-publish.mjs");
-    const call = /run\("npm", \[("install"[^\]]*)\]\)/.exec(src);
-    expect(call).not.toBeNull();
-    expect(call[1]).toContain('"--package-lock-only"');
-    expect(call[1]).toContain('"--allow-remote=all"');
   });
 
   it("every loopback publish passes --tag (npm 12 refuses a prerelease publish without one)", () => {

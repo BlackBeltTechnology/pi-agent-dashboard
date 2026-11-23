@@ -1,0 +1,3 @@
+# __tests__/nightly-verdaccio-publish-standalone.budget.test.mjs — index
+
+Budget-lane file (`*.budget.test.*`, excluded from blocking runs; run with `RUN_BUDGET_TESTS=1`). Real run of `scripts/nightly-verdaccio-publish.mjs` in a temp `git worktree add --detach` with `NIGHTLY_VERSION=<next patch>-nightly.20990101.abcdef0` and `REGISTRY` on a closed loopback port. #E5: no prior lockfile regen → gate line `✓ All cross-ref specifiers match ^<v>`, temp `pnpm-lock.yaml` importers cross-refs all `^<v>`, non-zero exit at step (e). #E6: caller pre-regenerated → still passes. #X1: PATH without pnpm → non-zero, no gate line, no `Publishing N workspace(s)`. Needs network (pnpm resolves the graph). See change: fix-nightly-publish-pnpm-lockfile.

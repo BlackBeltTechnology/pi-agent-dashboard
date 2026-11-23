@@ -3,9 +3,9 @@
  * nightly-verdaccio-publish.mjs — publish every non-private workspace to an
  * ephemeral private registry (Verdaccio) for the nightly Electron round-trip.
  *
- * Callers: `_electron-build.yml` on each leg when `registry_url` is set (the
- * runner's own npm), and `nightly.yml` `verify-publish` (after
- * `npm install -g npm@latest`, with `pnpm install --lockfile-only` first).
+ * Callers: `_electron-build.yml` on each leg when `registry_url` is set, and
+ * `nightly.yml` `verify-publish` (after `npm install -g npm@latest`). It
+ * regenerates the lockfile itself, so a caller needs no lockfile pre-step.
  * Pipeline (mirrors the release `tag-and-push` version-coherence machinery,
  * so the nightly exercises the exact cross-workspace specifier-sync path a
  * real release uses):
@@ -14,7 +14,7 @@
  *       (`<base>` = next patch of the current package.json version) via
  *       `npm pkg set version` — field-only edit, no lifecycle scripts.
  *   (b) `node scripts/sync-versions.js`         — rewrite ^<base> cross-refs
- *   (c) `npm install --package-lock-only --allow-remote=all` — regen lockfile
+ *   (c) `pnpm install --lockfile-only`          — regen pnpm-lock.yaml
  *   (d) `node scripts/verify-lockfile-versions.mjs` — assert coherence
  *   (e) publish every non-private workspace to `$REGISTRY` in RELEASE order
  *       (publish.yml): everything except server + root (topological), then
@@ -159,12 +159,13 @@ function main() {
         "The nightly MUST NOT reach public npm.",
     );
   }
-  // npm is `npm.cmd` on Windows, which Node only spawns through a shell
-  // (`spawnSync npm ENOENT` otherwise). `node` is a real executable everywhere.
+  // npm is `npm.cmd` and pnpm a `.cmd` shim on Windows, which Node only spawns
+  // through a shell (`spawnSync … ENOENT` otherwise); arguments here are constants,
+  // never user input. `node` is a real executable everywhere.
   const isWin = process.platform === "win32";
   const bin = (cmd) => (isWin && cmd === "npm" ? "npm.cmd" : cmd);
   const run = (cmd, args) =>
-    execFileSync(bin(cmd), args, { cwd: repoRoot, stdio: "inherit", shell: isWin && cmd === "npm" });
+    execFileSync(bin(cmd), args, { cwd: repoRoot, stdio: "inherit", shell: isWin && (cmd === "npm" || cmd === "pnpm") });
 
   // Single source of truth: the nightly workflow's `resolve` job computes the
   // slug and passes it in via NIGHTLY_VERSION so the version the bundle's
@@ -198,12 +199,8 @@ function main() {
   ]);
   // (b) rewrite inter-package specifiers to ^<version>.
   run("node", ["scripts/sync-versions.js"]);
-  // (c) regenerate the lockfile with the bumped versions.
-  // --allow-remote=all: npm 12 defaults to allow-remote=none and refuses the
-  // server's `xlsx` remote tarball (EALLOWREMOTE). The release never takes this
-  // step (it uses pnpm, publish.yml), so a red here would be a false alarm.
-  // See change: fix-npm12-remote-tarball-install.
-  run("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund", "--allow-remote=all"]);
+  // (c) regenerate pnpm-lock.yaml with the bumped versions (the repo's only lockfile).
+  run("pnpm", ["install", "--lockfile-only"]);
   // (d) assert lockfile cross-ref coherence.
   run("node", ["scripts/verify-lockfile-versions.mjs"]);
 
