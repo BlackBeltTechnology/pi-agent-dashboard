@@ -51,7 +51,7 @@ For EML the only observable change is that `\` becomes `_` in the ASCII fallback
 - **A server download ticket.** Adds a new auth surface.
 
 ### D4 — Document bar Download
-`MoreMenu` adds `MenuItem testId="doc-download"` after the copy items for file tabs. For outside-cwd tabs it uses the same target the viewer used, so admission is identical. Extract the inline dirty expression from `EditorPane.tsx:579-588` into a local `isTabDirty(tab)` helper shared by `unsavedPaths` and the new `DocumentBar` prop `dirty`. `MenuItem` gains an optional `hint?: ReactNode`, rendered as a muted second line. When `dirty`, the Download item carries the hint "Unsaved changes not included" and stays enabled.
+`MoreMenu` adds `MenuItem testId="doc-download"` after the copy items for file tabs. For outside-cwd tabs it uses the same target the viewer used, so admission is identical. Extract the inline dirty expression from `EditorPane.tsx:579-588` into a local `isTabDirty(tab)` helper shared by `unsavedPaths` and the new `DocumentBar` prop `dirty`. `MenuItem` gains an optional `hint?: ReactNode`, rendered as a muted second line. When `dirty`, the Download item carries the hint "Unsaved changes not included" and stays enabled. Both Download items (`doc-download`, `tree-row-download`) show a leading `mdiDownload` icon. The hint uses `--text-tertiary` (`--text-muted` fails contrast). This is as accepted in mock `mockups/2026-11-23-file-download`.
 
 ### D5 — File-tree row actions menu on `MenuPopover`
 `RowCopyAffordance` → `RowActionsMenu`:
