@@ -129,7 +129,7 @@ function linkTitle(a: {
   if (a.notFound || linkState === "missing") return `Not found: ${resolved}${titleSuffix}`;
   const real = entry?.resolved && (linkState === "found" || linkState === "recovered") ? normalizeUnderCwd(entry.resolved, a.cwd) : resolved;
   if (linkState === "recovered") return i18nT("chat.link.recovered", { path: `${real}${titleSuffix}` }, "Resolved to {path}");
-  if (linkState === "ambiguous") return i18nT("chat.link.ambiguous", undefined, "Several files match: click to choose");
+  if (linkState === "ambiguous") return `${i18nT("chat.link.ambiguous", undefined, "Several files match: click to choose")} - ${resolved}${titleSuffix}`;
   if (linkState === "gated") return i18nT("chat.link.gated", { path: `${resolved}${titleSuffix}` }, "Outside the session folders: {path}");
   return `Preview ${real}${titleSuffix}`;
 }
@@ -150,7 +150,8 @@ const PILL_BASE =
   "[code_&]:border-0 [code_&]:bg-transparent [code_&]:px-0 [code_&]:mx-0 [code_&]:text-[1em]";
 
 function pillClass(state: LinkState, dead: boolean): string {
-  if (dead) return `${PILL_BASE} border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-muted)]`;
+  // --text-secondary, not --text-muted: a missing link is still an active control (WCAG 1.4.3, 4.5:1 in both themes).
+  if (dead) return `${PILL_BASE} border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-secondary)]`;
   const text = state === "gated" || state === "ambiguous" ? "text-[var(--text-secondary)]" : "text-[var(--link)]";
   return `${PILL_BASE} border-[var(--border-secondary)] bg-[var(--bg-secondary)] ${text} hover:border-[var(--link)]`;
 }

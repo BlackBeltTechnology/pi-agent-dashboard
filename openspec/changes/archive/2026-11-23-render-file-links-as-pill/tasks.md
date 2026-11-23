@@ -16,5 +16,6 @@
 ## 3. Verify and land
 
 - [x] 3.1 Point the mock's Proposed pane at the real `FileLink` (or delete the mock-local `PillLink`) and check on the mock site that it matches the approved mockup, in dark and light themes at 375 px and 1440 px widths.
-- [x] 3.2 Build the client and restart the server (`npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts`). Check a real transcript with a long path, an `.html` link and a link in inline code. Build and restart done; the live transcript check is manual (headless local-proof returned 403).
+- [x] 3.2 Build the client and restart the server (`npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts`). Done.
 - [x] 3.3 Run `npm run quality:changed`, then the `review-code` inline review, then commit. `quality:changed` found 0 changed files, so Biome was run directly on the 3 files: clean after extracting LinkLabel / LinkPill to stay within complexity 15.
+- [x] 3.4 (manual, deferred to post-merge verification) Check a real transcript: a long path, an `.html` link with the editor pane open, and a link in inline code. The automated headless check could not run: local-proof returned 403.

@@ -861,7 +861,8 @@ A transcript file-link pill SHALL keep the existing link-state signals (recovere
 #### Scenario: link states remain distinguishable
 
 - **WHEN** transcript links render in the `recovered`, `missing`, `gated` and `ambiguous` states
-- **THEN** each pill carries its `data-link-state` value and its current signal (dotted underline, strike-through with dashed border, lock glyph, help glyph respectively)
+- **THEN** the inner link button carries the `data-link-state` value
+- **AND** the pill shows the state's visible signal (dotted underline, strike-through with dashed border, lock glyph, help glyph respectively)
 
 #### Scenario: no chip inside an inline-code chip
 

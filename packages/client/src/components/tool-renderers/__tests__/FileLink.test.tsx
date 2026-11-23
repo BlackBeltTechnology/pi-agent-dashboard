@@ -749,11 +749,17 @@ describe("FileLink — transcript pill (render-file-links-as-pill)", () => {
     act(() => store.apply(key, { state: "found", resolved: "/repo/src/a.ts", kind: "relative" }));
     expect(pill().className).toContain("bg-[var(--bg-secondary)]");
     expect(pill().className).toContain("text-[var(--link)]");
+    act(() => store.apply(key, { state: "ambiguous", candidates: ["/repo/a/a.ts", "/repo/b/a.ts"] }));
+    // A start-truncated name must still be readable in full from the tooltip.
+    expect(btn.getAttribute("title")).toContain("Several files match");
+    expect(btn.getAttribute("title")).toContain("/repo/src/a.ts");
     act(() => store.apply(key, { state: "gated" }));
     expect(pill().className).toContain("text-[var(--text-secondary)]");
     act(() => store.apply(key, { state: "missing" }));
     expect(pill().className).toContain("border-dashed");
-    expect(pill().className).toContain("text-[var(--text-muted)]");
+    // WCAG 1.4.3: --text-muted is ~2.3:1 on the light surface; the missing link stays an active control.
+    expect(pill().className).toContain("text-[var(--text-secondary)]");
+    expect(pill().className).not.toContain("text-[var(--text-muted)]");
     expect(btn.className).toContain("line-through");
     expect(btn.getAttribute("data-link-state")).toBe("missing");
   });
