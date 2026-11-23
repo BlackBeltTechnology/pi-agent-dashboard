@@ -58,7 +58,7 @@ function parseIpv6(addr: string): number[] | null {
 }
 
 /** True for loopback / unspecified / private / link-local / CGNAT IPv4. */
-function isPrivateIpv4(o: readonly number[]): boolean {
+export function isPrivateIpv4(o: readonly number[]): boolean {
   const [a, b] = o;
   return (
     a === 0 ||
@@ -73,7 +73,8 @@ function isPrivateIpv4(o: readonly number[]): boolean {
   );
 }
 
-function isPrivateIpv6(g: readonly number[]): boolean {
+/** True for unspecified / loopback / ULA / link-local / IPv4-mapped-or-compatible private IPv6. */
+export function isPrivateIpv6(g: readonly number[]): boolean {
   if (g.every((x) => x === 0)) return true; // ::
   if (g.slice(0, 7).every((x) => x === 0) && g[7] === 1) return true; // ::1
   if ((g[0] & 0xfe00) === 0xfc00) return true; // fc00::/7 ULA
@@ -135,4 +136,57 @@ export function isUngrantableEgressOrigin(
     }
   }
   return false;
+}
+
+/** Extra IPv4 ranges that are never a public unicast peer (docs, benchmarking, 6to4 relay). */
+function isReservedIpv4(o: readonly number[]): boolean {
+  const [a, b, c] = o;
+  return (
+    (a === 192 && b === 88 && c === 99) || // 192.88.99.0/24 6to4 relay
+    (a === 198 && (b === 18 || b === 19)) || // 198.18.0.0/15 benchmarking
+    (a === 198 && b === 51 && c === 100) || // 198.51.100.0/24 TEST-NET-2
+    (a === 203 && b === 0 && c === 113) // 203.0.113.0/24 TEST-NET-3
+  );
+}
+
+/** Extra IPv6 ranges that are never a public unicast peer (design D12 3c). */
+function isReservedIpv6(g: readonly number[]): boolean {
+  const zero = (from: number, to: number) => g.slice(from, to).every((x) => x === 0);
+  return (
+    (g[0] === 0x0100 && zero(1, 4)) || // 100::/64 discard-only
+    (g[0] === 0x2001 && g[1] === 0) || // 2001::/32 Teredo
+    (g[0] === 0x2001 && (g[1] & 0xfff0) === 0x0010) || // 2001:10::/28 ORCHID
+    (g[0] === 0x2001 && g[1] === 0x0db8) || // 2001:db8::/32 documentation
+    g[0] === 0x2002 || // 2002::/16 6to4
+    (g[0] === 0x0064 && g[1] === 0xff9b && (zero(2, 6) || g[2] === 1)) || // 64:ff9b::/96, 64:ff9b:1::/48
+    (zero(0, 4) && g[4] === 0xffff) || // ::ffff:0:0:0/96 SIIT-translated
+    (zero(0, 4) && g[4] === 0 && g[5] === 0xffff) || // ::ffff:0:0/96 IPv4-mapped (never a resolver answer)
+    zero(0, 6) || // ::/96 IPv4-compatible (deprecated)
+    (g[0] & 0xffc0) === 0xfec0 || // fec0::/10 site-local
+    (g[0] & 0xff00) === 0xff00 // ff00::/8 multicast
+  );
+}
+
+/**
+ * True only for a globally routable unicast IP literal (`dns.lookup` result).
+ * Built on {@link isPrivateIpv4}/{@link isPrivateIpv6} plus the documentation,
+ * benchmarking, transition and multicast ranges. Strips an IPv6 zone id and
+ * FAILS CLOSED on anything it cannot parse (empty, bracketed, hostnames,
+ * leading-zero octets).
+ *
+ * See change: rich-chat-links (design D12).
+ */
+export function isPublicUnicastAddress(ip: string): boolean {
+  if (typeof ip !== "string") return false;
+  const addr = ip.split("%")[0];
+  const v4 = addr.match(/^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/);
+  if (v4) {
+    const o = v4.slice(1, 5).map(Number);
+    if (o.some((n) => n > 255)) return false;
+    return !isPrivateIpv4(o) && !isReservedIpv4(o);
+  }
+  if (!addr.includes(":")) return false;
+  const g = parseIpv6(addr);
+  if (!g) return false;
+  return !isPrivateIpv6(g) && !isReservedIpv6(g);
 }

@@ -8,11 +8,14 @@ import { type ClaimEntry, createSlotRegistry, PluginContextProvider } from "@bla
 import { DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToolCallStep } from "../chat/ToolCallStep.js";
 import { FORCE_STOP_ARM_MS, type StopController } from "../chat/ToolStopControl.js";
+import { LinkResolutionStore } from "../../lib/chat/link-resolution-store.js";
+import { LinkResolutionProvider } from "../chat/LinkResolutionProvider.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { registerToolRenderer, type ToolContext } from "../tool-renderers/index.js";
+import { makeToolContext } from "../tool-renderers/make-tool-context.js";
 import type { ToolRenderer } from "../tool-renderers/types.js";
 
 const defaultContext: ToolContext = {};
@@ -966,5 +969,53 @@ describe("ToolCallStep late tool-renderer claim", () => {
     // result update, no bump → memo reused, no new lookup
     rerender(view("r2"));
     expect(toolRendererLookups()).toBe(afterBump);
+  });
+});
+
+// rich-chat-links 5.14: the producing tool's working directory rides on the link context.
+describe("ToolCallStep — link context (rich-chat-links)", () => {
+  let batches: { cwd: string; items: { mention: string; toolCwd?: string }[] }[] = [];
+  beforeEach(() => {
+    batches = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      if (String(input).endsWith("/api/file/resolve-mentions")) batches.push(body);
+      return new Response(JSON.stringify({ success: true, data: { results: (body.items ?? []).map(() => ({ state: "missing" })) } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const step = (status: "running" | "complete") => (
+    <ThemeProvider>
+      <LinkResolutionProvider store={new LinkResolutionStore()} sessionId="S">
+        <ToolCallStep
+          toolName="bash"
+          toolCallId="tc-cd"
+          args={{ command: "cd packages/client && rg foo" }}
+          status={status}
+          result="src/foo.ts:3: foo"
+          context={makeToolContext({ cwd: "/repo", sessionId: "S" })}
+        />
+      </LinkResolutionProvider>
+    </ThemeProvider>
+  );
+
+  it("a bash `cd packages/client && rg` result yields links whose request carries that toolCwd", async () => {
+    const view = render(step("complete"));
+    fireEvent.click(view.container.querySelector("button")!);
+    await waitFor(() => expect(batches).toHaveLength(1), { timeout: 3000 });
+    expect(batches[0].items).toEqual([{ mention: "src/foo.ts", toolCwd: "packages/client" }]);
+  });
+
+  it("a running tool's links are not requested until it completes", async () => {
+    const view = render(step("running"));
+    fireEvent.click(view.container.querySelector("button")!);
+    await new Promise((r) => setTimeout(r, 1400));
+    expect(batches).toHaveLength(0);
+    view.rerender(step("complete"));
+    await waitFor(() => expect(batches).toHaveLength(1), { timeout: 3000 });
   });
 });

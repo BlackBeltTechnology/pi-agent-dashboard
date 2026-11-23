@@ -325,6 +325,7 @@ import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagno
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
 import { registerModelsIntrospectionRoute } from "./routes/models-introspection-routes.js";
+import { registerFramePolicyRoutes } from "./routes/frame-policy-routes.js";
 import { registerNavIntentRoutes } from "./routes/nav-intent-routes.js";
 import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
@@ -2898,6 +2899,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Signed navigation intents for operator-opened route-backed overlays
   // (per-process key: a restart invalidates them). See change: harden-client-sinks (D10).
   registerNavIntentRoutes(fastify, { networkGuard, intents: new NavIntents() });
+  // Framing probe for web-link previews: operator click → one SSRF-hardened outbound HEAD, verdict only
+  // (control tier; own browser Origin required). See change: rich-chat-links (D12).
+  registerFramePolicyRoutes(fastify, {
+    networkGuard,
+    corsOpts,
+    ownOrigins: previewEgressOwnOrigins,
+    ownPorts: () => {
+      const tls = loadConfig().tls;
+      return [config.port, ...(tls?.enabled ? [tls.port] : [])];
+    },
+  });
   // On-demand AI mermaid repair (opt-in via `mermaidRepair` config; 404 when off).
   // See change: add-mermaid-ai-repair.
   registerMermaidRepairRoutes(fastify, {

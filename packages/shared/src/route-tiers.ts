@@ -342,6 +342,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/file/write", tier: "control" },
   // add-editor-pane-file-handlers: plugin file-handler binary save; same tier as the text write.
   { method: "POST", path: "/api/file/write-binary", tier: "control" },
+  // rich-chat-links: framing probe. First dashboard code that makes an outbound request on a click, so
+  // `control` (not `observe`); the handler additionally requires an own browser Origin and rate-limits.
+  { method: "POST", path: "/api/web/frame-policy", tier: "control" },
   { method: "POST", path: "/api/folders/goals", tier: "control" },
   { method: "POST", path: "/api/folders/goals/:id/sessions", tier: "control" },
   { method: "POST", path: "/api/git/checkout", tier: "control" },

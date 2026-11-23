@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { hasRouteTier, routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +21,6 @@ import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { createMutationOriginGate } from "../auth/mutation-origin-gate.js";
 import { createRouteTierGate, type TierRefusal } from "../auth/route-tier-gate.js";
 import { admissionTrustedNetworks } from "../auth/trust-mode.js";
-import { hasRouteTier, routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { registerBearerRotateRoute } from "../routes/pairing-routes.js";
 import { registerPluginRuntimeClientRoutes } from "../routes/plugin-runtime-client-routes.js";
@@ -112,6 +112,9 @@ async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Prom
   // resolve-mention-endpoint.test.ts — the tier gate is what is under test). Change: rich-chat-links.
   app.post("/api/file/resolve-mentions", async () => ({ success: true }));
   app.post("/api/kb/reindex/cancel", async () => ({ cancelled: false }));
+  // Stand-in for the framing probe (real handler in frame-policy-routes, covered by frame-policy-route.test.ts —
+  // the tier gate is what is under test). Change: rich-chat-links.
+  app.post("/api/web/frame-policy", async () => ({ verdict: "ineligible" }));
   // Live-preview HTTP proxy patterns (live-server-proxy.ts). See change: add-passkey-user-auth.
   app.all("/live/:id/*", async () => ({ ok: true }));
   app.all("/live/:id", async () => ({ ok: true }));
@@ -621,6 +624,40 @@ describe("E21 — POST /api/file/resolve-mentions tier (rich-chat-links)", () =>
       remoteAddress: REMOTE,
       payload: { cwd: "/x", items: [] },
     });
+    expect([401, 403]).toContain(res.statusCode);
+  });
+});
+
+describe("X8 — POST /api/web/frame-policy tier (rich-chat-links)", () => {
+  const REMOTE = "203.0.113.5";
+  const probe = (headers: Record<string, string>) => ({
+    method: "POST" as const,
+    url: "/api/web/frame-policy",
+    remoteAddress: REMOTE,
+    headers,
+    payload: { origin: "https://example.com" },
+  });
+
+  it("is listed at tier control", () => {
+    expect(hasRouteTier("POST", "/api/web/frame-policy")).toBe(true);
+    expect(routeTier("POST", "/api/web/frame-policy")).toBe("control");
+  });
+
+  it("an observe-tier bearer is refused 403 (an outbound request needs control)", async () => {
+    const { app, tokens } = await mkApp();
+    const res = await app.inject(probe(bearer(tokens.observe)));
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("a control-tier bearer proceeds", async () => {
+    const { app, tokens } = await mkApp();
+    const res = await app.inject(probe(bearer(tokens.control)));
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("an unauthenticated remote request is refused", async () => {
+    const { app } = await mkApp();
+    const res = await app.inject(probe({}));
     expect([401, 403]).toContain(res.statusCode);
   });
 });

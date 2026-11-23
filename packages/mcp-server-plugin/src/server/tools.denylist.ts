@@ -27,6 +27,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // See change: add-editor-pane-file-handlers.
   // See change: rich-chat-links.
   { pattern: "/api/file/resolve-mentions", reason: "internal chat-link pre-confirmation batch (client-side flush); agents use file_resolve_mention" },
+  { pattern: "/api/web/frame-policy", reason: "internal web-link framing probe (browser-Origin gated, SSRF-hardened outbound HEAD); never an agent action" },
   { pattern: "/api/file/write-binary", reason: "internal editor-pane plugin file-handler save (octet-stream, conflict-token flow); no agent use" },
   { pattern: "/api/electron/", reason: "Electron-only" },
   // Stages, activates and rolls back the dashboard runtime (downloads + runs

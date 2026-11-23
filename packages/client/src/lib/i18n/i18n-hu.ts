@@ -20,6 +20,10 @@ export const huCatalog: Record<string, string> = {
 
   "chat.copyTooLarge": "A kijelölés túl nagy az egyszeri másoláshoz. Másolja részletekben.",
   "chat.copyMultiTranscript": "A kijelölés több beszélgetésre terjed ki. Másolja külön-külön az egyes beszélgetéseket.",
+  "chat.link.pickTitle": "Válasszon fájlt ehhez: {mention}",
+  "chat.link.recovered": "Feloldva ide: {path}",
+  "chat.link.ambiguous": "Több fájl is egyezik: kattintson a választáshoz",
+  "chat.link.gated": "A munkamenet mappáin kívül: {path}",
   "chat.historyGap.announced": "{count} korábbi üzenet betöltve",
   "chat.historyGap.countMany": "{count} korábbi üzenet",
   "chat.historyGap.countOne": "1 korábbi üzenet",
