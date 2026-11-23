@@ -36,7 +36,8 @@ export function HtmlModeMenu({ path, onPick }: { path: string; onPick: (mode: Ht
           const el = e.currentTarget;
           setAnchor((cur) => (cur ? null : el));
         }}
-        className="inline-flex shrink-0 select-none items-center bg-transparent border-0 p-0 ml-[0.125em] align-[-0.125em] cursor-pointer text-[var(--text-muted)] hover:text-[var(--link)]"
+        // Split end of the FileLink pill (render-file-links-as-pill D5): thin divider before the chevron.
+        className="inline-flex shrink-0 self-stretch select-none items-center bg-transparent border-0 border-l border-[var(--border-secondary)] p-0 ml-[0.35em] pl-[0.2em] cursor-pointer text-[var(--text-muted)] hover:text-[var(--link)]"
         style={{ font: "inherit", userSelect: "none" }}
       >
         <svg aria-hidden="true" viewBox="0 0 24 24" width="1em" height="1em" className="fill-current">

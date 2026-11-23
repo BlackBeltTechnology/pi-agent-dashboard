@@ -129,7 +129,7 @@ function linkTitle(a: {
   if (a.notFound || linkState === "missing") return `Not found: ${resolved}${titleSuffix}`;
   const real = entry?.resolved && (linkState === "found" || linkState === "recovered") ? normalizeUnderCwd(entry.resolved, a.cwd) : resolved;
   if (linkState === "recovered") return i18nT("chat.link.recovered", { path: `${real}${titleSuffix}` }, "Resolved to {path}");
-  if (linkState === "ambiguous") return i18nT("chat.link.ambiguous", undefined, "Several files match: click to choose");
+  if (linkState === "ambiguous") return `${i18nT("chat.link.ambiguous", undefined, "Several files match: click to choose")} - ${resolved}${titleSuffix}`;
   if (linkState === "gated") return i18nT("chat.link.gated", { path: `${resolved}${titleSuffix}` }, "Outside the session folders: {path}");
   return `Preview ${real}${titleSuffix}`;
 }
@@ -138,6 +138,53 @@ function linkClass(dead: boolean, notFound: boolean, recovered: boolean): string
   const base = "bg-transparent border-0 p-0 m-0 font-inherit";
   if (dead) return `${base} text-[var(--link)]/60 line-through ${notFound ? "cursor-not-allowed" : "cursor-pointer"}`;
   return `${base} text-[var(--link)] hover:underline cursor-pointer${recovered ? " underline decoration-dotted underline-offset-2" : ""}`;
+}
+
+/**
+ * Transcript links render as one no-wrap pill (render-file-links-as-pill D1-D4): glyph, name and the optional HTML
+ * chevron form a single inline box that never breaks inside. Inside inline `code` the pill drops its own chrome.
+ */
+const PILL_BASE =
+  "inline-flex items-center max-w-full min-w-0 whitespace-nowrap align-[-0.2em] mx-[0.1em] " +
+  "rounded-full border px-[0.5em] leading-[1.45] text-[0.92em] " +
+  "[code_&]:border-0 [code_&]:bg-transparent [code_&]:px-0 [code_&]:mx-0 [code_&]:text-[1em]";
+
+function pillClass(state: LinkState, dead: boolean): string {
+  // --text-secondary, not --text-muted: a missing link is still an active control (WCAG 1.4.3, 4.5:1 in both themes).
+  if (dead) return `${PILL_BASE} border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-secondary)]`;
+  const text = state === "gated" || state === "ambiguous" ? "text-[var(--text-secondary)]" : "text-[var(--link)]";
+  return `${PILL_BASE} border-[var(--border-secondary)] bg-[var(--bg-secondary)] ${text} hover:border-[var(--link)]`;
+}
+
+/** The link button inside a pill: colour comes from the pill; state decorations stay on the button. */
+function pillButtonClass(dead: boolean, notFound: boolean, recovered: boolean): string {
+  const base = "inline-flex items-center min-w-0 bg-transparent border-0 p-0 m-0 font-inherit text-inherit";
+  if (dead) return `${base} line-through ${notFound ? "cursor-not-allowed" : "cursor-pointer"}`;
+  return `${base} cursor-pointer${recovered ? " underline decoration-dotted underline-offset-2" : ""}`;
+}
+
+function buttonClass(pill: boolean, dead: boolean, notFound: boolean, recovered: boolean): string {
+  return pill ? pillButtonClass(dead, notFound, recovered) : linkClass(dead, notFound, recovered);
+}
+
+/** Link text; in a pill an overflowing path ellipsises at the START (rtl box, LTR text via bdi). */
+function LinkLabel({ pill, children }: { pill: boolean; children: React.ReactNode }) {
+  if (!pill) return <>{children}</>;
+  return (
+    <span data-file-link-name="" className="truncate min-w-0" style={{ direction: "rtl", textAlign: "left" }}>
+      <bdi dir="ltr">{children}</bdi>
+    </span>
+  );
+}
+
+/** The pill box around the link button + HTML chevron; a plain fragment outside the transcript. */
+function LinkPill({ pill, state, dead, children }: { pill: boolean; state: LinkState; dead: boolean; children: React.ReactNode }) {
+  if (!pill) return <>{children}</>;
+  return (
+    <span data-file-link-pill="" className={pillClass(state, dead)}>
+      {children}
+    </span>
+  );
 }
 
 export function FileLink({ path, line, col, absolute, context, children }: Props) {
@@ -243,8 +290,7 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
   const dead = notFound || linkState === "missing";
   const { glyph, tone } = linkGlyph(path, linkState);
 
-  return (
-    <>
+  const linkButton = (
     <button
       ref={btnRef}
       type="button"
@@ -265,13 +311,20 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
       // `--link` is mode-aware; the raw `blue-400` it replaces failed the 3:1
       // floor on `--bg-code` in every light theme.
       // See change: repair-tool-error-surfaces (test-plan #F8).
-      className={linkClass(dead, notFound, linkState === "recovered")}
+      className={buttonClass(active, dead, notFound, linkState === "recovered")}
       style={{ font: "inherit", userSelect: "text" }}
     >
       {active && <LinkIconSlot glyph={glyph} tone={tone} />}
-      {children}
+      <LinkLabel pill={active}>{children}</LinkLabel>
     </button>
-    {htmlMenu && <HtmlModeMenu path={path} onPick={(mode) => void openLink(mode)} />}
+  );
+
+  return (
+    <>
+    <LinkPill pill={active} state={linkState} dead={dead}>
+      {linkButton}
+      {htmlMenu && <HtmlModeMenu path={path} onPick={(mode) => void openLink(mode)} />}
+    </LinkPill>
     {candidates && cwd && <MentionPicker mention={path} candidates={candidates} cwd={cwd} onPick={(p) => { setCandidates(null); openResolved(p); }} onClose={closePicker} />}
     {!hostManaged && previewTarget && (
       <FilePreviewOverlay
