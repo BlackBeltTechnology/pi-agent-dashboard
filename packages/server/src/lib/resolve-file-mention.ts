@@ -55,7 +55,7 @@ export interface ResolvedMention {
   outside?: true;
 }
 
-export type Containment = "contained" | "granted-missing" | "outside";
+type Containment = "contained" | "granted-missing" | "outside";
 
 type MentionState = "found" | "recovered" | "ambiguous" | "missing" | "gated";
 
@@ -90,13 +90,24 @@ export interface ResolveMentionOptions {
    * Optional per-request containment memo, keyed by candidate path. Shared across the items of ONE batch request
    * (same anchors), so a repeated tool directory or candidate is judged once. Never outlives the request.
    */
-  containmentMemo?: Map<string, Promise<Containment>>;
+  containmentMemo?: ContainmentMemo;
 }
+
+type PassiveDecision = Awaited<ReturnType<typeof decidePassive>>;
+
+/** A containment verdict plus the raw decision it came from. */
+interface Judged {
+  decision: PassiveDecision;
+  containment: Containment;
+}
+
+/** Per-request containment memo (see `ResolveMentionOptions.containmentMemo`). */
+export type ContainmentMemo = Map<string, Promise<Judged>>;
 
 interface Ctx {
   anchors: string[];
   counters?: { stats: number };
-  memo?: Map<string, Promise<Containment>>;
+  memo?: ContainmentMemo;
 }
 
 /** Maximum candidates reported for an ambiguous mention. */
@@ -127,16 +138,18 @@ function candidateOf(mention: string, cwd: string): { candidate: string; kind: M
  * needs a real file, so the nearest existing ancestor is judged. Only already-granted subjects can answer that
  * way, so an ungranted path stays existence-independent.
  */
-async function classifyFresh(candidate: string, anchors: string[]): Promise<Containment> {
-  if (containmentAllows(await decidePassive(candidate, anchors, { allowGrant: true }), candidate)) return "contained";
+async function classifyFresh(candidate: string, anchors: string[]): Promise<Judged> {
+  const decision = await decidePassive(candidate, anchors, { allowGrant: true });
+  if (containmentAllows(decision, candidate)) return { decision, containment: "contained" };
   if (!(await dashboardStateRefuses(candidate))) {
     const real = await safeRealpath(candidate);
-    if (grantedSubjects().some((subject) => within(real, subject))) return "granted-missing";
+    if (grantedSubjects().some((subject) => within(real, subject))) return { decision, containment: "granted-missing" };
   }
-  return "outside";
+  return { decision, containment: "outside" };
 }
 
-function classify(candidate: string, ctx: Ctx): Promise<Containment> {
+/** Memoised per request when `ctx.memo` is set. Keeps the raw decision so each stat site can guard on it directly. */
+function judge(candidate: string, ctx: Ctx): Promise<Judged> {
   if (!ctx.memo) return classifyFresh(candidate, ctx.anchors);
   let hit = ctx.memo.get(candidate);
   if (!hit) {
@@ -144,6 +157,10 @@ function classify(candidate: string, ctx: Ctx): Promise<Containment> {
     ctx.memo.set(candidate, hit);
   }
   return hit;
+}
+
+async function classify(candidate: string, ctx: Ctx): Promise<Containment> {
+  return (await judge(candidate, ctx)).containment;
 }
 
 async function exists(p: string, counters?: { stats: number }): Promise<boolean> {
@@ -158,7 +175,9 @@ async function exists(p: string, counters?: { stats: number }): Promise<boolean>
 
 /** Contained AND on disk; the only way a candidate other than the user's own mention gets stat-ed. */
 async function containedAndPresent(candidate: string, ctx: Ctx): Promise<boolean> {
-  return (await classify(candidate, ctx)) === "contained" && (await exists(candidate, ctx.counters));
+  const { decision } = await judge(candidate, ctx);
+  // The guard sits at the stat site (not behind a helper) so the path-injection barrier is visible to CodeQL.
+  return containmentAllows(decision, candidate) && (await exists(candidate, ctx.counters));
 }
 
 /** Step 1: the producing tool's directory. Dir and joined path must both be contained; otherwise skipped silently. */
@@ -220,11 +239,12 @@ export async function resolveMentionTagged(mention: string, opts: ResolveMention
   // 1. Producing tool's directory (relative mentions only) and
   // 2. exact, evaluated side by side. A containment failure on the user's own mention is `gated`: no stat,
   //    independent of existence.
-  const [toolHit, containment] = await Promise.all([
+  const [toolHit, judged] = await Promise.all([
     recover && toolCwd && exact.kind === "relative" ? toolDirCandidate(mention, toolCwd, cwd, ctx) : null,
-    classify(exact.candidate, ctx),
+    judge(exact.candidate, ctx),
   ]);
-  const exactHit = containment === "contained" && (await exists(exact.candidate, ctx.counters));
+  const { containment } = judged;
+  const exactHit = containmentAllows(judged.decision, exact.candidate) && (await exists(exact.candidate, ctx.counters));
 
   if (toolHit && exactHit) {
     const [a, b] = await Promise.all([safeRealpath(toolHit), safeRealpath(exact.candidate)]);

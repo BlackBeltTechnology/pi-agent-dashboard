@@ -122,7 +122,7 @@ export function sendGateFailure(reply: import("fastify").FastifyReply, gate: Gat
 
 import { serializeWrite } from "../lib/file-write-lock.js";
 import { getMentionFuzzyIndex, type MentionFuzzyIndex } from "../lib/mention-fuzzy-index.js";
-import { type Containment, resolveMentionTagged } from "../lib/resolve-file-mention.js";
+import { type ContainmentMemo, resolveMentionTagged } from "../lib/resolve-file-mention.js";
 import {
   BATCH_BODY_LIMIT_BYTES,
   BATCH_CONCURRENCY,
@@ -1340,7 +1340,7 @@ export function registerFileRoutes(
       if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
 
       const counters = { stats: 0 };
-      const containmentMemo = new Map<string, Promise<Containment>>();
+      const containmentMemo: ContainmentMemo = new Map();
       const fuzzy = { hit: 0, miss: 0, skipped: 0, buildMs: 0 };
       const fuzzyIndex: MentionFuzzyIndex = {
         clear: () => mentionIndex.clear(),
