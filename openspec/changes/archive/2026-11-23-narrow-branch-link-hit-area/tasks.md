@@ -17,4 +17,4 @@
 
 ## 2. Manual verification
 
-- [ ] 2.1 Visually check git-row layout parity across studio / earth / athlete / gradient themes: dirty pill right-aligned, underline only under the branch text on hover (test-plan: manual-only, #M1).
+- [x] 2.1 Visually check git-row layout parity across studio / earth / athlete / gradient themes: dirty pill right-aligned, underline only under the branch text on hover (test-plan: manual-only, #M1).
