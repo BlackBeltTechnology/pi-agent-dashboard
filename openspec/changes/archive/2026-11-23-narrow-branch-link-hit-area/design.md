@@ -43,7 +43,7 @@ The `<span>` fallback (`SessionCard.tsx:533`) keeps its classes and structure; i
 
 ## Risks / Trade-offs
 
-- [Short branch names give a small target, e.g. `b` is about 20x14 px at 11px, below the 24x24 floor in WCAG 2.5.8] → Accepted: the user explicitly asked for text-only hit area. The WCAG 2.5.8 spacing exception applies: no other interactive target sits within the 24px circle (the dead space around the link is non-interactive card surface).
+- [Short branch names give a small target, e.g. `b` is about 20x14 px at 11px, below the 24x24 floor in WCAG 2.5.8] → Accepted as a user-requested trade-off: the user explicitly asked for a text-only hit area. The WCAG 2.5.8 spacing exception does NOT apply: the surrounding card surface selects the session (D2), so it is itself a pointer target inside the 24px circle. WCAG 2.5.8 conformance for very short branch names is unresolved; a later change could restore a 24px minimum without re-widening the link to the free row space.
 - [jsdom performs no layout, so geometry can't be tested in vitest] → L1 pins class-token placement (repo idiom: literal token lists); rendered geometry and hit-testing go to L3 Playwright, extending `tests/e2e/compact-session-card-header.spec.ts`.
 - [Docker harness seeds no `gitBranchUrl`] → the L3 test extends the `Seed` type and `git_info_update` payload in `tests/e2e/compact-session-card-header.spec.ts` (~L33-76) with `gitBranchUrl`, and reuses its `**/api/git/status**` stub (~L203-207) for the dirty-pill case.
 - [Existing F2 locates the branch by `[title=LONG_BRANCH]`, which is now the link (equal to the slot only while truncating)] → the slot's 6ch floor for a short branch gets its own L3 assertion on the wrapper.
