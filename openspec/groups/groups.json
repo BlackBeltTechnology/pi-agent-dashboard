@@ -131,7 +131,7 @@
     "harden-electron-renderer-boundary": "security",
     "fix-git-checkout-command-injection": "security",
     "add-universal-network-guard": "security",
-    "add-supervised-tool-approval": "security",
+    "add-supervised-tool-approval": "ui",
     "add-ai-pr-description": "next-phase",
     "add-cloud-sync-connector": "next-phase",
     "bundle-python-runtime": "next-phase",
@@ -413,7 +413,7 @@
     "prove-vault-bridge-tls": "ui",
     "enforce-trusted-types-default": "ui",
     "scope-pids-to-namespace": "ui",
-    "add-windows-process-identity": "ui",
+    "add-windows-process-identity": "queue",
     "group-aware-kill-process": "ui",
     "slim-windows-install-file-count": "ui",
     "harden-http-auth-boundaries": "customer-web-chat",
@@ -471,7 +471,17 @@
       "schedule-release-rehearsal",
       "stabilize-blocking-test-lanes",
       "update-pi-core-1-6-adopt-apis",
-      "rich-chat-links"
-    ]
+      "rich-chat-links",
+      "add-windows-process-identity"
+    ],
+    "ui": [
+      "add-google-docs-pane",
+      "add-supervised-tool-approval",
+      "add-meeting-bot-attendee",
+      "add-plugin-connector-kit",
+      "add-drive-office-craft-handoff",
+      "bump-runtime-security-advisories"
+    ],
+    "security": []
   }
 }

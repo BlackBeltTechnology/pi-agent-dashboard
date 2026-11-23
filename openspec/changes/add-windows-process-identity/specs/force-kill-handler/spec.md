@@ -94,6 +94,12 @@ report success and SHALL NOT signal an unrelated process.
 - **AND** the process's age measured inside `D` shows it started no later than the identity's recording time plus the tolerance
 - **THEN** it SHALL be terminated inside `D`, and no Windows process with the same numeric pid SHALL be probed or signalled
 
+#### Scenario: A WSL pid on a Windows server is never reported dead from the Windows table
+
+- **WHEN** an unattended reclaim targets a session whose pid target is WSL `D` on a Windows server
+- **THEN** no Windows liveness probe SHALL run for that pid
+- **AND** its liveness SHALL be decided only inside `D`, as in "A WSL session is reclaimed inside its distribution"
+
 #### Scenario: A wedged WSL never yields a confirmed termination
 
 - **WHEN** `wsl.exe` fails or times out while checking a WSL-target pid
@@ -191,6 +197,11 @@ The PID used for kill resolution SHALL come from the session's stored `pid` fiel
 #### Scenario: Force-kill of a WSL session on a Windows server kills inside the distribution
 - **WHEN** an operator force-kills a session whose pid target is WSL `D` on a Windows server
 - **THEN** the process SHALL be terminated inside `D` and `taskkill` SHALL NOT be invoked for its pid
+
+#### Scenario: Force-kill of a WSL session on a Windows server never uses taskkill
+- **WHEN** an operator force-kills a session whose pid target is WSL `D` on a Windows server
+- **THEN** `taskkill` SHALL NOT be invoked for its pid
+- **AND** the kill SHALL run only inside `D`, as in "Force-kill of a WSL session on a Windows server kills inside the distribution"
 
 #### Scenario: Force-kill of a WSL session whose helper errors is not a termination
 - **WHEN** `verifyAndKillWsl` returns `error` for an operator force-kill
