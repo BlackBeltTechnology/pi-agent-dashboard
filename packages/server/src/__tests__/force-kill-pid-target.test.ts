@@ -93,9 +93,13 @@ describe("force-kill — refusals", () => {
     expectRefused(await forceKillSession("s1", w.deps), w);
   });
 
-  it("X31: WSL on a win32 server never reaches taskkill", async () => {
+  it("X31: WSL on a win32 server is killed inside the distribution, never via taskkill", async () => {
     const w = make({ pidNamespace: RL_WSL }, SW);
-    expectRefused(await forceKillSession("s1", w.deps), w);
+    const verifyAndKillWsl = vi.fn(async () => "killed" as const);
+    const r = await forceKillSession("s1", { ...w.raw, verifyAndKillWsl } as never);
+    expect(r.success).toBe(true);
+    expect(verifyAndKillWsl).toHaveBeenCalledWith(4242, "Ubuntu-24.04", { timeoutMs: 2000 });
+    expect(killProcessSpy).not.toHaveBeenCalled();
   });
 
   it("X32: legacy WSL (POSIX cwd) on win32 is refused", async () => {
