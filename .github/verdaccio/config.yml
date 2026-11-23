@@ -1,7 +1,8 @@
 # Verdaccio config for the nightly Verdaccio round-trip build.
 #
 # Ephemeral, loopback-only private registry started per Electron leg by
-# `_electron-build.yml` when `registry_url` is set. Serves the working-tree
+# `_electron-build.yml` when `registry_url` is set, and once by `nightly.yml`
+# `verify-publish` (the `npm@latest` canary). Serves the working-tree
 # @blackbelt-technology/* packages (published by
 # scripts/nightly-verdaccio-publish.mjs) so the Electron bundle's
 # `npm install` resolves them WITHOUT touching public npm — a full
