@@ -203,8 +203,7 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
    * Step 5: the start-time identity guard. Returns a refusal diagnostic when the
    * pid cannot be shown to be the registered pi, `undefined` when it may be signalled.
    */
-  function identityRefusal(sessionId: string, pid: number): string | undefined {
-    const recordedAt = sessionManager.get(sessionId)?.pidRecordedAt;
+  function identityRefusal(pid: number, recordedAt: number | undefined): string | undefined {
     const started = processStartedAt(pid);
     if (started !== null && recordedAt !== undefined && started <= recordedAt + IDENTITY_TOLERANCE_MS) {
       return undefined;
@@ -217,10 +216,10 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     sessionId: string,
     pid: number,
     guarded: boolean,
+    recordedAt: number | undefined,
   ): Promise<TerminateResult> {
     // Windows host, unattended: verify the creation time and tree-kill in ONE
     // PowerShell call (the pinned handle closes the pid-reuse window).
-    const recordedAt = sessionManager.get(sessionId)?.pidRecordedAt;
     if (guarded && platform === "win32" && recordedAt !== undefined) {
       const r = await verifyAndKillWindows(pid, { maxStartMs: recordedAt + IDENTITY_TOLERANCE_MS, timeoutMs: 2000 });
       if (r === "mismatch") {
@@ -232,7 +231,7 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
       if (r === "error") return done("unconfirmed", pid);
       return isGone(pid) ? done("confirmed-dead", pid) : done("unconfirmed", pid);
     }
-    const refusal = guarded ? identityRefusal(sessionId, pid) : undefined;
+    const refusal = guarded ? identityRefusal(pid, recordedAt) : undefined;
     if (refusal !== undefined) {
       if (isGone(pid)) return done("confirmed-dead", pid);
       warn(`[session-terminator] refusing to signal pid ${pid} for session ${sessionId}: ${refusal}`);
@@ -252,10 +251,10 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     pid: number,
     distro: string,
     opts: TerminateOptions,
+    recordedAt: number | undefined,
   ): Promise<TerminateResult> {
     const unattended = opts.verifyIdentity === true;
     const now = deps.now ?? Date.now;
-    const recordedAt = sessionManager.get(sessionId)?.pidRecordedAt;
     // The age bound cannot be computed without the recording time.
     if (unattended && recordedAt === undefined) {
       warn(`[session-terminator] refusing to signal WSL pid ${pid} for session ${sessionId}: identity unverifiable (no pidRecordedAt)`);
@@ -294,6 +293,10 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     const session = sessionId === "" ? undefined : sessionManager.get(sessionId);
     const registryPid = sessionId === "" ? undefined : headlessPidRegistry.getPid(sessionId);
     const sessionPid = session?.pid;
+    // The identity bound belongs to THIS registration of the pid: snapshot both before the
+    // first await, so a re-registration during the registry rung cannot pair the old pid with a
+    // newer pidRecordedAt (which would accept a process that reused the old pid in between).
+    const recordedAt = session?.pidRecordedAt;
     const target = session && sessionPid !== undefined ? resolvePidTarget(session, pidContext(), registryPid) : undefined;
 
     // 1. Registry rung — runs whatever the target: a registry entry is the
@@ -326,7 +329,7 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
 
     // 2b. WSL target: decided entirely inside the distribution.
     if (target?.kind === "wsl" && sessionPid !== undefined && pid === sessionPid) {
-      return wslReclaim(sessionId, pid, target.distro, opts);
+      return wslReclaim(sessionId, pid, target.distro, opts, recordedAt);
     }
 
     // 3–4. Already gone (before the identity GUARD, so a dead pid is never
@@ -342,7 +345,7 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     }
 
     // 5–7. The guard applies only to a `session.pid` the registry does not own.
-    return escalate(sessionId, pid, opts.verifyIdentity === true && pid === sessionPid && pid !== registryPid);
+    return escalate(sessionId, pid, opts.verifyIdentity === true && pid === sessionPid && pid !== registryPid, recordedAt);
   }
 
   async function terminate(sessionId: string, opts: TerminateOptions = {}): Promise<TerminateResult> {

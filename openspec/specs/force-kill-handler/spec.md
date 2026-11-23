@@ -618,12 +618,15 @@ A child process the server spawned and still holds, reached through the headless
 
 #### Scenario: An unverifiable identity is refused, not guessed
 
-- **WHEN** an unattended reclaim targets a live recorded process identity on a
-  host where its start time cannot be determined
+- **WHEN** an unattended reclaim targets a live recorded process identity whose
+  start time cannot be determined by design: no recording time, or a pid target
+  that is `unknown`, `legacy-wsl` or `foreign`
 - **THEN** no signal SHALL be sent
 - **AND** the reclaim SHALL be reported as failed with a diagnostic stating the
   identity was unverifiable
 - **AND** that session SHALL NOT be retried on later sweeps
+- **AND** a transient probe or helper failure (`error`, timeout) is NOT this
+  case: it SHALL be `unconfirmed` and retried up to the give-up bound
 
 #### Scenario: A restored registry entry refused by the registry is not signalled by the terminator
 

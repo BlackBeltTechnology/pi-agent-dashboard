@@ -552,7 +552,7 @@ function psProbeScript(pid: number): string {
   return `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($null -ne $p) { ${PS_START_MS} }`;
 }
 
-function psVerifyKillScript(pid: number, maxStartMs: number): string {
+function psVerifyKillScript(pid: number, maxStartMs: number, taskkillExe: string): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     `try { $p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue`,
@@ -560,7 +560,8 @@ function psVerifyKillScript(pid: number, maxStartMs: number): string {
     "$null = $p.Handle",
     `$s = ${PS_START_MS}`,
     `if ($s -gt ${safeInt(maxStartMs)}) { 'mismatch'; exit 0 }`,
-    `taskkill /F /T /PID ${pid} | Out-Null`,
+    // absolute System32 path: `taskkill` by bare name would resolve through the inherited PATH
+    `& '${taskkillExe.replace(/'/g, "''")}' /F /T /PID ${pid} | Out-Null`,
     "if ($LASTEXITCODE -ne 0 -and -not $p.HasExited) { exit 1 }",
     "'killed' } catch { exit 1 }",
   ].join("; ");
@@ -690,7 +691,9 @@ export async function verifyAndKillWindows(
 ): Promise<VerifyKillResult> {
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_KILL_TIMEOUT_MS;
   if (!validPid(pid) || !nonNegFinite(opts?.maxStartMs) || !validTimeout(timeoutMs)) return "error";
-  const inv = powershellInvocation(opts, psVerifyKillScript(pid, opts.maxStartMs));
+  const taskkillExe = systemExe(opts.env ?? process.env, "taskkill.exe");
+  if (!taskkillExe) return "error";
+  const inv = powershellInvocation(opts, psVerifyKillScript(pid, opts.maxStartMs, taskkillExe));
   if (!inv) return "error";
   const out = await runLimited(inv.file, inv.args, timeoutMs + KILL_LADDER_GRACE_MS, opts);
   return exactMarker(out, ["killed", "mismatch", "absent"] as const) ?? "error";

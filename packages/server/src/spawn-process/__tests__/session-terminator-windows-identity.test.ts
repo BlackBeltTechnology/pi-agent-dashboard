@@ -32,6 +32,8 @@ function setup(o: {
   wslLive?: Live[];
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Runs inside the registry rung (a re-registration can land during that await). */
+  duringRegistryRung?: (record: DashboardSession) => void;
 } = {}) {
   const alive = new Set(o.alive ?? []);
   const record = { id: "s1", status: "active", cwd: "C:\\p", pid: 4242, pidRecordedAt: T, ...o.session } as DashboardSession;
@@ -50,7 +52,10 @@ function setup(o: {
   });
   const verifyAndKillWsl = vi.fn(async (_pid: number, _d: string, _o: unknown) => next(o.wslKill, "error" as Kill));
   const wslLiveness = vi.fn(async (_pid: number, _d: string) => next(o.wslLive, "unknown" as Live));
-  const registry = { getPid: vi.fn(() => undefined), killBySessionId: vi.fn(async () => false), killByToken: vi.fn(async () => false) };
+  const registry = { getPid: vi.fn(() => undefined), killBySessionId: vi.fn(async () => {
+      o.duringRegistryRung?.(record);
+      return false;
+    }), killByToken: vi.fn(async () => false) };
   const warn = vi.fn();
   const { terminate } = createSessionTerminator({
     sessionManager,
@@ -151,6 +156,35 @@ describe("Windows host target, unattended", () => {
       expect(w.wslLiveness).not.toHaveBeenCalled();
       expect(w.processStartedAt).toHaveBeenCalled();
     }
+  });
+});
+
+describe("identity bound belongs to the captured registration (CodeRabbit: snapshot before the first await)", () => {
+  it("Windows host: a re-registration during the registry rung does not move the bound", async () => {
+    const w = setup({
+      session: HOST,
+      alive: [4242],
+      winKill: ["killed"],
+      duringRegistryRung: (r) => {
+        r.pidRecordedAt = T + 3_600_000; // a newer registration lands during the await
+      },
+    });
+    await w.terminate("s1", UNATTENDED);
+    expect(w.verifyAndKillWindows).toHaveBeenCalledWith(4242, { maxStartMs: T + IDENTITY_TOLERANCE_MS, timeoutMs: 2000 });
+  });
+
+  it("WSL: minAgeMs is computed from the captured pidRecordedAt", async () => {
+    const w = setup({
+      session: WSL,
+      now: () => T + 10_000,
+      wslLive: ["alive", "absent"],
+      wslKill: ["killed"],
+      duringRegistryRung: (r) => {
+        r.pidRecordedAt = T + 9_000;
+      },
+    });
+    await w.terminate("s1", UNATTENDED);
+    expect((w.verifyAndKillWsl.mock.calls[0][2] as { minAgeMs: number }).minAgeMs).toBe(10_000 - IDENTITY_TOLERANCE_MS);
   });
 });
 

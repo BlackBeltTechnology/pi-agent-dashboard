@@ -230,7 +230,8 @@ describe("verifyAndKillWindows", () => {
     const script = exec.mock.calls[0][1][3];
     const pin = script.indexOf("$null = $p.Handle");
     const cmp = script.indexOf(String(T + 2000));
-    const kill = script.indexOf("taskkill /F /T /PID 4242");
+    const kill = script.indexOf("taskkill.exe' /F /T /PID 4242");
+    expect(script).toContain("& 'C:\\Windows\\System32\\taskkill.exe' /F /T /PID 4242"); // absolute path, never PATH
     expect(pin).toBeGreaterThan(-1);
     expect(pin).toBeLessThan(cmp);
     expect(cmp).toBeLessThan(kill);
