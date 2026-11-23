@@ -1,9 +1,9 @@
 import React, { useMemo } from "react";
 import { tokenize } from "../../lib/chat/linkify-tool-output.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
-import { UrlLink } from "./UrlLink.js";
 import { FileLink } from "./FileLink.js";
 import type { ToolContext } from "./types.js";
+import { UrlLink } from "./UrlLink.js";
 
 interface Props {
   text: string;
@@ -34,7 +34,7 @@ function LinkifiedTextInner({ text, context }: Props) {
         if (tok.kind === "text") return <React.Fragment key={i}>{tok.text}</React.Fragment>;
         if (tok.kind === "url") {
           return (
-            <UrlLink key={i} href={tok.text}>
+            <UrlLink key={i} href={tok.text} context={context}>
               {tok.text}
             </UrlLink>
           );

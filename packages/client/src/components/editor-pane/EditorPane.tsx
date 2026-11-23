@@ -64,7 +64,7 @@ import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
 import { TabContextMenu } from "./TabContextMenu.js";
 import { TabSearchPopover } from "./TabSearchPopover.js";
 import { basename } from "./tab-labels.js";
-import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
+import { isPseudoTabViewer, isSourceTabPath, type OpenPathViewer, sourceTabFile } from "./viewer-kinds.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
@@ -278,7 +278,7 @@ export function EditorPane() {
   // A handler-mode tab has no built-in viewer: no baseline read here (the handler's
   // `snapshot()` sets the baseline) and `refreshNonce` does not key it.
   const fileViewerKey =
-    activeTab && cwd && !isPseudoTabViewer(activeTab.viewer) && !fh.handlerView
+    activeTab && cwd && !isPseudoTabViewer(activeTab.viewer) && !isSourceTabPath(activeTab.path) && !fh.handlerView
       ? `${sessionId}\u0000${cwd}\u0000${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${activeTab.autoOpened === true}`
       : null;
   useEffect(() => {
@@ -300,7 +300,10 @@ export function EditorPane() {
       </div>
     );
   } else {
-    const classification = fileKind(absOf(cwd, activeTab.path));
+    // A `source:<abs>` tab shows the REAL file read-only: every file lookup below uses the file behind it.
+    const sourceTab = isSourceTabPath(activeTab.path);
+    const viewPath = sourceTabFile(activeTab.path);
+    const classification = fileKind(absOf(cwd, viewPath));
     // NOTE: `classification` is computed for every tab, including pseudo-tab
     // paths where its `.viewer` is wrong (`diff:src/foo.ts` → `monaco`). Only
     // `.kind`/`.mimeType` are consumed. `activeTab.viewer` is the discriminator.
@@ -311,10 +314,10 @@ export function EditorPane() {
     // Never replace this with a cast.
     const viewer = activeTab.viewer;
     const autoOpened = activeTab.autoOpened === true;
-    const viewerKey = fileViewerKey ?? "";
+    const viewerKey = fileViewerKey ?? (sourceTab ? `${activeTab.path}:${refreshNonce}` : "");
     const viewerProps = {
       cwd,
-      path: activeTab.path,
+      path: viewPath,
       kind: classification.kind,
       mimeType: classification.mimeType,
       size: 0,
@@ -322,6 +325,9 @@ export function EditorPane() {
       restrictCsp: activeTab.restrictCsp,
       reloadNonce: activeTab.reloadNonce,
       updatedByAgent: activeTab.updatedByAgent,
+      htmlMode: activeTab.htmlMode,
+      opener: activeTab.opener,
+      readOnly: sourceTab ? true : undefined,
     };
     // Plugin tabs render through PluginTabHost (claim by prefix, richer
     // props); never the registry, never CappedViewer (no `/api/file`).
@@ -357,7 +363,7 @@ export function EditorPane() {
                 ? t("session.archivedUnavailable", undefined, "Archived session unavailable")
                 : t("session.resolving", undefined, "Loading session…")}
             </div>
-          ) : changeDetection && baselineReadyKey !== viewerKey ? (
+          ) : changeDetection && !sourceTab && baselineReadyKey !== viewerKey ? (
             // Baseline first (D2): the digest round-trip is the price of the
             // fail-safe ordering; a failed digest still resolves (null baseline).
             <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>
@@ -468,7 +474,7 @@ export function EditorPane() {
   };
 
   const textDeps = useMemo(
-    () => ({ terminalTitle, terminalFallback: t("terminal.terminal", undefined, "terminal") }),
+    () => ({ terminalTitle, terminalFallback: t("terminal.terminal", undefined, "terminal"), sourceLabel: t("editor.sourceTab", undefined, "source") }),
     [terminalTitle, t],
   );
   const BAR_BTN =
@@ -596,7 +602,7 @@ export function EditorPane() {
         <TabContextMenu
           anchorEl={contextMenu.anchor}
           isLast={contextMenu.index === state.openFiles.length - 1}
-          fileTab={!isPseudoTabViewer(contextTab.viewer) && isUnderSessionCwd(contextTab.path, cwd)}
+          fileTab={!isPseudoTabViewer(contextTab.viewer) && !isSourceTabPath(contextTab.path) && isUnderSessionCwd(contextTab.path, cwd)}
           onClose={() => setContextMenu(null)}
           onCloseTab={() => closeTabAt(contextMenu.index)}
           onCloseOthers={() => runBulkClose(state.openFiles.filter((_, i) => i !== contextMenu.index).map((f) => f.path))}

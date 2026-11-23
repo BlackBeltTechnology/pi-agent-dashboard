@@ -152,7 +152,12 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // button and the Focus chip suppression. +~1.5 KB gz measured locally (626,877 B develop -> 628,405 B). 614 KiB
 // (628,736 B) would leave only ~330 B for CI's compressor variance, so 615 KiB (629,760 B, ~1.3 KB headroom).
 // Smallest KiB step with CI headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 615 * 1024;
+//
+// rich-chat-links (2026-11-23): 615 -> 624 KiB. Unavoidably eager: file/web link icons, provider classification,
+// the link-resolution provider/store and the web-page card ride the ChatView and preview shells that live in the
+// index chunk. +~9 KB gz measured locally (628,405 B -> 637,599 B). 624 KiB (638,976 B) leaves ~1.4 KB for CI's
+// compressor variance. Smallest KiB step with CI headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 624 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

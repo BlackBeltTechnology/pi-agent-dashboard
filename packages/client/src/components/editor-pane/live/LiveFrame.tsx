@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../../../lib/api/api-context.js";
 import { useI18n } from "../../../lib/i18n/i18n.js";
 import { frameSrc, isLocalOperator, localTargetUrl, type Opener, sandboxFor } from "../../../lib/live-preview/preview-policy.js";
+import { randomUuid } from "../../../lib/util/random-uuid.js";
 import { EgressBanner } from "./EgressBanner.js";
 import { AddressConfirm, ExposedNotice, InlineError, RootAbsoluteHint, UpdatedNotice } from "./LiveFrameParts.js";
 import { LiveHeader } from "./LiveHeader.js";
@@ -25,7 +26,6 @@ import { useAddressBar } from "./useAddressBar.js";
 import { useEgressReport } from "./useEgressReport.js";
 import { useFramePolicy } from "./useFramePolicy.js";
 import { useOpenExternal } from "./useOpenExternal.js";
-import { randomUuid } from "../../../lib/util/random-uuid.js";
 
 export type FramedTarget =
   | { kind: "port"; id: string; host: string; port: number; addedBy?: LiveTargetAddedBy }
@@ -46,6 +46,8 @@ export interface LiveFrameProps {
   /** Agent re-declared the ACTIVE tab: offer "Updated by the agent · Reload". */
   updatedByAgent?: boolean;
   onAckUpdate?: () => void;
+  /** Initial state of the Scripts ⇄ Static toggle (static targets; default on). Policy rules are unchanged. */
+  initialScriptsOn?: boolean;
 }
 
 const newViewerId = (): string => randomUuid();
@@ -104,7 +106,7 @@ function FrameBody({ src, sandbox, title, nonce, error }: { src: string | null; 
   );
 }
 
-export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunchPort, reloadNonce, updatedByAgent, onAckUpdate }: LiveFrameProps) {
+export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunchPort, reloadNonce, updatedByAgent, onAckUpdate, initialScriptsOn }: LiveFrameProps) {
   const viewerId = useRef(newViewerId()).current;
   const bar = useAddressBar(target, initialDeep, onLaunchPort);
   const [frameNonce, setFrameNonce] = useState(0);
@@ -112,6 +114,7 @@ export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunch
     target.id,
     opener,
     viewerId,
+    initialScriptsOn,
   );
 
   const egressMode = egressModeFor(granted.egress, target.kind);

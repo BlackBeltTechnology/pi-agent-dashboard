@@ -7,13 +7,14 @@
  * Added by change: doctor-rich-output.
  */
 export * from "./doctor-core.js";
-export * from "./node-version.js";
-export { isValidRoleName } from "./role-name-validation.js";
-export type { RoleNameValidation } from "./role-name-validation.js";
-export type { ViewTarget } from "./types.js";
+export type { FileKind, FileKindResult, ViewerKind } from "./file-kind.js";
 export {
   fileKind,
-  TEXT_EXTENSIONS,
   IMAGE_EXTENSIONS,
+  TEXT_EXTENSIONS,
 } from "./file-kind.js";
-export type { ViewerKind, FileKind, FileKindResult } from "./file-kind.js";
+export * from "./node-version.js";
+export type { RoleNameValidation } from "./role-name-validation.js";
+export { isValidRoleName } from "./role-name-validation.js";
+export { toolWorkdir } from "./tool-workdir.js";
+export type { ViewTarget } from "./types.js";

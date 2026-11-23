@@ -6,8 +6,14 @@
 import { describe, expect, it } from "vitest";
 import { detectCanvasIntent, selectCanvasTarget } from "../canvas-detect.js";
 import { DEFAULT_CANVAS_TYPES, mergeCanvasTypes } from "../canvas-types.js";
+import { NON_FALLBACK_KINDS } from "../renderer-by-ext.js";
 
 describe("canvas-type registry", () => {
+  it("E25 — `webpage` is a renderer kind but not a canvas type", () => {
+    expect((NON_FALLBACK_KINDS as readonly string[]).includes("webpage")).toBe(false);
+    expect(Object.keys(DEFAULT_CANVAS_TYPES)).not.toContain("webpage");
+  });
+
   it("S18 — absent config auto-canvases every kind (all-on default)", () => {
     const eff = mergeCanvasTypes(undefined, undefined);
     expect(eff).toEqual(DEFAULT_CANVAS_TYPES);

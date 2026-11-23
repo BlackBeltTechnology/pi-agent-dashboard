@@ -113,3 +113,44 @@ describe("F14 — HtmlPreview frames a static target", () => {
     expect(iframe().getAttribute("src")).toContain("/live/stat1234/~c/");
   });
 });
+
+// rich-chat-links (test-plan #E28): `htmlMode: "static"` seeds the EXISTING Scripts ⇄ Static toggle.
+describe("E28 — htmlMode static seeds the toggle", () => {
+  const staticBtn = () => screen.getByTestId("live-mode-static");
+  const scriptsBtn = () => screen.getByTestId("live-mode-scripts");
+
+  it("starts at Static: empty sandbox, toggle on Static, scripts not requested", async () => {
+    mounted(<PreviewProvenance autoOpened={false}><HtmlPreview target={target} htmlMode="static" /></PreviewProvenance>);
+    await waitFor(() => expect(iframe()).toBeTruthy());
+    expect(iframe().getAttribute("sandbox")).toBe("");
+    expect(staticBtn().getAttribute("aria-checked")).toBe("true");
+    expect(scriptsBtn().getAttribute("aria-checked")).toBe("false");
+    expect(fake.mints().at(-1)?.body).toMatchObject({ scripts: false });
+  });
+
+  it("without htmlMode the toggle still starts at Scripts (unchanged)", async () => {
+    mounted(<PreviewProvenance autoOpened={false}><HtmlPreview target={target} /></PreviewProvenance>);
+    await waitFor(() => expect(iframe()).toBeTruthy());
+    expect(scriptsBtn().getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("the operator can still switch to Scripts from a Static start", async () => {
+    mounted(<PreviewProvenance autoOpened={false}><HtmlPreview target={target} htmlMode="static" /></PreviewProvenance>);
+    await waitFor(() => expect(iframe()).toBeTruthy());
+    fireEvent.click(scriptsBtn());
+    await waitFor(() => expect(iframe().getAttribute("sandbox")).toContain("allow-scripts"));
+  });
+
+  it("restricted exposure: the existing policy rules apply unchanged (Static start, Run scripts only once Scripts is chosen)", async () => {
+    fake.policy = { exposure: "exposed", epoch: 3, promptingEnabled: false };
+    mounted(<PreviewProvenance autoOpened><HtmlPreview target={target} htmlMode="static" /></PreviewProvenance>);
+    await waitFor(() => expect(iframe()).toBeTruthy());
+    expect(iframe().getAttribute("sandbox")).toBe("");
+    expect(screen.queryByTestId("live-run-scripts")).toBeNull(); // scripts are not wanted yet
+    fireEvent.click(scriptsBtn());
+    expect(await screen.findByTestId("live-run-scripts")).toBeTruthy(); // exposed + restricted: gated as before
+    expect(iframe().getAttribute("sandbox")).toBe("");
+    expect(fake.mints().at(-1)?.body).toMatchObject({ egress: "restricted", scripts: false });
+    expect(fake.mints().some((m) => m.body?.runScripts === true)).toBe(false);
+  });
+});

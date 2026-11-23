@@ -66,7 +66,10 @@ function directives(scriptSrc: string): string {
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "connect-src 'self' ws: wss:",
-    "frame-src 'self'",
+    // `https:` for operator-gated web-page previews (opaque sandbox) and the fixed YouTube embed.
+    // Untrusted HTML cannot create frames (markdown schema + DOMPurify drop `<iframe>`); http:/data:/blob:/* stay blocked.
+    // See change: rich-chat-links (D13).
+    "frame-src 'self' https:",
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'self'",

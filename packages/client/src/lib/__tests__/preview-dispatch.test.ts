@@ -93,15 +93,14 @@ describe("dispatchPreview — file targets", () => {
     expect(dispatchPreview(f("noext"))).toBe("fallback");
   });
 
-  it("a URL target ending .pptx dispatches by extension (test-plan #6.3)", () => {
-    // dispatch is shape-based; PreviewBody guards kind !== "file" → FallbackPreview.
-    expect(dispatchPreview(u("https://example.com/slides.pptx"))).toBe("pptx");
+  it("a URL target ending .pptx is a web page (file-only kind; test-plan #6.3, #E25)", () => {
+    // `pptx` renders file targets only, so a URL ending .pptx maps to `webpage` (rich-chat-links D11).
+    expect(dispatchPreview(u("https://example.com/slides.pptx"))).toBe("webpage");
   });
 
-  it("a URL target ending .docx dispatches by extension (test-plan #6)", () => {
-    // dispatch itself is shape-based; a URL .docx maps to "docx", but PreviewBody
-    // guards kind on target.kind !== "file" and falls back (covered there).
-    expect(dispatchPreview(u("https://example.com/report.docx"))).toBe("docx");
+  it("a URL target ending .docx is a web page (file-only kind; test-plan #6, #E25)", () => {
+    // `docx` renders file targets only, so a URL ending .docx maps to `webpage` (rich-chat-links D11).
+    expect(dispatchPreview(u("https://example.com/report.docx"))).toBe("webpage");
   });
 
   it("covers every entry of RENDERER_BY_EXT", () => {
@@ -153,8 +152,28 @@ describe("dispatchPreview — URL targets", () => {
     expect(dispatchPreview(u("https://example.com/img.png?x=1"))).toBe("image");
   });
 
-  it("falls back on unknown URL with no known extension", () => {
-    expect(dispatchPreview(u("https://example.com/foo"))).toBe("fallback");
+  it("maps an extensionless http(s) URL to webpage", () => {
+    expect(dispatchPreview(u("https://example.com/foo"))).toBe("webpage");
+  });
+
+  it("falls back on a non-http(s) URL", () => {
+    expect(dispatchPreview(u("ftp://example.com/foo"))).toBe("fallback");
+  });
+
+  // test-plan #E25 — dispatch is purely shape-based; framing is the renderer's decision.
+  it("E25: URL targets map by shape; file-only kinds are webpage for URLs", () => {
+    const cases: Array<[ReturnType<typeof f> | ReturnType<typeof u>, string]> = [
+      [u("https://example.com/docs"), "webpage"],
+      [u("https://example.com/index.html"), "webpage"],
+      [u("https://example.com/README.md"), "webpage"],
+      [u("https://example.com/clip.mp4"), "video"],
+      [u("https://example.com/a.png"), "image"],
+      [u("https://example.com/doc.pdf"), "pdf"],
+      [u("https://example.com/song.mp3"), "audio"],
+      [u("https://youtu.be/x"), "youtube"],
+      [f("x.dat"), "fallback"],
+    ];
+    for (const [target, kind] of cases) expect(dispatchPreview(target)).toBe(kind);
   });
 
   it("falls back on malformed URL", () => {

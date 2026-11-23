@@ -29,6 +29,8 @@ interface Props {
    * not by a CSP `<meta>` injected into the document. Kept so existing callers compile.
    */
   restrictCsp?: boolean;
+  /** `"static"` starts the existing Scripts ⇄ Static toggle at Static; policy rules are unchanged (rich-chat-links D10). */
+  htmlMode?: "static";
 }
 
 /** Classify a refused start; a 2xx never reaches here (`startStaticTarget` already handled it). */
@@ -44,7 +46,7 @@ type Started = { id: string; entry: string; root: string };
 // previews are rendered through PreviewCard / the viewer registry, both in the entry graph.
 const LiveFrame = lazy(() => import("../editor-pane/live/LiveFrame.js").then((m) => ({ default: m.LiveFrame })));
 
-export function HtmlPreview({ target }: Props) {
+export function HtmlPreview({ target, htmlMode }: Props) {
   const [started, setStarted] = useState<Started | null>(null);
   const [failure, setFailure] = useState<DenialFailure | null>(null);
   // Opted out unless operator provenance is declared; Ask for access re-runs it
@@ -93,6 +95,7 @@ export function HtmlPreview({ target }: Props) {
         initialDeep={started.entry}
         opener={opener}
         title={target.path}
+        initialScriptsOn={htmlMode !== "static"}
       />
     </Suspense>
   );

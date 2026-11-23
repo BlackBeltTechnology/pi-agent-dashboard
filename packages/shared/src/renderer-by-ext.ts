@@ -23,15 +23,18 @@ export type RendererKind =
   | "youtube"
   | "email"
   | "diagram"
+  | "webpage"
   | "fallback";
 
 /**
  * The non-`fallback` renderer kinds — the canvas policy universe. Grows as
  * sibling preview changes add kinds (docx/spreadsheet via render-office-previews,
  * email via add-eml-preview, diagram via diagram-rendering). `canvasTypes` is
- * sized to this live union.
+ * sized to this live union. `webpage` (http(s) URL targets only, never a file
+ * extension) is deliberately excluded: it is not a canvas type. See change:
+ * rich-chat-links (D11).
  */
-export const NON_FALLBACK_KINDS: readonly Exclude<RendererKind, "fallback">[] = [
+export const NON_FALLBACK_KINDS: readonly Exclude<RendererKind, "fallback" | "webpage">[] = [
   "markdown",
   "asciidoc",
   "docx",

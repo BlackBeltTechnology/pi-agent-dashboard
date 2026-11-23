@@ -485,7 +485,7 @@ describe("strict CSP emission", () => {
       "font-src 'self' data:",
       "worker-src 'self' blob:",
       "connect-src 'self' ws: wss:",
-      "frame-src 'self'",
+      "frame-src 'self' https:", // rich-chat-links D13: was 'self'; see E36
       "object-src 'none'",
       "base-uri 'self'",
       "frame-ancestors 'self'",
@@ -493,6 +493,49 @@ describe("strict CSP emission", () => {
       expect(strict.split("; ")).toContain(d);
     expect(buildStrictCsp("abc")).toContain("script-src 'self' 'nonce-abc'");
     expect(buildStrictCsp()).toContain("script-src 'self';");
+    await app.close();
+  });
+
+  it.each(["report", "enforce"] as const)("E36: %s mode — frame-src widens to 'self' https:, every other directive is byte-identical", async (csp) => {
+    const app = await build(csp, "off");
+    const res = await get(app);
+    // report mode emits baseline + strict Report-Only; enforce mode emits strict enforcing only.
+    const policies = [...hv(res, RO), ...hv(res, EN)];
+    expect(hv(res, csp === "report" ? RO : EN).some(isStrict)).toBe(true);
+    expect(policies.some(isBaseline)).toBe(csp === "report");
+    // Pre-change strings (rich-chat-links design D13): only `frame-src` differs.
+    const unchanged = [
+      "default-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      "worker-src 'self' blob:",
+      "connect-src 'self' ws: wss:",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'self'",
+    ];
+    for (const policy of policies.filter((p) => isBaseline(p) || isStrict(p))) {
+      const ds = policy.split("; ");
+      const frame = ds.find((d) => d.startsWith("frame-src"))!;
+      expect(frame).toBe("frame-src 'self' https:");
+      for (const bad of ["http:", "data:", "blob:", "*"]) expect(frame.split(" ")).not.toContain(bad);
+      for (const d of unchanged) expect(ds).toContain(d);
+      // exactly the pre-change directive set plus nothing new (script-src, report tokens aside)
+      const names = ds.map((d) => d.split(" ")[0]).filter((n) => !/^(script-src|report-uri|report-to)$/.test(n));
+      expect(names).toEqual([
+        "default-src",
+        "style-src",
+        "img-src",
+        "font-src",
+        "worker-src",
+        "connect-src",
+        "frame-src",
+        "object-src",
+        "base-uri",
+        "frame-ancestors",
+      ]);
+    }
     await app.close();
   });
 

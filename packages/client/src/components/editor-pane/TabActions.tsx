@@ -4,7 +4,7 @@
  * - file tab → *Open in system app* (`POST /api/open-in-system`) and *Reveal in
  *   file manager* (`POST /api/reveal-in-file-manager`), shown ONLY when the
  *   server advertises `capabilities.systemOpen` (desktop-capable host).
- * - url tab → *Open in system browser* → `window.open(url, "_blank")`
+ * - url tab → *Open in browser* → `window.open(url, "_blank")`
  *   (unconditional; Electron rewrites to `openExternal`, browsers honor it).
  *
  * The file endpoints spawn the opener on the server host under the shared
@@ -56,7 +56,7 @@ export function TabActions({ target, systemOpen, platform, variant = "bar", onAc
   const { t } = useI18n();
 
   if (target.kind === "url") {
-    const label = t("editor.openInSystemBrowser", undefined, "Open in system browser");
+    const label = t("editor.openInSystemBrowser", undefined, "Open in browser");
     return (
       <button
         type="button"

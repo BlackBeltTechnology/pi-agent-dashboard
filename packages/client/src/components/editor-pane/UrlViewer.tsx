@@ -22,7 +22,7 @@ function parseUrlTarget(viewerPath: string | undefined): ViewTarget | null {
   return url ? { kind: "url", url } : null;
 }
 
-export default function UrlViewer({ path }: Partial<ViewerProps> = {}) {
+export default function UrlViewer({ path, opener, reloadNonce }: Partial<ViewerProps> = {}) {
   const target = parseUrlTarget(path);
   if (!target) {
     return (
@@ -35,7 +35,7 @@ export default function UrlViewer({ path }: Partial<ViewerProps> = {}) {
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="canvas-url-viewer">
       <div className="min-h-0 flex-1 overflow-auto">
-        <PreviewBody kind={kind} target={target} />
+        <PreviewBody kind={kind} target={target} opener={opener} reloadNonce={reloadNonce} />
       </div>
     </div>
   );

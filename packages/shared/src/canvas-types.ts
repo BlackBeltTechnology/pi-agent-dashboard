@@ -16,8 +16,8 @@
  */
 import { NON_FALLBACK_KINDS, type RendererKind } from "./renderer-by-ext.js";
 
-/** The non-`fallback` renderer kinds the registry can gate. */
-export type CanvasKind = Exclude<RendererKind, "fallback">;
+/** The non-`fallback`, non-`webpage` renderer kinds the registry can gate. */
+export type CanvasKind = Exclude<RendererKind, "fallback" | "webpage">;
 
 export type CanvasTypes = Record<CanvasKind, boolean>;
 

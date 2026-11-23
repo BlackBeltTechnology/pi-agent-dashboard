@@ -28,6 +28,7 @@ import { lazy, Suspense } from "react";
 import { useLocation } from "wouter";
 import { usePreviewOpener } from "../../lib/access-grants/preview-provenance.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import type { UrlOpener } from "../../lib/layout/editor-pane-state.js";
 import { mintNavIntent, withNavIntent } from "../../lib/nav/nav-intent.js";
 import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { dispatchPreview, type RendererKind } from "../../lib/preview/preview-dispatch.js";
@@ -44,6 +45,7 @@ import { MarkdownPreview } from "./MarkdownPreview.js";
 import { PptxPreview } from "./PptxPreview.js";
 import { SpreadsheetPreview } from "./SpreadsheetPreview.js";
 import { VideoPreview } from "./VideoPreview.js";
+import { WebPagePreview } from "./WebPagePreview.js";
 import { YouTubePreview } from "./YouTubePreview.js";
 
 // Lazy-load pdfjs only when a PDF preview actually mounts. Keeps pdfjs
@@ -104,6 +106,8 @@ function bodyClassFor(kind: RendererKind): string {
     case "pdf":
     case "pptx":
       return "h-[60vh]";
+    case "webpage":
+      return "h-[60vh]";
     case "video":
     case "youtube":
       return ""; // intrinsic 16:9 inside the renderer
@@ -125,11 +129,19 @@ function expandUrlFor(target: ViewTarget): string {
 export function PreviewBody({
   kind,
   target,
+  opener,
+  reloadNonce,
 }: {
   kind: RendererKind;
   target: ViewTarget;
+  /** `webpage` only: who opened the URL tab (absent → the card, no probe). */
+  opener?: UrlOpener;
+  reloadNonce?: number;
 }) {
   if (kind === "youtube" && target.kind === "url") return <YouTubePreview target={target} />;
+  if (kind === "webpage" && target.kind === "url") {
+    return <WebPagePreview target={target} opener={opener} reloadNonce={reloadNonce} />;
+  }
   if (kind === "fallback") return <FallbackPreview target={target} />;
   if (target.kind !== "file") return <FallbackPreview target={target} />;
   switch (kind) {

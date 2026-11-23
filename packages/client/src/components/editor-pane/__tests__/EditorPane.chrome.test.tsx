@@ -185,6 +185,7 @@ describe("document bar (D2, D3, D10, D11)", () => {
     await settle();
     expect(within(screen.getByTestId("doc-bar")).getByTestId("tab-open-in-browser")).toBeTruthy();
     expect(screen.getByTestId("doc-bar").textContent).toContain("https://example.com/x");
+    expect(within(screen.getByTestId("doc-bar")).getByTestId("embedded-from").textContent).toBe("embedded from example.com");
     for (const [i, expected] of [[1, "a.ts"], [2, "preview"], [3, "zsh"]] as const) {
       fireEvent.click(screen.getAllByTestId("editor-tab")[i]);
       const bar = screen.getByTestId("doc-bar");

@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "@testing-library/react";
 import React from "react";
-import { LinkifiedText } from "../LinkifiedText.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as tokenizer from "../../../lib/chat/linkify-tool-output.js";
+import { LinkifiedText } from "../LinkifiedText.js";
 import type { ToolContext } from "../types.js";
 
 const ctx: ToolContext = { cwd: "/r" };

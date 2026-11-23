@@ -13,3 +13,7 @@ Editor pane shell. Composes `EditorTabs` + collapsible `EditorFileTree` + active
 Empty `cwd` (archived row unresolved): no file viewer mounts and no baseline capture runs; `editor-pane-cwd-pending` shows "Loading session…" or (`cwdUnavailable`) "Archived session unavailable"; rail file tree is not mounted, so no `/api/file?cwd=` request is issued. See change: fix-archived-session-view-header-and-stale-artifact-tab (D4).
 
 Unsaved guard: `closeTabAt` asks `confirmLeave([unsavedKey(sessionId,path)])` first for a built-in tab with a dirty buffer (clean closes stay synchronous); pane ✕ = `guardPaneClose`; bulk close plans with `closeLookups` = `fh.closeLookups` + `bufferDirty` (store-backed), so a dirty built-in tab is a `kind:"buffer"` entry (`riskKey` `b:<path>`) re-planned on confirm. `TabSearchPopover` unsaved dot covers built-in buffers. See change: fix-file-link-editor-routing (D3).
+
+`source:<abs>` tabs (`isSourceTabPath`): viewer props use the real file (`sourceTabFile`) + `readOnly:true`; no baseline/change-detection gate, no `fileViewerKey`, not a context-menu "file tab". Tab `htmlMode` is passed to the viewer (`ViewerProps.htmlMode`). See change: rich-chat-links (D10).
+
+`viewerProps` passes `opener: activeTab.opener` so a `url:` tab reaches `UrlViewer` → `WebPagePreview` (operator-click runs the frame probe; anything else shows the card). See change: rich-chat-links (D11).

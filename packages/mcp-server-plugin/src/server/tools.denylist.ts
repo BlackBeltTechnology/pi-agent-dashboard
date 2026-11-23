@@ -25,6 +25,9 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // See change: gate-changed-on-disk-by-content.
   { pattern: "/api/file/digest", reason: "internal editor-pane changed-on-disk verification; no agent use (agents use file_read)" },
   // See change: add-editor-pane-file-handlers.
+  // See change: rich-chat-links.
+  { pattern: "/api/file/resolve-mentions", reason: "internal chat-link pre-confirmation batch (client-side flush); agents use file_resolve_mention" },
+  { pattern: "/api/web/frame-policy", reason: "internal web-link framing probe (browser-Origin gated, SSRF-hardened outbound HEAD); never an agent action" },
   { pattern: "/api/file/write-binary", reason: "internal editor-pane plugin file-handler save (octet-stream, conflict-token flow); no agent use" },
   { pattern: "/api/electron/", reason: "Electron-only" },
   // Stages, activates and rolls back the dashboard runtime (downloads + runs

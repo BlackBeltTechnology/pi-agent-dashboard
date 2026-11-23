@@ -1,7 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import React, { useState } from "react";
+import type React from "react";
+import { useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { SessionAssetsProvider } from "../../lib/session/SessionAssetsContext.js";
+import { LinkResolutionProvider } from "../chat/LinkResolutionProvider.js";
 import { extractFrontmatter, formatRelativeDate, inferType } from "../preview/FrontmatterProperties.js";
 import { isFencedBlockComplete, MarkdownContent, tableToMarkdown, tableToTsv } from "../preview/MarkdownContent.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
@@ -9,9 +11,9 @@ import { makeToolContext, withDefaultFileLink } from "../tool-renderers/make-too
 import type { ToolContext } from "../tool-renderers/types.js";
 
 // vi.hoisted so the mock (also hoisted) can reference the spy without a TDZ.
-const { openLiveTarget } = vi.hoisted(() => ({ openLiveTarget: vi.fn() }));
+const { openLiveTarget, openUrlTarget } = vi.hoisted(() => ({ openLiveTarget: vi.fn(), openUrlTarget: vi.fn() }));
 vi.mock("../split/SplitWorkspaceContext.js", () => ({
-  useOptionalSplitWorkspace: () => ({ openLiveTarget }),
+  useOptionalSplitWorkspace: () => ({ sessionId: "s1", openLiveTarget, openUrlTarget }),
 }));
 
 // Fault injection for the sanitizer (change: sanitize-untrusted-rendered-content).
@@ -1355,5 +1357,160 @@ describe("MarkdownContent — untrusted content sanitization", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// rich-chat-links: web anchors (provider icon, pane routing) and relative anchors (file links).
+describe("MarkdownContent — web anchors in the transcript (#E8, #E23)", () => {
+  afterEach(() => {
+    openLiveTarget.mockClear();
+    openUrlTarget.mockClear();
+  });
+  const GH = "https://github.com/o/r/pull/123";
+  const renderIn = (content: string, transcript: boolean, ctx?: ToolContext) => {
+    const md = <MarkdownContent content={content} context={ctx} />;
+    return render(<ThemeProvider>{transcript ? <LinkResolutionProvider>{md}</LinkResolutionProvider> : md}</ThemeProvider>);
+  };
+
+  it("authored text keeps its words and gains the provider icon", () => {
+    const { container } = renderIn(`[the fix](${GH})`, true);
+    const a = container.querySelector("a")!;
+    expect(a.textContent).toBe("the fix");
+    expect(a.querySelector("svg[data-link-icon]")).not.toBeNull();
+    expect(a.hasAttribute("data-copy-text")).toBe(false);
+  });
+
+  it("an autolink is shortened to the label, keeping the full URL as copy text", () => {
+    const { container } = renderIn(`<${GH}>`, true);
+    const a = container.querySelector("a")!;
+    expect(a.textContent).toBe("o/r#123");
+    expect(a.getAttribute("data-copy-text")).toBe(GH);
+    expect(a.getAttribute("title")).toBe(GH);
+    expect(a.querySelector("svg[data-link-icon]")).not.toBeNull();
+  });
+
+  it("outside the transcript the anchor is unchanged: text = URL, no icon", () => {
+    const { container } = renderIn(`<${GH}>`, false);
+    const a = container.querySelector("a")!;
+    expect(a.textContent).toBe(GH);
+    expect(a.querySelector("svg")).toBeNull();
+    expect(a.hasAttribute("data-copy-text")).toBe(false);
+  });
+
+  it("a plain click on an external anchor in the pane's own session opens it in the pane", () => {
+    const ctx = makeToolContext({ sessionId: "s1" });
+    const { container } = renderIn("[out](https://example.com/x)", true, ctx);
+    const ev = fireEvent.click(container.querySelector("a")!, { button: 0 });
+    expect(openUrlTarget).toHaveBeenCalledWith("https://example.com/x", { opener: "operator-click" });
+    expect(ev).toBe(false);
+  });
+
+  it("a different session's anchor is not routed", () => {
+    const ctx = makeToolContext({ sessionId: "other" });
+    const { container } = renderIn("[out](https://example.com/x)", true, ctx);
+    const ev = fireEvent.click(container.querySelector("a")!, { button: 0 });
+    expect(openUrlTarget).not.toHaveBeenCalled();
+    expect(ev).toBe(true);
+  });
+});
+
+describe("MarkdownContent — relative anchors open as file links (#E9–#E11)", () => {
+  type FileLinkProps = Parameters<NonNullable<ToolContext["fileLink"]>>[0];
+  const fileLink = vi.fn<(p: FileLinkProps) => React.ReactNode>();
+  const ctxWith = (cwd: string | undefined): ToolContext => ({
+    cwd,
+    sessionId: "s1",
+    fileLink: (p) => {
+      fileLink(p);
+      return <button type="button" data-testid="file-link">{p.children}</button>;
+    },
+  });
+  afterEach(() => fileLink.mockReset());
+
+  function renderRel(href: string, opts: { cwd?: string; base?: { cwd: string; dir: string } } = {}) {
+    const ctx = opts.cwd === undefined ? undefined : ctxWith(opts.cwd);
+    return render(
+      <ThemeProvider>
+        <MarkdownContent content={`[link text](${href})`} context={ctx} imageBase={opts.base} />
+      </ThemeProvider>,
+    );
+  }
+
+  const MENTIONS: Array<[string, { path: string; line?: number; absolute?: boolean }]> = [
+    ["docs/guide.md", { path: "docs/guide.md" }],
+    ["./a/b.md", { path: "a/b.md" }],
+    ["src/a.ts#L12", { path: "src/a.ts", line: 12 }],
+    ["docs/guide.md#setup", { path: "docs/guide.md" }],
+    ["a%20b.md?x=1", { path: "a b.md" }],
+  ];
+  for (const [href, want] of MENTIONS) {
+    it(`${href} → fileLink ${want.path}${want.line ? `:${want.line}` : ""}`, () => {
+      renderRel(href, { cwd: "/w/r" });
+      expect(fileLink).toHaveBeenCalledTimes(1);
+      const call = fileLink.mock.calls[0][0];
+      expect(call.path).toBe(want.path);
+      expect(call.line).toBe(want.line);
+      expect(call.absolute ?? false).toBe(want.absolute ?? false);
+      expect(screen.getByTestId("file-link").textContent).toBe("link text"); // authored text kept
+      expect(document.querySelector("a")).toBeNull();
+    });
+  }
+
+  for (const href of ["/settings/access", "//evil.com/x", "#section", "mailto:a@b.c", "ftp://x/y"]) {
+    it(`${href} renders the pre-change anchor and never calls fileLink`, () => {
+      const { container } = renderRel(href, { cwd: "/w/r" });
+      expect(fileLink).not.toHaveBeenCalled();
+      const a = container.querySelector("a");
+      if (href === "ftp://x/y") {
+        // the markdown protocol allow-list drops it; either way it is not a file link
+        expect(container.querySelector("button")).toBeNull();
+      } else {
+        expect(a?.getAttribute("href")).toBe(href);
+      }
+    });
+  }
+
+  it("#E10 base is the previewed document's directory (inside cwd → cwd-relative)", () => {
+    renderRel("../b/next.md", { cwd: "/w/r", base: { cwd: "/w/r", dir: "docs/a" } });
+    expect(fileLink.mock.calls[0][0].path).toBe("docs/b/next.md");
+    expect(fileLink.mock.calls[0][0].absolute ?? false).toBe(false);
+  });
+
+  it("#E10 an absolute document directory inside cwd is expressed cwd-relative", () => {
+    renderRel("next.md", { cwd: "/w/r", base: { cwd: "/w/r", dir: "/w/r/docs/a" } });
+    expect(fileLink.mock.calls[0][0].path).toBe("docs/a/next.md");
+  });
+
+  it("#E10 a document outside cwd resolves to an absolute path", () => {
+    renderRel("x.md", { cwd: "/w/r", base: { cwd: "/w/r", dir: "/home/u/notes" } });
+    expect(fileLink.mock.calls[0][0].path).toBe("/home/u/notes/x.md");
+    expect(fileLink.mock.calls[0][0].absolute).toBe(true);
+  });
+
+  it("a relative link that climbs out of cwd becomes absolute", () => {
+    renderRel("../../x.md", { cwd: "/w/r" });
+    expect(fileLink.mock.calls[0][0].path).toBe("/x.md");
+    expect(fileLink.mock.calls[0][0].absolute).toBe(true);
+  });
+
+  it("#E11 no base (no ToolContext cwd, no ImageBase) → identical to pre-change", () => {
+    const { container } = renderRel("docs/x.md");
+    expect(fileLink).not.toHaveBeenCalled();
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("docs/x.md");
+  });
+
+  it("a ToolContext without fileLink keeps the anchor (linkification gate)", () => {
+    const { container } = render(
+      <ThemeProvider>
+        <MarkdownContent content="[t](docs/x.md)" context={{ cwd: "/w/r" }} />
+      </ThemeProvider>,
+    );
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("docs/x.md");
+  });
+
+  it("an undecodable percent sequence keeps the anchor", () => {
+    const { container } = renderRel("a%ZZ.md", { cwd: "/w/r" });
+    expect(fileLink).not.toHaveBeenCalled();
+    expect(container.querySelector("a")).not.toBeNull();
   });
 });
