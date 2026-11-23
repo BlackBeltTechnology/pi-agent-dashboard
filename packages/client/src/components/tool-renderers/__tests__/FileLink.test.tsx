@@ -696,7 +696,77 @@ describe("FileLink — HTML open-mode menu (E26)", () => {
     const r = renderLink("m/board.html", "transcript");
     fireEvent.click(chevron(r) as HTMLElement);
     fireEvent.click(await r.findByRole("menuitem", { name: /source/i }));
-    await waitFor(() => expect(r.getByText("m/board.html").getAttribute("data-not-found")).toBe("true"));
+    await waitFor(() => expect(r.getByText("m/board.html").closest("button")?.getAttribute("data-not-found")).toBe("true"));
     expect(tabs()).toHaveLength(0);
+  });
+});
+
+describe("FileLink — transcript pill (render-file-links-as-pill)", () => {
+  const ctx: ToolContext = { cwd: "/repo", sessionId: "S" };
+  function inProvider(store: LinkResolutionStore, ui: React.ReactElement) {
+    return render(
+      <ThemeProvider>
+        <SplitWorkspaceProvider sessionId="S" cwd="/repo" orientation="h">
+          <LinkResolutionProvider store={store} sessionId="S">
+            {ui}
+          </LinkResolutionProvider>
+        </SplitWorkspaceProvider>
+      </ThemeProvider>,
+    );
+  }
+  const pillOf = (r: ReturnType<typeof render>) => r.container.querySelector("[data-file-link-pill]") as HTMLElement | null;
+
+  it("wraps glyph, name and the HTML chevron in one no-wrap pill", () => {
+    const r = inProvider(new LinkResolutionStore(), <FileLink path="m/board.html" context={ctx}>m/board.html</FileLink>);
+    const pill = pillOf(r);
+    expect(pill).toBeTruthy();
+    expect(pill?.className).toContain("whitespace-nowrap");
+    expect(pill?.className).toContain("inline-flex");
+    expect(pill?.querySelector("[data-link-icon]")).toBeTruthy();
+    expect(pill?.contains(r.getByTestId("link-html-menu-trigger"))).toBe(true);
+    expect(pill?.textContent).toBe("m/board.html");
+  });
+
+  it("truncates the name from the start but keeps the full path as text", () => {
+    const path = "~/other-repo/secrets.ts";
+    const r = inProvider(new LinkResolutionStore(), <FileLink path={path} context={ctx}>{path}</FileLink>);
+    const name = r.container.querySelector("[data-file-link-name]") as HTMLElement;
+    expect(name).toBeTruthy();
+    expect(name.className).toContain("truncate");
+    expect(name.style.direction).toBe("rtl");
+    const bdi = name.querySelector("bdi");
+    expect(bdi?.getAttribute("dir")).toBe("ltr");
+    expect(bdi?.textContent).toBe(path);
+    expect(r.getByRole("button").textContent).toBe(path);
+  });
+
+  it("styles the pill per link state and keeps state attributes on the link button", () => {
+    const store = new LinkResolutionStore();
+    const key = makeLinkKey("S", undefined, "src/a.ts");
+    const r = inProvider(store, <FileLink path="src/a.ts" context={ctx}>src/a.ts</FileLink>);
+    const btn = r.getByRole("button");
+    const pill = () => pillOf(r) as HTMLElement;
+    act(() => store.apply(key, { state: "found", resolved: "/repo/src/a.ts", kind: "relative" }));
+    expect(pill().className).toContain("bg-[var(--bg-secondary)]");
+    expect(pill().className).toContain("text-[var(--link)]");
+    act(() => store.apply(key, { state: "gated" }));
+    expect(pill().className).toContain("text-[var(--text-secondary)]");
+    act(() => store.apply(key, { state: "missing" }));
+    expect(pill().className).toContain("border-dashed");
+    expect(pill().className).toContain("text-[var(--text-muted)]");
+    expect(btn.className).toContain("line-through");
+    expect(btn.getAttribute("data-link-state")).toBe("missing");
+  });
+
+  it("drops its own chrome inside inline code", () => {
+    const r = inProvider(new LinkResolutionStore(), <FileLink path="src/a.ts" context={ctx}>src/a.ts</FileLink>);
+    expect(pillOf(r)?.className).toContain("[code_&]:border-0");
+    expect(pillOf(r)?.className).toContain("[code_&]:bg-transparent");
+  });
+
+  it("tool-output links (no provider) get no pill", () => {
+    const r = render(<ThemeProvider><FileLink path="src/a.ts" context={ctx}>src/a.ts</FileLink></ThemeProvider>);
+    expect(pillOf(r)).toBeNull();
+    expect(r.container.querySelector("[data-file-link-name]")).toBeNull();
   });
 });
