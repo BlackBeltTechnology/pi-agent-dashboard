@@ -173,7 +173,7 @@ Timing / size / memory budget tests. Blocking runs must never collect them.
 
 ### Nightly `budget` job (`nightly-tests.yml`)
 
-- `runs-on: ubuntu-latest`, `needs: select`, `timeout-minutes: 40` (provisional; above 50 moves rerun deadline + watchdog, see Nightly rerun-once).
+- `runs-on: ubuntu-latest`, `needs: select`, `timeout-minutes: 10` (~2× measured ~3 min; above 50 moves rerun deadline + watchdog, see Nightly rerun-once).
 - Serial: `pnpm run test:budget <assigned files>`, `BLENDER_WASM_E2E=1`.
 - Setup: `pnpm install --frozen-lockfile`, Playwright chromium, asserts `packages/client/dist/index.html`, blender runtime cache.
 - Empty assignment still runs (`--passWithNoTests`) → always uploads `vitest-report-budget`.
@@ -249,7 +249,7 @@ Section in issue body (red) and close comment (green). Only when a list is non-e
 
 ### Worst-case timing
 
-Inputs: `select` 15, `unit` 50, `real-process` 30, `ci-scenarios` 40, `budget` 40, `report` 10, `rerun` 5 (`timeout-minutes`).
+Inputs: `select` 15, `unit` 50, `real-process` 30, `ci-scenarios` 40, `budget` 10, `report` 10, `rerun` 5 (`timeout-minutes`).
 
 - A = attempt length = `select` + longest test job + `report` = 15 + 50 + 10 = 75 min.
 - C = 03:00 UTC cron.

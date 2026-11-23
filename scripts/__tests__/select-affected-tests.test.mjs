@@ -46,6 +46,9 @@ function run({ changed, tests, openModules = [], globalInputs = [], data = {}, f
 
 const selectedFiles = (sel) => Object.keys(sel.selected).sort();
 
+// Built from pieces so this test file is not itself detected as an env-gated file by the selector's scan.
+const GATED_SRC = `if (process.env.${'RUN_CI' + '_SCENARIOS'}) {}\n`;
+
 describe("global inputs force full (E1–E3)", () => {
   const tests = { "packages/p/src/__tests__/a.test.ts": t(["packages/p/src/a.ts"]) };
 
@@ -554,8 +557,8 @@ describe("budget lane routing (E13–E16, change: stabilize-blocking-test-lanes 
     fs.mkdirSync(path.join(root, "scripts", "__tests__"), { recursive: true });
     const gated = "scripts/__tests__/pack.test.mjs";
     const budget = "scripts/__tests__/pack-perf.budget.test.mjs";
-    fs.writeFileSync(path.join(root, gated), 'if (process.env.RUN_CI_SCENARIOS) {}\n');
-    fs.writeFileSync(path.join(root, budget), 'if (process.env.RUN_CI_SCENARIOS) {}\n');
+    fs.writeFileSync(path.join(root, gated), GATED_SRC);
+    fs.writeFileSync(path.join(root, budget), GATED_SRC);
     fs.writeFileSync(path.join(root, "scripts/__tests__/pack-perf.budget.test.mjs.snap"), "x\n");
     execFileSync("git", ["init", "-q"], { cwd: root });
     execFileSync("git", ["add", "-A"], { cwd: root });

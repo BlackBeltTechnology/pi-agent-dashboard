@@ -320,7 +320,7 @@ async function watchdog({ api, env, now, dryRun }) {
  * @param {string[]} argv
  * @param {{ api?: object, now?: () => Date, env?: NodeJS.ProcessEnv }} [deps] GitHub API client, clock and environment.
  */
-export async function main(argv, { api, now = () => new Date(), env = process.env } = {}) {
+export async function main(argv, { api, now = () => new Date(), env = process.env, gitIsAncestor } = {}) {
   api ??= githubApi({ token: env.GITHUB_TOKEN, repo: env.GITHUB_REPOSITORY });
   if (boolFlag(argv, "--watchdog")) return watchdog({ api, env, now, dryRun: boolFlag(argv, "--dry-run") });
 
@@ -354,6 +354,7 @@ export async function main(argv, { api, now = () => new Date(), env = process.en
   }
 
   const isAncestor = (a) => {
+    if (gitIsAncestor) return gitIsAncestor(a, sha);
     try {
       execFileSync("git", ["merge-base", "--is-ancestor", a, sha], { stdio: "ignore" });
       return true;

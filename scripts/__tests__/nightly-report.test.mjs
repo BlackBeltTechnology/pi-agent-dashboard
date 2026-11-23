@@ -652,9 +652,9 @@ describe("attempt >= 2 with --previous (E75–E79, E85–E89, X5)", () => {
       { id: 90, event: "workflow_dispatch", head_branch: "os/feature", conclusion: "success", head_sha: "ddddddd" },
       { id: 80, event: "schedule", head_branch: "develop", conclusion: "success", head_sha: "aaaaaaa" },
     ];
-    // is-ancestor runs against the real git repo: use a SHA that is an ancestor of HEAD
-    const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    const root = execFileSync("git", ["rev-list", "--max-parents=0", "HEAD"], { encoding: "utf8" }).trim().split("\n")[0];
+    // Independent of the checkout: a CI unit job clones shallow, where HEAD is its own root and no range exists.
+    const head = "b".repeat(40);
+    const root = "a".repeat(40);
     runs[1].head_sha = root;
     const api = fakeGh({ runs });
     const dir = tmp();
@@ -664,7 +664,7 @@ describe("attempt >= 2 with --previous (E75–E79, E85–E89, X5)", () => {
     const env = { GITHUB_SHA: head, GITHUB_REPOSITORY: REPO, GITHUB_RUN_ID: RUN_ID, GITHUB_SERVER_URL: SERVER, GITHUB_EVENT_NAME: "schedule", GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: JSON.stringify(GREEN_NEEDS) };
     const prev = tmp();
     fs.writeFileSync(path.join(prev, "attempt-1.json"), JSON.stringify(prevRecord()));
-    const code = await main(["--reports", dir, "--expected", ALL_JOBS.join(","), "--defer-first-attempt", "--previous", prev], { api, now: () => at("06:00"), env });
+    const code = await main(["--reports", dir, "--expected", ALL_JOBS.join(","), "--defer-first-attempt", "--previous", prev], { api, now: () => at("06:00"), env, gitIsAncestor: (a) => a === root });
     expect(code).toBe(1);
     const body = api.issuesState[0].body;
     expect(body).toContain(`${root}..${head}`);

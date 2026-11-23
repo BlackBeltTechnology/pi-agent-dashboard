@@ -192,10 +192,11 @@ jobs:
   budget:
     needs: select
     runs-on: ubuntu-latest
-    # Provisional until task 3.8 sizes it from a measured run; a value above 50
+    # Sized at about twice the measured duration (dispatch run 45087980264: the
+    # eight budget files ran serially in about 3 min incl. setup). A value above 50
     # moves DEFER_DEADLINE_UTC_MINUTE and the watchdog cron (nightly-tests-
     # workflow-contract.test.ts enforces the timing inequalities).
-    timeout-minutes: 40
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
