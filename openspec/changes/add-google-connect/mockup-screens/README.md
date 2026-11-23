@@ -1,6 +1,6 @@
 # Google accounts — mockup
 
-How connecting Google works for a pi-dashboard user. Read top to bottom: **A** is what almost everyone sees, **B** only matters for companies whose Google admin requires their own sign-in, **C** compares with today.
+How connecting Google works for a pi-dashboard user. Read top to bottom: **A** is what almost everyone sees, **B** only matters for companies whose Google admin requires their own sign-in, **D** is the dashboard opened from another computer, **C** compares with today.
 
 Green numbered rings mark what is new. Google's own pages in A2 are drawn only for orientation — Google shows them, not the dashboard.
 
@@ -28,7 +28,7 @@ Same as connecting Google Drive or Gmail in other apps.
 
 ![A2 step 3](a2-connect-3-light.png)
 
-**Step 4.** The dashboard waits. The Google window closes and you come back here automatically — also when the dashboard runs on another computer (via the pi-dashboard.dev return page). A fold-out keeps the paste fallback.
+**Step 4.** The dashboard waits. The Google window closes and you come back here automatically. A fold-out keeps the paste fallback. (From another computer this goes through a confirm page — see D1.)
 
 ![A2 step 4](a2-connect-4-light.png)
 
@@ -43,7 +43,7 @@ Same as connecting Google Drive or Gmail in other apps.
 ### A3 · Change what the agent may use
 Open an account card and pick a level per Google product. Turning something new on asks Google once, only for that.
 
-**Step 1.** Open the card, set Slides to *Read*.
+**Step 1.** Open the card, set Slides to *Read*. Drive offers only *Files you pick* with the built-in sign-in (ring 10); reading all Drive files needs an organisation's own sign-in. Ring 9 states who may use the account: the dashboard enforces the levels, not Google.
 
 ![A3 step 1](a3-change-1-light.png)
 
@@ -54,6 +54,51 @@ Open an account card and pick a level per Google product. Turning something new 
 **Step 3.** Slides is on; everything else unchanged.
 
 ![A3 step 3](a3-change-3-light.png)
+
+### A4 · Google's page unticked something the agent already uses
+If you untick Gmail on Google's page while allowing Calendar, nothing is stored: Gmail keeps working, Calendar stays off.
+
+**Step 1.** Only Calendar was allowed on Google's page.
+
+![A4 step 1](a4-narrower-1-light.png)
+
+**Step 2.** Nothing changed — try again and tick every box.
+
+![A4 step 2](a4-narrower-2-light.png)
+
+### A5 · Disconnect an account
+Disconnect deletes the account from this dashboard. Removing access at Google is a separate tick, because it ends access for every dashboard using pi-dashboard with that Google account.
+
+**Step 1.** Click **Disconnect** on the card.
+
+![A5 step 1](a5-disconnect-1-light.png)
+
+**Step 2.** Confirm (local only by default).
+
+![A5 step 2](a5-disconnect-2-light.png)
+
+**Step 3.** Optionally also remove access at Google.
+
+![A5 step 3](a5-disconnect-3-light.png)
+
+**Step 4.** If Google can't be reached, the account is still removed here and you get the link to remove it yourself.
+
+![A5 step 4](a5-disconnect-4-light.png)
+
+### A6 · The agent asks for a Drive file
+With Drive at *Files you pick*, the agent asks; you choose the file in Google's own picker.
+
+**Step 1.** The agent's request in the session.
+
+![A6 step 1](a6-drive-pick-1-light.png)
+
+**Step 2.** Google's file picker (drawn for orientation; Google shows it).
+
+![A6 step 2](a6-drive-pick-2-light.png)
+
+**Step 3.** The agent may now read that file.
+
+![A6 step 3](a6-drive-pick-3-light.png)
 
 ---
 
@@ -86,6 +131,61 @@ Plain message: ask the admin, or set up organisation sign-in.
 
 ---
 
+## D. Dashboard opened from another computer
+Dashboard on a server, in Docker, or reached through a tunnel. Gmail and reading all Drive files need the dashboard's own computer or an organisation sign-in.
+
+### D1 · Connect from another computer
+
+**Step 1.** Gmail is shown as not available here, with the reason (ring 11). The first data-use line names the pi-dashboard.dev return page (ring 12).
+
+![D1 step 1](d1-remote-connect-1-light.png)
+
+**Step 2.** Google's page — no Gmail requested.
+
+![D1 step 2](d1-remote-connect-2-light.png)
+
+**Step 3.** The dashboard waits and tells you what comes next.
+
+![D1 step 3](d1-remote-connect-3-light.png)
+
+**Step 4.** Google returns to `pi-dashboard.dev/oauth/return.html`. It shows your dashboard's address; the sign-in is handed over only after you click **Continue** (ring 13).
+
+![D1 step 4](d1-remote-connect-4-light.png)
+
+**Step 5.** The window opens your dashboard and says it's connected.
+
+![D1 step 5](d1-remote-connect-5-light.png)
+
+**Step 6.** The dialog shows the result.
+
+![D1 step 6](d1-remote-connect-6-light.png)
+
+**Step 7.** The account is listed (Calendar and Drive files, no Gmail).
+
+![D1 step 7](d1-remote-connect-7-light.png)
+
+### D2 · Return page when something is off
+
+**Step 1.** This browser can't reach the dashboard: copy the address and paste it in the dialog.
+
+![D2 step 1](d2-return-page-off-1-light.png)
+
+**Step 2.** The page was loaded inside another page: it refuses.
+
+![D2 step 2](d2-return-page-off-2-light.png)
+
+### D3 · An account connected on the dashboard's own computer, used from elsewhere
+
+**Step 1.** Changing what the agent may use needs the dashboard's own computer.
+
+![D3 step 1](d3-local-only-1-light.png)
+
+**Step 2.** So does picking Drive files.
+
+![D3 step 2](d3-local-only-2-light.png)
+
+---
+
 ## C. Compared with today
 
 ### C1 · Today vs proposed
@@ -111,5 +211,9 @@ Gmail moved into Google accounts; nothing to reconnect.
 ![A2 step 2 dark](a2-connect-2-dark.png)
 
 ![A3 step 1 dark](a3-change-1-dark.png)
+
+![D1 step 1 dark](d1-remote-connect-1-dark.png)
+
+![D1 step 4 dark](d1-remote-connect-4-dark.png)
 
 ![C1 dark](c1-today-vs-proposed-dark.png)

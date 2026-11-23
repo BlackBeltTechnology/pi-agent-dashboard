@@ -34,13 +34,17 @@ const R = ({ n, tip, children }: { n?: string; tip?: string; children: ReactNode
 
 // ---- products (design D4) ----
 export type ProductId = "gmail" | "calendar" | "drive" | "docs" | "sheets" | "slides" | "tasks" | "contacts";
-interface Product { id: ProductId; name: string; what: string; levels: { value: string; label: string }[] }
+interface Level { value: string; label: string; ownClientOnly?: boolean }
+interface Product { id: ProductId; name: string; what: string; levels: Level[] }
 const RW = [{ value: "read", label: "Read" }, { value: "write", label: "Read and change" }];
 export const PRODUCTS: Product[] = [
   { id: "gmail", name: "Gmail", what: "Search, read, draft and send mail", levels: [
     { value: "readonly", label: "Read" }, { value: "draft", label: "Read and draft" }, { value: "send", label: "Read, draft and send" }] },
   { id: "calendar", name: "Calendar", what: "Events and free/busy", levels: RW },
-  { id: "drive", name: "Drive", what: "Find, export and upload files", levels: RW },
+  { id: "drive", name: "Drive", what: "Find, export and upload files", levels: [
+    { value: "files", label: "Files you pick" },
+    { value: "read", label: "Read all", ownClientOnly: true },
+    { value: "write", label: "Read and change all", ownClientOnly: true }] },
   { id: "docs", name: "Docs", what: "Documents", levels: RW },
   { id: "sheets", name: "Sheets", what: "Spreadsheets", levels: RW },
   { id: "slides", name: "Slides", what: "Presentations", levels: RW },
@@ -60,9 +64,11 @@ export interface Account {
 export const BUILT_IN_ID = "318204457716-pidash0workspace.apps.googleusercontent.com";
 export const ORG_CLIENT = { label: "BlackBelt", domain: "blackbelt.hu", projectId: "blackbelt-pi-connect", clientId: "604117390012-bb7q2k.apps.googleusercontent.com" };
 
-export const PERSONAL: Account = { sub: "1", email: "robson.csakany@gmail.com", products: { gmail: { level: "send" }, calendar: { level: "write" }, drive: { level: "read" } } };
+export const PERSONAL: Account = { sub: "1", email: "robson.csakany@gmail.com", products: { gmail: { level: "send" }, calendar: { level: "write" }, drive: { level: "files" } } };
 export const WORK: Account = { sub: "2", email: "robson@semmi.se", products: { gmail: { level: "draft" }, calendar: { level: "read" }, sheets: { level: "write" } } };
-export const NEW_ACCT: Account = { sub: "3", email: "pi.dashboard.demo@gmail.com", products: { gmail: { level: "readonly" }, calendar: { level: "read" }, drive: { level: "read" } } };
+export const NEW_ACCT: Account = { sub: "3", email: "pi.dashboard.demo@gmail.com", products: { gmail: { level: "readonly" }, calendar: { level: "read" }, drive: { level: "files" } } };
+/** Connected from a browser on another computer (built-in remote project): no Gmail. */
+export const REMOTE_ACCT: Account = { sub: "5", email: "pi.dashboard.demo@gmail.com", products: { calendar: { level: "read" }, drive: { level: "files" } } };
 export const ORG_ACCT: Account = { sub: "4", email: "team-pi@blackbelt.hu", org: "BlackBelt", products: { gmail: { level: "readonly" }, docs: { level: "read" } } };
 
 // ---- account card ----
@@ -71,8 +77,10 @@ function summary(a: Account): string {
   return on.length ? on.map(nameOf).join(" · ") : "Nothing turned on yet";
 }
 
-export function AccountCard({ acct, open = false, tapProduct, ring, tableRing }: {
-  acct: Account; open?: boolean; tapProduct?: ProductId; ring?: string; tableRing?: string;
+const OWN_CLIENT_REASON = "needs your organisation's own sign-in";
+
+export function AccountCard({ acct, open = false, tapProduct, tapDisconnect, ring, tableRing, accessRing, driveRing }: {
+  acct: Account; open?: boolean; tapProduct?: ProductId; tapDisconnect?: boolean; ring?: string; tableRing?: string; accessRing?: string; driveRing?: string;
 }) {
   const reauth = Object.values(acct.products).some((p) => p?.status === "reauth_required");
   const table = (
@@ -82,7 +90,10 @@ export function AccountCard({ acct, open = false, tapProduct, ring, tableRing }:
         const control = (
           <select aria-label={`${p.name} for ${acct.email}`} className={select} value={cur?.level ?? "off"} onChange={() => {}}>
             <option value="off">Nothing (off)</option>
-            {p.levels.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+            {p.levels.map((l) => {
+              const off = l.ownClientOnly && !acct.org;
+              return <option key={l.value} value={l.value} disabled={off}>{off ? `${l.label} (${OWN_CLIENT_REASON})` : l.label}</option>;
+            })}
           </select>
         );
         return { key: p.id, cells: [
@@ -105,9 +116,23 @@ export function AccountCard({ acct, open = false, tapProduct, ring, tableRing }:
           ? <SettingsStatusPill tone="error" status="reauth_required">Sign in again</SettingsStatusPill>
           : <SettingsStatusPill tone="success" status="ok">Connected</SettingsStatusPill>}>
         <R n={tableRing} tip="Change what the agent may use">{table}</R>
+        {acct.org ? null : (
+          <R n={driveRing} tip="Drive: only files you pick">
+            <p className={`${muted} m-0`}>
+              Drive "Files you pick": the agent sees only files you pick for it or files it created, not your other Drive
+              files. Reading all files {OWN_CLIENT_REASON}.
+            </p>
+          </R>
+        )}
+        <R n={accessRing} tip="Who may use this account">
+          <p className={`${muted} m-0`}>
+            This dashboard enforces these levels, not Google. Every agent session on the dashboard's own computer may use
+            this account within these levels; sessions connected from other computers cannot.
+          </p>
+        </R>
         <div className="flex flex-wrap items-center gap-2">
           {reauth ? <button type="button" className={primaryBtn}>Sign in again</button> : null}
-          <button type="button" className={btn}>Disconnect</button>
+          <T on={tapDisconnect}><button type="button" className={btn}>Disconnect</button></T>
         </div>
       </SettingsItem>
     </R>
@@ -209,8 +234,13 @@ function DialogShell({ title, children, footer }: { title: string; children: Rea
   );
 }
 
-export function ConnectDialog({ picked, tapContinue, orgChoice, title = "Connect a Google account", intro, ring }: {
-  picked: ProductId[]; tapContinue?: boolean; orgChoice?: boolean; title?: string; intro?: string; ring?: string;
+const REMOTE_REASON = "open the dashboard on its own computer, or use organisation sign-in";
+
+export function ConnectDialog({ picked, tapContinue, orgChoice, remote, title = "Connect a Google account", intro, ring, remoteRing, disclosureRing }: {
+  picked: ProductId[]; tapContinue?: boolean; orgChoice?: boolean;
+  /** Browser is not on the dashboard's computer: built-in remote project, no Gmail. */
+  remote?: boolean;
+  title?: string; intro?: string; ring?: string; remoteRing?: string; disclosureRing?: string;
 }) {
   const go = <button type="button" className={primaryBtn}>Continue with Google</button>;
   return (
@@ -218,13 +248,25 @@ export function ConnectDialog({ picked, tapContinue, orgChoice, title = "Connect
       footer={<><button type="button" className={btn}>Cancel</button><T on={tapContinue}>{go}</T></>}>
       <p className="m-0">{intro ?? "You'll pick the account on Google's page. What may the agent use?"}</p>
       <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Google products">
-        {PRODUCTS.map((p) => (
-          <label key={p.id} className="flex items-center gap-2 rounded border border-[var(--border-secondary)] px-2 py-1.5">
-            <input type="checkbox" checked={picked.includes(p.id)} onChange={() => {}} className="focus-ring" />
-            <span className="font-semibold">{p.name}</span>
-          </label>
-        ))}
+        {PRODUCTS.map((p) => {
+          const off = remote && p.id === "gmail";
+          return (
+            <label key={p.id} className={`flex items-center gap-2 rounded border border-[var(--border-secondary)] px-2 py-1.5 ${off ? "text-[var(--text-secondary)]" : ""}`}>
+              <input type="checkbox" checked={!off && picked.includes(p.id)} disabled={off} onChange={() => {}} className="focus-ring"
+                aria-describedby={off ? "gmail-unavailable" : undefined} />
+              <span className="font-semibold">{p.name}</span>
+              {off ? <span className="text-[11px]">not here</span> : null}
+            </label>
+          );
+        })}
       </div>
+      {remote ? (
+        <R n={remoteRing} tip="Gmail needs the dashboard's own computer">
+          <p id="gmail-unavailable" className={`${muted} m-0`}>
+            Gmail isn't available from this computer: {REMOTE_REASON}.
+          </p>
+        </R>
+      ) : null}
       <p className={`${muted} m-0`}>Read-only to start. Allow changes later on the account card.</p>
       <R n={ring} tip="Org choice only if one is set up">
         {orgChoice ? (
@@ -237,21 +279,27 @@ export function ConnectDialog({ picked, tapContinue, orgChoice, title = "Connect
           </div>
         ) : null}
       </R>
+      <R n={disclosureRing} tip="Says how the sign-in returns">
       <ul className="m-0 flex list-disc flex-col gap-0.5 pl-4 text-[var(--text-secondary)]">
-        <li>Your sign-in stays on this dashboard. Nothing is sent to pi-dashboard.dev.</li>
+        <li>{remote
+          ? "Google returns once through pi-dashboard.dev's return page, which stores nothing. Your sign-in is kept only on this dashboard."
+          : "Your sign-in stays on this computer. Nothing is sent to pi-dashboard.dev."}</li>
         <li>What the agent reads goes to your AI model provider only to answer you.</li>
         <li>Every change (sending mail, editing files, creating events) asks you first.</li>
       </ul>
+      </R>
       <span className={muted}>By continuing you agree to the <SafeLink href="https://pi-dashboard.dev/privacy.html">privacy policy</SafeLink>.</span>
     </DialogShell>
   );
 }
 
-export function WaitingDialog({ clientId, title = "Connect a Google account" }: { clientId: string; title?: string }) {
+export function WaitingDialog({ clientId, remote, title = "Connect a Google account" }: { clientId: string; remote?: boolean; title?: string }) {
   const OAuthFlow = useUiPrimitive("ui:oauth-flow");
   return (
     <DialogShell title={title} footer={<button type="button" className={btn}>Cancel</button>}>
-      <p className="m-0"><strong>Finish in the Google window</strong> that just opened: pick the account, then allow access. Tick every box Google shows. The window closes and you come back here automatically, also when the dashboard runs on another computer.</p>
+      <p className="m-0"><strong>Finish in the Google window</strong> that just opened: pick the account, then allow access. Tick every box Google shows. {remote
+        ? "Google then shows a pi-dashboard.dev page: check that it names this dashboard's address and continue. The window closes and this dialog updates."
+        : "The window closes and you come back here automatically."}</p>
       <details className="text-[var(--text-secondary)]">
         <summary className="focus-ring cursor-pointer text-xs">Window didn't open or didn't come back?</summary>
         <div className="mt-2">
@@ -266,20 +314,30 @@ export function WaitingDialog({ clientId, title = "Connect a Google account" }: 
   );
 }
 
-export function DoneDialog({ email, products, missing, tapDone, title = "Connect a Google account" }: {
-  email: string; products: string; missing?: string; tapDone?: boolean; title?: string;
+export function DoneDialog({ email, products, missing, unchanged, tapDone, title = "Connect a Google account" }: {
+  email: string; products: string; missing?: string;
+  /** Existing account: Google's reply dropped something it already relies on, so nothing was stored. */
+  unchanged?: { added: string; dropped: string };
+  tapDone?: boolean; title?: string;
 }) {
   return (
     <DialogShell title={title}
-      footer={<>{missing ? <button type="button" className={btn}>Try again</button> : null}<T on={tapDone}><button type="button" className={primaryBtn}>Done</button></T></>}>
-      <SettingsNotice tone="success">{email} is connected. The agent may now read: {products}.</SettingsNotice>
+      footer={<>{missing || unchanged ? <button type="button" className={btn}>Try again</button> : null}<T on={tapDone}><button type="button" className={primaryBtn}>Done</button></T></>}>
+      {unchanged ? (
+        <SettingsNotice tone="warning">
+          Nothing was changed for {email}. On Google's page {unchanged.dropped} was unticked, which the agent already uses,
+          so {unchanged.added} stays off and {unchanged.dropped} keeps working. Try again and tick every box.
+        </SettingsNotice>
+      ) : (
+        <SettingsNotice tone="success">{email} is connected. The agent may now read: {products}.</SettingsNotice>
+      )}
       {missing ? <SettingsNotice tone="warning">Google did not allow {missing}. Try again and tick every box.</SettingsNotice> : null}
     </DialogShell>
   );
 }
 
 /** Google's own pages, drawn only for orientation (Google renders them, not the dashboard). */
-export function GooglePages({ account }: { account: string }) {
+export function GooglePages({ account, asks = ["Read your email in Gmail", "See your calendar events", "See and download the Google Drive files you pick"] }: { account: string; asks?: string[] }) {
   const box = "flex w-[260px] flex-col gap-2 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-primary)] p-4 text-xs text-[var(--text-primary)]";
   return (
     <div className="flex flex-wrap items-start gap-3">
@@ -287,7 +345,7 @@ export function GooglePages({ account }: { account: string }) {
         <span className="text-[11px] text-[var(--text-secondary)]">accounts.google.com</span>
         <strong className="text-sm">Choose an account</strong>
         <span>to continue to <strong>pi-dashboard</strong></span>
-        {["robson.csakany@gmail.com", "robson@semmi.se", account].map((a) => (
+        {[...new Set(["robson.csakany@gmail.com", "robson@semmi.se", account])].map((a) => (
           <span key={a} className={`rounded border px-2 py-1 ${a === account ? "border-[var(--accent-solid)]" : "border-[var(--border-secondary)]"}`}>{a}</span>
         ))}
       </div>
@@ -295,9 +353,7 @@ export function GooglePages({ account }: { account: string }) {
         <span className="text-[11px] text-[var(--text-secondary)]">accounts.google.com</span>
         <strong className="text-sm">pi-dashboard wants access to your Google Account</strong>
         <span className="text-[var(--text-secondary)]">{account}</span>
-        <label className="flex gap-2"><input type="checkbox" checked readOnly />Read your email in Gmail</label>
-        <label className="flex gap-2"><input type="checkbox" checked readOnly />See your calendar events</label>
-        <label className="flex gap-2"><input type="checkbox" checked readOnly />See your Google Drive files</label>
+        {asks.map((a) => <label key={a} className="flex gap-2"><input type="checkbox" checked readOnly />{a}</label>)}
         <span className="self-end rounded bg-[var(--accent-solid)] px-3 py-1 font-semibold text-white">Continue</span>
       </div>
     </div>
@@ -313,6 +369,138 @@ export function AdminBlocked() {
         <span className={mono}> {BUILT_IN_ID}</span>, or set up your organisation's own sign-in.
       </SettingsNotice>
     </DialogShell>
+  );
+}
+
+// ---- disconnect ----
+export function DisconnectDialog({ email, revoke, revokeFailed, tapConfirm }: {
+  email: string; revoke?: boolean; revokeFailed?: boolean; tapConfirm?: boolean;
+}) {
+  if (revokeFailed) {
+    return (
+      <DialogShell title="Account disconnected" footer={<button type="button" className={primaryBtn}>Done</button>}>
+        <SettingsNotice tone="warning" role="alert">
+          {email} was removed from this dashboard, but Google couldn't be reached to remove access. Remove
+          "pi-dashboard" yourself at <SafeLink href="https://myaccount.google.com/connections">myaccount.google.com/connections</SafeLink>.
+        </SettingsNotice>
+      </DialogShell>
+    );
+  }
+  return (
+    <DialogShell title={`Disconnect ${email}?`}
+      footer={<><button type="button" className={btn}>Cancel</button><T on={tapConfirm}><button type="button" className={primaryBtn}>Disconnect</button></T></>}>
+      <p className="m-0">The agent can no longer use this account. Its sign-in is deleted from this dashboard.</p>
+      <label className="flex items-start gap-2">
+        <input type="checkbox" checked={!!revoke} onChange={() => {}} className="focus-ring mt-0.5" aria-describedby="revoke-hint" />
+        <span className="flex flex-col gap-0.5">
+          <span className="font-semibold">Also remove access at Google</span>
+          <span id="revoke-hint" className={muted}>
+            Ends access for every dashboard that uses pi-dashboard with this Google account, not only this one.
+          </span>
+        </span>
+      </label>
+    </DialogShell>
+  );
+}
+
+// ---- consent for a same-computer account from another computer ----
+export function LocalBrowserRequired({ email, product }: { email: string; product: string }) {
+  return (
+    <DialogShell title={`Allow ${product} for ${email}`} footer={<button type="button" className={primaryBtn}>Close</button>}>
+      <SettingsNotice tone="info" role="alert">
+        {email} was connected on the dashboard's own computer. To change what the agent may use, open the dashboard on
+        that computer and try again. Nothing was changed.
+      </SettingsNotice>
+    </DialogShell>
+  );
+}
+
+// ---- pi-dashboard.dev/oauth/return.html (static site page, drawn in a browser frame) ----
+const DASH = "https://pi.example.com";
+function BrowserFrame({ url, children }: { url: string; children: ReactNode }) {
+  return (
+    <div className="mx-auto w-full max-w-lg overflow-hidden rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-primary)]">
+      <div className="border-b border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 font-mono text-[11px] text-[var(--text-secondary)]">{url}</div>
+      <div className="flex flex-col gap-3 p-5 text-xs text-[var(--text-primary)]">{children}</div>
+    </div>
+  );
+}
+
+export function ReturnPage({ state, tapContinue }: { state: "confirm" | "framed" | "unreachable" | "done"; tapContinue?: boolean }) {
+  if (state === "done") {
+    return (
+      <BrowserFrame url={`${DASH}/api/plugins/google/oauth/remote-callback`}>
+        <strong className="text-sm">Google account connected</strong>
+        <span>You can close this window and return to the dashboard.</span>
+      </BrowserFrame>
+    );
+  }
+  return (
+    <BrowserFrame url="https://pi-dashboard.dev/oauth/return.html">
+      <strong className="text-sm">Finish connecting your Google account</strong>
+      {state === "framed" ? (
+        <SettingsNotice tone="error" role="alert">This page can't be used inside another page. Close it and start again from your dashboard.</SettingsNotice>
+      ) : (
+        <>
+          <span>Google sent you here to hand the sign-in to your dashboard. Continue only if this is the dashboard you are using:</span>
+          <span className="rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 py-1.5 font-mono text-sm">{DASH}</span>
+          {state === "unreachable" ? (
+            <SettingsNotice tone="warning" actions={<button type="button" className={btn}>Copy address</button>}>
+              This browser couldn't open your dashboard. Copy the address and paste it in the dashboard's
+              "Window didn't open or didn't come back?" field.
+            </SettingsNotice>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <T on={tapContinue}><button type="button" className={primaryBtn}>Continue to pi.example.com</button></T>
+              <button type="button" className={btn}>Not my dashboard</button>
+            </div>
+          )}
+          <span className={muted}>This page stores nothing. The sign-in only works on the dashboard that started it.</span>
+        </>
+      )}
+    </BrowserFrame>
+  );
+}
+
+// ---- gdrive_pick: the agent asks the user to pick Drive files ----
+export function PickerPrompt({ state, tapPick }: { state: "ask" | "picked" | "unavailable"; tapPick?: boolean }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-3 text-xs text-[var(--text-primary)]">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[11px] text-[var(--text-secondary)]">gdrive_pick</span>
+        <span className={muted}>robson.csakany@gmail.com</span>
+      </div>
+      {state === "ask" ? (
+        <>
+          <span>The agent asks you to choose Drive files it may read: <em>"the 2026 budget spreadsheet"</em>.</span>
+          <div className="flex gap-2">
+            <T on={tapPick}><button type="button" className={primaryBtn}>Choose files in Google Drive</button></T>
+            <button type="button" className={btn}>Decline</button>
+          </div>
+        </>
+      ) : state === "picked" ? (
+        <SettingsNotice tone="success">You picked 1 file: Budget 2026 (Google Sheets). The agent may now read it.</SettingsNotice>
+      ) : (
+        <SettingsNotice tone="warning">
+          Picking Drive files works only with the dashboard open on its own computer. From here the agent sees only
+          files it created.
+        </SettingsNotice>
+      )}
+    </div>
+  );
+}
+
+/** Google's file picker, drawn only for orientation (Google renders it). */
+export function GooglePicker() {
+  return (
+    <div className="flex w-full max-w-md flex-col gap-2 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-primary)] p-4 text-xs text-[var(--text-primary)]">
+      <span className="text-[11px] text-[var(--text-secondary)]">Google Drive file picker</span>
+      <strong className="text-sm">Select a file</strong>
+      {["Budget 2026", "Budget 2025", "Team offsite notes"].map((f, i) => (
+        <span key={f} className={`rounded border px-2 py-1 ${i === 0 ? "border-[var(--accent-solid)]" : "border-[var(--border-secondary)]"}`}>{f}</span>
+      ))}
+      <span className="self-end rounded bg-[var(--accent-solid)] px-3 py-1 font-semibold text-white">Select</span>
+    </div>
   );
 }
 
