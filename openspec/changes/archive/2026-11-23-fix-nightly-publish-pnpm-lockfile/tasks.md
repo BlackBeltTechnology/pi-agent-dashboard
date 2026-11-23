@@ -33,4 +33,4 @@ Create `scripts/__tests__/nightly-verdaccio-publish-standalone.budget.test.mjs` 
 
 ## 5. Post-merge
 
-- [ ] 5.1 Manual check (test-plan: manual-only, #X2): after merge, `workflow_dispatch` `nightly.yml` on `develop`; every electron leg, including `windows-latest` x64 and arm64, passes "Publish workspaces to Verdaccio (nightly)" (`_electron-build.yml:331-335`)
+- [x] 5.1 Manual check (test-plan: manual-only, #X2): after merge, `workflow_dispatch` `nightly.yml` on `develop`; every electron leg, including `windows-latest` x64 and arm64, passes "Publish workspaces to Verdaccio (nightly)" (`_electron-build.yml:331-335`)
