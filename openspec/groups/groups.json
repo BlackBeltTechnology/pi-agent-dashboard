@@ -454,7 +454,8 @@
     "throttle-kb-reindex": "queue",
     "stabilize-blocking-test-lanes": "queue",
     "rich-chat-links": "queue",
-    "update-pi-core-1-6-adopt-apis": "queue"
+    "update-pi-core-1-6-adopt-apis": "queue",
+    "fix-nightly-publish-pnpm-lockfile": "queue"
   },
   "changeOrder": {
     "__ungrouped__": [
