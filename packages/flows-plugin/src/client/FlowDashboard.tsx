@@ -76,7 +76,7 @@ function IdleControls({ idle }: { idle: FlowDashboardIdle }) {
     <>
       {idle.viewOnly && (
         <span
-          className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] whitespace-nowrap"
+          className="text-[11px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] whitespace-nowrap"
           data-testid="flow-view-only-label"
         >
           {t("flowViewOnlyLabel", undefined, "view only - not registered")}
