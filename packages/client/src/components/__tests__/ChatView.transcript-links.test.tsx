@@ -4,7 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitialState } from "../../lib/chat/event-reducer.js";
 import { ChatView } from "../chat/ChatView.js";
@@ -36,6 +36,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -61,6 +62,7 @@ describe("ChatView — transcriptLinks scope (F5)", () => {
   });
 
   it("streaming text is never pre-confirmed, even in view", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const state = createInitialState();
     state.streamingText = "working on `src/live.ts` now";
     const { container } = render(
@@ -69,11 +71,12 @@ describe("ChatView — transcriptLinks scope (F5)", () => {
       </ThemeProvider>,
     );
     expect(container.querySelector("button[data-link-state]")).toBeTruthy(); // linkified + icon slot…
-    await new Promise((r) => setTimeout(r, 1400));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1400))); // fake clock: no fixed-tick barrier
     expect(batchBodies).toHaveLength(0); // …but not requested while it can still change
   });
 
   it("the preview overlay (FilePreviewHost) stays outside the provider: its content renders pre-change and requests nothing", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const state = createInitialState();
     state.messages.push({ id: "a1", role: "assistant", content: "open `docs/README.md`", timestamp: Date.now() });
     // No sessionId: a click routes to the hoisted preview overlay instead of the editor pane.
@@ -86,17 +89,18 @@ describe("ChatView — transcriptLinks scope (F5)", () => {
     const overlay = await findByTestId("file-preview-overlay");
     await waitFor(() => expect(overlay.textContent).toContain("src/inner.ts"));
     expect(overlay.querySelector("[data-link-state], [data-link-icon]")).toBeNull();
-    await new Promise((r) => setTimeout(r, 1400));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1400))); // fake clock: no fixed-tick barrier
     expect(batchBodies).toHaveLength(0);
   });
 
   it("without the prop: no request and the pre-change DOM (no icon, no state attribute)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const { container } = transcript(false);
     const link = container.querySelector("button");
     expect(link?.textContent).toBe("src/foo.ts");
     expect(link?.hasAttribute("data-link-state")).toBe(false);
     expect(link?.querySelector("[data-link-icon]")).toBeNull();
-    await new Promise((r) => setTimeout(r, 1400));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1400))); // fake clock: no fixed-tick barrier
     expect(batchBodies).toHaveLength(0);
   });
 

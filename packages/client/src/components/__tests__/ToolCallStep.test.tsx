@@ -986,7 +986,10 @@ describe("ToolCallStep — link context (rich-chat-links)", () => {
       });
     });
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   const step = (status: "running" | "complete") => (
     <ThemeProvider>
@@ -1011,9 +1014,10 @@ describe("ToolCallStep — link context (rich-chat-links)", () => {
   });
 
   it("a running tool's links are not requested until it completes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = render(step("running"));
     fireEvent.click(view.container.querySelector("button")!);
-    await new Promise((r) => setTimeout(r, 1400));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1400))); // fake clock: no fixed-tick barrier
     expect(batches).toHaveLength(0);
     view.rerender(step("complete"));
     await waitFor(() => expect(batches).toHaveLength(1), { timeout: 3000 });
