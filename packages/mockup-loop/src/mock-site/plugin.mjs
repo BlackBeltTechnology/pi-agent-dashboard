@@ -158,8 +158,9 @@ export function mockSite(options) {
 
       // HTML entry (the package ships no index.html): `/` and `/?pane=…`.
       srv.middlewares.use(async (/** @type {any} */ req, /** @type {any} */ res, /** @type {any} */ next) => {
-        const url = new URL(req.url ?? "/", "http://x");
-        if (req.method !== "GET" || (url.pathname !== "/" && url.pathname !== "/index.html")) return next();
+        // Path only: `new URL("//…", base)` reads `//` as an authority and throws, killing the site.
+        const pathname = (req.url ?? "/").split(/[?#]/, 1)[0];
+        if (req.method !== "GET" || (pathname !== "/" && pathname !== "/index.html")) return next();
         const html = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>${(options.title ?? "Mocks").replace(/[<&]/g, "")}</title></head>
 <body><div id="root"></div><script type="module" src="${fsUrl(path.join(siteDir, "main.tsx"))}"></script></body></html>`;
