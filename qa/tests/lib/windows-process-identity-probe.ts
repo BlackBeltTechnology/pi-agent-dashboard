@@ -29,6 +29,8 @@ const PS = `${SYSTEM_ROOT}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
 const WSL_EXE = `${SYSTEM_ROOT}\\System32\\wsl.exe`;
 const DISTRO = process.env.QA_WSL_DISTRO ?? "";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Every synchronous child call is bounded: a hung wsl.exe/powershell.exe must not freeze the watchdog. */
+const SYNC_TIMEOUT_MS = 90_000;
 const alive = (pid: number) => signalZero(pid) !== "esrch";
 
 let failed = false;
@@ -47,7 +49,8 @@ function tokens(child: ChildProcess, n: number, ms = 30_000): Promise<string[]> 
     child.stdout?.on("data", (d) => {
       buf += String(d);
       const t = buf.trim().split(/\s+/).filter(Boolean);
-      if (t.length >= n) {
+      // The last token is complete only once a trailing delimiter has arrived (a pid may span chunks).
+      if (/\s$/.test(buf) && t.length >= n) {
         clearTimeout(timer);
         resolve(t.slice(0, n));
       }
@@ -68,14 +71,14 @@ async function startNode(args: string[] = NODE_IDLE): Promise<ChildProcess> {
   return c;
 }
 function ps(script: string): string {
-  return execFileSync(PS, ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true }).trim();
+  return execFileSync(PS, ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, timeout: SYNC_TIMEOUT_MS }).trim();
 }
 function cimStartMs(pid: number): number {
   return Number(
     ps(`$d = (Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CreationDate; [DateTimeOffset]::new($d.ToUniversalTime()).ToUnixTimeMilliseconds()`),
   );
 }
-const wsl = (...a: string[]) => execFileSync(WSL_EXE, ["-d", DISTRO, "--exec", ...a], { encoding: "utf8", windowsHide: true }).trim();
+const wsl = (...a: string[]) => execFileSync(WSL_EXE, ["-d", DISTRO, "--exec", ...a], { encoding: "utf8", windowsHide: true, timeout: SYNC_TIMEOUT_MS }).trim();
 const wslTry = (...a: string[]): boolean => {
   try {
     wsl(...a);
@@ -205,7 +208,7 @@ async function wslCases(): Promise<void> {
   emit("E58", live1 === "alive" && live2 === "absent" && live3 === "unknown", `${live1}/${live2}/${live3}`);
 
   // E56: group-aware kill of a leader + a SIGTERM-ignoring worker (needs SIGKILL, so >= 2000 ms).
-  execFileSync(WSL_EXE, ["-d", DISTRO, "--exec", "sh", "-c", "printf 'trap \"\" TERM\\nwhile :; do sleep 1; done\\n' > /tmp/qa-w.sh; printf 'echo $$\\nsh /tmp/qa-w.sh &\\necho $!\\nwait\\n' > /tmp/qa-l.sh"], { windowsHide: true });
+  execFileSync(WSL_EXE, ["-d", DISTRO, "--exec", "sh", "-c", "printf 'trap \"\" TERM\\nwhile :; do sleep 1; done\\n' > /tmp/qa-w.sh; printf 'echo $$\\nsh /tmp/qa-w.sh &\\necho $!\\nwait\\n' > /tmp/qa-l.sh"], { windowsHide: true, timeout: SYNC_TIMEOUT_MS });
   const lead = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "-w", "sh", "/tmp/qa-l.sh"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   kids.push(lead);
   const [L, W] = (await tokens(lead, 2)).map(Number);
@@ -234,7 +237,7 @@ async function wslCases(): Promise<void> {
   const h2 = spawn(WSL_EXE, ["-d", DISTRO, "--exec", "setsid", "-w", "sh", "-c", "echo $$; exec sleep 600"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   kids.push(h2);
   const p2 = Number((await tokens(h2, 1))[0]);
-  execFileSync(WSL_EXE, ["--terminate", DISTRO], { windowsHide: true });
+  execFileSync(WSL_EXE, ["--terminate", DISTRO], { windowsHide: true, timeout: SYNC_TIMEOUT_MS });
   const after = await wslLiveness(p2, DISTRO);
   const killAfter = await verifyAndKillWsl(p2, DISTRO, { minAgeMs: 0, timeoutMs: 2000 });
   emit("E59", after === "absent" && killAfter === "absent", `liveness=${after} kill=${killAfter}`);
