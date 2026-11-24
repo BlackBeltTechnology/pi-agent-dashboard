@@ -29,7 +29,10 @@ async function mkApp(opts: { tier2?: boolean; log?: DuplicateCookieLog } = {}) {
   const calls: string[] = [];
   // a stand-in for the host gate, registered first
   app.addHook("onRequest", (req, reply, done) => {
-    if (req.headers.host === "bad.example") return void reply.code(403).send({ error: "host_not_allowed" });
+    if (req.headers.host === "bad.example") {
+      reply.code(403).send({ error: "host_not_allowed" });
+      return;
+    }
     done();
   });
   app.addHook("onRequest", createDuplicateCookieGate({ tier2: () => opts.tier2 === true, log: opts.log ?? new DuplicateCookieLog(() => {}) }));

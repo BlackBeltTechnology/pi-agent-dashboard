@@ -191,7 +191,10 @@ describe("T.X16 / #X16 — upstream down / slow on tier 5", () => {
     h.app.server.on("upgrade", (req, socket, head) => {
       const p = parsePreviewPath(req.url);
       const g = p ? h.paths.validate(p.pid, { genuinelyLocal: true }) : null;
-      if (!g) return void socket.destroy();
+      if (!g) {
+        socket.destroy();
+        return;
+      }
       handleLiveServerUpgrade(manager, req, socket, head, { previewTargetId: g.targetId });
     });
     const t0 = performance.now();

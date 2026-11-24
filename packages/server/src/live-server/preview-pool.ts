@@ -234,13 +234,15 @@ export function createPreviewPool(deps: PreviewPoolDeps): PreviewPool {
 
   const serveRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     const a = app();
-    void Promise.resolve(poolReady).then(
-      () => a.routing(req, res),
-      () => {
-        res.statusCode = 503;
-        res.end();
-      },
-    );
+    Promise.resolve(poolReady)
+      .then(
+        () => a.routing(req, res),
+        () => {
+          res.statusCode = 503;
+          res.end();
+        },
+      )
+      .catch(() => res.destroy());
   };
 
   const serveUpgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer): void => {

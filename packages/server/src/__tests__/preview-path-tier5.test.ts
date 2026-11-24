@@ -346,7 +346,10 @@ describe("tier 5 over HTTP — forwarding, CORS null, WS, guard, mint route", ()
     app.server.on("upgrade", (req, socket, head) => {
       const p = parsePreviewPath(req.url);
       const g = p ? paths.validate(p.pid, { genuinelyLocal: true }) : null;
-      if (!g) return void socket.destroy();
+      if (!g) {
+        socket.destroy();
+        return;
+      }
       handleLiveServerUpgrade(manager, req, socket, head, { previewTargetId: g.targetId });
     });
     const dial = (path: string) =>

@@ -87,10 +87,12 @@ async function rig(opts: { store?: Partial<Pick<LiveCapabilityStore, "lookupByHo
       res.writeHead(200, { "content-type": "text/plain" });
       res.write("chunk1;");
       entered();
-      void released.then(() => {
-        res.write("chunk2;");
-        res.end("done");
-      });
+      released
+        .then(() => {
+          res.write("chunk2;");
+          res.end("done");
+        })
+        .catch(() => res.destroy());
       return;
     }
     res.writeHead(200, { "content-type": "text/plain" });

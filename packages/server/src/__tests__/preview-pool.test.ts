@@ -320,8 +320,6 @@ describe("release on every deletion path (E68, E69, X13, X28, X29, P7)", () => {
     const { mint, store, pool } = await setup(2);
     const m = await mint(session("s1"));
     if (!m.ok) throw new Error("mint");
-    const l = (pool as unknown as { __x?: unknown }).__x; // not exposed: close the server by connecting a hostile error instead
-    void l;
     // Closing every connection and the listening socket from outside: emulate with the store seeing the entry gone.
     store.revokeByPoolPort(m.port, "listener-error");
     expect(pool.heldPorts()).toEqual([]);
@@ -371,7 +369,7 @@ describe("the mint route (E57, E61)", () => {
     await Promise.all(apps.splice(0).map((a) => a.close()));
   });
   async function mk(opts: { principal: "session" | "local" | "device"; poolSize?: number; ipDnsSuffix?: string; bind?: string; interfaces?: string[] }) {
-    const { range, pool, store, manager } = await setup(opts.poolSize ?? 3);
+    const { range, store, manager } = await setup(opts.poolSize ?? 3);
     const logs: string[] = [];
     const bindPool = createPreviewPool({
       range: () => range,
@@ -383,7 +381,6 @@ describe("the mint route (E57, E61)", () => {
       log: (l) => logs.push(l),
     });
     cleanups.push(() => bindPool.close());
-    void pool;
     // Re-point the store's onDelete at the pool this route uses.
     (store as unknown as { onDelete?: unknown }).onDelete = (e: never, r: never) => bindPool.onDelete(e, r);
     const app = Fastify({ logger: false });

@@ -172,7 +172,7 @@ afterEach(async () => {
     open.splice(0).map(
       (s) =>
         new Promise<void>((resolve) => {
-          if ("server" in s) void s.close().then(() => resolve());
+          if ("server" in s) s.close().then(() => resolve(), () => resolve());
           else s.close(() => resolve());
         }),
     ),
