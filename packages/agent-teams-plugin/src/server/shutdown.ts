@@ -22,6 +22,7 @@ import type { MailEngine } from "./mail.js";
 import { fail, isLive } from "./op-util.js";
 import type { TeamStore } from "./store.js";
 import type { LeadItem } from "./tasks.js";
+import type { Telemetry } from "./telemetry.js";
 import type { Actor, Logger } from "./types.js";
 
 interface Request {
@@ -40,6 +41,7 @@ export interface ShutdownDeps {
   store: TeamStore;
   clock: Clock;
   logger: Logger;
+  telemetry: Telemetry;
   config: ConfigReader;
   engine: MailEngine;
   driverFor(team: Team): MemberDriver | undefined;
@@ -75,6 +77,7 @@ export function createShutdown(deps: ShutdownDeps) {
     const req: Request = { actor: opts.actor, prev: member.status === "spawning" || member.status === "disconnected" ? "idle" : member.status, approved: false, released: [], unowned: [], started: false };
     requests.set(k, req);
     store.patchMember(team.id, name, { status: "shutdown_pending" });
+    deps.telemetry.log("shutdown", team.id, { member: name, phase: "requested", actor: opts.actor });
     const from = opts.actor === "server" || opts.actor === "user" ? "server" : LEAD_ADDRESS;
     deps.mailTo(team, name, {
       from,
@@ -89,6 +92,7 @@ export function createShutdown(deps: ShutdownDeps) {
         requests.delete(k);
         const current = store.member(team, name);
         if (current?.status === "shutdown_pending") store.patchMember(team.id, name, { status: req.prev });
+        deps.telemetry.log("shutdown", team.id, { member: name, phase: "timeout" });
         deps.notify(team, { head: `${name} did not answer the server's shutdown request`, wake: true });
         deps.onResumed(team);
       }, deps.config().shutdownGraceMs);
@@ -121,11 +125,13 @@ export function createShutdown(deps: ShutdownDeps) {
       requests.delete(k);
       if (req.timer !== undefined) clock.clearTimeout(req.timer);
       store.patchMember(team.id, name, { status: req.prev });
+      deps.telemetry.log("shutdown", team.id, { member: name, phase: "rejected" });
       deps.notify(team, { head: `${name} rejected the shutdown request`, body: reason.value, wake: true });
       deps.onResumed(team);
       return { ok: true, data: { approved: false } };
     }
     req.approved = true;
+    deps.telemetry.log("shutdown", team.id, { member: name, phase: "approved" });
     if (req.timer !== undefined) clock.clearTimeout(req.timer);
     const freed = deps.releaseTasksOf(team, name, "approved shutdown");
     req.released = freed.released;
@@ -145,6 +151,7 @@ export function createShutdown(deps: ShutdownDeps) {
     const req = requests.get(key(team.id, name));
     if (!req || !req.approved || req.started) return;
     req.started = true;
+    deps.telemetry.log("shutdown", team.id, { member: name, phase: "ending" });
     if (req.timer !== undefined) clock.clearTimeout(req.timer);
     const member = store.member(team, name);
     const driver = deps.driverFor(team);
@@ -180,5 +187,3 @@ export function createShutdown(deps: ShutdownDeps) {
 
   return { request, requestOp, responseOp, onSettle, consume, pendingCount, dispose };
 }
-
-export type Shutdown = ReturnType<typeof createShutdown>;

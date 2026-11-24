@@ -13,7 +13,7 @@ export interface TeamTransport {
   call(op: TeamOp, args: unknown): Promise<LaneResult<unknown>>;
 }
 
-export interface TeamToolResult {
+interface TeamToolResult {
   content: Array<{ type: "text"; text: string }>;
   details: Record<string, unknown>;
 }
@@ -31,7 +31,7 @@ const strList = (description: string) => ({ type: "array", items: { type: "strin
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, ...(required.length ? { required } : {}), additionalProperties: false });
 
 /** Honest limit shown wherever a tool or skill allowlist can be set (design D11). */
-export const ADVISORY_NOTE =
+const ADVISORY_NOTE =
   "Allowlists are advisory while the teammate has the `bash` tool: a shell can still read files or run commands outside them. Omit `bash` from `tools` for a stricter limit.";
 
 const PEER_TRUST =

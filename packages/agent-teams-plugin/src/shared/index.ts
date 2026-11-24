@@ -10,5 +10,6 @@ export * from "./mail-format.js";
 export * from "./plugin-id.js";
 export * from "./policy.js";
 export * from "./protocol.js";
+export * from "./snapshot.js";
 export * from "./text.js";
 export * from "./types.js";

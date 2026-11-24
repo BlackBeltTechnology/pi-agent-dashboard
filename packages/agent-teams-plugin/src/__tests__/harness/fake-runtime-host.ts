@@ -123,5 +123,3 @@ export function createFakeRuntimeHost(opts: FakeRuntimeHostOptions = {}) {
     },
   };
 }
-
-export type FakeRuntimeHost = ReturnType<typeof createFakeRuntimeHost>;

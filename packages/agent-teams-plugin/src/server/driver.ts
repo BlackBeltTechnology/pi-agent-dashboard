@@ -39,7 +39,7 @@ export interface ResolvedSpawnSpec {
   env: Record<string, string | string[]>;
 }
 
-export interface SpawnRequest {
+interface SpawnRequest {
   teamId: string;
   teamName: string;
   member: string;
@@ -51,7 +51,7 @@ export interface SpawnRequest {
   resume?: { sessionFile: string };
 }
 
-export type SpawnOutcome = { ok: true; spawnToken: string } | { ok: false; message: string };
+type SpawnOutcome = { ok: true; spawnToken: string } | { ok: false; message: string };
 
 /** Which member a driver call is about. `sessionId` is unset until the host resolves the session. */
 export interface DriverMemberRef {
@@ -60,7 +60,7 @@ export interface DriverMemberRef {
   sessionId?: string;
 }
 
-export interface AbortOutcome {
+interface AbortOutcome {
   ok: boolean;
   reason?: string;
 }

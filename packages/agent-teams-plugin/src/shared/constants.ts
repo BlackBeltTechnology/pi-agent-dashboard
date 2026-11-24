@@ -27,7 +27,10 @@ export const TEAM_DESCRIPTION_MAX_CHARS = 2000;
 
 /** Mail framing: the whole delivered block (envelope included) is at most this many lines. */
 export const MAX_MAIL_LINES = 150;
-/** A coalesced steer batch is capped exactly like one mail block (no per-steer split in v1). */
+/**
+ * A coalesced steer batch is capped exactly like one mail block (no per-steer split in v1).
+ * @alias
+ */
 export const STEER_BLOCK_MAX_LINES = MAX_MAIL_LINES;
 /** A plan carried by one `plan_request` mail is at most this many lines (templates-hooks change). */
 export const PLAN_MAX_LINES = 120;
@@ -47,6 +50,12 @@ export const NOTIFY_COALESCE_MS = 2000;
 /** REST rate limits per principal (client address when unauthenticated). */
 export const REST_READ_RATE = { perSecond: 8, burst: 16 } as const;
 export const REST_WRITE_RATE = { perSecond: 2, burst: 5 } as const;
+
+/** REST snapshot bounds: the latest mail entries only, each `text` capped (code points) with a `truncated` flag. */
+export const SNAPSHOT_MAIL_LIMIT = 100;
+export const SNAPSHOT_MAIL_TEXT_MAX = 2000;
+/** A route visibility hook that has not answered within this many ms fails closed. */
+export const ROUTE_VISIBILITY_TIMEOUT_MS = 1000;
 
 /** Mail-rate token bucket (task 2.11 / design B-rules): capacity 6, refill 1 per 10 s, broadcast costs 1. */
 export const MAIL_BUCKET = { capacity: 6, refillMs: 10_000 } as const;

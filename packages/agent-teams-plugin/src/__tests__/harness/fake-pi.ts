@@ -11,14 +11,14 @@ import { createLaneClient } from "../../bridge/lane.js";
 import type { TeamToolDef } from "../../bridge/tools.js";
 import type { TeamsEnv } from "./teams-env.js";
 
-export interface SentMessage {
+interface SentMessage {
   message: { customType: string; content: string; display: boolean; details?: Record<string, unknown> };
   options: { deliverAs?: string; triggerTurn?: boolean } | undefined;
 }
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
-export class FakePi {
+class FakePi {
   readonly tools = new Map<string, TeamToolDef>();
   readonly registerOrder: string[] = [];
   active: string[] = ["read", "bash", "edit", "write"];

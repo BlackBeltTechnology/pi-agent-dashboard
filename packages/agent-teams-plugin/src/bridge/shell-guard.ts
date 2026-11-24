@@ -12,7 +12,7 @@ export const SLEEP_REASON = "nothing to claim → end your turn (do not busy-wai
 export const GIT_WRITE_REASON = "git writes are lead-only here: the lead commits. Leave your changes in the working tree and report them in your task result";
 
 /** Total seconds at or above which a bare `sleep` is refused. */
-export const SLEEP_BLOCK_SECONDS = 10;
+const SLEEP_BLOCK_SECONDS = 10;
 
 /**
  * Split a command line into simple commands at `; & | ( ) `` ` `` and newlines (outside quotes) and

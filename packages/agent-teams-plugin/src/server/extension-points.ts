@@ -162,8 +162,9 @@ export function applySpawnContributors(
 /**
  * Run the gates registered for `op` in registration order under ONE shared
  * budget (`budgetMs`, total — not per gate). The first veto wins; a gate that
- * throws or exhausts the budget blocks the op fail-closed. Absent in this change
- * (no gate registers), so core ops never await it.
+ * throws or exhausts the budget blocks the op fail-closed. `ops.callAsync` runs it
+ * for `TaskCreate` / `TaskUpdate{completed}` only when a gate is registered, so with
+ * empty registries core ops never await it.
  */
 export async function runOpGates(
   gates: readonly OpGate[],

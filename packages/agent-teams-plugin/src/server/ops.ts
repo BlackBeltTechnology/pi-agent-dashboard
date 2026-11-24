@@ -54,7 +54,7 @@ import { isRecord, own, stringList, textField } from "./args.js";
 import type { ConfigReader, TeamsConfig } from "./config.js";
 import { createDispatcher } from "./dispatch.js";
 import type { MemberDriver } from "./driver.js";
-import type { ExtensionPoints, TrustedSpawnOptions } from "./extension-points.js";
+import { type ExtensionPoints, runOpGates, type TrustedSpawnOptions } from "./extension-points.js";
 import { createMailEngine } from "./mail.js";
 import { createMailLimits } from "./mail-limits.js";
 import { createMessaging } from "./messaging.js";
@@ -65,6 +65,7 @@ import { createShutdown } from "./shutdown.js";
 import { createSpawnFlow, createSpawnPlanner } from "./spawn.js";
 import type { TeamStore } from "./store.js";
 import { createTaskOps } from "./tasks.js";
+import { createTelemetry } from "./telemetry.js";
 import type { Actor, HostSessionLookup, Logger } from "./types.js";
 
 /** The minimal slice of the host's `getPiResources` result the skill resolver reads. */
@@ -102,7 +103,7 @@ export interface PreparedSpawn {
   committer?: Committer;
 }
 
-export interface SpawnPlanInput {
+interface SpawnPlanInput {
   leadCwd: string;
   team?: Team;
   args: TeammateSpawnArgs;
@@ -184,6 +185,7 @@ export type OpHandler = (args: unknown, caller: Caller, extra?: CallExtra) => Op
 
 export function createOps(deps: OpsDeps) {
   const { store, clock, logger } = deps;
+  const telemetry = createTelemetry(logger);
   const reports = deps.reports ?? new Map<string, SessionReport>();
   const planner = deps.planner ?? createSpawnPlanner(deps.isKnownModel ? { isKnownModel: deps.isKnownModel } : {});
   const newToken = deps.newToken ?? (() => `at-${randomUUID()}`);
@@ -194,7 +196,7 @@ export function createOps(deps: OpsDeps) {
 
   // ── §4/§6/§7 modules (constructed here; they call back through the lambdas below) ──
   const limits = createMailLimits(clock);
-  const engine = createMailEngine({ store, clock, logger, config: deps.config, driverFor, onRevert: (team) => dispatcher.run(team) });
+  const engine = createMailEngine({ store, clock, logger, config: deps.config, telemetry, driverFor, onRevert: (team) => dispatcher.run(team) });
   const mailer: MailFlusher = deps.mailer ?? engine;
   const notices = createNoticeBuffer({
     store,
@@ -206,6 +208,7 @@ export function createOps(deps: OpsDeps) {
   const dispatcher = createDispatcher({
     store,
     config: deps.config,
+    telemetry,
     isEligible: (team, member) => isDispatchEligible(team, member),
     mailTo: (team, to, input) => mailTo(team, to, input),
     onClaim: (team) => limits.resetPairs(team.id),
@@ -214,6 +217,7 @@ export function createOps(deps: OpsDeps) {
     store,
     config: deps.config,
     logger,
+    telemetry,
     onActivity: (team) => {
       limits.resetPairs(team.id);
       dispatcher.run(team);
@@ -224,6 +228,7 @@ export function createOps(deps: OpsDeps) {
     store,
     clock,
     logger,
+    telemetry,
     config: deps.config,
     engine,
     driverFor,
@@ -237,6 +242,7 @@ export function createOps(deps: OpsDeps) {
     store,
     config: deps.config,
     logger,
+    telemetry,
     limits,
     engine,
     driverFor,
@@ -249,6 +255,7 @@ export function createOps(deps: OpsDeps) {
     store,
     clock,
     logger,
+    telemetry,
     config: deps.config,
     ext: deps.ext,
     driverFor,
@@ -302,7 +309,13 @@ export function createOps(deps: OpsDeps) {
       ...(input.priority ? { priority: input.priority } : {}),
       ...(input.details ? { details: input.details } : {}),
     });
-    if (mail) mailer.flush(team.id, to);
+    if (mail) {
+      mailer.flush(team.id, to);
+      if (!engine.isHandedOver(team.id, mail.id)) {
+        telemetry.count(team.id, "queued");
+        telemetry.log("queue", team.id, { from: input.from, chars: input.text.length, wake: input.wake }, `mail ${mail.id} -> ${to}`);
+      }
+    }
     return mail;
   }
 
@@ -397,6 +410,7 @@ export function createOps(deps: OpsDeps) {
     const bound = store.bindLead(teamId, sessionId, opts);
     if (!bound) return fail("team_closed");
     clearOrphanTimer(teamId);
+    telemetry.log("bind", teamId, { role: "lead" });
     // Mail and notices for the lead queued while it was absent (starting/orphaned) flush on (re)bind.
     mailer.flush(teamId, LEAD_ADDRESS);
     dispatcher.run(bound);
@@ -450,7 +464,7 @@ export function createOps(deps: OpsDeps) {
       mailTo(team, m.name, { from: "server", kind: "notice", text: "lead is gone: finish current work and stop", wake: false });
     }
     armOrphanTimer(team);
-    logger.info(`agent-teams: team ${team.id} orphaned`);
+    telemetry.log("orphan", team.id, { members: team.members.filter(isLive).length });
   }
 
   function armOrphanTimer(team: Team): void {
@@ -886,6 +900,7 @@ export function createOps(deps: OpsDeps) {
     if (!team || !member) return fail("not_in_team");
     if (!Number.isInteger(payload.settleId)) return fail("invalid_args");
     if (payload.settleId <= member.lastSettleId) return { ok: true, data: { ignored: true } };
+    telemetry.log("idle", team.id, { member: member.name, settleId: payload.settleId, aborted: payload.aborted === true, errored: payload.error !== undefined, finalChars: payload.finalText?.length ?? 0 });
     const patch: Partial<Member> = { lastSettleId: payload.settleId };
     if (member.status === "busy" || member.status === "disconnected" || member.status === "idle") patch.status = "idle";
     engine.confirm(team.id, member.name);
@@ -1008,8 +1023,28 @@ export function createOps(deps: OpsDeps) {
     return { ok: true, data: paths };
   }
 
-  /** Lane entry: like `call`, but a `TeammateSpawn` with a skill allowlist first resolves the names (sync otherwise). */
+  /** Ops that registered gates may veto before they commit: `TaskCreate` and `TaskUpdate` that completes (D17). */
+  function isGated(op: unknown, args: unknown): op is "TaskCreate" | "TaskUpdate" {
+    if (op === "TaskCreate") return true;
+    return op === "TaskUpdate" && isRecord(args) && own(args, "status") === "completed";
+  }
+
+  /**
+   * Lane entry. A gated op with registered gates first awaits them under one
+   * shared budget (a veto, a throw or a timeout refuses it with `op_blocked`),
+   * then re-resolves the caller — state may have moved during the await — and
+   * continues exactly as without gates. No gate registered ⇒ the sync path.
+   */
   function callAsync(op: unknown, args: unknown, caller: Caller): OpResult<unknown> | Promise<OpResult<unknown>> {
+    const team = caller.team;
+    const gatedOp = isGated(op, args) ? op : undefined;
+    const gates = team && gatedOp ? deps.ext.gatesFor(gatedOp) : [];
+    if (!team || !gatedOp || gates.length === 0) return callUngated(op, args, caller);
+    return runOpGates(gates, { op: gatedOp, team, callerName: caller.name, args }, deps.config().opGateBudgetMs, clock).then((veto) => veto ?? callUngated(op, args, resolveCaller({ sessionId: caller.sessionId })));
+  }
+
+  /** Like `call`, but a `TeammateSpawn` with a skill allowlist first resolves the names (sync otherwise). */
+  function callUngated(op: unknown, args: unknown, caller: Caller): OpResult<unknown> | Promise<OpResult<unknown>> {
     const eligible = op === "TeammateSpawn" && (caller.role === "lead" || (caller.role === "plain" && !isConfined(caller.sessionId)));
     if (!eligible || caller.team?.status === "closed") return call(op, args, caller);
     const parsed = parseSpawnArgs(args, deps.config());
@@ -1032,6 +1067,7 @@ export function createOps(deps: OpsDeps) {
   }
 
   return {
+    telemetry,
     reports,
     resolveCaller,
     isConfined,

@@ -16,7 +16,7 @@ import { SCHEMA_VERSION } from "../shared/constants.js";
 import type { Mail, Team, TeamStatus } from "../shared/types.js";
 import type { Logger } from "./types.js";
 
-export const WRITE_COALESCE_MS = 100;
+const WRITE_COALESCE_MS = 100;
 const TEAM_STATUSES: readonly TeamStatus[] = ["starting", "active", "orphaned", "closing", "closed"];
 const DAY_MS = 86_400_000;
 
@@ -54,7 +54,7 @@ export interface UnavailableTeam {
   file: string;
 }
 
-export interface LoadedTeam {
+interface LoadedTeam {
   team: Team;
   mail: Mail[];
 }
@@ -120,7 +120,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** Structural check of a persisted team (wrong types → corrupt). */
-export function isTeamShape(v: unknown): v is Team {
+function isTeamShape(v: unknown): v is Team {
   if (!isObject(v)) return false;
   return (
     typeof v.id === "string" &&
@@ -141,7 +141,7 @@ export function isTeamShape(v: unknown): v is Team {
 }
 
 /** Replay a mail log: later lines win per id, ack tombstones fold into `ackedAt`, a torn last line is skipped. */
-export function parseMailLog(raw: string): Mail[] {
+function parseMailLog(raw: string): Mail[] {
   const byId = new Map<number, Mail>();
   const acks: Array<{ ids: number[]; at: number }> = [];
   for (const line of raw.split("\n")) {

@@ -42,7 +42,7 @@ export interface TeamsConfig {
 let schemaDefaults: Record<string, unknown> | undefined;
 
 /** Defaults declared by the shipped schema (`properties.<key>.default`). */
-export function schemaConfigDefaults(): Record<string, unknown> {
+function schemaConfigDefaults(): Record<string, unknown> {
   if (schemaDefaults) return schemaDefaults;
   const schemaPath = new URL("../configSchema.json", import.meta.url);
   const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8")) as {

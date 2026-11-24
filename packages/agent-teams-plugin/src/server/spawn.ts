@@ -36,11 +36,12 @@ import { applySpawnContributors, type ExtensionPoints } from "./extension-points
 import { fail, isLive } from "./op-util.js";
 import type { PreparedSpawn, SpawnPlanner, SpawnStartInput } from "./ops.js";
 import type { TeamStore } from "./store.js";
+import type { Telemetry } from "./telemetry.js";
 import type { HostSessionLookup, Logger } from "./types.js";
 
 const PROMPT_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
-export const TEAMMATE_PROMPT = path.join(PROMPT_DIR, "teammate.md");
-export const TEAMMATE_MEMBER_COMMIT_PROMPT = path.join(PROMPT_DIR, "teammate-member-commit.md");
+const TEAMMATE_PROMPT = path.join(PROMPT_DIR, "teammate.md");
+const TEAMMATE_MEMBER_COMMIT_PROMPT = path.join(PROMPT_DIR, "teammate-member-commit.md");
 
 // ── planner (synchronous, before the member record exists) ─────────────────────
 
@@ -59,7 +60,7 @@ export interface SpawnPlannerDeps {
 const MODEL_PATTERN = /^[A-Za-z0-9@][A-Za-z0-9@._:/+-]{0,199}$/;
 
 /** Path-segment containment: `/work/lead-evil` is NOT inside `/work/lead`. */
-export function isInside(child: string, root: string): boolean {
+function isInside(child: string, root: string): boolean {
   const rel = path.relative(root, child);
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
@@ -73,7 +74,7 @@ function realOrLexical(fsx: SpawnFs, p: string): string {
 }
 
 /** Resolve a member `cwd` against the lead cwd + `extraCwdRoots`; confinement first, then existence. */
-export function resolveMemberCwd(fsx: SpawnFs, leadCwd: string, requested: string, extraRoots: readonly string[]): OpResult<string> {
+function resolveMemberCwd(fsx: SpawnFs, leadCwd: string, requested: string, extraRoots: readonly string[]): OpResult<string> {
   const abs = path.resolve(leadCwd, requested);
   const lexicalRoots = [leadCwd, ...extraRoots].map((r) => path.resolve(r));
   const realRoots = lexicalRoots.map((r) => realOrLexical(fsx, r));
@@ -137,7 +138,7 @@ const unique = (xs: readonly string[]): string[] => [...new Set(xs)];
  * (narrow-only) → team tools appended to any allowlist → env/policy projection.
  * The returned `policyHash` is what the member's `hello` must report.
  */
-export function buildSpawnSpec(input: {
+function buildSpawnSpec(input: {
   team: Team;
   member: Member;
   prepared: PreparedSpawn;
@@ -187,6 +188,7 @@ export interface SpawnFlowDeps {
   clock: Clock;
   logger: Logger;
   config: ConfigReader;
+  telemetry: Telemetry;
   ext: ExtensionPoints;
   driverFor(team: Team): MemberDriver | undefined;
   hostSession: HostSessionLookup;
@@ -264,6 +266,8 @@ export function createSpawnFlow(deps: SpawnFlowDeps) {
     const { spec, policyHash: hash } = buildSpawnSpec({ team, member, prepared, config: deps.config(), ext: deps.ext, logger });
     store.patchMember(team.id, member.name, { policyHash: hash, guardActive: false, ...(spec.tools ? { tools: spec.tools } : {}), ...(spec.skills ? { skills: spec.skills } : {}) });
     arm(team, member);
+    deps.telemetry.count(team.id, "spawns");
+    deps.telemetry.log("spawn", team.id, { member: member.name, resume: resume === true, tools: spec.tools?.length, skills: spec.skills?.length });
     const outcome = await driver.spawn({
       teamId: team.id,
       teamName: team.name,
@@ -293,6 +297,7 @@ export function createSpawnFlow(deps: SpawnFlowDeps) {
     }
     const sessionFile = deps.hostSession(sessionId)?.sessionFile;
     store.patchMember(team.id, member.name, { sessionId, ...(sessionFile ? { sessionFile } : {}) }, { writeThrough: true });
+    deps.telemetry.log("bind", team.id, { role: "member", member: member.name });
     return true;
   }
 

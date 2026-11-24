@@ -15,6 +15,7 @@ import { createModeRegistry, type ModeRegistry } from "./modes.js";
 import { createOps, type MailFlusher, type Ops, type SpawnPlanner, type SpawnStarter } from "./ops.js";
 import { type PersistFs, TeamPersistence } from "./persistence.js";
 import { TeamStore } from "./store.js";
+import type { Telemetry } from "./telemetry.js";
 import { type HostSessionLookup, narrowHostSession } from "./types.js";
 
 /** The `ServerPluginContext` members the runtime drives. */
@@ -52,6 +53,8 @@ export interface TeamsRuntime {
   store: TeamStore;
   persistence: TeamPersistence;
   ops: Ops;
+  /** Counters + structured logs (the REST snapshot `stats`). */
+  telemetry: Telemetry;
   modes: ModeRegistry;
   ext: ExtensionPoints;
   /** Whether the request lane could be registered (false on an old host). */
@@ -124,6 +127,7 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
     store,
     persistence,
     ops,
+    telemetry: ops.telemetry,
     modes,
     ext,
     laneRegistered,

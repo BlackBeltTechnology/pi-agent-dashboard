@@ -7,13 +7,30 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { createFakeRuntimeHost, createStoreEnv, FakeClock, memberFixture, type StoreEnv } from "../../__tests__/harness/index.js";
+import type { TeamListResponse, TeamSnapshot } from "../../shared/snapshot.js";
 import { createExtensionPoints } from "../extension-points.js";
 import { mailLineBytes, nodePersistFs, type PersistFs, selectCompaction } from "../persistence.js";
+import { API_PREFIX, mountTeamsRoutes } from "../routes.js";
 import { createTeamsRuntime } from "../runtime.js";
+import { createTelemetry } from "../telemetry.js";
+import { silentLogger } from "../types.js";
 
 const DAY = 86_400_000;
+
+/** `GET` against the real REST routes mounted over a store env's store. */
+async function restGet<T>(env: StoreEnv, url: string): Promise<{ status: number; body: T }> {
+  const app = Fastify();
+  try {
+    await mountTeamsRoutes(app, { store: env.store, telemetry: createTelemetry(silentLogger), ext: createExtensionPoints(), logger: silentLogger });
+    const res = await app.inject({ method: "GET", url: `${API_PREFIX}${url}` });
+    return { status: res.statusCode, body: res.json() as T };
+  } finally {
+    await app.close();
+  }
+}
 
 function seedTeam(env: StoreEnv) {
   const team = env.store.createTeam({ name: "alpha", leadSessionId: "S-lead", leadCwd: "/work", mode: "session", maxTeammates: 5 });
@@ -358,6 +375,53 @@ describe("corrupt or newer file (S81)", () => {
     expect(env3.store.unavailableTeams).toHaveLength(4);
     expect(env3.logs.warn).toEqual([]);
     expect(env3.store.get(team.id)?.name).toBe("ok");
+  });
+});
+
+describe("corrupt or newer file (S81, REST half)", () => {
+  it("REST lists each quarantined file as unavailable, without a path, and still lists the healthy team", async () => {
+    const env = createStoreEnv();
+    const team = env.store.createTeam({ name: "ok", leadSessionId: "L", leadCwd: "/w", mode: "session", maxTeammates: 5 });
+    await env.persistence.flush();
+    fs.writeFileSync(path.join(env.teamsDir, "bad.json"), '{"id":"bad","sche');
+    fs.writeFileSync(path.join(env.teamsDir, "new.json"), JSON.stringify({ id: "new", schemaVersion: 2 }));
+    const env2 = env.restart();
+    const { status, body } = await restGet<TeamListResponse>(env2, "/teams");
+    expect(status).toBe(200);
+    expect(body.teams.map((t) => t.id)).toEqual([team.id]);
+    expect([...body.unavailable].sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "bad", reason: "corrupt" },
+      { id: "new", reason: "future" },
+    ]);
+    expect(JSON.stringify(body)).not.toContain(env2.teamsDir);
+    expect((await restGet(env2, "/teams/new")).status).toBe(404); // unavailable ≠ a team that can be fetched
+  });
+});
+
+describe("persist failure (S83, REST half)", () => {
+  it("persist_degraded is true in the list and the snapshot after a failed write and clears on the next successful one", async () => {
+    const clock = new FakeClock(1_700_000_000_000);
+    let fail = true;
+    const env = createStoreEnv({
+      clock,
+      fs: failingFs({
+        async writeFile(file, data) {
+          if (fail) throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+          await nodePersistFs.writeFile(file, data);
+        },
+      }),
+    });
+    const team = env.store.createTeam({ name: "t", leadSessionId: "L", leadCwd: "/w", mode: "session", maxTeammates: 5 });
+    await env.persistence.idle();
+    expect((await restGet<TeamListResponse>(env, "/teams")).body.persist_degraded).toBe(true);
+    const degraded = await restGet<TeamSnapshot>(env, `/teams/${team.id}`);
+    expect(degraded.body.persist_degraded).toBe(true);
+    expect(degraded.body.name).toBe("t"); // state stays served from memory
+    fail = false;
+    env.store.addTask(team.id, { title: "a", description: "d", createdBy: "lead" });
+    clock.advance(100);
+    await env.persistence.idle();
+    expect((await restGet<TeamSnapshot>(env, `/teams/${team.id}`)).body.persist_degraded).toBe(false);
   });
 });
 

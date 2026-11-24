@@ -25,6 +25,7 @@ import { isRecord, own, textField } from "./args.js";
 import type { ConfigReader } from "./config.js";
 import { compareTaskIds, fail, isLive } from "./op-util.js";
 import type { TeamStore } from "./store.js";
+import type { Telemetry } from "./telemetry.js";
 import type { Logger } from "./types.js";
 
 /** Who performs a task operation: the lead, a teammate, or the trusted in-process server actor. */
@@ -45,6 +46,7 @@ export interface TaskOpsDeps {
   store: TeamStore;
   config: ConfigReader;
   logger: Logger;
+  telemetry: Telemetry;
   /** A create/claim/complete/assign committed: reset pair counters and run the dispatcher. */
   onActivity(team: Team): void;
   notify(team: Team, item: LeadItem): void;
@@ -74,7 +76,7 @@ export interface UpdateTaskInput {
 }
 
 /** Dependency ids of `task`, as agents see them (full result, truncated by the caller). */
-export function dependenciesOf(store: TeamStore, team: Team, task: Task, resultMax: number): TaskDependency[] {
+function dependenciesOf(store: TeamStore, team: Team, task: Task, resultMax: number): TaskDependency[] {
   const out: TaskDependency[] = [];
   for (const id of task.blockedBy) {
     const dep = store.task(team, id);
@@ -331,8 +333,11 @@ export function createTaskOps(deps: TaskOpsDeps) {
     if (status !== undefined) {
       if (task.status === "completed") return fail("invalid_transition", `task ${id} is completed`);
       if (status === "in_progress") {
-        if (task.status === "in_progress") return fail("already_claimed", `task ${id} is already in progress`);
-        if (task.owner !== undefined && task.owner !== who.name) return fail("already_claimed", `task ${id} is owned by ${task.owner}`);
+        if (task.status === "in_progress" || (task.owner !== undefined && task.owner !== who.name)) {
+          deps.telemetry.count(team.id, "claimConflicts");
+          deps.telemetry.log("claim", team.id, { task: id, by: who.name, conflict: true });
+          return fail("already_claimed", task.status === "in_progress" ? `task ${id} is already in progress` : `task ${id} is owned by ${task.owner}`);
+        }
         if (store.isBlocked(team, task)) return fail("blocked", `task ${id} has unfinished dependencies`);
         claim = true;
         patch.status = "in_progress";
@@ -388,6 +393,11 @@ export function createTaskOps(deps: TaskOpsDeps) {
         });
       }
     }
+    if (claim) {
+      deps.telemetry.count(team.id, "claims");
+      deps.telemetry.log("claim", team.id, { task: id, by: who.name });
+    }
+    if (complete) deps.telemetry.log("complete", team.id, { task: id, by: who.name, resultChars: after.result?.length ?? 0 });
     if (claim || complete || assignTo !== undefined || fields.addBlockedBy) deps.onActivity(team);
     const final = store.task(team, id) as Task;
     return {
@@ -435,5 +445,3 @@ export function createTaskOps(deps: TaskOpsDeps) {
 
   return { taskCreate, taskList, taskGet, taskUpdate, createTask, updateTask, releaseTasksOf, view, dependenciesOf: (team: Team, task: Task) => dependenciesOf(store, team, task, config().maxResultChars) };
 }
-
-export type TaskOps = ReturnType<typeof createTaskOps>;

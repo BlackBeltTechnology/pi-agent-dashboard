@@ -41,7 +41,7 @@ export interface NoticesDeps {
 }
 
 /** `• head` plus `│ `-prefixed continuation lines for peer text. */
-export function renderNoticeItem(item: Pick<NoticeItem, "head" | "body">): string {
+function renderNoticeItem(item: Pick<NoticeItem, "head" | "body">): string {
   const head = item.head.replace(/[\r\n]+/g, " ");
   return formatNoticeItem(item.body !== undefined && item.body !== "" ? `${head}\n${item.body}` : head);
 }
@@ -98,5 +98,3 @@ export function createNoticeBuffer(deps: NoticesDeps) {
 
   return { add, drain, drop, pending, dispose };
 }
-
-export type NoticeBuffer = ReturnType<typeof createNoticeBuffer>;

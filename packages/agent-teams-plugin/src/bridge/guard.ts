@@ -99,7 +99,7 @@ export function decideToolCall(toolName: unknown, input: unknown, policy: Teamma
  * matches a grant (`<root>/SKILL.md`), at most one entry per grant. Construct a FRESH predicate per agent
  * start — the grant slots are single-use (team-plugin audit F3).
  */
-export function grantedSkillFilter(policy: TeammatePolicy | null): (entry: unknown) => boolean {
+function grantedSkillFilter(policy: TeammatePolicy | null): (entry: unknown) => boolean {
   if (!policy?.skills) return policy ? () => true : () => false;
   const slots = policy.skills.map((s) => ({ name: s.name, canonical: canonicalize(path.join(s.root, "SKILL.md")), used: false }));
   return (entry: unknown) => {
@@ -116,7 +116,7 @@ export function grantedSkillFilter(policy: TeammatePolicy | null): (entry: unkno
 }
 
 /** Layer 3: is this user input refused? An ungranted `/skill:<name>` or an envelope located outside every granted root. */
-export function isRefusedInput(text: unknown, policy: TeammatePolicy | null): boolean {
+function isRefusedInput(text: unknown, policy: TeammatePolicy | null): boolean {
   if (typeof text !== "string") return false;
   if (policy && !policy.skills) return false; // unrestricted
   const command = parseSkillCommand(text);

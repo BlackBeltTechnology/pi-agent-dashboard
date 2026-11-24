@@ -13,10 +13,12 @@ import type { ConfigReader } from "./config.js";
 import { compareTaskIds } from "./op-util.js";
 import type { TeamStore } from "./store.js";
 import { assignmentText } from "./tasks.js";
+import type { Telemetry } from "./telemetry.js";
 
 export interface DispatcherDeps {
   store: TeamStore;
   config: ConfigReader;
+  telemetry: Telemetry;
   /** Team `active`, member idle/not held/not degraded/no in_progress, hooks agree (ops-owned predicate). */
   isEligible(team: Team, member: Member): boolean;
   /** Append a mail and try to deliver it (ops `mailTo`). */
@@ -48,6 +50,8 @@ export function createDispatcher(deps: DispatcherDeps) {
     if (!next) return undefined;
     const claimed = store.patchTask(team.id, next.task.id, { status: "in_progress", owner: member.name });
     if (!claimed) return undefined;
+    deps.telemetry.count(team.id, "claims");
+    deps.telemetry.log("claim", team.id, { task: claimed.id, by: member.name, dispatched: true });
     deps.onClaim(team);
     deps.mailTo(team, member.name, {
       from: "server",
@@ -69,5 +73,3 @@ export function createDispatcher(deps: DispatcherDeps) {
 
   return { run, dispatchMember };
 }
-
-export type Dispatcher = ReturnType<typeof createDispatcher>;

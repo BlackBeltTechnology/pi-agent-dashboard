@@ -7,15 +7,15 @@
  */
 import { type MemberDriver, SESSION_MODE } from "./driver.js";
 
-export type ModeAvailability = { ok: true } | { ok: false; reason: string };
+type ModeAvailability = { ok: true } | { ok: false; reason: string };
 
-export interface ModeEntry {
+interface ModeEntry {
   driver: MemberDriver;
   /** Per-caller availability (e.g. a mode that needs a capability the caller lacks). */
   available?: (callerSessionId?: string) => ModeAvailability;
 }
 
-export type ModeResolution = { ok: true; mode: string; entry: ModeEntry } | { ok: false; reason: string };
+type ModeResolution = { ok: true; mode: string; entry: ModeEntry } | { ok: false; reason: string };
 
 export interface ModeRegistry {
   register(mode: string, entry: ModeEntry): void;

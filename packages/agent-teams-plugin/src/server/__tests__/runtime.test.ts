@@ -6,7 +6,7 @@
  * See change: add-agent-teams-core.
  */
 import { describe, expect, it, vi } from "vitest";
-import { createFakeRuntimeHost, createTeamsEnv, FakeClock, memberFixture } from "../../__tests__/harness/index.js";
+import { createFakeRuntimeHost, createTeamsEnv, FakeClock, loadConfigDefaults, memberFixture } from "../../__tests__/harness/index.js";
 import { TEAM_TOOLS_BY_ROLE } from "../../shared/protocol.js";
 import { createSessionDriver } from "../driver.js";
 import { applySpawnContributors, createExtensionPoints, runOpGates } from "../extension-points.js";
@@ -1149,5 +1149,196 @@ describe("exit vs dispatch (S67)", () => {
     expect(after.filter((m) => m.kind === "task_assigned")).toHaveLength(1); // only the fresh dispatch of the pending task
     expect(after.map((m) => m.id)).not.toContain(discarded);
     expect(e.mailsTo(team, "bob").filter((m) => m.kind === "task_assigned")).toHaveLength(2);
+  });
+});
+
+describe("server actor ops (S56)", () => {
+  const wakesWith = (e: ReturnType<typeof createTeamsEnv>, marker: string) => e.wireMails("lead").filter((m) => m.text.includes(marker) && m.wake).length;
+
+  it("server mail is `from server`; the lead is woken only by a rejection or a timeout, never by an approval", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    for (const n of ["alice", "bob", "carol"]) e.addMember(team, n, "idle");
+
+    // sendServerMail / enqueueLeadNotice: the wake flag decides
+    expect(e.rt.ops.sendServerMail(team, "alice", { kind: "notice", text: "fyi-server", wake: false }).ok).toBe(true);
+    e.rt.ops.enqueueLeadNotice(team, { text: "notice-quiet", wake: false });
+    e.rt.ops.enqueueLeadNotice(team, { text: "notice-loud", wake: true });
+    expect(e.mailsTo(team, "alice").find((m) => m.text === "fyi-server")).toMatchObject({ from: "server", kind: "notice", wake: false });
+    expect(wakesWith(e, "notice-quiet")).toBe(0);
+    expect(wakesWith(e, "notice-loud")).toBe(1);
+
+    // approve: no wake
+    expect(e.rt.ops.requestShutdown(team, "alice", { actor: "server" }).ok).toBe(true);
+    expect(e.mailsTo(team, "alice").find((m) => m.kind === "shutdown_request")).toMatchObject({ from: "server", wake: true });
+    expect(await e.call("alice", "ShutdownResponse", { approve: true })).toMatchObject({ ok: true, data: { approved: true } });
+    await e.idle("alice", { settleId: 1, finalText: "bye" });
+    await e.settle();
+    e.flushNotices();
+    expect(e.member(team, "alice").status).toBe("gone");
+    expect(e.wireMails("lead").filter((m) => m.wake && m.text.includes("alice"))).toEqual([]);
+
+    // reject: wakes the lead
+    expect(e.rt.ops.requestShutdown(team, "bob", { actor: "server" }).ok).toBe(true);
+    expect(await e.call("bob", "ShutdownResponse", { approve: false, reason: "mid-task" })).toMatchObject({ ok: true, data: { approved: false } });
+    e.flushNotices();
+    expect(e.wireMails("lead").filter((m) => m.wake && m.text.includes("bob rejected"))).toHaveLength(1);
+
+    // timeout: wakes the lead once the grace passes unanswered
+    expect(e.rt.ops.requestShutdown(team, "carol", { actor: "server" }).ok).toBe(true);
+    e.flushNotices(10_000);
+    e.flushNotices();
+    expect(e.wireMails("lead").filter((m) => m.wake && m.text.includes("carol did not answer"))).toHaveLength(1);
+    expect(e.member(team, "carol").status).toBe("idle");
+  });
+
+  it("the actor ops never widen what a lane caller may do, and refuse unknown members", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    e.addMember(team, "alice", "idle");
+    e.addMember(team, "bob", "idle");
+    expect(await e.call("alice", "ShutdownRequest", { to: "bob" })).toMatchObject({ ok: false, error: "not_lead" });
+    expect(await e.call("alice", "SendMessage", { to: "bob", message: "x", kind: "shutdown_request" })).toMatchObject({ ok: false, error: "kind_reserved" });
+    expect(e.rt.ops.requestShutdown(team, "ghost", { actor: "server" })).toMatchObject({ ok: false, error: "unknown_recipient" });
+    expect(e.rt.ops.sendServerMail(team, "ghost", { kind: "notice", text: "x", wake: true })).toMatchObject({ ok: false, error: "unknown_recipient" });
+    expect(e.mailsTo(team, "bob").filter((m) => m.from === "alice")).toEqual([]);
+  });
+});
+
+describe("registries are inert, then bound by the server (S57)", () => {
+  const golden = (e: ReturnType<typeof createTeamsEnv>, team: { id: string }) => {
+    const sp = e.fake.base.spawns[0] as unknown as { cwd: string; name: string; scope: Record<string, unknown> & { appendSystemPrompt: string[] } };
+    return {
+      cwd: sp.cwd,
+      name: sp.name,
+      scopeKeys: Object.keys(sp.scope).sort(),
+      extensionConfig: sp.scope.extensionConfig,
+      noMcp: sp.scope.noMcp,
+      noContextFiles: sp.scope.noContextFiles,
+      prompts: sp.scope.appendSystemPrompt.map((p) => p.split("/").pop()),
+      teamId: team.id,
+    };
+  };
+
+  it("empty registries == the plain session flow (golden spawn spec)", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    await e.call("lead", "TeammateSpawn", { name: "alice", prompt: "go" });
+    expect(golden(e, team)).toEqual({
+      cwd: "/work",
+      name: "alpha/alice",
+      scopeKeys: ["appendSystemPrompt", "extensionConfig", "noContextFiles", "noMcp"],
+      extensionConfig: { "agent-teams": { teamId: team.id, member: "alice", policy: '{"v":1,"blockSleepPolling":true,"blockGitWrite":true,"committer":"lead"}', committer: "lead" } },
+      noMcp: false,
+      noContextFiles: false,
+      prompts: ["teammate.md"],
+      teamId: team.id,
+    });
+  });
+
+  it("registered hooks: tools are only narrowed, cwd is kept, eligibility skips a member, a gate vetoes an op", async () => {
+    const ext = createExtensionPoints();
+    ext.registerSpawnContributor(() => ({ tools: ["read", "write", "bash"], cwd: "/evil" }));
+    ext.registerDispatchEligibility((_team, member) => member.name !== "alice");
+    ext.registerOpGate("TaskCreate", ({ args }) => ((args as { title?: string }).title === "gated" ? { block: true, feedback: "needs a plan" } : undefined));
+    const e = createTeamsEnv({ ext });
+    const team = await e.createTeam();
+    await e.call("lead", "TeammateSpawn", { name: "carol", prompt: "go", tools: ["read"] });
+    const sp = e.fake.base.spawns[0] as unknown as { cwd: string; scope: { tools: string[] } };
+    expect(sp.cwd).toBe("/work"); // the contributor's cwd is ignored
+    expect(sp.scope.tools).toEqual(["read", "TaskCreate", "TaskList", "TaskGet", "TaskUpdate", "SendMessage", "TeamStatus", "ShutdownResponse"]); // `write`/`bash` would widen
+    expect(e.fake.logs.warn.filter((l) => l.includes("cwd")).length).toBeGreaterThan(0);
+
+    e.addMember(team, "alice", "idle");
+    e.addMember(team, "bob", "idle");
+    expect(await e.call("lead", "TaskCreate", { title: "gated", description: "d" })).toMatchObject({ ok: false, error: "op_blocked", message: "needs a plan" });
+    expect(team.tasks).toHaveLength(0);
+    expect((await e.call("lead", "TaskCreate", { title: "open", description: "d" })).ok).toBe(true);
+    expect(team.tasks[0]).toMatchObject({ status: "in_progress", owner: "bob" }); // alice is skipped by the hook
+    expect(e.rt.ext.routeVisibility).toBeUndefined();
+  });
+});
+
+describe("op gates on completion (S57, gate half)", () => {
+  it("TaskUpdate{completed} awaits its gates (veto, throw and hang block it); other updates are not gated", async () => {
+    const ext = createExtensionPoints();
+    let mode: "veto" | "throw" | "hang" | "pass" = "veto";
+    ext.registerOpGate("TaskUpdate", () => {
+      if (mode === "veto") return { block: true, feedback: "tests first" };
+      if (mode === "throw") throw new Error("gate crashed");
+      if (mode === "hang") return new Promise<undefined>(() => {});
+      return undefined;
+    });
+    const e = createTeamsEnv({ ext });
+    const team = await e.createTeam();
+    e.addMember(team, "alice", "idle");
+    await e.call("lead", "TaskCreate", { title: "t", description: "d" });
+    expect(team.tasks[0]).toMatchObject({ status: "in_progress", owner: "alice" });
+    expect(await e.call("alice", "TaskUpdate", { id: "1", status: "completed" })).toMatchObject({ ok: false, error: "op_blocked", message: "tests first" });
+    expect(team.tasks[0]?.status).toBe("in_progress");
+    mode = "throw";
+    expect(await e.call("alice", "TaskUpdate", { id: "1", status: "completed" })).toMatchObject({ ok: false, error: "op_blocked" });
+    mode = "hang";
+    const hung = e.call("alice", "TaskUpdate", { id: "1", status: "completed" });
+    e.clock.advance(loadConfigDefaults().opGateBudgetMs as number);
+    expect(await hung).toMatchObject({ ok: false, error: "op_blocked", message: "op gate timed out" });
+    mode = "veto";
+    expect((await e.call("alice", "TaskUpdate", { id: "1", note: "progress" })).ok).toBe(true); // not a completion: ungated
+    mode = "pass";
+    expect((await e.call("alice", "TaskUpdate", { id: "1", status: "completed", result: "ok" })).ok).toBe(true);
+    expect(team.tasks[0]?.status).toBe("completed");
+  });
+});
+
+describe("config changes limits at runtime (S58)", () => {
+  it("team size, open tasks and message size follow the live config; per-team overrides win for autoDispatch", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    e.fake.base.setConfig({ maxTeammates: 3, maxTasks: 2, maxMessageChars: 10 });
+    for (const n of ["a1", "a2", "a3"]) expect((await e.call("lead", "TeammateSpawn", { name: n, prompt: "go" })).ok, n).toBe(true);
+    expect(await e.call("lead", "TeammateSpawn", { name: "a4", prompt: "go" })).toMatchObject({ ok: false, error: "team_full" });
+    expect((await e.call("lead", "TaskCreate", { title: "t1", description: "d" })).ok).toBe(true);
+    expect((await e.call("lead", "TaskCreate", { title: "t2", description: "d" })).ok).toBe(true);
+    expect(await e.call("lead", "TaskCreate", { title: "t3", description: "d" })).toMatchObject({ ok: false, error: "task_cap_reached" });
+    e.addMember(team, "bob", "busy");
+    expect((await e.call("lead", "SendMessage", { to: "bob", message: "x".repeat(10) })).ok).toBe(true);
+    expect(await e.call("lead", "SendMessage", { to: "bob", message: "x".repeat(11) })).toMatchObject({ ok: false, error: "message_too_long" });
+    // no restart: raising the limit applies at once
+    e.fake.base.setConfig({ maxTasks: 3 });
+    expect((await e.call("lead", "TaskCreate", { title: "t3", description: "d" })).ok).toBe(true);
+  });
+
+  it("autoDispatch=false (changed at runtime) stops auto-claim; Team.overrides.autoDispatch wins over the config", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    e.addMember(team, "alice", "idle");
+    await e.call("lead", "TaskCreate", { title: "auto", description: "d" });
+    expect(team.tasks[0]).toMatchObject({ status: "in_progress", owner: "alice" });
+    await e.call("alice", "TaskUpdate", { id: "1", status: "completed" });
+    await e.idle("alice", { settleId: 1, finalText: "done" });
+    e.fake.base.setConfig({ autoDispatch: false });
+    await e.call("lead", "TaskCreate", { title: "manual", description: "d" });
+    expect(team.tasks[1]).toMatchObject({ status: "pending" });
+    expect(team.tasks[1]?.owner).toBeUndefined();
+    e.rt.store.patchTeam(team.id, { overrides: { autoDispatch: true } }); // the per-team override wins
+    await e.call("lead", "TaskCreate", { title: "override", description: "d" });
+    expect(team.tasks.find((t) => t.title === "manual")?.status).toBe("in_progress");
+  });
+});
+
+describe("store listener throws (S118)", () => {
+  it("the completion commits, the op result is returned, and the listener error is logged once", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    e.addMember(team, "alice", "idle");
+    e.rt.store.on("task_completed", () => {
+      throw new Error("listener boom");
+    });
+    await e.call("lead", "TaskCreate", { title: "t", description: "d" });
+    expect(team.tasks[0]).toMatchObject({ status: "in_progress", owner: "alice" });
+    const res = await e.call("alice", "TaskUpdate", { id: "1", status: "completed", result: "ok" });
+    expect(res).toMatchObject({ ok: true, data: { task: { id: "1", status: "completed" } } });
+    expect(team.tasks[0]).toMatchObject({ status: "completed", result: "ok" });
+    expect(e.fake.logs.error.filter((l) => l.includes("task_completed") && l.includes("listener boom"))).toHaveLength(1);
   });
 });

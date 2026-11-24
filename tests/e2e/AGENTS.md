@@ -13,7 +13,7 @@ One row per file.
 | `agent-credential-refusal.spec.ts` | → `agent-credential-refusal.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → `agent-path-gate.spec.ts.AGENTS.md` |
 | `agent-secret-guards.spec.ts` | → `agent-secret-guards.spec.ts.AGENTS.md` |
-| `agent-teams-core.spec.ts` | L3 SKELETON (add-agent-teams-core 1.15, test-plan S133/S134): `test.fixme` rows for teammate-session-visible and orphan/restart card state; need a faux-scripted lead (TeamCreate/TeammateSpawn). Port from `BASE_URL`, never `:18000`. |
+| `agent-teams-core.spec.ts` | L3 (add-agent-teams-core, test-plan S133/S134): a faux-scripted lead (`agent-teams-lead-spawn`/`-task`) creates a team + teammate `alice`; S133 alice is an ordinary openable session card, busy while parked on `ask-select`, no auto-claim until idle, converges to `idle:alice`; S134 cards survive `/api/restart` and the REST snapshot converges (no `disconnected`). Skips when `/api/plugins/agent-teams/teams` is 404. Port from the `page` baseURL, never `:18000`. |
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → `archived-attachment.spec.ts.AGENTS.md` |

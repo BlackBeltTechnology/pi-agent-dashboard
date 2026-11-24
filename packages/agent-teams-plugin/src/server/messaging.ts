@@ -20,12 +20,14 @@ import type { MailLimits } from "./mail-limits.js";
 import { fail, isLive } from "./op-util.js";
 import type { TeamStore } from "./store.js";
 import type { LeadItem } from "./tasks.js";
+import type { Telemetry } from "./telemetry.js";
 import type { Logger } from "./types.js";
 
 export interface MessagingDeps {
   store: TeamStore;
   config: ConfigReader;
   logger: Logger;
+  telemetry: Telemetry;
   limits: MailLimits;
   engine: MailEngine;
   driverFor(team: Team): MemberDriver | undefined;
@@ -45,6 +47,12 @@ const KIND_MESSAGE = "message";
 
 export function createMessaging(deps: MessagingDeps) {
   const { store, config, logger, limits, engine } = deps;
+
+  function limited(team: Team, sender: string, limit: "pair" | "bucket", message: string) {
+    deps.telemetry.count(team.id, "rateLimited");
+    logger.info(`agent-teams: rate_limited team=${team.id} sender=${sender} limit=${limit}`);
+    return fail("rate_limited", message);
+  }
 
   function sendMessage(raw: unknown, caller: MessagingCaller): OpResult<SendMessageResult> {
     const team = caller.team;
@@ -98,9 +106,9 @@ export function createMessaging(deps: MessagingDeps) {
       if (verdict === "tripped") {
         deps.notify(team, { head: `${pair[0]} and ${pair[1]} exchanged ${cfg.pairExchangeLimit} mails with no task change in between; further mails between them are rate limited until the task list changes`, wake: false });
       }
-      if (verdict !== "ok") return fail("rate_limited", "too many mails between these two members without task progress");
+      if (verdict !== "ok") return limited(team, sender, "pair", "too many mails between these two members without task progress");
     }
-    if (!limits.takeToken(team.id, sender, cfg.mailRatePerMin)) return fail("rate_limited", `at most ${cfg.mailRatePerMin} messages per minute`);
+    if (!limits.takeToken(team.id, sender, cfg.mailRatePerMin)) return limited(team, sender, "bucket", `at most ${cfg.mailRatePerMin} messages per minute`);
     if (pair) limits.bumpPair(team.id, pair[0], pair[1]);
 
     // Create + hand over.
@@ -140,11 +148,10 @@ export function createMessaging(deps: MessagingDeps) {
       logger.warn(`agent-teams: urgent interrupt of ${name} unavailable (${res.reason ?? "unknown"}); delivering as a normal steer`);
       return "urgent_as_steer";
     }
+    deps.telemetry.count(team.id, "urgentAborts");
     engine.holdUrgent(team, name);
     return undefined;
   }
 
   return { sendMessage };
 }
-
-export type Messaging = ReturnType<typeof createMessaging>;

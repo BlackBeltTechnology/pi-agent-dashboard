@@ -692,11 +692,49 @@ const CHAT_MOTION_GLIDE_PRELUDE = Array.from(
     "while the view is following the bottom of a live session, which is exactly where the glide has to carry the user.",
 ).join("\n\n");
 
+/** Closing texts of the agent-teams lead scenarios (asserted by qa/tests/60 and the L3 spec). */
+export const AGENT_TEAMS_LEAD_READY = "AGENT_TEAMS_LEAD_READY";
+export const AGENT_TEAMS_TASK_CREATED = "AGENT_TEAMS_TASK_CREATED";
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
     script: [fauxAssistantMessage([fauxText(PLAIN_TEXT_MARKER)])],
     expect: { text: PLAIN_TEXT_MARKER },
+  },
+
+  // Agent-teams lead scripts (change: add-agent-teams-core, L2 qa/tests/60 and L3
+  // tests/e2e/agent-teams-core.spec.ts). The lead creates a team and spawns one
+  // teammate (`alice`, on the faux model); the spawn prompt carries a
+  // `plain-text` sentinel so her first turn is a plain scripted reply.
+  "agent-teams-lead-spawn": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("TeamCreate", { name: "e2e-team" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("TeammateSpawn", {
+            name: "alice",
+            model: "faux/faux-1",
+            prompt: "[[faux:plain-text]] Stand by for instructions.",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_LEAD_READY)]),
+    ],
+    expect: { text: AGENT_TEAMS_LEAD_READY },
+  },
+
+  // Second lead turn: one task for the dispatcher to hand to an idle teammate.
+  "agent-teams-lead-task": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("TaskCreate", { title: "e2e task", description: "Claimed by the dispatcher once a teammate is idle." })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_TASK_CREATED)]),
+    ],
+    expect: { text: AGENT_TEAMS_TASK_CREATED },
   },
 
   // Bridge-coalescing streaming fixtures (change:

@@ -4,18 +4,20 @@
  * cost, S130 no polling). Budgets are generous regression gates (decision A12),
  * not SLOs: they catch O(n²) and sync-IO regressions. S124 delivery latency runs
  * through the REAL bridge entry over the fake host; the REST rows (S126/S127)
- * belong to the routes suite.
+ * run over a real Fastify instance (`inject`).
  * See change: add-agent-teams-core.
  */
 import fs from "node:fs";
 import path from "node:path";
 import v8 from "node:v8";
 import vm from "node:vm";
-import { describe, expect, it } from "vitest";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, describe, expect, it } from "vitest";
 import { createTeamsEnv, linkBridge, type TeamsEnv } from "../../__tests__/harness/index.js";
 import { ENV_MEMBER, ENV_POLICY, ENV_TEAM_ID } from "../../shared/policy.js";
 import type { Team } from "../../shared/types.js";
 import { nodePersistFs, type PersistFs } from "../persistence.js";
+import { API_PREFIX, mountTeamsRoutes } from "../routes.js";
 
 /** `node:fs`-backed persistence that counts the writes it performs. */
 function countingFs() {
@@ -220,5 +222,80 @@ describe("delivery latency (S124)", () => {
     samples.sort((a, b) => a - b);
     expect(samples[Math.floor(samples.length * 0.95)]).toBeLessThan(100);
     expect(env.mailsTo(team, "alice").filter((m) => m.kind === "notice" && m.ackedAt === undefined)).toEqual([]);
+  });
+});
+
+const apps: FastifyInstance[] = [];
+afterEach(async () => {
+  await Promise.all(apps.splice(0).map((a) => a.close()));
+});
+
+async function restApp(e: TeamsEnv): Promise<FastifyInstance> {
+  const app = Fastify();
+  apps.push(app);
+  await mountTeamsRoutes(app, { store: e.rt.store, telemetry: e.rt.telemetry, ext: e.rt.ext, logger: e.fake.host.logger });
+  await app.ready();
+  return app;
+}
+
+describe("snapshot size/time (S126)", () => {
+  it("50 tasks + 120 mails of 5000 chars: mail ≤ 100 entries of ≤ 2000 chars (truncated), p95 < 100 ms, JSON < 400 KB", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    e.addMember(team, "alice", "idle");
+    for (let i = 0; i < 50; i++) e.rt.store.addTask(team.id, { title: `task ${i}`, description: "d".repeat(500), createdBy: "lead" });
+    for (let i = 0; i < 120; i++) e.rt.store.appendMail(team.id, { from: "lead", to: "alice", kind: "message", text: "m".repeat(5000) });
+    const app = await restApp(e);
+    const url = `${API_PREFIX}/teams/${team.id}`;
+    await app.inject({ method: "GET", url }); // warm-up (counts toward the 16-request burst)
+    const samples: number[] = [];
+    let size = 0;
+    for (let i = 0; i < 14; i++) {
+      const t0 = performance.now();
+      const res = await app.inject({ method: "GET", url });
+      samples.push(performance.now() - t0);
+      expect(res.statusCode).toBe(200);
+      size = res.body.length;
+    }
+    samples.sort((a, b) => a - b);
+    expect(p(samples, 0.95)).toBeLessThan(100);
+    expect(size).toBeLessThan(400 * 1024);
+  });
+
+  it("the bounded view is what is served: ≤ 100 entries, each ≤ 2000 chars and flagged", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    for (let i = 0; i < 120; i++) e.rt.store.appendMail(team.id, { from: "lead", to: "alice", kind: "message", text: "m".repeat(5000) });
+    const app = await restApp(e);
+    const body = (await app.inject({ method: "GET", url: `${API_PREFIX}/teams/${team.id}` })).json() as { mail: Array<{ text: string; truncated: boolean }>; mailTotal: number };
+    expect(body.mail).toHaveLength(100);
+    expect(body.mailTotal).toBe(120);
+    for (const m of body.mail) {
+      expect(m.text).toHaveLength(2000);
+      expect(m.truncated).toBe(true);
+    }
+  });
+});
+
+describe("REST rate limit (S127)", () => {
+  it("8 requests in a second are never limited; 30 more yield a 429; the limit is per client, not global", async () => {
+    const e = createTeamsEnv();
+    const app = await restApp(e);
+    const hit = async (remoteAddress: string) => (await app.inject({ method: "GET", url: `${API_PREFIX}/teams`, remoteAddress })).statusCode;
+    for (let i = 0; i < 8; i++) expect(await hit("10.0.0.1")).toBe(200);
+    const next: number[] = [];
+    for (let i = 0; i < 30; i++) next.push(await hit("10.0.0.1"));
+    expect(next.filter((c) => c === 429).length).toBeGreaterThanOrEqual(1);
+    expect(next.filter((c) => c === 200).length).toBe(8); // burst 16 = 8 + 8, the rest limited
+    expect(await hit("10.0.0.2")).toBe(200); // another client is untouched
+  });
+
+  it("a limited response says so in the body", async () => {
+    const e = createTeamsEnv();
+    const app = await restApp(e);
+    let last = await app.inject({ method: "GET", url: `${API_PREFIX}/teams` });
+    for (let i = 0; i < 20; i++) last = await app.inject({ method: "GET", url: `${API_PREFIX}/teams` });
+    expect(last.statusCode).toBe(429);
+    expect(last.json()).toEqual({ error: "rate_limited" });
   });
 });

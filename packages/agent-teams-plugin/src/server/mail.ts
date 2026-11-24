@@ -25,6 +25,7 @@ import type { Mail, Member, MemberStatus, Team } from "../shared/types.js";
 import type { ConfigReader } from "./config.js";
 import type { DriverMemberRef, MemberDriver } from "./driver.js";
 import type { TeamStore } from "./store.js";
+import type { Telemetry } from "./telemetry.js";
 import type { Logger } from "./types.js";
 
 export interface MailEngineDeps {
@@ -32,6 +33,7 @@ export interface MailEngineDeps {
   clock: Clock;
   logger: Logger;
   config: ConfigReader;
+  telemetry: Telemetry;
   driverFor(team: Team): MemberDriver | undefined;
   /** The provisional `busy` of a member lapsed: let the dispatcher run again. */
   onRevert(team: Team): void;
@@ -131,7 +133,8 @@ export function createMailEngine(deps: MailEngineDeps) {
       }
       if (!ok) return; // stays queued; the rest of the queue keeps its order behind it
       for (const m of group) sent.add(m.id);
-      logger.info(`agent-teams: mail ${group.map((m) => m.id).join(",")} -> ${to} (${group.reduce((n, m) => n + m.text.length, 0)} chars, wake=${wake})`);
+      deps.telemetry.count(teamId, "deliveries", group.length);
+      deps.telemetry.log("deliver", teamId, { from: [...new Set(group.map((m) => m.from))].join(","), chars: group.reduce((n, m) => n + m.text.length, 0), wake }, `mail ${group.map((m) => m.id).join(",")} -> ${to}`);
       if (wake && target.member) startProvisional(team, target.member);
     }
   }
@@ -151,6 +154,7 @@ export function createMailEngine(deps: MailEngineDeps) {
   /** Acknowledge mail ids (idempotent); acked ids can never be re-emitted. */
   function ack(teamId: string, ids: readonly number[]): number[] {
     const fresh = store.ackMail(teamId, ids);
+    if (fresh.length > 0) deps.telemetry.log("ack", teamId, { count: fresh.length }, `mail ${fresh.join(",")}`);
     const sent = handed.get(teamId);
     if (sent) for (const id of ids) sent.delete(id);
     return fresh;
