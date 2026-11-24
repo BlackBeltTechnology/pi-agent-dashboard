@@ -280,6 +280,7 @@ flowchart LR
 | `process_list` | Stored + broadcast | `event-wiring.ts:2792-2804` |
 | `vault_sync_request` | Vault values for self-reported cwd/origin | `decideVaultTrust` `vault-delivery-hub.ts:37-42` |
 | `plugin_request` | Plugin handler (e.g. `gmail/lease` returns access token) | lane `plugin-request-lane.ts:103-122`; `event-wiring.ts:1128`; ownership gate `pi-gateway.ts:1025-1032`; `packages/gmail-plugin/src/server/lease.ts:1-16` |
+| `plugin_request` `agent-teams/{call,hello,busy,idle,ack}` | Team store mutations for caller session: create, spawn, mail, task ops, shutdown | `hubLocalOnly` (`agent-teams` `server/lane.ts`); caller = `meta.sessionId` (`server/ops.ts:280`); non-local → `origin_denied` |
 | `plugin_pi_message` (`mcp/mint-token`) | Mint `control` MCP token for connection's session | `pi-gateway.ts:808-811`; `mcp-server-plugin/src/server/index.ts:206` |
 | `path_grant_request`, `path_yolo_request` | Persist "always allow" for raised confirm | `event-wiring.ts:1111`, `:1132` |
 | `session_move_commit` | Routing transfer by token | `pi-gateway.ts:666-757` |

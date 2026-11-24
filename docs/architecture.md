@@ -1810,6 +1810,26 @@ Log per worktree spawn:
 
 - See change: add-plugin-spawn-worktree.
 
+### Agent Teams Plugin (`add-agent-teams-core`)
+
+Package `packages/agent-teams-plugin/` (`@blackbelt-technology/pi-dashboard-agent-teams-plugin`). Plugin id `agent-teams` (NOT `team`; `packages/team-plugin` = unrelated persona product). Manifest `priority: 100`. `emits: [agent-teams:mail, agent-teams:team_closed]`.
+
+- Entries:
+  - bridge (`src/bridge/index.ts`): pi extension per session. CC-named tools. Mail → `pi.sendMessage` custom message (`customType` from `customTypeForKind`: `agent-teams-mail` default, `-idle`, `-notice`). Idle report on `agent_settled`. Teammate guards (`guard.ts`, `shell-guard.ts`).
+  - server (`src/server/index.ts`): server-owned team store, `<dataDir>/teams/<id>.json` (`persistence.ts`). Request lane (`lane.ts`). Teammate spawn (`driver.ts`). Read REST routes (`routes.ts`).
+  - client (`src/client/index.tsx`): manifest registration + i18n only. No UI (change `add-agent-teams-ui`).
+- Lead + teammates = pi sessions. One team per lead session. No nested teams.
+- Server store = single source of truth: members, task list, mail log.
+- Lead-only tools: `TeamCreate`, `TeammateSpawn`, `TeamDelete`, `ShutdownRequest`, broadcast, urgent mail.
+- Teammate tool set = `TEAM_TOOLS_BY_ROLE.member` (`shared/protocol.ts`).
+- Task list: sequential ids, synchronous claim, `owner` field, auto-unblock, self-claim on `agent_settled`.
+- Mail: direct + broadcast. Queued for busy/spawning/disconnected recipients. `urgent` interrupts.
+- Teammate spawn: `spawnSession` (session mode). Spawn prompt sent as `spawn_prompt` mail after bind + guarded `hello`. No `initialPrompt`.
+- Caps (`configSchema.json`): `maxTeammates` 5 (1–10), `maxActiveTeams` 3, `maxTasks` 50, `maxMessageChars` 8000, `maxResultChars` 4000, `maxFinalTextChars` 2000, `mailRatePerMin` 6, `pairExchangeLimit` 10.
+- Security inventory: `docs/security/plugins-client-electron.md` (A2 + bundled table), `tool-call-guards.md`, `websocket-and-bridge.md`.
+- Seams used: `docs/plugin-seams.md` § Consumer: agent-teams.
+- See change: add-agent-teams-core
+
 ### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
 
 `ServerPluginContext.spawnSession` accepts `PluginSpawnOptions.lifecycle: PluginSessionLifecycle` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`). Owning plugin declares per-session lifecycle decisions; core reads the flags, never the plugin name.

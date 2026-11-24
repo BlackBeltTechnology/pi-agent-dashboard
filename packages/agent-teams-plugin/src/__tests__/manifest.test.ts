@@ -4,6 +4,7 @@
  * request-lane code and checks what actually reaches the host, against a host
  * that enforces the manifest `emits` gate exactly like `plugin-event-seam.ts`.
  * See change: add-agent-teams-core.
+ * @structural-pin reads the plugin and team-plugin package.json manifests; the manifest `id`/`emits` text is the contract under test
  */
 import fs from "node:fs";
 import path from "node:path";
