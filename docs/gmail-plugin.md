@@ -12,7 +12,7 @@ Google Connect unavailable (plugin disabled) → Gmail tools keep working from G
 
 **BREAKING (REST):** Gmail account, client and setup management routes answer `410 moved` or `503 google_connect_unavailable`. See REST routes.
 
-See change: add-google-connect (`openspec/changes/add-google-connect/`). Earlier: improve-gmail-settings-ux, add-gmail-auto-setup, add-gmail-plugin.
+See change: add-google-connect (`openspec/changes/archive/2026-11-24-add-google-connect/`). Earlier: improve-gmail-settings-ux, add-gmail-auto-setup, add-gmail-plugin.
 
 ## Package layout
 

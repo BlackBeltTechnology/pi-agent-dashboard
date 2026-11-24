@@ -8,7 +8,7 @@ Settings UI: Settings → Google accounts (`settings-section` claim, tab `genera
 Tokens exchanged and stored by dashboard server only. No broker on pi-dashboard.dev.
 Refresh tokens never leave server. Responses never carry tokens or client secret.
 Built-in app ships EMPTY (`BUILT_IN = { local: null, remote: null }`) until Google verification. Until then only own clients work.
-See change: add-google-connect (`openspec/changes/add-google-connect/`).
+See change: add-google-connect (`openspec/changes/archive/2026-11-24-add-google-connect/`).
 
 ## Package layout
 
@@ -409,4 +409,5 @@ Rollback limits (design D10, documented in CHANGELOG/README):
 - [`gmail-plugin.md`](gmail-plugin.md): Gmail tools, delegation, legacy fallback, Gmail REST routes (410/503).
 - [`plugin-seams.md`](plugin-seams.md): `ctx.credentials`, `ctx.oauth`, lanes, soft consumer pattern.
 - `packages/google-plugin/README.md`: package overview.
-- `openspec/changes/add-google-connect/`: proposal, design (D1–D14), scenario-gate decisions.
+- `openspec/changes/archive/2026-11-24-add-google-connect/`: proposal, design (D1–D14), scenario-gate decisions.
+- `openspec/specs/google-connect/spec.md`: normative spec.

@@ -2,7 +2,7 @@
 
 Google accounts ("Google Connect") for the pi dashboard: the one owner of Google OAuth clients, accounts,
 product grants and server-side token leases. Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks and Contacts
-agent tools all run on it. See `openspec/changes/add-google-connect/`.
+agent tools all run on it. See `openspec/changes/archive/2026-11-24-add-google-connect/` and `openspec/specs/google-connect/spec.md`.
 
 Manage everything in **Settings → Google accounts**.
 
