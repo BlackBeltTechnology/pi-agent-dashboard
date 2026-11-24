@@ -454,6 +454,8 @@ sequenceDiagram
     browser-dependent (unverified). D14 therefore adds a required Chromium + Firefox E2E: a nested
     same-pid pane loads under tier 5. **Pre-declared fallback** if that E2E shows a block: tier-5
     responses omit `frame-ancestors` (the sandbox CSP still forces an opaque origin). Recorded as T11.
+    **Outcome (task 14.5): the Chromium E2E (T.F26) showed the block, so the fallback is APPLIED**: `live-csp.ts` omits
+    `frame-ancestors` on tier 5 (`/preview/<pid>`); tiers 1-4 and legacy are unchanged (unit pin: `csp-preview-frame-src.test.ts`, T.X61).
   - **Legacy:** byte-identical to today.
 - **Dashboard page CSP (`packages/server/src/auth/csp.ts:72`).** `frame-src` becomes per-request. The
   canonical list (the `baseline-content-security-policy` delta is authoritative):
@@ -557,7 +559,7 @@ sequenceDiagram
   tier 5 and legacy (P10). On tier 5, a port target always shows a base strip:
   - the `/preview/<pid>/` path, with a copy button;
   - "restart your server with this base" (`vite --base`, Next `basePath`).
-  - Copy failure or no `navigator.clipboard` (plain-http tier 5): announce "Copy failed — select the path" via `aria-live="polite"` and keep the path as selectable text; no `execCommand` fallback (Q44).
+  - Copy failure or no `navigator.clipboard` (plain-http tier 5): announce "Copy failed — select the path" via `aria-live="polite"` and keep the path as selectable text. The copy goes through the shared `copyText` helper (clipboard API, then its selection fallback): the repo's secure-context scan forbids a bare `navigator.clipboard`, which supersedes the earlier "no `execCommand` fallback" note (Q44).
 
   The static-target hint keeps its current text.
 - **Cookie-reset banner (Q10).** On any `duplicate_dashboard_cookie` response (D10) the client blanks all open tier-2/3 live frames and shows "a preview reset dashboard cookies; reopen it to continue". It does not reopen them automatically, which ends the re-toss loop without manual cookie surgery.

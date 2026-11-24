@@ -1065,7 +1065,7 @@ Legacy path. Returned when no/invalid `accept` or `liveServer.previewOrigins.ena
 - Scope: one preview. Idle 30 min, absolute 12 h.
 - Dies with target removal, device revoke, session end, server restart.
 - Never valid for `/api`. Stripped before forwarding. Server logs redact token.
-- Proxy adds `Referrer-Policy: no-referrer` when absent. Strips capability segment from forwarded `Referer`.
+- Legacy: proxy adds `Referrer-Policy: no-referrer` when app sets none. Tiers 1-5: replaces upstream value. Strips capability segment from forwarded `Referer`.
 - Dashboard cookies `pi_dash_device`, `pi_dash_token` and device bearers not forwarded to previewed app. App's own cookies pass through.
 - Viewer frames capability path always (local and remote).
 - `observe` devices cannot mint (needs `control`).
@@ -1117,6 +1117,16 @@ Reservation: `POST /api/live-server/preview-path {port}` (control). Agent: bridg
 
 - IPv6 Host skips tiers 1-4. CSP has no IPv6 host-source form.
 - IPv6 Host ⇒ tier 5.
+
+## Why does a preview frame go blank with "A preview reset dashboard cookies" or "Preview navigated to the dashboard; blocked."?
+
+- "A preview reset dashboard cookies; reopen it to continue.": dashboard API answered 400 `duplicate_dashboard_cookie`. Tier 2/3 frames blank to `about:blank`. Tier 1 untouched.
+- Cause: duplicate `pi_dash_*` cookie. Sibling host or port on same host can set one. Server expires the name (self-heal).
+- Fix: Reopen or Reload. Nothing reopens automatically.
+- "Preview navigated to the dashboard; blocked.": previewed app navigated frame to readable dashboard URL. Frame blanked.
+- Fix: Reload.
+
+See change: serve-live-previews-on-capability-origin.
 
 ## How do live previews work in Docker?
 
@@ -4631,6 +4641,7 @@ Local:
 
 - Team: `npm run test:e2e:team`. `pretest` builds team app via `npm run build:app --workspace=@blackbelt-technology/pi-dashboard-team-plugin`. Needs real `pi` CLI on PATH.
 - Identity matrix: `npm run build && npm run test:e2e:identity-matrix`.
+- Live preview: `npm run test:e2e:live-preview`. Config `playwright.live-preview.config.ts`. Guide `tests/e2e/live-preview/README.md`.
 
 CI (`.github/workflows/ci-e2e-browser.yml`):
 

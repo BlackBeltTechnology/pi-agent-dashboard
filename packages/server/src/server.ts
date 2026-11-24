@@ -249,16 +249,17 @@ import { createReservedHandler } from "./live-server/live-csp-report.js";
 import { createEgressGrantRequester, createPreviewEgress, requestOriginsOf } from "./live-server/live-egress.js";
 import { createPreviewExposure, wirePreviewExposure } from "./live-server/live-exposure.js";
 import { liveLog } from "./live-server/live-log.js";
-import { createPreviewPool, type PreviewPool } from "./live-server/preview-pool.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, type LiveProxyDeps, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { createPreviewDispatch, type PreviewDispatch, previewServerFactory, routePreviewUpgrade } from "./live-server/preview-dispatch.js";
-import { createPreviewObserver } from "./live-server/preview-observe.js";
-import { previewLogHash } from "./live-server/preview-origin.js";
+import { createPreviewObserver, type PreviewObserver } from "./live-server/preview-observe.js";
+import { isPreviewShapedOriginUrl, previewLogHash } from "./live-server/preview-origin.js";
 import { parsePreviewPath } from "./live-server/preview-path.js";
 import { PreviewPathStore } from "./live-server/preview-path-store.js";
+import { createPreviewPool, type PreviewPool } from "./live-server/preview-pool.js";
 import { createPreviewPreflight } from "./live-server/preview-preflight.js";
 import { hasTier5Viewer, stampPreviewViewer } from "./live-server/preview-viewers.js";
+import { createPreviewWsRegistry } from "./live-server/preview-ws-registry.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
@@ -1496,6 +1497,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // by its CORS / mutation gates). See change: improve-canvas-html-and-url-ux (D1).
   // Tier 3 pool (D5) + the proxy deps it forwards through: both late-bound (the manager's `ownPorts` reads the pool at seed time).
   let previewPool: PreviewPool | undefined;
+  // Late-bound like `previewPool`: the observer is built with the dispatcher, after the store whose `onDelete` feeds it.
+  let previewObserver: PreviewObserver | undefined;
   let liveProxyDepsRef: LiveProxyDeps | undefined;
   const liveServerManager = createLiveServerManager(preferencesStore, {
     ownPorts: () => {
@@ -2542,7 +2545,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const liveCapabilities = new LiveCapabilityStore({
     isTargetLive: (id) => liveServerManager.has(id),
     isPrincipalLive: capabilityPrincipalLive,
-    onDelete: (entry, reason) => previewPool?.onDelete(entry, reason),
+    onDelete: (entry, reason) => {
+      previewPool?.onDelete(entry, reason);
+      // The entry is gone: drop its "first admit" bookkeeping so observer state tracks live entries (D13, no leak across churn).
+      if (entry.label) previewObserver?.forget(previewLogHash(entry.label));
+    },
     getPreviewConfig: () => getResolvedPreviewOrigins(),
   });
   previewPool = createPreviewPool({
@@ -2559,8 +2566,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   // Tier 5 (`/preview/<pid>/`, D8): one current pid per port target; liveness is re-checked at every use, so a revoked
   // holder / removed target / disabled previews drops the pid on its next request or sweep.
+  const previewWs = createPreviewWsRegistry();
   previewPaths = new PreviewPathStore({
-    onDrop: (reason, pid) => liveLog(undefined, "pid dropped", { reason, h: previewLogHash(pid) }),
+    onDrop: (reason, pid) => {
+      liveLog(undefined, "pid dropped", { reason, h: previewLogHash(pid) });
+      previewWs.closePid(pid); // in-flight HMR sockets die with the pid
+    },
     targetIdForPort: (port) => liveServerManager.getByPort(port)?.id,
     isPortAllowed: (port) => liveServerManager.portRefusal(port) === null,
     isTargetLive: (id) => liveServerManager.has(id),
@@ -3654,7 +3665,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
     isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
     grantedOrigins: (grant) => previewEgress.grantedFor(grant),
+    // D3(c): a tier 1-4 upstream `Location` / `Refresh` aimed at the dashboard app is contained (dropped / rewritten onto the preview).
+    isDashboardUrl: (url) => {
+      const tls = loadConfig().tls;
+      const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+      return (
+        (port === config.port || (tls?.enabled === true && port === tls.port)) &&
+        !isPreviewShapedOriginUrl(url.origin) &&
+        isHostAdmitted(url.host, getHostGateCtx().admission)
+      );
+    },
     onStaticHtmlServed: (grant, real) => previewEgress.noteServed(grant, real),
+    trackPreviewResponse: (pid, res) => previewWs.track(pid, res),
     reservedHandler: createReservedHandler({
       egress: previewEgress,
       ownOriginsOf: (request) => requestOriginsOf(request),
@@ -3666,10 +3688,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   };
   liveProxyDepsRef = liveProxyDeps;
   registerLiveServerProxy(fastify, liveServerManager, liveProxyDeps);
-  const previewObserver = createPreviewObserver();
+  previewObserver = createPreviewObserver();
   previewDispatch = createPreviewDispatch({
-    onRefused: (reason, h) => previewObserver.refused(reason, h),
-    onAdmitted: (h, tier) => previewObserver.admitted(h, tier),
+    onRefused: (reason, h) => previewObserver?.refused(reason, h),
+    onAdmitted: (h, tier) => previewObserver?.admitted(h, tier),
     store: liveCapabilities,
     manager: liveServerManager,
     proxyDeps: liveProxyDeps,
@@ -5257,6 +5279,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Chunked past the 32-bit timer cap (`scheduleAtExpiry`), released on close.
               const cancelExpiry = scheduleAtExpiry(upgradeAuth.principalExpiresAt, () => socket.destroy());
               socket.once("close", cancelExpiry);
+              if (previewWsGrant && previewWsPath) previewWs.track(previewWsPath.pid, socket);
               handleLiveServerUpgrade(liveServerManager, request, socket, head, {
                 isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
                 isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),

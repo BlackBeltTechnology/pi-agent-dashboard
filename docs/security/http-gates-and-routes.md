@@ -51,10 +51,12 @@ Hook-order source comment at `packages/server/src/server.ts:3613-3620` lists sta
 - Refusal: identical `403 {"error":"host_not_allowed"}`.
 - Dead upstream: `502`. Dispatcher failure: `503`. Never falls through to dashboard app.
 - Preview WS upgrades: `routePreviewUpgrade` (`preview-dispatch.ts:92`) at `packages/server/src/server.ts:4998`, before host gate.
+- Pid drop (revoke, expiry, target removed, disabled) closes tracked tier-5 WS and in-flight responses (`live-server/preview-ws-registry.ts`; `server.ts:2569-2573`).
 
 **Duplicate-cookie gate** (`packages/server/src/auth/duplicate-cookie-gate.ts`: `findDuplicateDashboardCookie :50`, `createDuplicateCookieGate :198`, `refuseDuplicateCookieUpgrade :217`; registered `packages/server/src/server.ts:2435`, before observer and `@fastify/cors`).
 - Repeated `pi_dash_*` cookie name ⇒ `400` (JSON or static HTML by `Accept`).
 - Response expires the name at every path (self-heal; `expiryPaths :79`, `buildExpiryLines :121`).
+- Expiry lines capped `EXPIRY_MAX_BYTES` 8192 (`fitExpiryBudget :129`). `/`, `/api/`, `/auth/` kept first. Keeps 400 head under 16 KiB `http.maxHeaderSize`.
 - Applies to WS upgrades.
 - Repeated `pi_dash_token` or `pi_dash_pool_*` ⇒ counts as missing credential.
 - `previewApp` exempt.

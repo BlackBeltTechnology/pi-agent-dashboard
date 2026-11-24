@@ -91,6 +91,16 @@ export interface MintOptions {
   viewerId?: string;
 }
 
+/** The API base resolved to an absolute origin (`""` / relative ⇒ the page origin); `""` when unresolvable. */
+function apiBaseOrigin(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return new URL(getApiBase(), window.location.href).origin;
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Mint a per-preview capability path (`control` tier for port targets, raw-read
  * tier for static targets). The preview frame is a sandboxed opaque origin that
@@ -127,7 +137,7 @@ export async function mintLiveCapability(id: string, opts: MintOptions = {}): Pr
     }
     return { ok: false, error: err ?? `capability mint failed (${res.status})`, status: res.status };
   }
-  const own = [typeof window !== "undefined" ? window.location.origin : "", getApiBase()].filter(Boolean);
+  const own = [typeof window !== "undefined" ? window.location.origin : "", apiBaseOrigin()].filter(Boolean);
   const shape = validateMintResponse(json, own);
   if (!shape) return { ok: false, error: "preview response rejected", rejected: true };
   return { ok: true, ...shape };

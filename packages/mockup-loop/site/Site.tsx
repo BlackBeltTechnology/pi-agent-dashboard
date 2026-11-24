@@ -227,6 +227,11 @@ function PaneOnly({ spec }: { spec: string }): ReactElement {
     document.body.classList.add("mk-pane-only", f?.phone ? "mk-pane-phone" : "mk-pane-wide");
     const post = () => parent.postMessage({ mkPane: spec, h: document.documentElement.scrollHeight }, postTarget());
     const ro = new ResizeObserver(post); ro.observe(document.body);
+    // The observer alone can miss a late-committing runtime pane (the first height posted is the empty 240 and the body box then
+    // settles without another callback): re-post when the settled height differs from the last one sent.
+    let sent = -1;
+    const settle = () => { const h = document.documentElement.scrollHeight; if (h !== sent) { sent = h; post(); } };
+    const poll = setInterval(settle, 250);
     // Parent asks where a ring sits (deep link to a ring inside this iframe).
     const onMsg = (e: MessageEvent) => {
       if (e.source !== parent || !originOk(e) || typeof e.data?.mkFind !== "string") return;
@@ -236,7 +241,7 @@ function PaneOnly({ spec }: { spec: string }): ReactElement {
       el.classList.remove("mk-hit"); void el.offsetWidth; el.classList.add("mk-hit");
     };
     addEventListener("message", onMsg);
-    return () => { removeEventListener("storage", apply); dark.removeEventListener("change", apply); removeEventListener("message", onMsg); ro.disconnect(); };
+    return () => { removeEventListener("storage", apply); dark.removeEventListener("change", apply); removeEventListener("message", onMsg); ro.disconnect(); clearInterval(poll); };
   }, [spec, f?.phone]);
   useEffect(() => {
     if (!runtime || !m || !f) return;

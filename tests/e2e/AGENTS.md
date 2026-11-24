@@ -49,6 +49,7 @@ One row per file.
 | `kb-settings-sources-search.spec.ts` | → `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | → `known-server-stale-name.spec.ts.AGENTS.md` |
 | `mock-site/` | Live-component mock site E2E (own config `playwright.mock-site.config.ts`, self-started site); see `mock-site/AGENTS.md`. See change: add-live-component-mock-site. |
+| `live-preview/` | Live-preview L3 suite (own config `playwright.live-preview.config.ts`, host-run isolated server + host-resolver projects, `npm run test:e2e:live-preview`); see `live-preview/README.md`. `live-preview-harness-tiers.spec.ts` (docker harness) pins tier 5/legacy for the gateway peer. See change: serve-live-previews-on-capability-origin. |
 | `pair-mode-request-access.spec.ts` | F7/F8 (variant harness `PI_E2E_TRUST_MODE=pair`, `PI_E2E_OAUTH=0`; skips elsewhere): unpaired browser shows… → see `pair-mode-request-access.spec.ts.AGENTS.md` |
 | `peer-shared-bridge.spec.ts` | → `peer-shared-bridge.spec.ts.AGENTS.md` |
 | `large-selection.spec.ts` | → `large-selection.spec.ts.AGENTS.md` |

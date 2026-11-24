@@ -96,7 +96,11 @@ export function buildLiveCsp(input: LiveCspInput): LiveCspResult | null {
   if (!SAFE_HOST.test(host)) return null;
   const bound = input.origin !== undefined;
   const sandbox = sandboxDirective(policy, bound);
-  let frameAncestors = "frame-ancestors 'self'";
+  // Tier 5 (`/preview/<pid>`, not origin-bound): a same-pid nested pane has an OPAQUE parent (the sandboxed frame), and
+  // `frame-ancestors 'self'` never matches an opaque ancestor (Chromium blocks it: T11 / F26), so tier 5 omits the directive —
+  // the sandbox CSP still forces the opaque origin and the pid is the capability. Legacy keeps `'self'`.
+  const tier5 = !bound && input.prefix.startsWith("/preview/");
+  let frameAncestors = tier5 ? "" : "frame-ancestors 'self'";
   if (input.origin !== undefined) {
     // Fail closed on a malformed origin / missing ancestors: a bad entry never yields a header (D6, X38).
     if (!SAFE_ANCESTOR.test(input.origin)) return null;
@@ -106,7 +110,7 @@ export function buildLiveCsp(input: LiveCspInput): LiveCspResult | null {
   }
 
   if (policy.egress === "open") {
-    return { csp: `${sandbox}; object-src 'none'; ${frameAncestors}` };
+    return { csp: [sandbox, "object-src 'none'", frameAncestors].filter(Boolean).join("; ") };
   }
 
   const { p, pws, frameSrc, reportPath } = sourceBases(input);
@@ -133,5 +137,5 @@ export function buildLiveCsp(input: LiveCspInput): LiveCspResult | null {
     "manifest-src 'none'",
     `report-uri ${reportPath}`,
   ];
-  return { csp: directives.join("; ") };
+  return { csp: directives.filter(Boolean).join("; ") };
 }

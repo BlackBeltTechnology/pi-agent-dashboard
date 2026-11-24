@@ -13,9 +13,10 @@
  * See change: add-blackhole-plugin, add-blackhole-session-pipeline.
  */
 
-import { isTestEnvironment, resolveInstalled } from "./installed-gate.js";
+import { isDashboardFrameBlocked, isTestEnvironment, resolveInstalled } from "./installed-gate.js";
 
-if (!isTestEnvironment()) {
+// Not in a blocked live-preview / cross-origin frame: the dashboard does no boot-time API traffic there.
+if (!isTestEnvironment() && !isDashboardFrameBlocked()) {
   resolveInstalled();
 }
 

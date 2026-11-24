@@ -98,11 +98,14 @@ describe("capability CSP per tier (live-csp)", () => {
     expect(buildLiveCsp({ ...tier1, ancestors: ["http://[::1]:8000"] })).toBeNull();
     expect(buildLiveCsp({ ...tier1, ancestors: ["http://localhost:8000/x"] })).toBeNull();
   });
-  it("tier 5: opaque sandbox, 'self' ancestors, path-scoped lists and frame-src; legacy unchanged", () => {
+  it("tier 5: opaque sandbox, NO frame-ancestors (T11: 'self' never matches the opaque parent of a nested pane), path-scoped lists and frame-src; legacy unchanged", () => {
     const t5 = dirs(buildLiveCsp({ policy: restricted, host: "localhost:8000", scheme: "http", prefix: "/preview/AAAA" })?.csp ?? "");
     expect(t5).toContain("sandbox allow-scripts allow-forms");
-    expect(t5).toContain("frame-ancestors 'self'");
+    expect(t5.join(), "T11: tier 5 omits frame-ancestors").not.toContain("frame-ancestors");
     expect(t5).toContain("frame-src http://localhost:8000/preview/AAAA/");
+    const t5open = buildLiveCsp({ policy: { ...restricted, egress: "open" }, host: "localhost:8000", scheme: "http", prefix: "/preview/AAAA" })?.csp ?? "";
+    expect(t5open, "open egress, tier 5: sandbox + object-src only").not.toContain("frame-ancestors");
+    expect(t5open).toMatch(/^sandbox allow-scripts allow-forms allow-popups allow-downloads; object-src 'none'$/);
     expect(t5).toContain("report-uri /preview/AAAA/__pi/csp-report");
     const legacy = dirs(buildLiveCsp({ policy: restricted, host: "localhost:8000", scheme: "http", prefix: "/live/x/~c/T" })?.csp ?? "");
     expect(legacy).toContain("frame-src 'none'");

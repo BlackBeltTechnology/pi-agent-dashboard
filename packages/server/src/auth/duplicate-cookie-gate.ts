@@ -26,6 +26,11 @@ const COOKIE_NAME_ECHO_MAX = 128;
 const EXPIRY_MAX_SEGMENTS = 16;
 /** Hard cap on `Set-Cookie` expiry lines per refusal. */
 const EXPIRY_MAX_LINES = 64;
+/**
+ * Hard cap on the total size of the expiry lines. A long request path puts that path into every line, and Node's
+ * HTTP parser rejects a head over `http.maxHeaderSize` (16 KiB); half of it leaves room for the other headers.
+ */
+const EXPIRY_MAX_BYTES = 8192;
 /** The paths the dashboard itself sets cookies at (token / local `/`, device `/api/`, oauth_state `/auth/`). */
 const CANONICAL_COOKIE_PATHS = ["/", "/api/", "/auth/"] as const;
 /** Refusal log: one line per name per window, ≤ this many names tracked (parity with the host gate). */
@@ -117,6 +122,24 @@ function tier2Active(): boolean {
   return r.enabled && r.tiers.includes(2) && !!r.wildcard;
 }
 
+/**
+ * Keep the expiry lines within {@link EXPIRY_MAX_BYTES}: the dashboard's own cookie paths first (that is where a
+ * legitimate credential lives), then the rest in order, skipping any line that no longer fits. Order is preserved.
+ */
+function fitExpiryBudget(lines: string[]): string[] {
+  if (lines.reduce((n, l) => n + l.length, 0) <= EXPIRY_MAX_BYTES) return lines;
+  const isCanonical = (l: string): boolean => (CANONICAL_COOKIE_PATHS as readonly string[]).includes(/Path=([^;]+)/.exec(l)?.[1] ?? "");
+  const byPriority = lines.map((l, i) => ({ l, i, canonical: isCanonical(l) })).sort((a, b) => Number(b.canonical) - Number(a.canonical) || a.i - b.i);
+  const keep = new Set<number>();
+  let used = 0;
+  for (const { l, i } of byPriority) {
+    if (used + l.length > EXPIRY_MAX_BYTES) continue;
+    used += l.length;
+    keep.add(i);
+  }
+  return lines.filter((_, i) => keep.has(i));
+}
+
 /** `Set-Cookie` lines that expire `name` at every candidate path (host-only first, then parent-domain variants). */
 export function buildExpiryLines(name: string, url: string, hostHeader: string | undefined, withDomains: boolean): string[] {
   if (!TOKEN_NAME.test(name) || name.length > COOKIE_NAME_ECHO_MAX) return [];
@@ -127,7 +150,7 @@ export function buildExpiryLines(name: string, url: string, hostHeader: string |
       for (const p of paths) lines.push(`${name}=; Max-Age=0; Path=${p}; Domain=${domain}`);
     }
   }
-  return lines.slice(0, EXPIRY_MAX_LINES);
+  return fitExpiryBudget(lines.slice(0, EXPIRY_MAX_LINES));
 }
 
 const truncate = (s: string, max: number): string => (s.length > max ? s.slice(0, max) : s);
@@ -201,7 +224,12 @@ export function createDuplicateCookieGate(opts: DuplicateCookieGateOptions = {})
   return function duplicateCookieGate(req: FastifyRequest, reply: FastifyReply, done: (err?: Error) => void): void {
     const dup = findDuplicateDashboardCookie(req.headers.cookie);
     if (!dup) return done();
-    log.note(dup.name, dup.count, req.url);
+    // A failing log sink must never change the refusal: the response is the security decision, the log is a courtesy.
+    try {
+      log.note(dup.name, dup.count, req.url);
+    } catch {
+      /* fall through: still refuse */
+    }
     const lines = buildExpiryLines(dup.name, req.url, req.headers.host, tier2());
     if (lines.length > 0) reply.header("set-cookie", lines);
     reply.header("cache-control", "no-store");
@@ -221,14 +249,20 @@ export function refuseDuplicateCookieUpgrade(
 ): boolean {
   const dup = findDuplicateDashboardCookie(request.headers.cookie);
   if (!dup) return false;
+  // Fail closed: whatever goes wrong while composing or writing the head (a throwing log sink, a dead socket), the
+  // upgrade is refused and the socket destroyed — never left half-open, never an uncaught exception from `upgrade`.
   const url = request.url ?? "/";
-  (opts.log ?? defaultLog).note(dup.name, dup.count, url);
-  const lines = buildExpiryLines(dup.name, url, request.headers.host, (opts.tier2 ?? tier2Active)());
-  const head = ["HTTP/1.1 400 Bad Request", "Connection: close", "Content-Length: 0", ...lines.map((l) => `Set-Cookie: ${l}`)];
   try {
+    (opts.log ?? defaultLog).note(dup.name, dup.count, url);
+  } catch {
+    /* a failing log sink must not cost the client its self-healing head */
+  }
+  try {
+    const lines = buildExpiryLines(dup.name, url, request.headers.host, (opts.tier2 ?? tier2Active)());
+    const head = ["HTTP/1.1 400 Bad Request", "Connection: close", "Content-Length: 0", ...lines.map((l) => `Set-Cookie: ${l}`)];
     socket.write(`${head.join("\r\n")}\r\n\r\n`);
   } catch {
-    /* socket already gone */
+    /* socket already gone, or the head could not be composed */
   }
   socket.destroy();
   return true;

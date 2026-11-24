@@ -276,7 +276,8 @@ describe("tier 5 over HTTP — forwarding, CORS null, WS, guard, mint route", ()
     expect(up.seen[0].url).toBe(`/preview/${pid}/app.js?x=1`);
     const csp = String(r.headers["content-security-policy"]);
     expect(csp).not.toContain("allow-same-origin");
-    expect(csp).toContain("frame-ancestors 'self'");
+    // T11 (F26): `'self'` never matches the opaque parent of a same-pid nested pane, so tier 5 omits frame-ancestors.
+    expect(csp).not.toContain("frame-ancestors");
     expect(csp).toContain(`frame-src http://127.0.0.1:${port()}/preview/${pid}/`);
     expect(r.headers["referrer-policy"]).toBe("no-referrer");
   });

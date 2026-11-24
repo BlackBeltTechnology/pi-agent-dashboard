@@ -191,7 +191,12 @@ export function createPreviewDispatch(deps: PreviewDispatchDeps): PreviewDispatc
     const label = parsed.hostname.slice(0, parsed.hostname.indexOf("."));
     if (!PREVIEW_LABEL_SHAPE.test(label)) return { ok: false, reason: "not-a-label" };
     const h = previewLogHash(label);
-    const found = deps.store.lookupByHost(hashPreviewKey(label), canonical, deps.isPeerLocal(request));
+    let found: ReturnType<LiveCapabilityStore["lookupByHost"]>;
+    try {
+      found = deps.store.lookupByHost(hashPreviewKey(label), canonical, deps.isPeerLocal(request));
+    } catch {
+      return { ok: false, reason: "unknown", h }; // a failing accessor fails CLOSED: the same opaque 403, never an admit, never a 502
+    }
     if (found.ok) {
       deps.onAdmitted?.(h, found.grant.tier ?? "legacy");
       return { ok: true, grant: found.grant, h };
@@ -217,9 +222,19 @@ export function createPreviewDispatch(deps: PreviewDispatchDeps): PreviewDispatc
     return reply.code(status).header("cache-control", "no-store").type("application/json").send({ error: status === 502 ? "bad_gateway" : status === 504 ? "gateway_timeout" : "bad_request" });
   });
 
+  // Resolve the capability BEFORE the body is read: an unknown / expired / wrong-host label is refused without the
+  // body ever reaching a content-type parser (the CSP-report JSON parser would otherwise parse up to 64 KiB for
+  // a caller that holds no capability). The resolution is reused by the handler: one lookup per request.
+  const resolutions = new WeakMap<http.IncomingMessage, Resolution>();
+  previewApp.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
+    const resolved = resolveGrant(request.raw);
+    resolutions.set(request.raw, resolved);
+    if (!resolved.ok) return refuse(reply, resolved.reason, resolved.h);
+  });
+
   // Route-less: every method and path lands here, so nothing of the dashboard's route table can be reached.
   previewApp.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {
-    const resolved = resolveGrant(request.raw);
+    const resolved = resolutions.get(request.raw) ?? resolveGrant(request.raw);
     if (!resolved.ok) return refuse(reply, resolved.reason, resolved.h);
     const { grant } = resolved;
     const subPath = request.raw.url ?? "/";

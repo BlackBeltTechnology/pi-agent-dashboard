@@ -368,7 +368,8 @@ export function createPreviewPool(deps: PreviewPoolDeps): PreviewPool {
       return { ok: false, reason: "exhausted" };
     },
     onDelete(entry, reason) {
-      if (entry.tier === 3 && entry.poolPort !== undefined) closeListener(entry.poolPort, reason);
+      // D13: the log names a lifetime end `expired` (the store's `idle` / `max` split is internal).
+      if (entry.tier === 3 && entry.poolPort !== undefined) closeListener(entry.poolPort, reason === "idle" || reason === "max" ? "expired" : reason);
     },
     async close() {
       for (const port of [...listeners.keys()]) closeListener(port, "shutdown");

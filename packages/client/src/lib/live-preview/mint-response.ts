@@ -26,7 +26,7 @@ export interface MintShape {
 
 const LEGACY_PATH = /^\/live\/[A-Za-z0-9_-]+\/~c\/[A-Za-z0-9_-]{22,}\/$/;
 const TIER5_PATH = /^\/preview\/[A-Za-z0-9_-]{22,}\/$/;
-const TIER3_PATH = /^\/\?k=[A-Za-z0-9_-]{16,}$/;
+const TIER3_PATH = /^\/\?k=[A-Za-z0-9_-]{22,}$/;
 const BASE_PATH = /^\/preview\/[A-Za-z0-9_-]{22,}\/$/;
 
 /** `new URL(o).origin` for an http(s) URL that is exactly an origin; otherwise `null`. */
@@ -41,6 +41,9 @@ export function canonicalOrigin(value: unknown): string | null {
     return null;
   }
 }
+
+/** Comparison form of a canonical origin: one trailing hostname dot stripped (`localhost.` ≡ `localhost`). */
+const dotless = (origin: string): string => origin.replace(/\.(?=(:\d+)?$)/, "");
 
 function parsePolicy(v: unknown): MintShape["policy"] {
   if (!v || typeof v !== "object") return undefined;
@@ -74,8 +77,8 @@ export function validateMintResponse(json: Record<string, unknown>, ownOrigins: 
   if (tier === 3 ? !TIER3_PATH.test(path) : path !== "/") return null;
   const origin = canonicalOrigin(json.origin);
   if (!origin) return null;
-  const own = new Set(ownOrigins.map((o) => canonicalOrigin(o)).filter((o): o is string => o !== null));
-  if (own.has(origin)) return null;
+  const own = new Set(ownOrigins.map((o) => canonicalOrigin(o)).filter((o): o is string => o !== null).map(dotless));
+  if (own.has(dotless(origin))) return null;
   let base: string | undefined;
   if (json.base !== undefined) {
     if (typeof json.base !== "string" || !BASE_PATH.test(json.base)) return null;

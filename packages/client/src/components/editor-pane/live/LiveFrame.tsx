@@ -17,10 +17,12 @@ import type { LiveTargetAddedBy } from "@blackbelt-technology/pi-dashboard-share
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../../../lib/api/api-context.js";
 import { useI18n } from "../../../lib/i18n/i18n.js";
+import { getCookieResetEpoch, isCookieTossTier, useCookieResetEpoch } from "../../../lib/live-preview/cookie-reset.js";
+import { isFrameSameOriginReadable, LIVE_FRAME_ATTR } from "../../../lib/live-preview/frame-guard.js";
 import { frameSrc, isLocalOperator, localTargetUrl, type Opener, sandboxFor } from "../../../lib/live-preview/preview-policy.js";
 import { randomUuid } from "../../../lib/util/random-uuid.js";
 import { EgressBanner } from "./EgressBanner.js";
-import { AddressConfirm, BasePathHint, ExposedNotice, InlineError, RootAbsoluteHint, UpdatedNotice } from "./LiveFrameParts.js";
+import { AddressConfirm, BasePathHint, CookieResetBanner, ExposedNotice, InlineError, NavigatedNotice, RootAbsoluteHint, UpdatedNotice } from "./LiveFrameParts.js";
 import { LiveHeader } from "./LiveHeader.js";
 import { useAddressBar } from "./useAddressBar.js";
 import { useEgressReport } from "./useEgressReport.js";
@@ -82,7 +84,14 @@ function FrameBody({
   nonce,
   error,
   onRetry,
+  blanked,
+  onFrameLoad,
+  notice,
 }: {
+  blanked: boolean;
+  onFrameLoad: (el: HTMLIFrameElement) => void;
+  /** Banner shown above a blanked frame (cookie reset / navigated to the dashboard). */
+  notice: React.ReactNode;
   src: string | null;
   sandbox: string;
   title: string;
@@ -93,18 +102,23 @@ function FrameBody({
   const { t } = useI18n();
   if (src) {
     return (
+      <>
+      {notice}
       <iframe
         key={nonce}
         data-testid="live-iframe"
+        {...{ [LIVE_FRAME_ATTR]: "" }}
+        onLoad={(e) => onFrameLoad(e.currentTarget)}
         // D3: tier 5 / legacy are opaque-origin — NEVER allow-same-origin, so the page cannot read the
         // dashboard token or call /api/*. Tiers 1-4 frame their OWN origin (`sandboxFor` adds
         // allow-same-origin there only). The token set follows the policy; scripts
         // off → the attribute is present and empty. No `srcdoc`, ever.
         sandbox={sandbox}
-        src={src}
+        src={blanked ? "about:blank" : src}
         title={title}
         className="min-h-[16rem] flex-1 border-0 bg-white"
       />
+      </>
     );
   }
   if (error) {
@@ -126,6 +140,44 @@ function FrameBody({
   );
 }
 
+/**
+ * Why a frame is blanked to `about:blank` until the user reloads it (never re-opened automatically):
+ * a preview reset the dashboard cookies (10.6; tier 2/3 frames opened before the reset) or it navigated
+ * itself to the dashboard origin (D6(b) probe, readable `contentWindow.location`).
+ */
+function useFrameBlanking() {
+  const resetEpoch = useCookieResetEpoch();
+  const resetBaseline = useRef(resetEpoch);
+  const [navBlocked, setNavBlocked] = useState(false);
+  const reset = useCallback(() => {
+    resetBaseline.current = getCookieResetEpoch();
+    setNavBlocked(false);
+  }, []);
+  const view = (tier: unknown) => {
+    const cookie = isCookieTossTier(tier) && resetEpoch > resetBaseline.current;
+    return { cookie, nav: navBlocked, blanked: cookie || navBlocked };
+  };
+  const onFrameLoad = useCallback((el: HTMLIFrameElement) => {
+    if (el.getAttribute("src") !== "about:blank" && isFrameSameOriginReadable(el)) setNavBlocked(true);
+  }, []);
+  return { reset, view, onFrameLoad };
+}
+
+/** Banner shown over a blanked frame; the cookie reset wins over a navigation block. */
+function blankNotice(blank: { cookie: boolean; nav: boolean }, reload: () => void, retry: () => void): React.ReactNode {
+  if (blank.cookie) {
+    return (
+      <CookieResetBanner
+        onReopen={() => {
+          reload();
+          retry();
+        }}
+      />
+    );
+  }
+  return blank.nav ? <NavigatedNotice onReload={reload} /> : null;
+}
+
 export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunchPort, reloadNonce, updatedByAgent, onAckUpdate, initialScriptsOn }: LiveFrameProps) {
   const viewerId = useRef(newViewerId()).current;
   const bar = useAddressBar(target, initialDeep, onLaunchPort);
@@ -140,16 +192,21 @@ export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunch
   const egressMode = egressModeFor(granted.egress, target.kind);
   const egress = useEgressReport(target.id, capability?.tokenId, egressMode);
 
+  const blanking = useFrameBlanking();
+
   const reload = useCallback(() => {
+    blanking.reset();
     // Re-read the exposure policy first: a missed push must not leave a scripted frame up.
     exposure.refresh();
     setFrameNonce((n) => n + 1);
     egress.restart();
-  }, [exposure.refresh, egress.restart]);
+  }, [blanking.reset, exposure.refresh, egress.restart]);
 
   useReloadOnChange(reloadNonce, reload);
 
   const external = useOpenExternal(target.id, granted, runApproved, viewerId, bar.deep);
+
+  const blank = blanking.view(capability?.tier);
 
   const localUserPort =
     target.kind === "port" && target.addedBy === "user" && typeof window !== "undefined" && isLocalOperator(window.location.hostname);
@@ -189,7 +246,8 @@ export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunch
         />
       )}
       {showRun && <ExposedNotice onRun={approveRun} />}
-      {egress.report?.rootAbsolute && target.kind === "static" && <RootAbsoluteHint />}
+      {/* Tiers 1-4 serve at the origin root, so root-absolute paths resolve there: the hint is tier 5 / legacy only. */}
+      {egress.report?.rootAbsolute && target.kind === "static" && (capability?.tier === 5 || capability?.tier === "legacy") && <RootAbsoluteHint />}
       {capability?.tier === 5 && target.kind === "port" && (
         <BasePathHint base={capability.path} restartRequired={capability.restartRequired} />
       )}
@@ -212,6 +270,9 @@ export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunch
         nonce={frameNonce}
         error={error}
         onRetry={retry}
+        blanked={blank.blanked}
+        onFrameLoad={blanking.onFrameLoad}
+        notice={blankNotice(blank, reload, retry)}
       />
     </div>
   );

@@ -3833,6 +3833,11 @@ Pool-port request pipeline (in order, first failure stops):
 - CORS: `Access-Control-Allow-Origin: null` for opaque origin. `OPTIONS` preflight answered for valid pid.
 - Authorised by pid, not dashboard auth.
 - WS upgrades on `/preview/<pid>/...` supported.
+- Pid drop (revoke, expiry, target removed, disabled) closes its tracked WS and in-flight responses (`preview-ws-registry.ts`; `server.ts` `previewWs.closePid`).
+- Tiers 1-5: `Referrer-Policy: no-referrer` replaces any upstream value. Legacy: only when app set none.
+- Tier 5 root-absolute `Location` rewritten into `/preview/<pid>/…`.
+- Dead or reset upstream on `/preview/` ⇒ `502 {"error":"bad_gateway"}`. Timeout ⇒ `504 {"error":"gateway_timeout"}`.
+- Residual: client abort does not destroy upstream HTTP request (`@fastify/reply-from`; same on `/live/`). Proxy timeout bounds it.
 
 ##### Tier-5 base reservation
 - `POST /api/live-server/preview-path {port}|{targetId}` (control) ⇒ `{path:"/preview/<pid>/", expiresAt, tier5Viewers:true}`.
@@ -3856,6 +3861,7 @@ Pool-port request pipeline (in order, first failure stops):
 ##### Duplicate-cookie gate
 - Repeated `pi_dash_*` cookie name ⇒ `400` (JSON or static HTML by `Accept`).
 - Response expires the name at every path (self-heal).
+- Set-Cookie expiry lines capped at 8 KiB total (`EXPIRY_MAX_BYTES`, `fitExpiryBudget`). `/`, `/api/`, `/auth/` kept first. Keeps 400 head under Node 16 KiB header limit.
 - Applies to WS upgrades.
 - Repeated `pi_dash_token` / `pi_dash_pool_*` ⇒ counts as missing credential.
 - `previewApp` exempt.
@@ -3863,7 +3869,9 @@ Pool-port request pipeline (in order, first failure stops):
 ##### CSP
 - Capability responses: CSP built from entry, never request.
 - Tiers 1-4: `allow-same-origin` + exact `frame-ancestors`.
-- Tier 5: path-scoped.
+- Tier 5: path-scoped `frame-src`. No `frame-ancestors` (T11 fallback: Chromium blocks same-pid nested panes under `'self'`; sandboxed parent is opaque).
+- Tier 5 sandbox CSP still forces opaque origin. Pid is the capability.
+- Legacy: `frame-ancestors 'self'`.
 - Dashboard `frame-src` built per request from Host: `http://*.localhost`, wildcard suffix, `http://<host>:*` for pool.
 - `/preview/` skips dashboard baseline CSP (same as `/live/`).
 
@@ -3871,6 +3879,22 @@ Pool-port request pipeline (in order, first failure stops):
 - `liveServer.previewOrigins.enabled: false` ⇒ every mint returns legacy path.
 - Existing origin-bound capabilities revoked at next sweep, reason `disabled`.
 - Boot log: `[live-preview] tiers: 1, 3(8100-8199), 5`.
+
+##### Client guards (D6(b), cookie reset)
+- Dashboard doc framed by live frame (`data-pi-live-frame`) or cross-origin parent (`frameElement === null`): no boot, no render, no boot-time API calls.
+- Source: `lib/live-preview/frame-guard.ts` `isDashboardBootBlocked`; `main.tsx`; `lib/boot/client-boot.ts`.
+- After each live-frame `load`: readable `contentWindow.location.href` ⇒ frame `about:blank` + "Preview navigated to the dashboard; blocked." until Reload.
+- Source: `components/editor-pane/live/LiveFrame.tsx`, `LiveFrameParts.tsx`.
+- Same-origin `/api/*` 400 `duplicate_dashboard_cookie` ⇒ tier 2/3 frames blank to `about:blank` + "A preview reset dashboard cookies; reopen it to continue."
+- Tier 1 untouched. Nothing auto-reopens. Reload / Reopen re-mints.
+- Source: `lib/live-preview/cookie-reset.ts`.
+
+##### Browser tests (live preview)
+- `npm run test:e2e:live-preview` ⇒ `playwright.live-preview.config.ts`. Specs: `tests/e2e/live-preview/`. Guide: `tests/e2e/live-preview/README.md`.
+- Host-run isolated dashboard (global-setup, `HOME=<tmp>`, tiers 1/2/3/5). Not docker harness.
+- Projects: `chromium`, `firefox`, `chromium-resolver`.
+- `chromium-resolver`: `*.resolver.spec.ts` only. `--host-resolver-rules` maps `*.preview.test`, `dash.test`, `dash5.test` → `127.0.0.1`.
+- Docker-harness tier-5 / legacy spec: `tests/e2e/live-preview-harness-tiers.spec.ts`.
 
 ##### Observability (redacted)
 - `[live-preview] mint tier= target= h= via= peerLocal= reason=`

@@ -74,6 +74,23 @@ export function isTestEnvironment(override?: boolean): boolean {
   return typeof process !== "undefined" && (process as { env?: Record<string, string | undefined> }).env?.VITEST === "true";
 }
 
+/**
+ * True when this document is a dashboard framed by a live-preview frame (`data-pi-live-frame`) or by a
+ * cross-origin parent (`frameElement === null`): the SPA refuses to boot there (D6(b)), so this
+ * module-scope kick must not make the one boot-time API call either. Local twin of the client's
+ * `isDashboardBootBlocked` (a plugin cannot import client internals). `win` is injectable for tests.
+ * See change: serve-live-previews-on-capability-origin.
+ */
+export function isDashboardFrameBlocked(win: { top: unknown; frameElement: Element | null } & object = window): boolean {
+  try {
+    if (win === win.top) return false;
+    const el = win.frameElement;
+    return el === null || el.hasAttribute("data-pi-live-frame");
+  } catch {
+    return true; // cross-origin access error ⇒ framed by another origin
+  }
+}
+
 interface ActivePolling {
   timer: ReturnType<typeof setTimeout> | null;
 }

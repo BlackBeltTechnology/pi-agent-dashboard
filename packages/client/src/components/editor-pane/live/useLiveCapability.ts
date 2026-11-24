@@ -78,10 +78,15 @@ export function useLiveCapability({ targetId, policy, runScripts, epoch, viewerI
   const touchFailedRef = useRef(onTouchFailed);
   touchFailedRef.current = onTouchFailed;
 
+  // Mints on the wire (never aborted): a failed touch must not start a second one while one is pending.
+  const inFlight = useRef(0);
   const mint = useCallback(
     (id: string) => {
       const { policy: p, runScripts: run, viewerId: v } = latest.current;
-      return mintLiveCapability(id, { policy: p, runScripts: run || undefined, viewerId: v });
+      inFlight.current += 1;
+      return mintLiveCapability(id, { policy: p, runScripts: run || undefined, viewerId: v }).finally(() => {
+        inFlight.current -= 1;
+      });
     },
     [],
   );
@@ -144,7 +149,7 @@ export function useLiveCapability({ targetId, policy, runScripts, epoch, viewerI
       void touchLiveCapability(targetId, tokenId).then((ok) => {
         if (ok) return;
         touchFailedRef.current?.();
-        setForced((n) => n + 1);
+        if (inFlight.current === 0) setForced((n) => n + 1); // a pending mint already replaces the dead token
       });
     };
     const sync = () => {

@@ -1,7 +1,7 @@
 /**
  * Opaque-frame and base-path helpers shared by the shell, the pane runtime and the fixture layer.
  *
- * Tier 5 (`/preview/<pid>/`) frames the site in a sandbox WITHOUT `allow-same-origin`: `location.origin` is the string
+ * Tier 5 (`/preview/<pid>/`) frames the site in a sandbox WITHOUT `allow-same-origin`: `window.origin` is the string
  * `"null"`, `postMessage(…, location.origin)` throws and storage is unavailable. Tiers 1-4 frame a real origin and need none
  * of it. Messaging rule (both directions): post to ONE known window only (`parent` / `frame.contentWindow`), with `"*"` only
  * while opaque, and accept a message only from that window (`e.source`). Payloads carry no decisions, fixtures or URLs.
@@ -11,8 +11,12 @@
 /** The Vite `base` this document is served under (always ends with `/`). */
 export const BASE: string = import.meta.env?.BASE_URL ?? "/";
 
-/** Is this document in an opaque origin (a sandboxed frame without `allow-same-origin`)? */
-export const isOpaque = (): boolean => location.origin === "null";
+/**
+ * Is this document in an opaque origin (a sandboxed frame without `allow-same-origin`)? `window.origin` is the DOCUMENT's
+ * origin ("null" when sandboxed); `location.origin` is the URL's origin and stays the real one even in such a frame, so it
+ * only says "null" for URLs that have none (kept as the fallback when a host exposes no `window.origin`).
+ */
+export const isOpaque = (): boolean => (globalThis as { origin?: string }).origin === "null" || location.origin === "null";
 
 /** `targetOrigin` for a `postMessage` to a known window: `"*"` only while opaque, the real origin otherwise. */
 export const postTarget = (): string => (isOpaque() ? "*" : location.origin);

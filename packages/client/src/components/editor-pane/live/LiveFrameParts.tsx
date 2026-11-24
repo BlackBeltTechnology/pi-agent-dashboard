@@ -92,6 +92,32 @@ export function UpdatedNotice({ onReload }: { onReload: () => void }) {
   );
 }
 
+/** Tier 2/3 frame blanked because a preview reset the dashboard cookies (10.6): nothing re-opens it but the user. */
+export function CookieResetBanner({ onReopen }: { onReopen: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div role="alert" data-testid="live-cookie-reset" className="p-3 text-xs text-[var(--severity-error-fg)]">
+      {t("live.cookieReset", undefined, "A preview reset dashboard cookies; reopen it to continue.")}
+      <button type="button" data-testid="live-cookie-reset-reopen" onClick={onReopen} className="ml-2 underline">
+        {t("live.cookieReset.reopen", undefined, "Reopen")}
+      </button>
+    </div>
+  );
+}
+
+/** The preview navigated its frame to the dashboard origin (D6(b) probe): blanked until Reload. */
+export function NavigatedNotice({ onReload }: { onReload: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div role="alert" data-testid="live-navigated" className="p-3 text-xs text-[var(--severity-error-fg)]">
+      {t("live.navigatedToDashboard", undefined, "Preview navigated to the dashboard; blocked.")}
+      <button type="button" data-testid="live-navigated-reload" onClick={onReload} className="ml-2 underline">
+        {t("live.updated.reload", undefined, "Reload")}
+      </button>
+    </div>
+  );
+}
+
 /** Restricted + exposed + scripts off: the operator's explicit "Run scripts". */
 export function ExposedNotice({ onRun }: { onRun: () => void }) {
   const { t } = useI18n();

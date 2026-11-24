@@ -82,19 +82,35 @@ function stripDashboardCredentials(
   return headers;
 }
 
-/** Tier 5: the upstream already serves under `prefix`, so a redirect inside it is left as is, never prefixed twice. */
+/**
+ * Tier 5: the upstream already serves under `prefix`, so a redirect inside it is left as is (never prefixed twice);
+ * any other root-absolute redirect, or an absolute one back to the same upstream, is rewritten into the prefix.
+ */
 function rewriteFullPathLocation(location: string, prefix: string, host: string, port: number): string {
-  if (location.startsWith("/")) return staysInside(location, prefix) ? location : `${prefix}/`;
+  const intoPrefix = (local: string): string => {
+    if (staysInside(local, prefix)) return local;
+    const prefixed = `${prefix}${local}`;
+    return staysInside(prefixed, prefix) ? prefixed : `${prefix}/`;
+  };
+  if (location.startsWith("/")) return intoPrefix(location);
   try {
     const u = new URL(location);
-    if (u.hostname === host && u.port === String(port)) {
-      const local = `${u.pathname}${u.search}`;
-      return staysInside(local, prefix) ? local : `${prefix}/`;
-    }
+    if (u.hostname === host && u.port === String(port)) return intoPrefix(`${u.pathname}${u.search}`);
   } catch {
     /* not an absolute URL — leave as-is */
   }
   return location;
+}
+
+/** Merge `Origin` into `Vary` (once): the answer of a tier-5 response depends on the request `Origin`. */
+function mergeVaryOrigin(headers: Record<string, unknown>): void {
+  const vary = headers.vary;
+  const list = (Array.isArray(vary) ? vary.join(",") : typeof vary === "string" ? vary : "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  if (!list.some((v) => v.toLowerCase() === "origin" || v === "*")) list.push("Origin");
+  headers.vary = list.join(", ");
 }
 
 /**
@@ -104,13 +120,22 @@ function rewriteFullPathLocation(location: string, prefix: string, host: string,
 function applyNullCors(headers: Record<string, unknown>): void {
   for (const k of Object.keys(headers)) if (k.toLowerCase().startsWith("access-control-")) delete headers[k];
   headers["access-control-allow-origin"] = "null";
-  const vary = headers.vary;
-  const list = (Array.isArray(vary) ? vary.join(",") : typeof vary === "string" ? vary : "")
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-  if (!list.some((v) => v.toLowerCase() === "origin" || v === "*")) list.push("Origin");
-  headers.vary = list.join(", ");
+  mergeVaryOrigin(headers);
+}
+
+/**
+ * Tiers 1-5 carry a secret in the URL (label / pid), so `Referrer-Policy: no-referrer` REPLACES any upstream value
+ * there (design D3); the legacy path keeps "only when the app set none".
+ */
+function applyReferrerPolicy(headers: Record<string, unknown>, grant: LiveCapabilityGrant | undefined, capabilityPrefix: string | undefined): void {
+  if (grant && grant.tier !== "legacy") headers["referrer-policy"] = "no-referrer";
+  else if (capabilityPrefix && headers["referrer-policy"] === undefined) headers["referrer-policy"] = "no-referrer";
+}
+
+/** Tier-5 CORS: `ACAO: null` for an opaque-origin request; `Vary: Origin` is present even where no ACAO is granted. */
+function applyTier5Cors(headers: Record<string, unknown>, requestOrigin: string | undefined): void {
+  if (requestOrigin === "null") applyNullCors(headers);
+  else mergeVaryOrigin(headers);
 }
 
 /**
@@ -152,6 +177,12 @@ function staysInside(path: string, prefix: string): boolean {
 
 export interface LiveProxyDeps {
   /**
+   * Is this absolute URL an origin the dashboard app itself is served on (host-admitted, dashboard port, not preview-shaped)?
+   * Tiers 1-4 never deliver an upstream `Location` / `Refresh` aimed at it (D3(c)). Absent ⇒ no containment.
+   * See change: serve-live-previews-on-capability-origin (D3(c), T.F40).
+   */
+  isDashboardUrl?: (url: URL) => boolean;
+  /**
    * Does this token verify as a dashboard device bearer on THIS request's channel? Absent ⇒ never
    * strip `Authorization`. Receives the request so the registry can record a non-proven channel.
    */
@@ -180,6 +211,11 @@ export interface LiveProxyDeps {
     reply: FastifyReply,
     ctx: { grant: LiveCapabilityGrant; subPath: string },
   ) => Promise<FastifyReply> | FastifyReply;
+  /**
+   * Tier 5: a `/preview/<pid>/` response is now in flight. The pid's drop destroys it, so a revoked preview cannot keep an
+   * HTTP stream (SSE, long download) open to its dev server (test-plan #P11).
+   */
+  trackPreviewResponse?: (pid: string, res: import("node:http").ServerResponse) => void;
 }
 
 /** `/__pi` as a whole path segment (the reserved namespace under a capability prefix). */
@@ -221,6 +257,43 @@ function rewritePreviewOrigin(headers: HeaderBag, upstreamOrigin: string, previe
     } catch {
       delete headers.referer;
     }
+  }
+}
+
+/** `url=<target>` of a `Refresh` header value (`0; url=http://x/`, `5;URL='x'`); `null` when it names none. */
+function refreshTarget(value: string): string | null {
+  const m = /;\s*url\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;]*))/i.exec(value);
+  const raw = (m?.[1] ?? m?.[2] ?? m?.[3] ?? "").trim();
+  return raw === "" ? null : raw;
+}
+
+/** The absolute http(s) URL `value` names, or `null` for a relative / non-http / malformed one (those resolve on the preview origin). */
+function absoluteHttpUrl(value: string): URL | null {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:" ? u : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * D3(c), tiers 1-4: an upstream must not steer the frame onto the dashboard origin by header. A `Refresh` whose
+ * target is a dashboard origin is dropped; such a `Location` is rewritten onto the preview origin (same path + query).
+ * JS and `<meta refresh>` navigation are not header-contained: the client guard (D6/D7) handles them.
+ */
+export function containDashboardRedirects(headers: Record<string, unknown>, previewOrigin: string, isDashboardUrl: (u: URL) => boolean): void {
+  const dashboard = (v: string): URL | null => {
+    const u = absoluteHttpUrl(v);
+    return u && u.origin !== previewOrigin && isDashboardUrl(u) ? u : null;
+  };
+  if (typeof headers.refresh === "string") {
+    const target = refreshTarget(headers.refresh);
+    if (target !== null && dashboard(target)) delete headers.refresh;
+  }
+  if (typeof headers.location === "string") {
+    const u = dashboard(headers.location);
+    if (u) headers.location = `${previewOrigin}${u.pathname}${u.search}${u.hash}`;
   }
 }
 
@@ -330,13 +403,13 @@ export function createLiveForwarder(manager: LiveServerManager, deps: LiveProxyD
         const setCookie = filterSetCookie(headers["set-cookie"] as string | string[] | undefined);
         if (setCookie === undefined) delete headers["set-cookie"];
         else headers["set-cookie"] = setCookie;
-        // The token is in this page's URL: keep it out of Referer headers the
-        // page sends to third parties unless the app set its own policy.
-        if (capabilityPrefix && headers["referrer-policy"] === undefined) {
-          headers["referrer-policy"] = "no-referrer";
-        }
+        // The token is in this page's URL: keep it out of Referer headers the page sends to third parties.
+        applyReferrerPolicy(headers, grant, capabilityPrefix);
         if (csp) appendCsp(headers, csp);
-        if (opts.nullCors && request.headers.origin === "null") applyNullCors(headers);
+        if (opts.nullCors) applyTier5Cors(headers, request.headers.origin);
+        if (grant && grant.tier !== "legacy" && grant.tier !== 5 && grant.origin !== undefined && deps.isDashboardUrl) {
+          containDashboardRedirects(headers, grant.origin, deps.isDashboardUrl);
+        }
         const location = headers.location;
         if (typeof location === "string") {
           headers.location = rewriteLocation(location, prefix, host, target.port, opts.fullPath === true);
@@ -412,10 +485,16 @@ export function registerLiveServerProxy(
     if (!grant || grant.tier !== 5 || !path) return notFoundReply(reply);
     const target = manager.get(grant.targetId);
     if (!target) return notFoundReply(reply);
+    deps.trackPreviewResponse?.(path.pid, reply.raw);
     return forwardPort(request, reply, target, path.rest, grant, path.prefix, { fullPath: true, nullCors: true });
   };
-  fastify.all("/preview/:pid/*", forwardPreview);
-  fastify.all("/preview/:pid", forwardPreview);
+  // A dead or resetting upstream is a bad gateway (never a dashboard 500), like the preview-origin and pool forwarders.
+  const badGateway = (error: { statusCode?: number }, _request: FastifyRequest, reply: FastifyReply) => {
+    const status = error.statusCode !== undefined && error.statusCode < 500 ? error.statusCode : error.statusCode === 504 ? 504 : 502;
+    return reply.code(status).header("cache-control", "no-store").type("application/json").send({ error: status === 502 ? "bad_gateway" : status === 504 ? "gateway_timeout" : "bad_request" });
+  };
+  fastify.all("/preview/:pid/*", { errorHandler: badGateway }, forwardPreview);
+  fastify.all("/preview/:pid", { errorHandler: badGateway }, forwardPreview);
 }
 
 /** Longest upstream 101 head we will buffer before giving up. */
@@ -437,6 +516,7 @@ function forwardHandshakeFiltered(upstream: net.Socket, socket: import("node:str
       return;
     }
     upstream.off("data", onData);
+    upstream.setTimeout(0); // the handshake finished: the pipe owns the socket lifetime from here
     const headText = buf.subarray(0, end).toString("latin1");
     const filtered = headText
       .split("\r\n")
@@ -503,9 +583,9 @@ export function pipeUpgradeToTarget(
   const isKnownBearer = deps.isKnownBearer ?? (() => false);
 
   const upstream = net.connect(target.port, host, () => {
-    // Clear the connect-phase timeout once the socket is established; the pipe
-    // below owns the socket lifetime thereafter.
-    upstream.setTimeout(0);
+    // The handshake timeout below stays armed until the upstream's 101 head is complete
+    // (`forwardHandshakeFiltered` clears it): an upstream that accepts TCP and never answers the upgrade
+    // must not hold the socket pair open forever.
     // Dashboard credentials never reach the previewed app (same rule as the
     // HTTP path); a forwarded Referer loses any capability segment.
     const forwarded = stripDashboardCredentials({ ...request.headers } as HeaderBag, isDeviceBearer, request, isKnownBearer);
