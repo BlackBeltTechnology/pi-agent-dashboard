@@ -357,12 +357,14 @@ test.describe("file download", () => {
     await page.setViewportSize(DESKTOP);
   });
 
-  const expectedBytes = (): string => inBox(`cat ${JSON.stringify(`${FIXTURE_GIT}/hello.txt`)}`);
+  // Raw buffers (no trim, no UTF-8 decode): a lost trailing newline or changed byte must fail.
+  const expectedBytes = (): Buffer =>
+    execFileSync("docker", ["exec", resolveContainer(), "cat", `${FIXTURE_GIT}/hello.txt`]);
 
-  async function saved(download: Download): Promise<string> {
+  async function saved(download: Download): Promise<Buffer> {
     const path = await download.path();
     if (!path) throw new Error("download has no saved path");
-    return readFileSync(path, "utf8").trim();
+    return readFileSync(path);
   }
 
   /** Fresh session, split layout, file rail open — rows are opened by click (the `?file=` deep link is not needed here). */
@@ -385,7 +387,7 @@ test.describe("file download", () => {
     await p.getByTestId("doc-more-menu").click();
     const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("doc-download").click()]);
     expect(download.suggestedFilename()).toBe("hello.txt");
-    expect(await saved(download)).toBe(expectedBytes());
+    expect((await saved(download)).equals(expectedBytes())).toBe(true);
   });
 
   test("F13: tree row right-click → Download saves the file and leaves the tabs unchanged", async ({ page }) => {
@@ -395,7 +397,7 @@ test.describe("file download", () => {
     await row.click({ button: "right" });
     const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("tree-row-download").click()]);
     expect(download.suggestedFilename()).toBe("hello.txt");
-    expect(await saved(download)).toBe(expectedBytes());
+    expect((await saved(download)).equals(expectedBytes())).toBe(true);
     await expect(p.getByTestId("editor-tab")).toHaveCount(tabsBefore);
   });
 });

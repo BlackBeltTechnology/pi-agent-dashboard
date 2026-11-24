@@ -210,11 +210,22 @@ function MoreMenu({
   );
 }
 
+/** Owns the download toast tray so it outlives tab switches (every branch of the bar), not just the file bar. */
 export function DocumentBar(props: DocumentBarProps) {
+  const download = useDownload();
+  return (
+    <>
+      <DocumentBarBody {...props} download={download} />
+      {download.tray}
+    </>
+  );
+}
+
+function DocumentBarBody(props: DocumentBarProps & { download: ReturnType<typeof useDownload> }) {
   const { t } = useI18n();
+  const { download } = props;
   const { tab, cwd, narrow, systemOpen, platform, onOverlayChange } = props;
   const [moreOpen, setMoreOpen] = useState(false);
-  const download = useDownload();
   const moreRef = useRef<HTMLButtonElement>(null);
   const leafRef = useRef<HTMLButtonElement>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -322,7 +333,6 @@ export function DocumentBar(props: DocumentBarProps) {
           onClose={() => setMoreOpen(false)}
         />
       )}
-      {download.tray}
     </div>
   );
 }

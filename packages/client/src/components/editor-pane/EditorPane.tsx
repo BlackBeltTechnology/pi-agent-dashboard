@@ -17,7 +17,7 @@
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiChevronDown, mdiClose, mdiFileTreeOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { ancestorDirs } from "../../lib/layout/editor-pane-state.js";
@@ -381,6 +381,8 @@ export function EditorPane() {
 
   // ── Closing: single close (per tab) and the bulk runner (design D6) ────────
   // Handler lookups + built-in unsaved buffers (read live from the unsaved store).
+  // Re-render when a built-in buffer turns dirty/clean: `isTabDirty` (Download hint, tab-search marks) reads the store at render time.
+  useSyncExternalStore(unsavedStore.subscribe, unsavedStore.getState, unsavedStore.getState);
   const closeLookups: CloseRiskLookups = {
     ...fh.closeLookups,
     bufferDirty: (tab) => tab.viewer !== "terminal" && !tab.handlerMode && unsavedStore.hasUnsaved([unsavedKey(sessionId, tab.path)]),

@@ -499,6 +499,19 @@ describe("document bar Download (add-file-download)", () => {
     expect(item.textContent).toContain("Unsaved changes not included");
   });
 
+  it("#F2b a buffer that turns dirty AFTER mount still shows the hint", async () => {
+    seedPane("s1", [tab("late.md")], 0);
+    mount();
+    await settle();
+    const key = unsavedKey("s1", "late.md");
+    unsavedKeys.push(key);
+    act(() => {
+      unsavedStore.registerUnsaved(key, { label: "late.md", dirty: true, save: vi.fn(async () => true), discard: vi.fn() });
+    });
+    fireEvent.click(screen.getByTestId("doc-more-menu"));
+    expect(screen.getByTestId("doc-download").textContent).toContain("Unsaved changes not included");
+  });
+
   it("#F3 an outside-cwd tab downloads with outsideCwd:true", async () => {
     seedPane("s1", [tab("/etc/hosts")], 0);
     mount();
