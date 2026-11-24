@@ -9,7 +9,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
-import { isStaticWebAsset, resolveStaticRoot } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
+import {
+  isStaticWebAsset,
+  type LiveCapabilityMintResponse,
+  resolveStaticRoot,
+} from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { canonicalHttpsOrigin } from "@blackbelt-technology/pi-dashboard-shared/preview-egress.js";
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -17,8 +21,15 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { COOKIE_NAME, type TokenPayload } from "../auth/auth.js";
 import { hasLocalCredential } from "../auth/local-credential.js";
 import type { LocalTrustContext } from "../auth/local-proof.js";
-import { canDiscloseAccessPosture, isLocallyTrusted, isTrustedSource } from "../auth/localhost-guard.js";
+import {
+  canDiscloseAccessPosture,
+  hasProxyForwardingHeaders,
+  isGenuinelyLocal,
+  isLocallyTrusted,
+  isTrustedSource,
+} from "../auth/localhost-guard.js";
 import { sendTierRefusal, tierRefusalFor } from "../auth/route-tier-gate.js";
+import { getResolvedPreviewOrigins } from "../config-snapshot.js";
 import {
   type CapabilityPrincipal,
   isViewerId,
@@ -36,6 +47,7 @@ import type { PreviewExposure } from "../live-server/live-exposure.js";
 import { type LiveLogSink, liveLog } from "../live-server/live-log.js";
 import type { LiveServerManager } from "../live-server/live-server-manager.js";
 import { safeSegments } from "../live-server/live-static.js";
+import { selectMintTier } from "../live-server/preview-tier.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /**
@@ -116,6 +128,8 @@ function staticEntry(root: string, file: string): string | null {
 export interface LiveServerRouteDeps {
   networkGuard: NetworkGuard;
   capabilities?: LiveCapabilityStore;
+  /** Resolved preview-origin config (tier selection); defaults to the live config snapshot. */
+  previewOrigins?: () => import("@blackbelt-technology/pi-dashboard-shared/preview-origins.js").ResolvedPreviewOrigins;
   /** Exposure service; absent ⇒ treated as `exposed` (fail closed). */
   exposure?: PreviewExposure;
   /** Is access prompting enabled (`accessGrants.promptEnabled`)? Absent ⇒ false. */
@@ -310,22 +324,44 @@ export function registerLiveServerRoutes(
         const scripts = scriptsGranted(egress, exposure, body);
         const viewerId = isViewerId(body.viewerId) ? body.viewerId : undefined;
         const principal = capabilityPrincipalOf(request);
-        const { token, tokenId, expiresAt, policy } = capabilities.mint(id, principal, {
+        // Tier selection from the RAW Host + socket peer (D1). Group 8 mints tier 5 (`/preview/<pid>/`); until
+        // then a tier-5 outcome is the legacy capability path.
+        const decision = selectMintTier({
+          hostHeader: request.headers.host,
+          socketPort: request.raw.socket?.localPort,
+          genuinelyLocal: isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>),
+          forwardingHeaders: hasProxyForwardingHeaders(request.headers as Record<string, unknown>),
+          socketTls: (request.raw.socket as { encrypted?: boolean } | undefined)?.encrypted === true,
+          originHeader: typeof request.headers.origin === "string" ? request.headers.origin : undefined,
+          resolved: (deps.previewOrigins ?? getResolvedPreviewOrigins)(),
+          accept: body.accept,
+          kind,
+        });
+        const binding = typeof decision.tier === "number" ? decision : undefined;
+        const minted = capabilities.mint(id, principal, {
           kind,
           policy: { egress, scripts },
           viewerId,
           exposure,
           localBound: isLocalBoundMint(request, principal),
+          ...(binding ? { preview: { tier: binding.tier, ancestors: binding.ancestors, buildOrigin: binding.buildOrigin } } : {}),
         });
         liveServerManager.use(id);
+        const { token, tokenId, expiresAt, policy } = minted;
+        if (binding && minted.origin) {
+          log("mint", { tier: minted.tier, reused: minted.reused });
+          return { success: true, ok: true, tier: minted.tier, origin: minted.origin, path: "/", expiresAt, tokenId, policy } satisfies LiveCapabilityMintResponse;
+        }
+        log("mint", { tier: "legacy", reason: decision.reason ?? "no-match" });
         return {
           success: true,
           ok: true,
+          tier: "legacy" as const,
           path: `/live/${id}/~c/${token}/`,
           expiresAt,
           tokenId,
           policy,
-        };
+        } satisfies LiveCapabilityMintResponse;
       },
     );
 

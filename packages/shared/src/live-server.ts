@@ -225,3 +225,21 @@ export function validateAddressPath(input: string): AddressPathResult {
   }
   return { ok: true, path: out.join("/") + (trailing ? "/" : "") + suffix };
 }
+
+/**
+ * `POST /api/live-server/:id/capability` success body. `tier` 1-4 carry an `origin`; 5 is `/preview/<pid>/`;
+ * `"legacy"` is `/live/<id>/~c/<token>/`. Tiers 1, 2, 4 carry `origin` and `path: "/"`; tier 3 `origin` and
+ * `path: "/?k=<secret>"`; tier 5 `path: "/preview/<pid>/"` with no `origin`. Tiers 1-4 MAY carry
+ * `base: "/preview/<pid>/"`. Without `accept` the response is `"legacy"`.
+ */
+export interface LiveCapabilityMintResponse {
+  success: true;
+  ok: true;
+  tier: 1 | 2 | 3 | 4 | 5 | "legacy";
+  origin?: string;
+  path: string;
+  base?: string;
+  expiresAt: number;
+  tokenId: string;
+  policy: { egress: "open" | "restricted"; scripts: boolean };
+}
