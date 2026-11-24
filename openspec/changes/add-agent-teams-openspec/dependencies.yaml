@@ -1,0 +1,3 @@
+blocked_by:
+  - change: add-agent-teams-templates-hooks
+    reason: "builds on the template format, start paths (team.start, /agent-team, REST), server-started lead, hooks and op gates it consumes; transitively needs core and the ui change"

@@ -1,0 +1,7 @@
+blocked_by:
+  - change: add-agent-teams-core
+    reason: "registers an in-process driver in core's mode registry (MemberDriver seam, modes.ts, ResolvedSpawnSpec, TEAM_TOOLS_BY_ROLE, createTeamTools(transport), resolveCaller, store events, abortMember/teamDelete, closeReason) and reuses its store, ops, dispatcher, mail log, idle/shutdown handling, guard layers, mail-framing helper and coalescer. External gate (not expressible here): a pi-dashboard-subagents release newer than 0.8.1 with the API of agent-teams-subagents-contract."
+  - change: add-agent-teams-templates-hooks
+    reason: "uses the template `mode` field and mode resolution (templated start resolving to in-process), the plan-mode spawn contributor and `PlanSubmit` (plan-mode narrowing in a child) from this change"
+  - change: add-agent-teams-ui
+    reason: "implements the Team view member-card touch points (Open subagent view by childAgentId, mode and parallelism header, data-testid contract) on top of the Team view this change adds"
