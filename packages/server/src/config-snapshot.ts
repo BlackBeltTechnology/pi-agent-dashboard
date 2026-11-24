@@ -22,6 +22,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type DashboardConfig, type HostGateMode, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import {
+  type PreviewOriginsIssue,
+  type ResolvedPreviewOrigins,
+  formatTierSet,
+  parsePreviewOrigins,
+  previewOriginsConfigChanged,
+  resolvePreviewOrigins,
+} from "@blackbelt-technology/pi-dashboard-shared/preview-origins.js";
 
 let cached: DashboardConfig | null = null;
 /** `${mtimeMs}:${size}` of the file behind `cached`; `""` = never loaded. */
@@ -31,6 +39,8 @@ let parseCount = 0;
 let cachedRlpInvalid: { raw: unknown } | undefined;
 /** Last non-boolean value already warned about (JSON-keyed), so the log never repeats. */
 let lastWarnedRlp: string | undefined;
+/** Parse-layer `liveServer.previewOrigins` issues of the RAW file behind `cached` (re-derived on each reparse). */
+let cachedPoIssues: PreviewOriginsIssue[] = [];
 
 /** Resolved per call — `os.homedir()` follows `$HOME`, which tests reassign. */
 function configFile(): string {
@@ -90,6 +100,18 @@ function readInvalidRequireLocalProof(): { raw: unknown } | undefined {
   return undefined;
 }
 
+/** Parse-layer issues of the raw `liveServer.previewOrigins` value (the loaded config keeps only the cleaned value). */
+function readPreviewOriginsIssues(): PreviewOriginsIssue[] {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configFile(), "utf-8")) as { liveServer?: { previewOrigins?: unknown } } | null;
+    const ls = parsed?.liveServer;
+    if (ls && typeof ls === "object" && !Array.isArray(ls)) return parsePreviewOrigins(ls.previewOrigins).issues;
+  } catch {
+    /* absent / unparseable → nothing to report */
+  }
+  return [];
+}
+
 /**
  * The current config, reparsed only when the file changed since the last call.
  * Callers MUST NOT mutate the returned object — it is shared. When the file
@@ -114,6 +136,7 @@ export function getConfigSnapshot(): DashboardConfig {
   cached = loadConfig();
   cachedStamp = current;
   cachedRlpInvalid = readInvalidRequireLocalProof();
+  cachedPoIssues = readPreviewOriginsIssues();
   parseCount++;
   return cached;
 }
@@ -192,8 +215,108 @@ export function rawConfigHasHostGateMode(): boolean {
   }
 }
 
+// ---- liveServer.previewOrigins (D12) -------------------------------------------------
+
+/** Live server state the overlap checks read; registered by `server.ts` (group 3). */
+export interface PreviewOriginsRuntime {
+  tunnelOrigins?: () => string[];
+  tlsNames?: () => string[];
+  /** `classifyAdmittedHostname` bound to the live admission options. */
+  classifyAdmittedHostname?: (hostname: string) => string | null;
+}
+
+let previewRuntime: PreviewOriginsRuntime = {};
+/** Bumped when the runtime inputs change (tunnel connect, certificate change) so the memo is recomputed. */
+let previewRuntimeEpoch = 0;
+let resolvedPo: { stamp: string; epoch: number; value: ResolvedPreviewOrigins } | undefined;
+let lastLoggedPo: ResolvedPreviewOrigins | undefined;
+const previewOriginsListeners = new Set<(next: ResolvedPreviewOrigins, prev: ResolvedPreviewOrigins) => void>();
+
+/** Register the runtime inputs of the overlap checks. Replaces any previous registration. */
+export function setPreviewOriginsRuntime(rt: PreviewOriginsRuntime): void {
+  previewRuntime = rt;
+  previewRuntimeEpoch++;
+}
+
+/** Call on tunnel connect/disconnect and TLS certificate change: the overlap set moved. */
+export function notifyPreviewOriginsRuntimeChanged(): void {
+  previewRuntimeEpoch++;
+}
+
+/**
+ * Subscribe to changes of the resolved preview-origin config (validation result or tier set).
+ * Fires from the read that notices the change, never from a watcher; the capability store
+ * revokes entries whose `originHost` no longer matches (reason `config-changed`, Q8).
+ */
+export function onPreviewOriginsChange(
+  cb: (next: ResolvedPreviewOrigins, prev: ResolvedPreviewOrigins) => void,
+): () => void {
+  previewOriginsListeners.add(cb);
+  return () => previewOriginsListeners.delete(cb);
+}
+
+function safeList(fn: (() => string[]) | undefined): string[] {
+  try {
+    return fn?.() ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * `liveServer.previewOrigins` as resolved against live server state. Live (no restart); the
+ * result is memoised per config stamp + runtime epoch, so a steady-state read is one `stat`.
+ * Logs `[live-preview] tiers: …` and every issue at boot and afterwards only when the validation
+ * result or the resolved tier set changes (Q20).
+ */
+export function getResolvedPreviewOrigins(): ResolvedPreviewOrigins {
+  const cfg = getConfigSnapshot();
+  if (resolvedPo && resolvedPo.stamp === cachedStamp && resolvedPo.epoch === previewRuntimeEpoch) {
+    return resolvedPo.value;
+  }
+  let resolved: ResolvedPreviewOrigins;
+  try {
+    resolved = resolvePreviewOrigins(cfg.liveServer?.previewOrigins ?? { enabled: true }, {
+      port: cfg.port,
+      piPort: cfg.piPort,
+      tlsPort: cfg.tls?.enabled ? cfg.tls.port : undefined,
+      modelProxyPort: cfg.modelProxy?.enabled ? cfg.modelProxy.secondPort : undefined,
+      allowedHosts: cfg.allowedHosts ?? [],
+      publicBaseUrls: resolvePublicBaseUrls(cfg) ?? [],
+      corsOrigins: cfg.cors?.allowedOrigins ?? [],
+      tunnelOrigins: safeList(previewRuntime.tunnelOrigins),
+      tlsNames: safeList(previewRuntime.tlsNames),
+      classifyAdmittedHostname: previewRuntime.classifyAdmittedHostname,
+    });
+  } catch (err) {
+    console.error("[live-preview] preview-origin validation failed; tiers 2-4 disabled", err);
+    resolved = { enabled: true, tiers: [1, 5], issues: [] };
+  }
+  const value: ResolvedPreviewOrigins = { ...resolved, issues: [...cachedPoIssues, ...resolved.issues] };
+  const prev = resolvedPo?.value;
+  resolvedPo = { stamp: cachedStamp, epoch: previewRuntimeEpoch, value };
+  if (previewOriginsConfigChanged(lastLoggedPo, value)) {
+    lastLoggedPo = value;
+    for (const issue of value.issues) console.warn(`[live-preview] config: ${issue.message}`);
+    console.log(`[live-preview] tiers: ${value.enabled ? formatTierSet(value) : "legacy path only (previewOrigins.enabled=false)"}`);
+  }
+  if (prev && previewOriginsConfigChanged(prev, value)) {
+    for (const cb of previewOriginsListeners) {
+      try {
+        cb(value, prev);
+      } catch (err) {
+        console.error("[live-preview] previewOrigins change listener failed", err);
+      }
+    }
+  }
+  return value;
+}
+
 /** Drop the cache (tests, and any explicit re-read after a known write). */
 export function resetConfigSnapshot(): void {
+  resolvedPo = undefined;
+  lastLoggedPo = undefined;
+  cachedPoIssues = [];
   cached = null;
   cachedStamp = "";
   parseCount = 0;

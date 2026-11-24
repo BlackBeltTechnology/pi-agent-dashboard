@@ -18,6 +18,7 @@ import {
 } from "./heap-limits.js";
 import type { HostGateMode } from "./host-admission.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
+import { type PreviewOriginsConfig, parsePreviewOrigins } from "./preview-origins.js";
 import type { WindowsBashSourceSetting, WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import {
   defaultSchemeForPort,
@@ -1291,7 +1292,15 @@ export interface DashboardConfig {
    * forwarding header (`ssh -L`, socat), which is otherwise undetectable. Absent / any
    * other value → automatic detection. See change: improve-canvas-html-and-url-ux (D5).
    */
-  liveServer?: { previewExposure?: "exposed" };
+  liveServer?: {
+    previewExposure?: "exposed";
+    /**
+     * Preview-origin tiers (validated + normalised; invalid tiers already dropped, `issues` come from
+     * `parsePreviewOrigins` on the raw file). Kept independently of `previewExposure`.
+     * See change: serve-live-previews-on-capability-origin (D12).
+     */
+    previewOrigins?: PreviewOriginsConfig;
+  };
   /** Merged trustedNetworks + auth.bypassHosts (deduplicated). Computed at load time. */
   resolvedTrustedNetworks: string[];
   /** CORS allowed origins for cross-origin client hosting */
@@ -2524,6 +2533,21 @@ export function knownServersNeedMigration(): boolean {
   }
 }
 
+/**
+ * `liveServer` block: `previewExposure` (only `"exposed"` is kept) and
+ * `previewOrigins`, kept independently of each other. A non-object block → defaults.
+ * Never throws; per-tier problems are reported by `parsePreviewOrigins`.
+ * See change: serve-live-previews-on-capability-origin (D12).
+ */
+function parseLiveServerConfig(raw: unknown): { liveServer?: NonNullable<DashboardConfig["liveServer"]> } {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const r = raw as { previewExposure?: unknown; previewOrigins?: unknown };
+  const liveServer: NonNullable<DashboardConfig["liveServer"]> = {};
+  if (r.previewExposure === "exposed") liveServer.previewExposure = "exposed";
+  if (r.previewOrigins !== undefined) liveServer.previewOrigins = parsePreviewOrigins(r.previewOrigins).value;
+  return Object.keys(liveServer).length > 0 ? { liveServer } : {};
+}
+
 function parseTrustedNetworks(raw: any): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((entry: unknown) => typeof entry === "string" && entry.length > 0);
@@ -2768,7 +2792,7 @@ export function loadConfig(): DashboardConfig {
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
       ...(parseNetworkConfig(parsed.network) ? { network: parseNetworkConfig(parsed.network) } : {}),
       requireLocalProof: typeof parsed.requireLocalProof === "boolean" ? parsed.requireLocalProof : true,
-      ...(parsed.liveServer?.previewExposure === "exposed" ? { liveServer: { previewExposure: "exposed" as const } } : {}),
+      ...parseLiveServerConfig(parsed.liveServer),
       resolvedTrustedNetworks: [],
       cors: {
         allowedOrigins: Array.isArray(parsed.cors?.allowedOrigins)

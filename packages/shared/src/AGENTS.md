@@ -7,8 +7,8 @@ Files in this directory. One row per source file.
 | `__tests__/codeql-anchor-contract.test.ts` | Static contract on the CodeQL analysis anchor (#E19–#E25). → see `__tests__/codeql-anchor-contract.test.ts.AGENTS.md` |
 | `__tests__/codeql-baseline-gates.test.ts` | `operator-authz` reasons cite their bounding gate (#E1–#E16, #E32). → see `__tests__/codeql-baseline-gates.test.ts.AGENTS.md` |
 | `__tests__/codeql-workflow-contract.test.ts` | Static contract for `.github/workflows/codeql.yml` (#E1): matrix `actions`/`javascript-typescript`/`python`,… → see `__tests__/codeql-workflow-contract.test.ts.AGENTS.md` |
-| `__tests__/config-auto-seed.test.ts` | `autoSeedProjects` loader — default true, explicit booleans kept, non-boolean (e.g. `"false"` string) → default. See change: auto-seed-project-defaults. |
-| `__tests__/config-pairing.test.ts` | #E1: `pairing.acceptLanRequests` loader — default false, non-boolean → false. See change: add-lan-knock-pairing. |
+| `__tests__/config-auto-seed.test.ts` | `autoSeedProjects` loader — default… → see `__tests__/config-auto-seed.test.ts.AGENTS.md` |
+| `__tests__/config-pairing.test.ts` | #E1: `pairing.acceptLanRequests` loader… → see `__tests__/config-pairing.test.ts.AGENTS.md` |
 | `__tests__/client-build-deps-runtime.test.ts` | Repo-lint (#E6): client `package.json` declares `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`,… → see `__tests__/client-build-deps-runtime.test.ts.AGENTS.md` |
 | `__tests__/ci-vitest-report-artifact.test.ts` | Repo-lint: every vitest job in `ci.yml` uploads its own JSON report `if: always()`. → see `__tests__/ci-vitest-report-artifact.test.ts.AGENTS.md` |
 | `__tests__/ci-affected-selection-contract.test.ts` | Parallel `ci.yml` contract (E30). → see `__tests__/ci-affected-selection-contract.test.ts.AGENTS.md` |
@@ -43,7 +43,7 @@ Files in this directory. One row per source file.
 | `__tests__/spec-collateral-wiring.test.ts` | Repo-lint for spec-collateral wiring (X6, W1–W5). → see `__tests__/spec-collateral-wiring.test.ts.AGENTS.md` |
 | `__tests__/state-replay.test.ts` | L1 for the persisted `compaction` → `session_compact` replay arm (change: replay-compaction-boundary, E1–E7 +… → see `__tests__/state-replay.test.ts.AGENTS.md` |
 | `__tests__/workflow-token-cache-contract.test.ts` | Repo-lint: workflow token permissions + no release-job cache. → see `__tests__/workflow-token-cache-contract.test.ts.AGENTS.md` |
-| `__tests__/config-keeper-log.test.ts` | keeperLog parse boundaries (test-plan #E7): valid values pass; 0/−1/non-numeric/absent coerce to defaults; `capturePiOutput` unaffected. See change: fix-runaway-keeper-log-growth. |
+| `__tests__/config-keeper-log.test.ts` | keeperLog parse boundaries (test-plan… → see `__tests__/config-keeper-log.test.ts.AGENTS.md` |
 | `agent-credential-files.ts` | Import-free leaf: `PI_AGENT_SECRET_FILES` (hard block), `PI_AGENT_ASK_READ_FILES`/`_DIRS` (ask on read). → see `agent-credential-files.ts.AGENTS.md` |
 | `archive-types.ts` | `ArchiveEntry` interface — OpenSpec archive dir row (name, date, done artifacts). Shared server↔client. |
 | `bind-reachability.ts` | Bind-vs-trust reachability: the ONE predicate + well-known-range table, imported by both client and server so… → see `bind-reachability.ts.AGENTS.md` |
@@ -73,6 +73,7 @@ Files in this directory. One row per source file.
 | `instance-directory.ts` | `listLocalInstances()` / `resolveInstanceRef()` / `formatInstanceLine()` — enumerates `gateway-*.sock` under… → see `instance-directory.ts.AGENTS.md` |
 | `launcher-origin.ts` | Loopback-host-on-configured-port predicate `isLauncherOrigin`. → see `launcher-origin.ts.AGENTS.md` |
 | `live-server.ts` | Pure browser-safe live-server SSRF boundary. `validateLiveTarget({host,port,label})` — loopback-only… → see `live-server.ts.AGENTS.md` |
+| `preview-origins.ts` | `liveServer.previewOrigins` parse+validate. → see `preview-origins.ts.AGENTS.md` |
 | `file-kind.ts` | Pure browser-safe viewer classifier. `fileKind(absPath, sniff?)` → `{ kind, mimeType, viewer, editable }`. → see `file-kind.ts.AGENTS.md` |
 | `git-worktree-helpers.ts` | Pure worktree helpers shared by server + client. `slugifyBranch(branch)` → fs-safe slug; `localNameOf(ref)`… → see `git-worktree-helpers.ts.AGENTS.md` |
 | `grammar-types.ts` | Wire contract for composer grammar/spell check (client↔server).… → see `grammar-types.ts.AGENTS.md` |
@@ -166,7 +167,7 @@ Files in this directory. One row per source file.
 | `tunnel-provider.ts` | Tunnel ("Gateway") provider abstraction types. Exports `TunnelProvider` interface (`id`, `kind`… → see `tunnel-provider.ts.AGENTS.md` |
 | `transcript-request-guard.ts` | Pure `decideTranscriptRequest()` — session id only, path-bearing field refused. → see `transcript-request-guard.ts.AGENTS.md` |
 | `__tests__/transcript-request-guard.test.ts` | L1 for the guard (#E13, #E14): own-session allow, foreign-session refusal, every path-bearing field refused… → see `__tests__/transcript-request-guard.test.ts.AGENTS.md` |
-| `__tests__/bundle-runtime-contract.test.ts` | Bundle contract: root `dependencies` = `pluginRuntimeDeps` only; build-installer watch list derived + plugin gate after rebundle (E14, E24). See change: bundle-plugin-third-party-deps. |
+| `__tests__/bundle-runtime-contract.test.ts` | Bundle contract: root `dependencies` =… → see `__tests__/bundle-runtime-contract.test.ts.AGENTS.md` |
 | `__tests__/bundle-watch-paths.test.ts` | `bundle-watch-paths.mjs` output covers plugins, workspaces, client, bundler (E23). See change: bundle-plugin-third-party-deps. |
 | `__tests__/bundled-plugins-complete.test.ts` | bundledPlugins completeness; first-party deps are workspaces; third-party union conflict-free (E13). See change: bundle-plugin-third-party-deps. |
 | `__tests__/materialize-plugins-deps.test.ts` | `collectPluginRuntimeDeps` (E1–E8) + `findUnresolvedPluginDeps` (E9–E12). See change: bundle-plugin-third-party-deps. |
