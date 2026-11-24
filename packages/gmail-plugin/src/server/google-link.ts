@@ -15,7 +15,7 @@ import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin
 import { GOOGLE_CONNECT_SERVICE, GOOGLE_PLUGIN_ID } from "../shared/protocol.js";
 import type { AccountStore } from "./accounts.js";
 
-export const MIGRATION_VERSION = 1;
+const MIGRATION_VERSION = 1;
 
 /** Structural mirror of the google plugin's `importLegacyGmail` (no import edge between the plugins). */
 interface LegacyImporter {
@@ -24,7 +24,7 @@ interface LegacyImporter {
   >;
 }
 
-export interface LinkState {
+interface LinkState {
   usable: boolean;
   delegating: boolean;
 }

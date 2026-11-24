@@ -14,8 +14,8 @@ import { api, btn, muted, selectCls } from "./ui.js";
 /** `null` turns the product off; otherwise the wished level (+ options kept from the stored selection). */
 export type ProductWish = { level: string; options?: Record<string, boolean> } | null;
 
-export const OWN_CLIENT_REASON = "needs your organisation's own sign-in";
-export const REMOTE_GMAIL_REASON = "needs the dashboard's own computer, or organisation sign-in";
+const OWN_CLIENT_REASON = "needs your organisation's own sign-in";
+const REMOTE_GMAIL_REASON = "needs the dashboard's own computer, or organisation sign-in";
 
 export interface AccountCardProps {
   acct: AccountSummary;

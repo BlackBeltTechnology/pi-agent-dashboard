@@ -195,7 +195,7 @@ interface FilterSpec {
  * check, confirm, lease or request: label actions only, no forwarding, no
  * blank / `*` / match-all criteria, no TRASH/SPAM additions.
  */
-export function parseFilterSpec(p: Record<string, unknown>): FilterSpec {
+function parseFilterSpec(p: Record<string, unknown>): FilterSpec {
   const sections: Array<[string, unknown]> = [["request", p], ["criteria", p.criteria], ["filterAction", p.filterAction]];
   for (const [, obj] of sections) {
     if (isPlain(obj) && Object.keys(obj).some(isForwardKey)) {

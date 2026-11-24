@@ -19,7 +19,7 @@ export const GOOGLE_APIS = [
 ] as const;
 
 /** The one-line command the manual wizard offers to enable every product API of a project. */
-export function enableApisCommand(projectId: string): string {
+function enableApisCommand(projectId: string): string {
   return `gcloud services enable ${GOOGLE_APIS.join(" ")} --project ${projectId}`;
 }
 

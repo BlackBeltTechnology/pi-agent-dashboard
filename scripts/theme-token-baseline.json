@@ -1,8 +1,5 @@
 {
   "fallback": {
-    "packages/automation-plugin/src/client/automation-card-visuals.ts::--bg-subtle": 1,
-    "packages/automation-plugin/src/client/AutomationBoard.tsx::--bg-subtle": 2,
-    "packages/automation-plugin/src/client/AutomationBoard.tsx::--danger": 4,
     "packages/client/src/components/connectivity/PairedDevicesSection.tsx::--danger": 3,
     "packages/client/src/components/diff/DiffPanel.tsx::--text-muted": 1,
     "packages/client/src/components/Gateway/GatewayPage.tsx::--danger": 1,
@@ -46,9 +43,6 @@
     "packages/quota-plugin/src/client.tsx::--text-secondary": 4
   },
   "undeclared": {
-    "packages/automation-plugin/src/client/automation-card-visuals.ts::--bg-subtle": 1,
-    "packages/automation-plugin/src/client/AutomationBoard.tsx::--bg-subtle": 2,
-    "packages/automation-plugin/src/client/AutomationBoard.tsx::--danger": 4,
     "packages/client/src/components/connectivity/PairedDevicesSection.tsx::--danger": 3,
     "packages/client/src/components/Gateway/GatewayPage.tsx::--border": 3,
     "packages/client/src/components/Gateway/GatewayPage.tsx::--danger": 1,
@@ -68,9 +62,6 @@
   "accentText": {
     "packages/client/src/components/canvas/CanvasServerChip.tsx::--accent-blue": 1,
     "packages/client/src/components/canvas/CanvasServerChip.tsx::--accent-red": 1,
-    "packages/client/src/components/diff/DiffView.tsx::--accent-blue": 1,
-    "packages/client/src/components/diff/DiffView.tsx::--accent-green": 1,
-    "packages/client/src/components/diff/DiffView.tsx::--accent-red": 1,
     "packages/client/src/components/editor-pane/ChangedOnDiskBanner.tsx::--accent-orange": 1,
     "packages/client/src/components/editor-pane/EditablePreviewTab.tsx::--accent-red": 1,
     "packages/client/src/components/editor-pane/MarkdownViewer.tsx::--accent-red": 1,
@@ -109,10 +100,6 @@
     "packages/skill-atlas-plugin/src/client/relation-style.ts::--accent-purple": 1
   },
   "rawPalette": {
-    "packages/automation-plugin/src/client/automation-card-visuals.ts::green": 2,
-    "packages/automation-plugin/src/client/automation-card-visuals.ts::red": 2,
-    "packages/automation-plugin/src/client/automation-card-visuals.ts::yellow": 2,
-    "packages/automation-plugin/src/client/AutomationBoard.tsx::blue": 2,
     "packages/blackhole-plugin/src/client/OmEntryCard.tsx::cyan": 1,
     "packages/browser-plugin/src/client/BrowserRelayBadge.tsx::amber": 1,
     "packages/browser-plugin/src/client/BrowserRelayBadge.tsx::blue": 1,
@@ -145,7 +132,7 @@
     "packages/client/src/App.tsx::yellow": 2,
     "packages/client/src/components/chat/BashOutputCard.tsx::green": 2,
     "packages/client/src/components/chat/BashOutputCard.tsx::yellow": 2,
-    "packages/client/src/components/chat/ChatView.tsx::blue": 15,
+    "packages/client/src/components/chat/ChatView.tsx::blue": 11,
     "packages/client/src/components/chat/ChatView.tsx::emerald": 2,
     "packages/client/src/components/chat/ChatView.tsx::red": 3,
     "packages/client/src/components/chat/ChatViewMenu.tsx::amber": 3,
@@ -310,7 +297,6 @@
     "packages/client/src/components/session/ContextUsageBar.tsx::red": 1,
     "packages/client/src/components/session/ContextUsageBar.tsx::yellow": 1,
     "packages/client/src/components/session/QueuePanel.tsx::amber": 1,
-    "packages/client/src/components/session/QueuePanel.tsx::red": 1,
     "packages/client/src/components/session/RecoveryOfferHost.tsx::amber": 1,
     "packages/client/src/components/session/RetriedErrorBadge.tsx::red": 1,
     "packages/client/src/components/session/SessionActivityBar.tsx::green": 1,
@@ -350,10 +336,10 @@
     "packages/client/src/components/settings/ProviderAuthSection.tsx::green": 1,
     "packages/client/src/components/settings/ProviderAuthSection.tsx::red": 8,
     "packages/client/src/components/settings/PushNotificationsSection.tsx::blue": 2,
-    "packages/client/src/components/settings/SettingsPanel.tsx::amber": 8,
+    "packages/client/src/components/settings/SettingsPanel.tsx::amber": 7,
     "packages/client/src/components/settings/SettingsPanel.tsx::blue": 6,
     "packages/client/src/components/settings/SettingsPanel.tsx::green": 5,
-    "packages/client/src/components/settings/SettingsPanel.tsx::red": 26,
+    "packages/client/src/components/settings/SettingsPanel.tsx::red": 23,
     "packages/client/src/components/settings/SettingsPanel.tsx::yellow": 2,
     "packages/client/src/components/settings/ToolsSection.tsx::amber": 3,
     "packages/client/src/components/settings/ToolsSection.tsx::cyan": 1,

@@ -220,7 +220,7 @@ describe("#A54 – #A57 waiting for Google", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByTestId("flow-view")).toBeNull();
     expect(screen.queryByTestId("flow-paste")).toBeNull();
-    expect(openSpy).toHaveBeenCalledWith(pendingStatus.authUrl, "_blank", "noopener");
+    expect(openSpy).toHaveBeenCalledWith(pendingStatus.authUrl, "_blank", "noopener,noreferrer");
   });
 
   it("#A55 a pasted redirect connects the account: the dialog shows its email and leaves the waiting state", async () => {
@@ -410,7 +410,7 @@ describe("#A107 – #A110 / #GA16 product changes reuse the dialog", () => {
     expect(openSpy).not.toHaveBeenCalled();
     fireEvent.click(cont());
     await screen.findByTestId("google-waiting", {}, wait);
-    expect(openSpy).toHaveBeenCalledWith(pendingStatus.authUrl, "_blank", "noopener");
+    expect(openSpy).toHaveBeenCalledWith(pendingStatus.authUrl, "_blank", "noopener,noreferrer");
     expect(api.calls(changeUrl)).toHaveLength(1);
   });
 

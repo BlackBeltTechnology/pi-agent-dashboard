@@ -45,7 +45,7 @@ export interface GoogleState {
 }
 
 /** A refused REST call: `code` = body `error`, `detail` = body `message`, plus the raw body for extras. */
-export interface ApiError extends Error {
+interface ApiError extends Error {
   code?: string;
   status?: number;
   detail?: string;

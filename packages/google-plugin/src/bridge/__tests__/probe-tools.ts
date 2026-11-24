@@ -9,7 +9,7 @@ import type { ProductTools } from "../runtime.js";
 /** The seven product tool families (Gmail keeps its own plugin). */
 export const PRODUCTS_7 = ["calendar", "drive", "docs", "sheets", "slides", "tasks", "contacts"] as const satisfies readonly Product[];
 
-export const probeTools = (product: Product): ProductTools => ({
+const probeTools = (product: Product): ProductTools => ({
   product,
   create: (rt) => [
     rt.define({

@@ -10,7 +10,7 @@
 export const PICKER_KIND = "drive-picker";
 /** How long the tool waits for the user (scenario-gate C9). */
 export const PICKER_TIMEOUT_MS = 300_000;
-export const MAX_PICKED = 50;
+const MAX_PICKED = 50;
 
 export interface PickedFile {
   id: string;

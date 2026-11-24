@@ -22,7 +22,7 @@ import { GoogleToolError, invalidParams } from "./tool-error.js";
 
 const PLUGIN_ID = "google";
 /** A confirm that nobody answers must not hold a tool call forever. */
-export const CONFIRM_TIMEOUT_MS = 300_000;
+const CONFIRM_TIMEOUT_MS = 300_000;
 const SETTINGS = "Settings \u2192 Google accounts";
 
 export type LaneRequest = (pluginId: string, type: string, payload?: unknown) => Promise<PluginLaneReply>;
@@ -62,7 +62,7 @@ export class Skip {
 }
 
 /** A connected account as the tool sees it. */
-export interface ResolvedAccount {
+interface ResolvedAccount {
   sub: string;
   email: string;
   alias?: string;
@@ -77,7 +77,7 @@ export interface Call {
   signal?: AbortSignal;
 }
 
-export interface ToolSpec<P, S = undefined> {
+interface ToolSpec<P, S = undefined> {
   name: string;
   label: string;
   description: string;
@@ -97,7 +97,7 @@ export interface ToolSpec<P, S = undefined> {
   run(p: P, call: Call, state: S): Promise<ToolOutput>;
 }
 
-export interface ProductRuntime {
+interface ProductRuntime {
   readonly product: Product;
   define<P, S = undefined>(spec: ToolSpec<P, S>): ToolDef;
 }
@@ -144,7 +144,7 @@ function assertInteractive(ctx: ToolContext | undefined, label: string): void {
 }
 
 /** Host confirm dialog. No UI → `blocked`; deny / dismiss / throw / timeout → `denied`. Resolves only on an explicit allow. */
-export async function confirmWrite(
+async function confirmWrite(
   ctx: ToolContext | undefined,
   title: string,
   summary: string | readonly string[],

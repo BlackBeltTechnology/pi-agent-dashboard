@@ -14,7 +14,7 @@ import type { Call, ProductTools, ToolOutput } from "../runtime.js";
 import { GoogleToolError, invalidParams } from "../tool-error.js";
 
 /** Cells per read, and per write (a bigger write could not be reviewed in a dialog anyway). */
-export const MAX_CELLS = 10_000;
+const MAX_CELLS = 10_000;
 const MAX_COLUMN = 18_278; // ZZZ
 const enc = encodeURIComponent;
 const ID = /^[A-Za-z0-9_-]{1,200}$/;

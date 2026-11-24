@@ -51,7 +51,7 @@ export interface FakeRequest {
   at: number;
 }
 
-export type FakeHandler = FakeReply | FakeReply[] | ((req: FakeRequest, n: number) => FakeReply);
+type FakeHandler = FakeReply | FakeReply[] | ((req: FakeRequest, n: number) => FakeReply);
 
 export interface FakeGoogle {
   fetchImpl: typeof fetch;

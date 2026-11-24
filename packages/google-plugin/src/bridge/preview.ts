@@ -6,9 +6,9 @@
  */
 import { sanitize } from "../shared/google-errors.js";
 
-export const PREVIEW_TEXT_CHARS = 500;
-export const PREVIEW_ROWS = 5;
-export const PREVIEW_TARGETS = 20;
+const PREVIEW_TEXT_CHARS = 500;
+const PREVIEW_ROWS = 5;
+const PREVIEW_TARGETS = 20;
 const SUMMARY_MAX_CHARS = 2000;
 
 /** One plain-text line, ≤ `max` chars; a longer text ends with `… (<total> chars)`. */

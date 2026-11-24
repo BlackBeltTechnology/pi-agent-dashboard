@@ -20,7 +20,7 @@ import { GoogleToolError } from "../tool-error.js";
 
 const enc = encodeURIComponent;
 /** Multipart upload ceiling (scenario-gate C12); larger files are refused, not resumed. */
-export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 const FOLDER = "application/vnd.google-apps.folder";
 const GOOGLE_DOC = "application/vnd.google-apps.document";

@@ -4,7 +4,7 @@
  * usable and `{ moved: false, googleConnect: "unavailable" }` while it is not — either way this section holds no
  * account or client forms and no Connect button. See change: add-google-connect.
  */
-import { SettingsNotice, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SafeLink, SettingsNotice, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 
 import { useEffect, useState } from "react";
 
@@ -13,7 +13,7 @@ const GOOGLE_SETTINGS_PATH = "/settings/plugins/google";
 
 type Moved = "usable" | "unavailable";
 
-function openGoogleSettings(e: React.MouseEvent<HTMLAnchorElement>): void {
+function openGoogleSettings(e: React.MouseEvent<HTMLElement>): void {
   // SPA navigation (wouter listens to history events); a modified click keeps the browser's own behaviour.
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
   e.preventDefault();
@@ -53,14 +53,14 @@ export function GmailSettings() {
       {moved === "usable" && (
         <SettingsNotice tone="info" testId="gmail-moved">
           {t("movedNotice", undefined, "Gmail accounts are now managed under Settings → Google accounts. Nothing to reconnect.")}{" "}
-          <a
+          <SafeLink
             href={GOOGLE_SETTINGS_PATH}
             data-testid="gmail-open-google"
             className="focus-ring text-[var(--accent-text)] underline"
             onClick={openGoogleSettings}
           >
             {t("movedLink", undefined, "Open Google accounts")}
-          </a>
+          </SafeLink>
         </SettingsNotice>
       )}
       {moved === "unavailable" && (

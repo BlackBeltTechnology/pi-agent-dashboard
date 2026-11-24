@@ -15,7 +15,7 @@ import { link, lstat, mkdir, open, readFile, realpath, stat, unlink } from "node
 import path from "node:path";
 import { isPathInside } from "@blackbelt-technology/pi-dashboard-shared/path-containment.js";
 
-export const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 export class PathRefusedError extends Error {
   readonly code: "path_refused" | "exists" | "too_large";
@@ -39,7 +39,7 @@ function isWindowsSpecial(p: string): boolean {
 }
 
 /** Resolve `target` against the real cwd; refuse anything that lexically leaves it. */
-export async function confineToCwd(cwd: string, target: string): Promise<{ realCwd: string; resolved: string }> {
+async function confineToCwd(cwd: string, target: string): Promise<{ realCwd: string; resolved: string }> {
   if (!target || isWindowsSpecial(target)) throw new PathRefusedError("path_refused");
   const realCwd = await realpath(cwd);
   const resolved = path.resolve(realCwd, target);

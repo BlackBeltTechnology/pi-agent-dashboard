@@ -6,12 +6,12 @@
  * Pure functions; the caller owns the timer. See change: add-google-connect.
  */
 export const MAX_ATTEMPTS = 3;
-export const BASE_DELAY_MS = 500;
+const BASE_DELAY_MS = 500;
 export const MAX_WAIT_MS = 30_000;
 const JITTER = 0.25;
 const IDEMPOTENT = new Set(["GET", "PUT", "DELETE"]);
 
-export const isIdempotent = (method: string): boolean => IDEMPOTENT.has(method.toUpperCase());
+const isIdempotent = (method: string): boolean => IDEMPOTENT.has(method.toUpperCase());
 
 /** Whether this failed response / network error may be replayed (attempt budget not considered). */
 export function isRetryable(method: string, status: number | "network"): boolean {

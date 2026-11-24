@@ -6,7 +6,7 @@
 import { ERROR_EN, errorKey } from "./wizard.js";
 
 /** i18n key → English sentence for request-level refusals. */
-export const REQUEST_ERROR_EN: Record<string, string> = {
+const REQUEST_ERROR_EN: Record<string, string> = {
   reqNoProducts: "Tick at least one Google product.",
   reqInvalidEmail: "Enter a full work email address, for example you@example.com.",
   reqOwnClientRequired: "Reading all Drive files needs your organisation's own sign-in.",

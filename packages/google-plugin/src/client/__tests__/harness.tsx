@@ -12,7 +12,7 @@ import { GoogleSettings } from "../GoogleSettings.js";
 import type { AccountSummary, ClientSummary, GoogleState } from "../types.js";
 
 export const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-export const sleep = (ms: number) => act(() => new Promise<void>((r) => setTimeout(r, ms)));
+const sleep = (ms: number) => act(() => new Promise<void>((r) => setTimeout(r, ms)));
 
 export const STATE_URL = "/api/plugins/google/state";
 export const FLOW_URL = "/api/provider-auth/flow/f1";

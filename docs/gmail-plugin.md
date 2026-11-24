@@ -2,249 +2,78 @@
 
 ## Overview
 
-`packages/gmail-plugin` connects multiple Gmail accounts to pi-dashboard.
-Settings → General → Gmail guides Google Cloud setup.
-Create project; enable Gmail API; configure Branding and Audience; upload Desktop `client_secret_*.json`; test sign-in.
-Google offers no setup API; dashboard never runs `gcloud`.
-Audience Internal admits ONLY accounts of GCP project's own Workspace org.
-Account from another org (second Workspace domain, gmail.com) → Google page `Error 403: org_internal`.
-Fix → audience External; add each account as test user.
-One OAuth client per dashboard (multiple clients = non-goal).
-External apps in Testing status expire refresh tokens after 7 days; Internal/Workspace apps unaffected; panel shows `testing: 7-day`.
+`packages/gmail-plugin` gives agent Gmail tools (`gmail_*`) for multiple Gmail accounts.
+Google accounts (clients, sign-in, consent, grants) owned by [`google-plugin.md`](google-plugin.md) since `add-google-connect`.
+Manage accounts: Settings → Google accounts. No Gmail-specific setup or sign-in left in Gmail UI.
+Settings → Gmail: pointer notice only (`GmailSettings.tsx`).
 Every tool call except `gmail_accounts` names `account` by alias or email; no default account.
 Accounts remain user-global across dashboard pi sessions.
+Google Connect unavailable (plugin disabled) → Gmail tools keep working from Gmail's own data.
 
-See change: improve-gmail-settings-ux.
+**BREAKING (REST):** Gmail account, client and setup management routes answer `410 moved` or `503 google_connect_unavailable`. See REST routes.
+
+See change: add-google-connect (`openspec/changes/add-google-connect/`). Earlier: improve-gmail-settings-ux, add-gmail-auto-setup, add-gmail-plugin.
 
 ## Package layout
 
 | Path | Job |
 |---|---|
-| `src/shared/` | Validate Desktop client JSON; define scopes, levels, lane protocol, Google endpoints. |
-| `src/server/` | Mount routes; run OAuth; store accounts; gate token leases; revoke grants. |
-| `src/bridge/` | Register tools; request leases; call Gmail REST; build MIME; confine attachments. |
-| `src/client/` | Render setup wizard and accounts panel through settings-section claim. |
+| `src/shared/` | Gmail levels, lane protocol (`LEASE_TYPE`, `GOOGLE_LEASE_TYPE`, `DelegateReply`), Google endpoints. |
+| `src/server/` | Mount moved-route refusals; `google-link.ts` soft link to Google Connect; legacy lease + legacy account store (fallback). |
+| `src/bridge/` | Register tools; lease client (delegates to `google/lease` when Google Connect owns accounts); Gmail REST calls; MIME; attachment confinement. |
+| `src/client/` | `GmailSettings.tsx`: pointer notice + Google Connect status only. |
 
-## Sign-in flow
+Legacy sign-in code (`src/server/google-oauth.ts`, `accounts.ts`, `store-client.ts`) remains in tree. No REST route reaches it.
 
-```mermaid
-sequenceDiagram
-  participant C as client
-  participant R as routes.ts
-  participant O as google-oauth.ts
-  participant G as Google
-  participant S as AccountStore
-  C->>R: POST /api/plugins/gmail/accounts (tier)
-  R->>R: ctx.oauth.startFlow key add-<uuid> / reauth-<sub>
-  R->>O: createGoogleLoginFlow
-  O->>O: createLoopbackCallback path "/"; PKCE + nonce
-  O->>C: auth_url (openid email + full tier scopes)
-  C->>G: authorize (offline; consent select_account)
-  par local callback
-    G-->>O: loopback code + state
-  and remote browser fallback
-    C-->>O: manual_code pasted redirect URL
-  end
-  O->>O: race callback vs paste; check state
-  O->>G: oauth4webapi code exchange (PKCE)
-  G-->>O: tokens + id_token
-  O->>O: validate iss/aud/exp/nonce + email_verified
-  O-->>R: sub, email, scopes, tokens
-  R->>S: persist via upsertFromSignIn
-  S->>S: ctx.credentials.update("acct:<sub>")
-```
+## Google Connect link
 
-Remote browser cannot reach dashboard-host `127.0.0.1`; paste full redirect URL.
-Re-auth requires same `sub`; mismatch returns `account_mismatch`.
-New account without refresh token fails without persistence.
-Lower level applies immediately when scopes cover it; higher level starts full-scope re-consent.
-Google may show a sign-in error on its own page and never redirects back → loopback callback waits until its 300 s timeout (code `timeout`).
-While flow waiting, settings show `<details data-testid="gmail-google-error">` "Google showed an error instead of returning here?".
-Buttons for closed code list: `org_internal`, `access_denied`, `admin_policy_enforced`, `other` (`gmail-report-<code>`).
-Click → latch code in `reportedRef`, `setFlow(null)`, `oauthFlowClient.cancel(flowId)`.
-Both poll callbacks (pending + done) return early while latched; host terminal `"Cancelled"` never overwrites code; flow view never re-mounts.
-Latch resets on new flow (`addAccount`, `startFlow`).
-While flow set, panel shows `gmail-consent-hint` "tick every permission (Select all)"; host drops `auth_url.instructions` → plugin renders hint.
-Unticked Gmail scope → persist throws `scope_missing` → "add the account again with every permission ticked".
+`src/server/google-link.ts`. Gmail declares NO `dependsOn` on `google` (hard dependency would stop Gmail loading when `google` disabled).
 
-See change: improve-gmail-settings-ux.
+- At FIRST request after start: `consumeAll("google.connect")`. Entry used only when `provider === "google"`.
+- Hands legacy client + accounts to `importLegacyGmail` once (see Migration).
+- Decides per process: `usable` (provider present) and `delegating` (usable AND migration complete).
+- `usable` → management routes answer `410 moved`.
+- `delegating` → `gmail/lease` and `gmail/accounts` reply `{ delegate: "google" }`. No fallback to legacy tokens for delegating process.
+- Import failed or partial (`skipped > 0`) → not delegating; Gmail leases from own data; retried next start.
+- Enable/disable `google` takes effect after restart.
 
-## Sign-in errors
-
-`packages/gmail-plugin/src/client/wizard.ts` → `errorKey(code)` maps every flow code to an i18n key; unknown → `errGeneric`; `"Cancelled"` matched case-insensitively → `errCancelled`.
-`ERROR_EN` holds English sentences (`t()` fallback).
-`errorStep`: `org_internal`/`access_denied` → step 3; `admin_policy_enforced` → null (fix lives in that account's Workspace Admin console: trust client id; message interpolates `{clientId}`).
-UI renders sentence + raw code in muted `gmail-flow-error-code` span.
-
-Closed code set `KNOWN_FLOW_CODES` lives in `packages/gmail-plugin/src/shared/flow-codes.ts` (`knownFlowCode(code)` exact match → code | null).
-Shared by client table + server log allow-list.
-
-Server `startSignIn` (`packages/gmail-plugin/src/server/routes.ts`) wraps `loginFlow.login`, `persist`, and the `deps.oauth.startFlow` catch.
-Each logs `logger.warn("[gmail] sign-in failed: <code>")` with code from `knownFlowCode(err.code)` else `sign_in_failed`.
-Per-call `logged` flag → exactly once (a login throwing before first event also rejects startFlow with `PluginFlowStartError("login_failed")`).
-Never logs email, message, URL, token. Original error rethrown unchanged.
-
-See change: improve-gmail-settings-ux.
-
-## Automatic setup
-
-Entry: `Set up automatically` secondary button, settings UI (`data-testid` `gmail-setup-run`).
-Local-only. Drives Google Cloud console in dedicated Chrome → stores Desktop OAuth client.
-Manual wizard stays fallback.
-Deterministic server recipe. No model. No CLI.
-
-```mermaid
-stateDiagram-v2
-  [*] --> starting
-  starting --> running: connect ok
-  starting --> busy: connect 409 busy
-  starting --> handoff: refusal
-  busy --> running: POST takeover
-  busy --> cancelled: DELETE
-  running --> waiting_user: checkpoint
-  waiting_user --> running: human action / POST continue
-  running --> waiting_decision: audience or links
-  waiting_decision --> running: POST continue
-  running --> done: all steps pass
-  running --> handoff: verify fail / timeout / refusal
-  running --> cancelled: DELETE
-```
-
-### Availability
-
-`GET state` → `autoSetup: {available, reason?, local, replacesClient?, runId?}`.
-`available` requires all:
-- `ctx.consume("browser.dedicated")` defined; looked up per request.
-- `status().enabled && status().available`.
-- Loopback peer, no proxy header (`isGenuinelyLocal`, `setup/local.ts`).
-- No client, or client with zero accounts (else `client_in_use`; `replacesClient: true` when client exists).
-- No live run (else `run_active` + `runId`).
-`reason` values: `service_missing`, `disabled`, `status_failed`, `remote_dashboard`, browser refusal reason.
-No `dependsOn` on browser plugin: hard + transitive, browser ships disabled.
-Browser plugin provides `browser.dedicated` via `ctx.provide` (`browser-plugin/src/server/index.ts:200`).
-
-### Run
-
-`POST /api/plugins/gmail/setup/run {mode, projectId?, ownerEmail}` → `{runId}`.
-- `mode`: `new` | `existing`. `existing` requires `projectId`.
-- `projectId` must pass `classifyProjectId` → `ok`.
-- `new` without `projectId` → `pi-dashboard-<6 random [a-z0-9]>` (`generateProjectId`).
-- Start requires loopback peer, no proxy header; else 403 `remote_dashboard`.
-- One live run per server; second start → 409 `run_active`.
-- 400 errors: `invalid_mode`, `invalid_owner_email`, `invalid_project_id`.
-- Saves `projectId`, `ownerAccount` to plugin config (best effort).
-- Connects `browser.dedicated` with `{client: "gmail-setup", private: true, ephemeral: true}`.
-
-Each step: check → act → verify. Verify fail, unknown page, or step > 60 s (`stepLimitMs`) → handoff.
-
-| id | Effect | wizardStep |
-|---|---|---|
-| `project` | Create (`new`) or confirm project; reads parent org. | 1 |
-| `api` | Enable Gmail API. Done when `Disable API` shown. | 1 |
-| `branding` | Consent screen: app name, support email = owner, audience, contact email, policy checkpoint. | 2 |
-| `publish` | External audience only: links, Save, click `Publish app`; user confirms dialog. | 3 |
-| `client` | Create Desktop client `pi-dashboard` (or `pi-dashboard-<n>`). Never `done` (old secret unrecoverable). | 4 |
-| `capture` | Read secret, store (see Secret capture). | 4 |
-
-Navigation URLs: `authuser=<ownerEmail>`, `project=<projectId>`, `hl=en`.
-Elements found by role + accessible name via `Accessibility.queryAXTree`.
-Page `lang` not `en` → handoff `locale`.
-Denied navigation → handoff `domain_blocked`, `domains: ["console.cloud.google.com", "accounts.google.com"]`.
-Keep-alive `Runtime.evaluate` every 30 s (`keepAliveMs`); browser idle sweep is 5 min.
-Socket closed by browser, not by run → handoff `browser_closed`.
-
-### Decisions
-
-State `waiting_decision`; `decision` in run view. Answer: `POST /api/plugins/gmail/setup/run/:runId/continue`.
-- Audience, asked only when `branding` not done: `{audience: "internal" | "external"}`.
-  - Detected `internal` when parent org exists, else `external`.
-  - Other values → 400 `invalid_audience`.
-- Links, asked before `publish`: `{links: {homePage, privacyPolicy, authorizedDomain}, confirmLinks: true}`.
-  - Missing `confirmLinks: true` → 400 `confirm_required`.
-  - Invalid links → 400 `links_required`, `invalid_authorized_domain`, or `invalid_<key>`.
-  - Defaults (`DEFAULT_PUBLISH_LINKS`): home + privacy `https://github.com/BlackBeltTechnology/pi-agent-dashboard`; domain `github.com`.
-  - Links appear on Google consent screen for every account. User may replace them.
-
-### Human checkpoints
-
-State `waiting_user`; `checkpoint.kind` in run view. Run never clicks sign-in, consent, terms, policy, or publish confirmation.
-- `sign_in`:
-  - Redirect guard: run tab `Fetch` pattern `https://accounts.google.com/*`; top-level hit → `Fetch.failRequest` (`BlockedByClient`) → checkpoint.
-  - Run tab → `about:blank`.
-  - Sign-in opens in hidden tab of run's ephemeral context (`open`, `login_hint: <ownerEmail>`), then `focus`.
-  - Resume when `tabOrigin` leaves `https://accounts.google.com` or `POST …/continue`.
-- `console_terms`: `Agree and continue` dialog gone.
-- `policy`: User Data Policy checkbox; run `Page.bringToFront`; waits for user.
-- `publish`: `Push to production?` dialog; resume at `In production`.
-  - Dialog gone for 5 polls (`publishGracePolls`) without `In production` → handoff `publish_cancelled`.
-- Limit 15 min (`checkpointLimitMs`) → handoff `timeout`.
-
-### Busy and takeover
-
-`connect` → 409 `busy` → state `busy`, `busy.holder` (session id or client label; never instance id).
-`POST …/takeover` → 409 `not_busy` if not busy.
-Takeover reconnects with `takeover: true`; atomic in browser plugin.
-Other refusals → handoff at `project`.
-
-### Handoff
-
-State `handoff`; `handoff: {step, wizardStep, reason, domains?}`.
-`wizardStep`: `project`, `api` → 1; `branding` → 2; `publish` → 3; `client`, `capture` → 4.
-`created: {projectId?, clients[]}` lists Google resources made by run.
-Reasons:
-- recipe: `unexpected_page`, `locale`, `domain_blocked`, `publish_cancelled`, `timeout`, `secret_capture_failed`, `client_in_use`, `browser_closed`.
-- browser refusal (step `project`): `disabled`, `unloaded`, `no-chrome`, `no-display`, `owned-by-other-server`, `profile-in-use`, `launch-failed`.
-
-Logs: `[gmail] setup step <id> <done|skipped|handoff:<reason>> <ms>ms`; masked; no URLs.
-
-### Secret capture (step `capture`)
-
-1. Read client id + secret from `OAuth client created` dialog DOM. In-memory only.
-2. Fallback: click `Download JSON`; read newest new `client_secret_*.json` in `downloadsDir`.
-3. Every new download removed in `finally`.
-4. Store via same function as `PUT /client`: validation, `client_in_use`, `projectId`.
-5. Both reads fail → click `OK`, handoff `secret_capture_failed`.
-
-Isolation:
-- Run connects `private: true, ephemeral: true`: tabs absent from relay status and viewer.
-- Owner Google session, downloads, cache live in throwaway browser context.
-- Context discarded on run end, cancel, or Chrome exit.
-- Later agent `browser_connect` not signed in as owner.
-
-Masking: `maskSecrets` on every log line and handoff text. `GOCSPX-[A-Za-z0-9_-]+` → `GOCSPX-***`.
-Run view and errors never carry secret or `instanceId`.
-
-Unverified: real-console selectors until manual task 7.2.
-See change: add-gmail-auto-setup.
+Log: `[gmail] legacy import to Google accounts: <n> account(s)` / `... incomplete ...` / `... failed ...`.
 
 ## Token lease
+
+`gmail/lease` = bridge → server private lane (hub-local only, `origin_denied` otherwise).
 
 ```mermaid
 sequenceDiagram
   participant T as bridge tool
-  participant L as LeaseClient
-  participant H as lease.ts
-  participant S as AccountStore
-  participant G as Google
+  participant L as lease-client.ts
+  participant H as gmail server lease
+  participant GL as google/lease lane
+  participant S as legacy AccountStore
   T->>L: lease(account, op)
-  L->>H: requestPluginServer("gmail","gmail/lease",{account,op})
-  H->>S: resolve alias then email from one snapshot
-  H->>H: gate tier_denied → scope_missing → reauth_required
-  opt expires − now ≤ 60 s
-    H->>G: refresh token (single-flight per sub)
-    G-->>H: access token or invalid_grant
-    H->>S: update tokens if refresh grant unchanged
-    Note over H,S: invalid_grant → status reauth_required
+  L->>H: gmail/lease {account, op}
+  alt delegating
+    H-->>L: {delegate:"google"}
+    L->>GL: google/lease {account, product:"gmail"}
+    GL-->>L: {accessToken, expiresAt, email, level, options?}
+  else legacy fallback
+    H->>S: resolve alias then email
+    H->>H: gate tier_denied → scope_missing → reauth_required
+    opt expires − now ≤ 60 s
+      H->>H: refresh token (single-flight per sub)
+    end
+    H-->>L: {accessToken,expiresAt,email,tier}
   end
-  H-->>L: {accessToken,expiresAt,email,tier}
-  L->>L: re-check tier; no token cache
+  L->>L: re-check level; no token cache
   L-->>T: short-lived access token
 ```
 
-Gate refusals happen before network calls.
+Delegated refusals re-spelled as Gmail errors by the lease client (`bridge/lease-client.ts` `googleRefusal`): `product_disabled` → Gmail-off message naming Settings → Google accounts; `default_client_unavailable` / `no_client` → existing `no_client` code. Filter ops need `options.filters === true` in the reply, else `filters_disabled`.
+
+Legacy gate refusals happen before network calls.
 `invalid_grant` marks `reauth_required`; later leases refuse without network calls.
 Other refresh failures return `refresh_failed`.
-Refresh token stays on server; reply contains exactly `{accessToken,expiresAt,email,tier}`.
+Refresh token stays on server; reply contains exactly `{accessToken,expiresAt,email,tier}` (legacy) or `{accessToken,expiresAt,email,level}` (delegated).
 Next tool call sees lowered level.
 
 ## Levels
@@ -255,6 +84,7 @@ Next tool call sees lowered level.
 | `draft` | `gmail.readonly gmail.compose` | Read tools + `gmail_draft` |
 | `send` | `gmail.modify` | Read and draft tools + `gmail_send`, `gmail_reply`, `gmail_modify`, `gmail_trash` |
 
+Levels set in Settings → Google accounts (product `gmail` of `google-plugin`). Option `filters` → `gmail.settings.basic`.
 Server gates level and granted scopes; bridge re-checks level.
 Google grants bearer tokens for scopes, not plugin levels.
 `gmail.compose` also permits sending; arbitrary in-process code could misuse draft-level token.
@@ -285,49 +115,65 @@ See change: improve-gmail-settings-ux.
 
 ## Storage
 
-`~/.pi/agent/plugin-credentials.json` stores records under namespace `gmail`, mode 0600, encrypted at rest (AES-256-GCM envelope `pi-dashboard-encrypted:v1`).
-No key available → account reads and writes reject `store_locked` with `reason`. Remedy and recovery: [`credential-vault.md` §12](credential-vault.md#12-encryption-at-rest).
-`client` stores Desktop OAuth `clientId`, `clientSecret`, optional `projectId`.
-`acct:<sub>` stores email, alias, tier, scopes, refresh, access, expiry, status, testing hint, added time.
-`AccountStore.upsertFromSignIn` merges re-auth records and keeps alias.
-Revoke attempts Google endpoint, then deletes local record even when remote call fails.
+Gmail namespace `gmail` in `~/.pi/agent/plugin-credentials.json` (mode 0600, encrypted at rest; see [`credential-vault.md` §12](credential-vault.md#12-encryption-at-rest)). Namespace kept after migration; not deleted.
+
+| Key | Content | Status |
+|---|---|---|
+| `client` | Desktop OAuth `clientId`, `clientSecret`, optional `projectId`. | Rollback source. |
+| `acct:<sub>` | email, alias, tier, scopes, refresh, access, expiry, status, testing hint, added time. | Rollback source. |
+| `migrated` | `{ at, version, subs }` written after successful import. | Migration marker. |
+
+Writes after migration are NOT written back. Levels/aliases/filters changed in Google Connect stay there.
+Legacy revoke / re-auth paths unreachable via REST.
 Disable or uninstall leaves Google grants intact.
+
+Authoritative account data for Gmail while delegating: `google` plugin namespace `google` (`acct:<sub>`, `client:<id>`). See [`google-plugin.md`](google-plugin.md#storage).
+
+## Migration and rollback
+
+Migration (one-time, idempotent per `sub`): see `google-plugin.md` → Migration and rollback.
+Gmail side: `importLegacyGmail({ client, accounts })` via `google.connect`; on success writes `migrated`.
+
+Rollback to previous build: Gmail reads untouched `gmail` namespace. Keeps working for accounts whose legacy token still valid.
+Not covered: accounts first connected after migration; accounts re-signed after `reauth_required`; accounts whose access removed at Google; Google invalidating older refresh tokens on issue of new ones (spike 0.1).
 
 ## REST routes
 
-All routes use `operate` tier (`packages/shared/src/route-tiers.ts`), `networkGuard`, `@fastify/rate-limit`, MCP denylist.
-Responses omit tokens and client secret.
+Gmail routes in encapsulated scope; `networkGuard` + `@fastify/rate-limit` (loopback allow-listed). Tier `operate` (`packages/shared/src/route-tiers.ts`).
 
-| Method | Path | Action |
+Every management route below stores nothing and answers a fixed refusal:
+- `410 { "error": "moved" }` while Google Connect is usable.
+- `503 { "error": "google_connect_unavailable" }` while it is not (plugin disabled or no credential store).
+
+| Method | Path | Answer |
 |---|---|---|
-| `GET` | `/api/plugins/gmail/state` | Return client metadata and account summaries. |
-| `PUT` | `/api/plugins/gmail/client` | Validate and save Desktop client JSON. |
-| `POST` | `/api/plugins/gmail/accounts` | Start add flow; default `readonly`; optional `email` → `login_hint`. |
-| `POST` | `/api/plugins/gmail/accounts/:sub/level` | Apply covered level or start re-consent. |
-| `POST` | `/api/plugins/gmail/accounts/:sub/reauth` | Re-consent current level. |
-| `PATCH` | `/api/plugins/gmail/accounts/:sub` | Change alias. |
-| `DELETE` | `/api/plugins/gmail/accounts/:sub` | Attempt remote revoke; delete local account. |
-| `POST` | `/api/plugins/gmail/setup/run` | Start automatic setup; local-only; → `{runId}`. |
-| `GET` | `/api/plugins/gmail/setup/run/:id` | Secret-free run view. |
-| `POST` | `/api/plugins/gmail/setup/run/:id/continue` | Answer decision or acknowledge `sign_in`. |
-| `POST` | `/api/plugins/gmail/setup/run/:id/takeover` | Confirmed takeover of busy dedicated profile. |
-| `DELETE` | `/api/plugins/gmail/setup/run/:id` | Cancel run. |
+| `GET` | `/api/plugins/gmail/state` | `{ moved: true }` when usable; else `{ moved: false, googleConnect: "unavailable" }`. |
+| `PUT` | `/api/plugins/gmail/client` | 410 / 503. |
+| `PUT` | `/api/plugins/gmail/setup` | 410 / 503. |
+| `GET` | `/api/plugins/gmail/accounts` | 410 / 503. |
+| `POST` | `/api/plugins/gmail/accounts` | 410 / 503. |
+| `PATCH` | `/api/plugins/gmail/accounts/:sub` | 410 / 503. |
+| `DELETE` | `/api/plugins/gmail/accounts/:sub` | 410 / 503. |
+| `POST` | `/api/plugins/gmail/accounts/:sub/level` | 410 / 503. |
+| `POST` | `/api/plugins/gmail/accounts/:sub/reauth` | 410 / 503. |
+| `POST` | `/api/plugins/gmail/accounts/:sub/filters` | 410 / 503. |
+| `POST` | `/api/plugins/gmail/setup/run` | 410 / 503. Setup now `/api/plugins/google/setup/run`. |
+| `GET` | `/api/plugins/gmail/setup/run/:id` | 410 / 503. |
+| `POST` | `/api/plugins/gmail/setup/run/:id/continue` | 410 / 503. |
+| `POST` | `/api/plugins/gmail/setup/run/:id/takeover` | 410 / 503. |
+| `DELETE` | `/api/plugins/gmail/setup/run/:id` | 410 / 503. |
 
-`GET /state` adds `autoSetup` (see Automatic setup).
+Replacement: `/api/plugins/google/*` (see `google-plugin.md` → REST routes).
+Migration of REST callers: BREAKING. Callers move to `google` routes.
 
 ## Settings UI
 
-Revoke requires host `ui:confirm-dialog`; no DELETE until confirmed.
-Alias blur shows `gmail-alias-feedback` ("Saved" role=status, or mapped `alias_taken`/`invalid_alias` sentence).
-Level `<option>`s read `<tier> — <description>`.
-Add-account select has visible `<label>` + `gmail-cross-org-hint`.
-`Set up automatically` secondary button (`gmail-setup-entry`) rendered only when `autoSetup.available`; toggles run form (`gmail-setup-form`); run panel `gmail-setup-run`.
-Collapsed wizard `<summary data-testid="gmail-setup-summary">` shows `✓ project <projectId>`, else `✓ <clientId>`, else `not configured`.
-Theme uses only declared host tokens (`--border-primary`, `--bg-tertiary`, `--severity-{success,warning,error}-*`, `--accent` step highlight, `--accent-text` links).
-`.focus-ring` on every control.
-`packages/gmail-plugin/src/client` added to `SCAN_ROOTS` in `scripts/theme-token-guard.mjs`.
+`GmailSettings.tsx` (Settings → Gmail) renders pointer only:
+- Usable: notice "Gmail accounts are now managed under Settings → Google accounts. Nothing to reconnect." + link "Open Google accounts".
+- Unavailable: "Turn on Google accounts to manage Gmail accounts".
 
-See change: improve-gmail-settings-ux.
+Account cards, client wizard, automatic setup, revoke dialog, level selector: moved to `GoogleSettings.tsx` / `OrgSignIn.tsx` in `packages/google-plugin/src/client/`.
+Theme uses only declared host tokens. `.focus-ring` on every control.
 
 ## Test override
 
@@ -338,12 +184,12 @@ Other values trigger warning and fall back to Google defaults.
 
 ## Security notes
 
-Request lane stays private but unauthenticated; any user session can lease connected accounts within level.
+Request lane stays private but unauthenticated; any user session can lease connected accounts within level. Delegated lease on hub-local lanes only (`origin_denied` for remote origin).
 Mail content remains attacker-controlled; without `untrusted-content-guard`, only write confirmations protect agent.
 Attachment save rejects traversal and overwrite; symlinked targets/parents refused; parent-directory swap by another local process mid-save remains documented residual TOCTOU.
 Logs contain email, operation, outcome; no tokens.
 Credential file encrypted at rest. Same-user agent bash still reads the keychain on Linux, Windows and some macOS signatures. Threat model: [`credential-vault.md` §12.9](credential-vault.md#129-threat-model).
 Local revoke failure needs manual Google removal at <https://myaccount.google.com/permissions>.
-Automatic setup: start loopback-only (403 `remote_dashboard`); client secret never in run view, logs, errors; `maskSecrets` on logs; downloaded JSON deleted in `finally`; owner sign-in confined to ephemeral private context; redirect guard blocks `accounts.google.com` top-level loads in run tab.
+Setup-run security (loopback start, secret masking, ephemeral owner context, redirect guard): see [`google-plugin.md`](google-plugin.md#setup-add-organisation-sign-in).
 
 See change: add-gmail-plugin.

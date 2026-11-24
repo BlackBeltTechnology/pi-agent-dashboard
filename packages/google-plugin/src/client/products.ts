@@ -39,7 +39,7 @@ const LEVEL_LABEL: Record<string, string> = {
   "drive.write": "Read and change all",
 };
 
-export function levelLabel(product: Product, level: string): string {
+function levelLabel(product: Product, level: string): string {
   return LEVEL_LABEL[`${product}.${level}`] ?? (level === "write" ? "Read and change" : "Read");
 }
 

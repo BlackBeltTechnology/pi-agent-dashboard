@@ -4,7 +4,7 @@
  * folded away), then the result. The same dialog carries a product change that needs consent and "Sign in again".
  * See change: add-google-connect.
  */
-import { oauthFlowClient, SafeLink, SettingsNotice, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { oauthFlowClient, openExternalUrl, SafeLink, SettingsNotice, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ProductWish } from "./AccountCard.js";
@@ -18,7 +18,7 @@ import { emailDomain, lowestLevel, PRODUCT_NAME, PRODUCTS, type Product, product
 import type { AccountSummary, ClientRef, ClientSummary, GoogleState } from "./types.js";
 import { api, btn, muted, primaryBtn, selectCls } from "./ui.js";
 
-export const PRIVACY_URL = "https://pi-dashboard.dev/privacy.html";
+const PRIVACY_URL = "https://pi-dashboard.dev/privacy.html";
 const DEFAULT_PICKED: Product[] = ["gmail", "calendar", "drive"];
 const REPORT_CODES = ["org_internal", "access_denied", "admin_policy_enforced", "other"] as const;
 /** Codes that mean "your Google admin / organisation blocks this app": offer organisation sign-in. */
@@ -184,7 +184,7 @@ export function ConnectDialog({ intent, state, audience = null, onClose, onRefre
         const status = await oauthFlowClient.status(s.flowId);
         if (status.authUrl && opened.current !== s.flowId) {
           opened.current = s.flowId;
-          window.open(status.authUrl, "_blank", "noopener");
+          openExternalUrl(status.authUrl);
         }
         setStage({ s: "waiting", flowId: s.flowId, status, client: s.client });
       } catch (err) {
