@@ -8,6 +8,7 @@ export * from "./clock.js";
 export * from "./constants.js";
 export * from "./mail-format.js";
 export * from "./plugin-id.js";
+export * from "./policy.js";
 export * from "./protocol.js";
 export * from "./text.js";
 export * from "./types.js";

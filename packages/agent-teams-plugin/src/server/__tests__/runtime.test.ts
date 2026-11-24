@@ -94,7 +94,7 @@ describe("member names (S34)", () => {
     const team = await s.createTeam();
     await s.fake.call(s.lead, "TeammateSpawn", { name: "alice", prompt: "write the parser", role: "coder" });
     const [mail] = s.rt.store.pendingMail(team.id, "alice");
-    expect(mail).toMatchObject({ from: "lead", kind: "spawn_prompt", wake: true, text: "write the parser" });
+    expect(mail).toMatchObject({ from: "lead", kind: "spawn_prompt", wake: true, text: expect.stringMatching(/^Team "alpha" · you are teammate "alice" \(role: coder\)[\s\S]*\n\nwrite the parser$/) });
     expect(s.starts).toEqual([{ team: team.id, member: "alice", prompt: "write the parser" }]);
   });
 });
@@ -504,7 +504,7 @@ describe("trusted options are not on the lane (S92)", () => {
     expect(await s.fake.call(s.lead, "TeammateSpawn", { name: "a", prompt: "go", cwd: "/etc" })).toMatchObject({ error: "cwd_outside_lead" });
     expect(await s.fake.call(s.lead, "TeammateSpawn", { name: "a", prompt: "go", trusted: { cwd: "/etc" } })).toMatchObject({ ok: true });
     expect(s.rt.store.member(team, "a")?.cwd).toBe("/work");
-    const forged = await s.fake.call(s.lead, "TeammateSpawn", { name: "b", prompt: "go", committer: "member", spawnToken: "forged", cwd: "/work" });
+    const forged = await s.fake.call(s.lead, "TeammateSpawn", { name: "b", prompt: "go", committer: "member", spawnToken: "forged" });
     expect(forged.ok).toBe(true);
     const b = s.rt.store.member(team, "b");
     expect(b?.committer).toBeUndefined();
@@ -626,6 +626,21 @@ describe("TeamDelete and actor operations (S141, S142, 3.3)", () => {
       expect(s.rt.store.findBySession(alice)).toBeUndefined();
     });
   }
+
+  it("force delete with a spawn in flight aborts the spawn by its token and still closes the team", async () => {
+    const s = setup();
+    const team = await s.createTeam();
+    await s.fake.call(s.lead, "TeammateSpawn", { name: "alice", prompt: "go" });
+    const alice = s.rt.store.member(team, "alice");
+    expect(alice?.status).toBe("spawning");
+    expect(await s.fake.call(s.lead, "TeamDelete")).toMatchObject({ ok: false, error: "members_active" });
+    expect(s.fake.abortedRuns).toEqual([]);
+    expect(await s.fake.call(s.lead, "TeamDelete", { force: true })).toMatchObject({ ok: true });
+    expect(s.fake.abortedRuns).toEqual([{ spawnToken: alice?.spawnToken }]);
+    s.clock.advance(10_000);
+    await vi.waitFor(() => expect(team.status).toBe("closed"));
+    expect(alice?.status).toBe("gone");
+  });
 
   it("a team with only released members closes immediately", async () => {
     const s = setup();
@@ -971,14 +986,15 @@ describe("lane reports: hello / busy / idle / ack", () => {
     expect(await s.fake.lane(alice, "agent-teams/hello", { isIdle: "yes" })).toMatchObject({ error: "invalid_args" });
   });
 
-  it("a spawning member is not advanced by hello (the spawn flow owns that edge)", async () => {
+  it("a guarded hello advances a spawning member to busy and flushes its spawn_prompt (the spawn flow owns that edge)", async () => {
     const s = setup();
     const team = await s.createTeam();
     await s.fake.call(s.lead, "TeammateSpawn", { name: "alice", prompt: "go" });
     s.rt.store.patchMember(team.id, "alice", { sessionId: "S-alice" });
     s.fake.addSession("S-alice");
     await s.fake.lane("S-alice", "agent-teams/hello", { isIdle: true, toolsActive: true, guardActive: true, confined: false });
-    expect(s.rt.store.member(team, "alice")?.status).toBe("spawning");
+    expect(s.rt.store.member(team, "alice")?.status).toBe("busy");
+    expect(s.flushes).toContainEqual([team.id, "alice"]);
   });
 
   it("busy and idle reports move the member; a repeated or older settleId is ignored", async () => {

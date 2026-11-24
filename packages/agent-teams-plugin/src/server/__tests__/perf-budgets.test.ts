@@ -2,9 +2,9 @@
  * Performance / cost regression gates on the injected clock and the fake host
  * (test-plan S125 store-op tail latency, S128 persistence soak, S129 lead wake
  * cost, S130 no polling). Budgets are generous regression gates (decision A12),
- * not SLOs: they catch O(n²) and sync-IO regressions. Delivery latency through a
- * real bridge (S124) and the REST rows (S126/S127) belong to the bridge/routes
- * suites.
+ * not SLOs: they catch O(n²) and sync-IO regressions. S124 delivery latency runs
+ * through the REAL bridge entry over the fake host; the REST rows (S126/S127)
+ * belong to the routes suite.
  * See change: add-agent-teams-core.
  */
 import fs from "node:fs";
@@ -12,7 +12,8 @@ import path from "node:path";
 import v8 from "node:v8";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
-import { createTeamsEnv, type TeamsEnv } from "../../__tests__/harness/index.js";
+import { createTeamsEnv, linkBridge, type TeamsEnv } from "../../__tests__/harness/index.js";
+import { ENV_MEMBER, ENV_POLICY, ENV_TEAM_ID } from "../../shared/policy.js";
 import type { Team } from "../../shared/types.js";
 import { nodePersistFs, type PersistFs } from "../persistence.js";
 
@@ -191,5 +192,33 @@ describe("no polling (S130)", () => {
     expect(e.fake.base.emits).toHaveLength(emits);
     expect(counts).toEqual(writes);
     expect(e.clock.pendingCount).toBe(0);
+  });
+});
+
+describe("delivery latency (S124)", () => {
+  it("500 sequential mails to an idle recipient: server emit → bridge custom message p95 < 100 ms", async () => {
+    const env = createTeamsEnv();
+    const team = await env.createTeam();
+    await env.call("lead", "TeammateSpawn", { name: "alice", prompt: "go" });
+    env.fake.addSession("S-alice");
+    env.fake.resolveSession("S-alice", { "agent-teams": { teamId: team.id, member: "alice", role: "member" } });
+    const scope = env.fake.base.spawns[0]?.scope as { extensionConfig: Record<string, Record<string, string>> } | undefined;
+    const ext = scope?.extensionConfig["agent-teams"] as Record<string, string>;
+    const alice = linkBridge(env, "alice", { env: { [ENV_TEAM_ID]: ext.teamId as string, [ENV_MEMBER]: "alice", [ENV_POLICY]: ext.policy as string } });
+    await alice.pi.fire("session_start", {});
+    await env.settle();
+    await env.idle("alice", { settleId: 1, finalText: "ready" });
+    alice.pi.sent.length = 0;
+    const samples: number[] = [];
+    for (let i = 0; i < 500; i++) {
+      const t0 = performance.now();
+      env.rt.ops.sendServerMail(team, "alice", { kind: "notice", text: `mail ${i}`, wake: false });
+      samples.push(performance.now() - t0);
+      expect(alice.pi.sent).toHaveLength(i + 1); // handed to pi within the emit itself
+      for (let k = 0; k < 6; k++) await Promise.resolve(); // let the ack round trip finish
+    }
+    samples.sort((a, b) => a - b);
+    expect(samples[Math.floor(samples.length * 0.95)]).toBeLessThan(100);
+    expect(env.mailsTo(team, "alice").filter((m) => m.kind === "notice" && m.ackedAt === undefined)).toEqual([]);
   });
 });

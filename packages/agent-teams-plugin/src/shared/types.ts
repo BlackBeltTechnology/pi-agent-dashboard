@@ -50,6 +50,8 @@ export interface Member {
   /** Dispatch hold reason set by extensions. */
   hold?: string;
   guardActive: boolean;
+  /** Hash of the spawn-time policy the member must report in `hello` (set by the spawn flow). */
+  policyHash?: string;
   tools?: string[];
   skills?: string[];
   noMcp: boolean;

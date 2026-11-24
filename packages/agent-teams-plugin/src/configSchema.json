@@ -120,6 +120,16 @@
       "default": true,
       "description": "Automatically hand pending tasks to idle members. Per-team override in Team.overrides."
     },
+    "blockSleepPolling": {
+      "type": "boolean",
+      "default": true,
+      "description": "Teammate guard refuses a bash command that only sleeps for 10 s or more (nothing to claim: end the turn instead of busy-waiting). Advisory."
+    },
+    "blockGitWrite": {
+      "type": "boolean",
+      "default": true,
+      "description": "Teammate guard refuses git commit/push/reset --hard/rebase/merge while the lead is the team's committer. Advisory while bash is allowed."
+    },
     "extraCwdRoots": {
       "type": "array",
       "items": {

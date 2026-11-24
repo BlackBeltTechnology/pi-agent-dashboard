@@ -23,3 +23,7 @@ Spec: `openspec/changes/add-agent-teams-core/`.
 
 - `npx vitest run packages/agent-teams-plugin/src` (via `HOME=$(mktemp -d) …`, see `npm run test:parallel`) — unit + faux-pi-rpc harness.
 - `src/__tests__/harness/` — injected clock, fake host `ctx`, faux `pi --mode rpc` driver.
+
+## Teammate limits (advisory with `bash`)
+
+A teammate runs behind a guard (tool allowlist, skill allowlist, sleep-poll and git-write guards, spawn-time `PI_EXT_AGENT_TEAMS_*` policy). The tool and skill allowlists are **advisory while the teammate has the `bash` tool**: a shell can still read files or run commands outside them (`bash -c "git commit"`, `$(…)` indirection and scripts are not chased). For a stricter limit give the teammate a `tools` list without `bash`. `blockSleepPolling` and `blockGitWrite` (both default true) are plugin settings.

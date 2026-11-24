@@ -30,6 +30,10 @@ export interface TeamsConfig {
   orphanTtlMs: number;
   opGateBudgetMs: number;
   autoDispatch: boolean;
+  /** Teammate `tool_call` guard refuses `bash sleep N` (N ≥ 10 s total). */
+  blockSleepPolling: boolean;
+  /** Teammate `tool_call` guard refuses git writes while the committer is the lead. */
+  blockGitWrite: boolean;
   extraCwdRoots: string[];
   /** Unset resolves to `session`. */
   teammateMode?: string;
@@ -89,6 +93,8 @@ export function createConfigReader(
       if (typeof v === "number" && Number.isFinite(v) && v >= 0) merged[key] = Math.floor(v);
     }
     if (typeof raw.autoDispatch === "boolean") merged.autoDispatch = raw.autoDispatch;
+    if (typeof raw.blockSleepPolling === "boolean") merged.blockSleepPolling = raw.blockSleepPolling;
+    if (typeof raw.blockGitWrite === "boolean") merged.blockGitWrite = raw.blockGitWrite;
     if (Array.isArray(raw.extraCwdRoots)) {
       merged.extraCwdRoots = raw.extraCwdRoots.filter((r): r is string => typeof r === "string" && r.length > 0);
     }

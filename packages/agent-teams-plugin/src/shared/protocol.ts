@@ -83,6 +83,7 @@ export const ERROR_CODES = [
   "invalid_transition",
   "kind_reserved",
   "lead_confined",
+  "member_degraded",
   "member_gone",
   "members_active",
   "message_too_long",

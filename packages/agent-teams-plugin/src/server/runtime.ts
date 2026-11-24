@@ -23,6 +23,7 @@ export type RuntimeHost = Pick<
   | "emitEventToSession"
   | "spawnSession"
   | "abortSession"
+  | "abortSpawnedRun"
   | "shutdownSession"
   | "getPluginConfig"
   | "logger"
@@ -32,7 +33,7 @@ export type RuntimeHost = Pick<
   | "onSessionEnded"
   | "sessionManager"
 > &
-  Partial<Pick<ServerPluginContext, "registerPiRequestHandler">>;
+  Partial<Pick<ServerPluginContext, "registerPiRequestHandler" | "getPiResources">>;
 
 export interface RuntimeOptions {
   clock?: Clock;
@@ -43,6 +44,8 @@ export interface RuntimeOptions {
   mailer?: MailFlusher;
   newToken?: () => string;
   idFactory?: () => string;
+  /** Host model availability for `TeammateSpawn {model}` (absent ⇒ syntax check only). */
+  isKnownModel?: (model: string) => boolean;
 }
 
 export interface TeamsRuntime {
@@ -84,6 +87,9 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
     ...(sm.isConnected ? { isConnected: (id: string) => sm.isConnected?.(id) === true } : {}),
   });
   const modes = createModeRegistry(driver);
+  // `abortSpawnedRun`/`getPiResources` are `this`-free host hooks; bind-less calls are safe, but keep them behind a guard for old hosts.
+  const abortSpawnedRun = typeof host.abortSpawnedRun === "function" ? host.abortSpawnedRun : undefined;
+  const getPiResources = typeof host.getPiResources === "function" ? host.getPiResources : undefined;
 
   const ops = createOps({
     store,
@@ -97,6 +103,9 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
     ...(opts.starter ? { starter: opts.starter } : {}),
     ...(opts.mailer ? { mailer: opts.mailer } : {}),
     ...(opts.newToken ? { newToken: opts.newToken } : {}),
+    ...(abortSpawnedRun ? { abortSpawnedRun: (a) => abortSpawnedRun(a) } : {}),
+    ...(getPiResources ? { getPiResources: (cwd) => getPiResources(cwd) } : {}),
+    ...(opts.isKnownModel ? { isKnownModel: opts.isKnownModel } : {}),
   });
 
   const laneHandlers = createLaneHandlers({ ops, ext });
@@ -108,6 +117,7 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
   const offShutdown = host.onShutdown(() => persistence.flushSync());
 
   ops.rearmOrphans();
+  ops.reconcile();
   ops.resumeClosing();
 
   return {

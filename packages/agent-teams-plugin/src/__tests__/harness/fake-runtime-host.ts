@@ -21,6 +21,8 @@ export interface FakeRuntimeHostOptions {
   dataDir?: string;
   /** Omit the request-lane seam (old host). */
   noLane?: boolean;
+  /** Omit `getPiResources` (host without skill discovery). */
+  noPiResources?: boolean;
 }
 
 export function createFakeRuntimeHost(opts: FakeRuntimeHostOptions = {}) {
@@ -32,11 +34,27 @@ export function createFakeRuntimeHost(opts: FakeRuntimeHostOptions = {}) {
   const endedHandlers = new Set<(sessionId: string) => void>();
   const shutdownHooks = new Set<() => void>();
   const dataDir = opts.dataDir ?? tmpDataDir();
+  const abortedRuns: Array<{ sessionId?: string; spawnToken?: string }> = [];
+  const resourceCalls: Array<string | undefined> = [];
+  let resources: unknown | null | Error = { local: { skills: [] }, global: { skills: [] }, packages: [] };
 
   const host = {
     ...base.ctx,
     logger,
     dataDir,
+    abortSpawnedRun: async (args: { sessionId?: string; spawnToken?: string }) => {
+      abortedRuns.push(args);
+      return true;
+    },
+    ...(opts.noPiResources
+      ? {}
+      : {
+          getPiResources: async (cwd?: string) => {
+            resourceCalls.push(cwd);
+            if (resources instanceof Error) throw resources;
+            return resources;
+          },
+        }),
     onShutdown: (fn: () => void) => {
       shutdownHooks.add(fn);
       return () => void shutdownHooks.delete(fn);
@@ -69,6 +87,14 @@ export function createFakeRuntimeHost(opts: FakeRuntimeHostOptions = {}) {
     dataDir,
     sessions,
     registered,
+    /** `abortSpawnedRun` calls (spawn timeout / late registration). */
+    abortedRuns,
+    /** `getPiResources` cwd arguments. */
+    resourceCalls,
+    /** Script the skill discovery result (an `Error` makes the host call reject). */
+    setPiResources(next: unknown | Error): void {
+      resources = next;
+    },
     /** Register a host session (connected for emits) with an optional record. */
     addSession(id: string, record: HostSession = { cwd: "/work" }): string {
       sessions.set(id, record);

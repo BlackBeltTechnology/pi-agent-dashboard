@@ -51,6 +51,8 @@ export interface FakeHostCtx {
   onShutdown(handler: (sessionId: string) => Promise<boolean> | boolean): void;
   /** Merge a config patch; later `getPluginConfig()` calls see it. */
   setConfig(patch: Record<string, unknown>): void;
+  /** Observe every emit synchronously (a linked fake bridge turns it into a `pi.events` event). */
+  onEmit(listener: (emit: RecordedEmit & { delivered: boolean }) => void): void;
 }
 
 /** Defaults declared by the shipped `src/configSchema.json` (property → `default`). */
@@ -72,6 +74,7 @@ export function createFakeHostCtx(opts: FakeHostCtxOptions = {}): FakeHostCtx {
   const aborts: string[] = [];
   const shutdowns: string[] = [];
   const sessions = new Set<string>(opts.knownSessions ?? []);
+  const emitListeners: Array<(emit: RecordedEmit & { delivered: boolean }) => void> = [];
   let config: Record<string, unknown> = { ...loadConfigDefaults(), ...(opts.config ?? {}) };
   let spawnHandler: (o: PluginSpawnOptions) => Promise<PluginSpawnResult> | PluginSpawnResult;
   let shutdownHandler: (id: string) => Promise<boolean> | boolean = (id) => sessions.has(id);
@@ -83,7 +86,9 @@ export function createFakeHostCtx(opts: FakeHostCtxOptions = {}): FakeHostCtx {
   const ctx: HostCtxSurface = {
     emitEventToSession(sessionId, eventType, data) {
       emits.push({ sessionId, eventType, data });
-      return sessions.has(sessionId);
+      const delivered = sessions.has(sessionId);
+      for (const fn of emitListeners) fn({ sessionId, eventType, data, delivered });
+      return delivered;
     },
     async spawnSession(o) {
       spawns.push(o);
@@ -120,6 +125,9 @@ export function createFakeHostCtx(opts: FakeHostCtxOptions = {}): FakeHostCtx {
     },
     setConfig(patch) {
       config = { ...config, ...patch };
+    },
+    onEmit(listener) {
+      emitListeners.push(listener);
     },
   };
 }

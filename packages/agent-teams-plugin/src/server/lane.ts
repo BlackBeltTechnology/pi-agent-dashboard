@@ -69,7 +69,7 @@ function parseIdle(payload: unknown): IdlePayload | undefined {
   };
 }
 
-export type LaneHandler = (payload: unknown, meta: LaneMeta) => OpResult<unknown>;
+export type LaneHandler = (payload: unknown, meta: LaneMeta) => OpResult<unknown> | Promise<OpResult<unknown>>;
 
 export function createLaneHandlers(deps: { ops: Ops; ext: ExtensionPoints }): Record<string, LaneHandler> {
   const { ops, ext } = deps;
@@ -85,7 +85,7 @@ export function createLaneHandlers(deps: { ops: Ops; ext: ExtensionPoints }): Re
       const caller = admit(meta);
       if (!caller) return deny("origin_denied");
       if (!isRecord(payload)) return deny("invalid_args", "payload must be {op, args}");
-      return ops.call(Object.hasOwn(payload, "op") ? payload.op : undefined, Object.hasOwn(payload, "args") ? payload.args : undefined, caller);
+      return ops.callAsync(Object.hasOwn(payload, "op") ? payload.op : undefined, Object.hasOwn(payload, "args") ? payload.args : undefined, caller);
     },
     [LANE_HELLO]: (payload, meta) => {
       const caller = admit(meta);

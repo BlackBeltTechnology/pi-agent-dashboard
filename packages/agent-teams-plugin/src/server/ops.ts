@@ -62,9 +62,17 @@ import type { ModeRegistry } from "./modes.js";
 import { createNoticeBuffer } from "./notices.js";
 import { fail, isLive } from "./op-util.js";
 import { createShutdown } from "./shutdown.js";
+import { createSpawnFlow, createSpawnPlanner } from "./spawn.js";
 import type { TeamStore } from "./store.js";
 import { createTaskOps } from "./tasks.js";
 import type { Actor, HostSessionLookup, Logger } from "./types.js";
+
+/** The minimal slice of the host's `getPiResources` result the skill resolver reads. */
+type PiResourcesLookup = (cwd?: string) => Promise<{
+  local?: { skills?: Array<{ name: string; filePath: string }> };
+  global?: { skills?: Array<{ name: string; filePath: string }> };
+  packages?: Array<{ resources?: { skills?: Array<{ name: string; filePath: string }> } }>;
+}>;
 
 // ── caller / reports ──────────────────────────────────────────────────────────
 
@@ -100,6 +108,8 @@ export interface SpawnPlanInput {
   args: TeammateSpawnArgs;
   trusted?: TrustedSpawnOptions;
   config: TeamsConfig;
+  /** Skill allowlist resolved to `SKILL.md` paths by the async step before the sync spawn (absent ⇒ none requested). */
+  resolvedSkills?: string[];
 }
 
 /** Synchronous validation + resolution BEFORE the member record exists (§5.2/5.12 replace the default). */
@@ -135,30 +145,13 @@ export interface OpsDeps {
   starter?: SpawnStarter;
   mailer?: MailFlusher;
   newToken?: () => string;
+  /** Host kill by spawn token (`ctx.abortSpawnedRun`). */
+  abortSpawnedRun?: (args: { sessionId?: string; spawnToken?: string }) => unknown;
+  /** Host skill discovery (`ctx.getPiResources`); absent ⇒ a skill allowlist is refused (`skill_resolution_unavailable`). */
+  getPiResources?: PiResourcesLookup;
+  /** Host model availability; absent ⇒ only the model id syntax is validated. */
+  isKnownModel?: (model: string) => boolean;
 }
-
-/** Default planner: no cwd (or exactly the lead cwd) only; any other cwd is refused until §5.2 adds realpath confinement. */
-export const defaultSpawnPlanner: SpawnPlanner = {
-  prepare({ leadCwd, args, trusted }) {
-    let cwd = leadCwd;
-    if (trusted?.cwd !== undefined) cwd = trusted.cwd;
-    else if (args.cwd !== undefined && args.cwd !== leadCwd) {
-      return fail("cwd_outside_lead", "per-member cwd is not available yet");
-    }
-    return {
-      ok: true,
-      data: {
-        cwd,
-        ...(args.model ? { model: args.model } : {}),
-        ...(args.tools ? { tools: args.tools } : {}),
-        ...(args.skills ? { skills: args.skills } : {}),
-        noMcp: args.noMcp === true,
-        noContextFiles: args.noContextFiles === true,
-        ...(trusted?.committer ? { committer: trusted.committer } : {}),
-      },
-    };
-  },
-};
 
 // ── small helpers ────────────────────────────────────────────────────────────
 
@@ -182,12 +175,17 @@ export interface CreateTeamInput {
   callerSessionId?: string;
 }
 
-export type OpHandler = (args: unknown, caller: Caller) => OpResult<unknown>;
+/** Values the async step before the sync op resolved (`TeammateSpawn`: allowlisted skill names → `SKILL.md` paths). */
+export interface CallExtra {
+  skills?: string[];
+}
+
+export type OpHandler = (args: unknown, caller: Caller, extra?: CallExtra) => OpResult<unknown>;
 
 export function createOps(deps: OpsDeps) {
   const { store, clock, logger } = deps;
   const reports = deps.reports ?? new Map<string, SessionReport>();
-  const planner = deps.planner ?? defaultSpawnPlanner;
+  const planner = deps.planner ?? createSpawnPlanner(deps.isKnownModel ? { isKnownModel: deps.isKnownModel } : {});
   const newToken = deps.newToken ?? (() => `at-${randomUUID()}`);
   const orphanTimers = new Map<string, unknown>();
   const closeTimers = new Map<string, unknown>();
@@ -246,6 +244,20 @@ export function createOps(deps: OpsDeps) {
     notify: (team, item) => notices.add(team, item),
     drainNotices: (team) => notices.drain(team),
   });
+
+  const flow = createSpawnFlow({
+    store,
+    clock,
+    logger,
+    config: deps.config,
+    ext: deps.ext,
+    driverFor,
+    hostSession: deps.hostSession,
+    ...(deps.abortSpawnedRun ? { abortSpawnedRun: deps.abortSpawnedRun } : {}),
+    fail: (team, name, message) => failSpawn(team, name, message),
+    notify: (team, item) => notices.add(team, item),
+  });
+  const starter: SpawnStarter = deps.starter ?? flow.start;
 
   function refOf(team: Team, member: Member) {
     return { teamId: team.id, member: member.name, ...(member.sessionId ? { sessionId: member.sessionId } : {}) };
@@ -330,6 +342,7 @@ export function createOps(deps: OpsDeps) {
     const member = store.member(team, name);
     if (!member || !isLive(member)) return out;
     const handshake = shutdown.consume(team.id, name);
+    flow.clear(team.id, name);
     store.patchMember(team.id, name, { status, goneReason: reason }, { writeThrough: true });
     const freed = taskOps.releaseTasksOf(team, name, reason);
     out.released.push(...(handshake?.released ?? []), ...freed.released);
@@ -543,19 +556,21 @@ export function createOps(deps: OpsDeps) {
    * `await`, then hand the async host spawn to the `starter` seam. `trusted`
    * options come only from in-process server callers; the lane never passes them.
    */
-  function spawnMember(team: Team, args: TeammateSpawnArgs, trusted?: TrustedSpawnOptions): OpResult<TeammateSpawnResult> {
+  function spawnMember(team: Team, args: TeammateSpawnArgs, trusted?: TrustedSpawnOptions, resolvedSkills?: string[]): OpResult<TeammateSpawnResult> {
     const cfg = deps.config();
     if (team.status === "closed" || team.status === "closing") return fail("team_closed");
     const existing = store.member(team, args.name);
     const resume = args.resume === true;
     if (resume) {
-      if (!existing || (existing.status !== "gone" && existing.status !== "disconnected")) return fail("nothing_to_resume", args.name);
+      if (!existing) return fail("nothing_to_resume", args.name);
+      if (isLive(existing) && existing.status !== "disconnected") return fail("name_taken", args.name);
+      if (!existing.sessionFile) return fail("nothing_to_resume", args.name);
     } else if (existing && isLive(existing)) {
       return fail("name_taken", args.name);
     }
     const live = team.members.filter((m) => isLive(m) && m.name !== (resume ? args.name : ""));
     if (live.length >= effectiveMaxTeammates(team, cfg)) return fail("team_full", `at most ${effectiveMaxTeammates(team, cfg)} teammates`);
-    const plan = planner.prepare({ leadCwd: team.leadCwd, team, args, ...(trusted ? { trusted } : {}), config: cfg });
+    const plan = planner.prepare({ leadCwd: team.leadCwd, team, args, ...(trusted ? { trusted } : {}), ...(resolvedSkills ? { resolvedSkills } : {}), config: cfg });
     if (!plan.ok) return plan;
     const p = plan.data;
     const record: Member = {
@@ -563,6 +578,8 @@ export function createOps(deps: OpsDeps) {
       ...(args.role ? { role: args.role } : {}),
       spawnToken: newToken(),
       ...(resume && existing?.sessionFile ? { sessionFile: existing.sessionFile } : {}),
+      // A resumed record sheds its previous session binding and failure state.
+      ...(resume ? { sessionId: undefined, goneReason: undefined, degraded: undefined } : {}),
       cwd: p.cwd,
       ...(p.model ? { model: p.model } : {}),
       status: "spawning",
@@ -580,19 +597,17 @@ export function createOps(deps: OpsDeps) {
     mailTo(team, args.name, {
       from: LEAD_ADDRESS,
       kind: "spawn_prompt",
-      text: args.prompt,
+      text: `Team "${team.name}" · you are teammate "${args.name}"${args.role ? ` (role: ${args.role})` : ""}. The lead is "${LEAD_ADDRESS}".\n\n${args.prompt}`,
       wake: true,
       ...(args.role ? { details: { role: args.role } } : {}),
     });
-    if (deps.starter) {
-      try {
-        const started = deps.starter({ team, member: reserved, prompt: args.prompt, prepared: p, resume });
-        if (started && typeof (started as Promise<void>).catch === "function") {
-          (started as Promise<void>).catch((err: unknown) => failSpawn(team, args.name, (err as Error).message));
-        }
-      } catch (err) {
-        failSpawn(team, args.name, (err as Error).message);
+    try {
+      const started = starter({ team, member: reserved, prompt: args.prompt, prepared: p, resume });
+      if (started && typeof (started as Promise<void>).catch === "function") {
+        (started as Promise<void>).catch((err: unknown) => failSpawn(team, args.name, (err as Error).message));
       }
+    } catch (err) {
+      failSpawn(team, args.name, (err as Error).message);
     }
     return { ok: true, data: { member: args.name, status: "spawning" } };
   }
@@ -602,7 +617,7 @@ export function createOps(deps: OpsDeps) {
     releaseMember(team, name, "failed", `spawn failed: ${message}`);
   }
 
-  function teammateSpawn(raw: unknown, caller: Caller): OpResult<TeammateSpawnResult> {
+  function teammateSpawn(raw: unknown, caller: Caller, extra?: CallExtra): OpResult<TeammateSpawnResult> {
     if (caller.role === "member") return fail("not_lead");
     const cfg = deps.config();
     const args = parseSpawnArgs(raw, cfg);
@@ -613,7 +628,7 @@ export function createOps(deps: OpsDeps) {
       const host = deps.hostSession(caller.sessionId);
       if (!host?.cwd) return fail("invalid_args", "caller working directory unknown");
       // Dry-run the spawn plan before creating anything, so a refused spawn leaves no team behind.
-      const plan = planner.prepare({ leadCwd: host.cwd, args: args.data, config: cfg });
+      const plan = planner.prepare({ leadCwd: host.cwd, args: args.data, config: cfg, ...(extra?.skills ? { resolvedSkills: extra.skills } : {}) });
       if (!plan.ok) return plan;
       const created = createTeam({
         name: `${basename(host.cwd)} team`.slice(0, TEAM_NAME_MAX_CHARS),
@@ -626,7 +641,7 @@ export function createOps(deps: OpsDeps) {
       team = created.data;
     }
     if (!team) return fail("not_in_team");
-    return spawnMember(team, args.data);
+    return spawnMember(team, args.data, undefined, extra?.skills);
   }
 
   // ── TeamStatus ──────────────────────────────────────────────────────────────
@@ -710,6 +725,10 @@ export function createOps(deps: OpsDeps) {
         wake: false,
       });
       const m = store.member(team, name);
+      if (m?.status === "spawning") {
+        flow.clear(team.id, name);
+        flow.abort(m); // a spawn in flight is aborted by its token
+      }
       if (m && m.status !== "shutdown_pending") store.patchMember(team.id, name, { status: "shutdown_pending" });
       mailTo(team, name, { from: actor === "lead" ? LEAD_ADDRESS : "server", kind: "shutdown_request", text: "Team closed by force: shut down now.", wake: true });
     }
@@ -799,8 +818,20 @@ export function createOps(deps: OpsDeps) {
     if (!member) return fail("not_in_team");
     const patch: Partial<Member> = { guardActive: payload.guardActive };
     if (payload.sessionFile) patch.sessionFile = payload.sessionFile;
-    // A `spawning` member leaves that state through the spawn flow (bind + guarded hello + prompt ack).
-    if (member.status === "idle" || member.status === "busy" || member.status === "disconnected") {
+    const reply: OpResult<HelloReply> = { ok: true, data: { role: "member", teamId: team.id, member: member.name } };
+    const degraded = guardVerdict(member, payload);
+    if (degraded) {
+      // Never run unguarded: team tools refused, no dispatch, the lead is told (once per reason).
+      if (member.degraded !== degraded) {
+        notices.add(team, { head: `${member.name} is degraded (${degraded}): its team tools are refused and it gets no work`, wake: true });
+      }
+      store.patchMember(team.id, member.name, { ...patch, degraded });
+      return reply;
+    }
+    if (member.degraded !== undefined) patch.degraded = undefined;
+    // A `spawning` member becomes `busy` on its guarded hello: the `spawn_prompt` below is a waking mail.
+    if (member.status === "spawning") patch.status = "busy";
+    else if (member.status === "idle" || member.status === "busy" || member.status === "disconnected") {
       patch.status = payload.isIdle ? "idle" : "busy";
     }
     engine.confirm(team.id, member.name); // `hello` is authoritative: a provisional busy ends here
@@ -808,7 +839,19 @@ export function createOps(deps: OpsDeps) {
     store.patchMember(team.id, member.name, patch);
     redeliver(team.id, member.name);
     dispatcher.run(team);
-    return { ok: true, data: { role: "member", teamId: team.id, member: member.name } };
+    return reply;
+  }
+
+  /**
+   * Guard-ready handshake (D14, spec "Guard-ready handshake"): a bound member is only live
+   * once its bridge reports tools + guard (and the exact policy it was spawned with).
+   */
+  function guardVerdict(member: Member, payload: HelloPayload): Member["degraded"] | undefined {
+    if (!payload.toolsActive) return "team_tools_unavailable";
+    if (!payload.guardActive) return "guard_unavailable";
+    if (member.policyHash === undefined) return undefined;
+    if (payload.policyHash === undefined) return "guard_unavailable";
+    return payload.policyHash === member.policyHash ? undefined : "guard_mismatch";
   }
 
   /**
@@ -876,13 +919,16 @@ export function createOps(deps: OpsDeps) {
     if (!team) return fail("not_in_team");
     const own = new Set(store.mailLog(team.id).filter((m) => m.to === caller.name).map((m) => m.id));
     const ids = (Array.isArray(payload.ids) ? payload.ids : []).filter((i): i is number => Number.isInteger(i) && own.has(i));
-    return { ok: true, data: { acked: engine.ack(team.id, ids) } };
+    const acked = engine.ack(team.id, ids);
+    if (caller.role === "member" && store.mailLog(team.id).some((m) => ids.includes(m.id) && m.kind === "spawn_prompt")) flow.complete(team, caller.name);
+    return { ok: true, data: { acked } };
   }
 
   // ── host session events ─────────────────────────────────────────────────────
 
   /** `onSessionResolved`: a session spawned with a lead-role pluginRef binds to its `starting` team. */
   function handleSessionResolved(sessionId: string, pluginRef: Record<string, unknown>): void {
+    if (flow.onResolved(sessionId, pluginRef)) return;
     const ref = pluginRef[AGENT_TEAMS_PLUGIN_ID];
     if (!isRecord(ref) || ref.role !== "lead" || typeof ref.teamId !== "string") return;
     const team = store.get(ref.teamId);
@@ -925,14 +971,53 @@ export function createOps(deps: OpsDeps) {
     table.set(op, handler);
   }
 
-  function call(op: unknown, args: unknown, caller: Caller): OpResult<unknown> {
+  function call(op: unknown, args: unknown, caller: Caller, extra?: CallExtra): OpResult<unknown> {
     if (!isTeamOp(op)) return fail("unknown_op", typeof op === "string" ? op.slice(0, 40) : undefined);
     if (caller.team?.status === "closed") return fail("team_closed");
     if (caller.role === "plain" && op !== "TeamCreate" && op !== "TeammateSpawn") return fail("not_in_team");
     if (caller.role === "member" && (LEAD_ONLY_OPS as readonly string[]).includes(op)) return fail("not_lead");
+    if (caller.role === "member" && caller.team) {
+      const degraded = store.member(caller.team, caller.name)?.degraded;
+      if (degraded !== undefined) return fail("member_degraded", `team tools are refused: ${degraded}`, { degraded });
+    }
     const handler = table.get(op);
     if (!handler) return fail("unknown_op", op);
-    return handler(args, caller);
+    return handler(args, caller, extra);
+  }
+
+  /** Resolve allowlisted skill names to `SKILL.md` paths through the host (layer 1 of the skill allowlist). */
+  async function resolveSkillPaths(names: readonly string[], cwd: string): Promise<OpResult<string[]>> {
+    if (names.length === 0) return { ok: true, data: [] };
+    if (!deps.getPiResources) return fail("skill_resolution_unavailable", "this host cannot resolve skill names");
+    let res: Awaited<ReturnType<PiResourcesLookup>>;
+    try {
+      res = await deps.getPiResources(cwd);
+    } catch (err) {
+      logger.warn(`agent-teams: skill resolution failed: ${(err as Error).message}`);
+      return fail("skill_resolution_unavailable", "skill discovery failed");
+    }
+    const known = [res.local?.skills, res.global?.skills, ...(res.packages ?? []).map((p) => p.resources?.skills)].flatMap((l) => l ?? []);
+    const paths: string[] = [];
+    const missing: string[] = [];
+    for (const name of names) {
+      const hit = known.find((k) => k.name === name);
+      if (!hit) missing.push(name);
+      else paths.push(hit.filePath.endsWith(".md") ? hit.filePath : `${hit.filePath.replace(/\/+$/, "")}/SKILL.md`);
+    }
+    if (missing.length > 0) return fail("skill_not_found", missing.join(", "), { skills: missing });
+    return { ok: true, data: paths };
+  }
+
+  /** Lane entry: like `call`, but a `TeammateSpawn` with a skill allowlist first resolves the names (sync otherwise). */
+  function callAsync(op: unknown, args: unknown, caller: Caller): OpResult<unknown> | Promise<OpResult<unknown>> {
+    const eligible = op === "TeammateSpawn" && (caller.role === "lead" || (caller.role === "plain" && !isConfined(caller.sessionId)));
+    if (!eligible || caller.team?.status === "closed") return call(op, args, caller);
+    const parsed = parseSpawnArgs(args, deps.config());
+    if (!parsed.ok) return call(op, args, caller);
+    const names = parsed.data.skills ?? caller.team?.defaultSkills;
+    if (names === undefined) return call(op, args, caller);
+    const cwd = caller.team?.leadCwd ?? deps.hostSession(caller.sessionId)?.cwd ?? "";
+    return resolveSkillPaths(names, cwd).then((r) => (r.ok ? call(op, args, caller, { skills: r.data }) : r));
   }
 
   function dispose(): void {
@@ -940,6 +1025,7 @@ export function createOps(deps: OpsDeps) {
     for (const t of closeTimers.values()) clock.clearTimeout(t);
     orphanTimers.clear();
     closeTimers.clear();
+    flow.dispose();
     notices.dispose();
     engine.dispose();
     shutdown.dispose();
@@ -950,6 +1036,8 @@ export function createOps(deps: OpsDeps) {
     resolveCaller,
     isConfined,
     call,
+    callAsync,
+    resolveSkillPaths,
     registerOp,
     createTeam,
     bindLead,
@@ -976,6 +1064,7 @@ export function createOps(deps: OpsDeps) {
     handleSessionEnded,
     resumeClosing,
     rearmOrphans,
+    reconcile: flow.reconcile,
     dispose,
   };
 }
