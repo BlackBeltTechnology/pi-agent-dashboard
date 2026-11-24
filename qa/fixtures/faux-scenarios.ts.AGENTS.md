@@ -44,4 +44,6 @@ See change: harden-agent-tool-guards — Adds `tool-read-agent-models`, `tool-re
 
 See change: rich-chat-links (tasks 9.1–9.9) — Adds `rich-links-web|pr|states|subdir|html|picker|flush` (`[[faux:rich-links-*]]`): web URLs (`https://example.com/docs`, `https://framed-allowed.test/page`), a bare GitHub PR URL, bash tool results with file mentions (`packages/x/src/a.ts`, a `cd packages/x && ls src/*` recovery, `sub/memo.md` ambiguity), an `.html` mention, and a 30×20-mention flush workload plus one running `sleep 90` tool. Files come from `docker/fixtures/sample-git`. NOTE the harness stages a COPY of this file under `~/.pi/agent/extensions/faux-provider/` at boot: a running harness needs `docker cp` after edits.
 
+`flow-open` scenario: `[[faux:flow-open]] <flow>` → `fauxToolCall("flow_open",{flow})`, then echoes `flow-open: <tool result>`. See change: add-flow-open-tool.
+
 See change: add-agent-teams-core — Adds `agent-teams-lead-spawn` (TeamCreate `e2e-team` → TeammateSpawn `alice` on `faux/faux-1` with a `plain-text` sentinel prompt → text `AGENT_TEAMS_LEAD_READY`) and `agent-teams-lead-task` (one TaskCreate → `AGENT_TEAMS_TASK_CREATED`); exports both marker constants. Drives `qa/tests/60-agent-teams-core.sh` and `tests/e2e/agent-teams-core.spec.ts`.

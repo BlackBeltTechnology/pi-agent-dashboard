@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `ensure-worktree.ts` | `ensureWorktree({cwd,branch,base?,ifExists,checkTarget?,knownCwds?},deps?)` → `{ok,path,branch,created}`\|`{ok:false,code,message}`; never throws. Known-folder admission, branch validation (`isValidRefArg` + `check-ref-format` + no `@{`), reuse contained under `<main>/.worktrees/`, stale-registration prune, local/origin-only/new-branch modes over `addWorktree`, per-repo lock. See change: add-plugin-spawn-worktree. |
 | `folder-head-poll.ts` | Exports `computeFolderGroupKeys(sessions, pinnedDirectories)` = unique resolved folder group-key display… → see `folder-head-poll.ts.AGENTS.md` |
 | `folder-head-watcher.ts` | Per-folder `fs.watch` on gitdir HEAD, modeled on `openspec-change-watcher.ts`;… → see `folder-head-watcher.ts.AGENTS.md` |
 | `git-operations.ts` | Server-side git commands: branch listing, checkout, init, stash pop. All git/gh spawns argv-form (`execFileSync`/`spawnSync`), never shell; `git_not_found`/`gh_not_found` codes for missing binaries. → see `git-operations.ts.AGENTS.md` |
@@ -12,6 +13,8 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `git-worktree.ts` | Pure helpers for worktree handling: `slugifyBranch(branch)` (path-safe slug), `parsePorcelainWorktrees(out)`… → see `git-worktree.ts.AGENTS.md` |
 | `redact-git-text.ts` | `redactGitText(input,{root?,home?})`, `gitErrorText(err)`. Userinfo strip, token mask (prefix+`***`), paths → repo-relative/`~`/`<path>`; SHAs kept; never throws. See change: harden-git-terminal-plugin-boundaries. |
 | `ref-arg.ts` | `assertRefArg`/`isValidRefArg`/`isMissingArg`, `InvalidRefError`, `INVALID_REF_CODE="invalid_ref"`. Rejects non-string, empty, leading `-`, C0/DEL. See change: harden-git-terminal-plugin-boundaries. |
+| `repo-lock.ts` | `withRepoLock(key,fn)` per-repo async mutex + `repoLockKey(cwd)` (realpath of git common dir). Taken by `ensureWorktree` and `POST /api/git/worktree`. See change: add-plugin-spawn-worktree. |
+| `start-worktree-init.ts` | `startWorktreeInit(cwd,{registry?,requestId?,skipIfRunning?})` → `no_hook\|untrusted\|already_initialized\|already_running\|done\|failed`; trust checked never granted. Owns gate cache (`evaluateGateCached`, `invalidateGateCache`); `awaitInitRun(registry,cwd)`. Shared by `POST /api/git/worktree/init` + plugin-spawn hook. See change: add-plugin-spawn-worktree. |
 | `worktree-init-errors.ts` | Pure `mapInitStderrToHint(stderr)`. Ordered regex table. Codes: EACCES, EBADENGINE/Unsupported engine,… → see `worktree-init-errors.ts.AGENTS.md` |
 | `worktree-init-registry.ts` | `createWorktreeInitRegistry({ttlMs?,terminalTtlMs?,sendTo?})`. → see `worktree-init-registry.ts.AGENTS.md` |
 | `worktree-init-trust.ts` | TOFU trust store. `isTrusted(repoRoot,hash)`/`recordTrust(repoRoot,hash)` keyed by `repoRoot +… → see `worktree-init-trust.ts.AGENTS.md` `listSessionTrust()`, `setSessionTrustChangedListener`: session record/revoke notify sync; session set still never written. See change: mirror-dashboard-trust-live-remote. |

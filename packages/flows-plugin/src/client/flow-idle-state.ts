@@ -170,6 +170,11 @@ export interface FlowAttachment {
   name: string;
   source?: string;
   baselineStartedAt: number | null;
+  /**
+   * Path-opened by the agent's `flow_open` (not in the catalog): view-only
+   * panel, never "unavailable". See change: add-flow-open-tool (D7).
+   */
+  viewOnly?: true;
 }
 
 export type IdleLoad =
@@ -216,7 +221,7 @@ export function resolveFlowSlot(input: {
   if (running) return { mode: "live", flowState: running, attachmentConsumed: !!attachment };
 
   if (attachment && !isAttachmentConsumed(attachment.baselineStartedAt, lastFlowStartedAt)) {
-    if (flows.length > 0 && !flows.some((f) => f.name === attachment.name)) {
+    if (!attachment.viewOnly && flows.length > 0 && !flows.some((f) => f.name === attachment.name)) {
       return { mode: "error", error: { kind: "unavailable" }, attachmentConsumed: false };
     }
     if (idle.kind === "loading") return { mode: "loading", attachmentConsumed: false };

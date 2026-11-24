@@ -3,7 +3,7 @@
 import { catalog as agent_teams_catalog } from "@blackbelt-technology/pi-dashboard-agent-teams-plugin";
 import { FolderAutomationSection, AutomationBadge, isAutomationRun, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
 import { catalog as context_mode_settings_catalog } from "@blackbelt-technology/pi-dashboard-context-mode-settings-plugin";
-import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, SessionFlowMenuClaim, FlowsContextGroup, isFlowYamlPreviewActive, FlowAgentsToolRenderer, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
+import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, SessionFlowMenuClaim, FlowsContextGroup, isFlowYamlPreviewActive, FlowAgentsToolRenderer, FlowOpenListener, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
 import { GrammarComposerPanel, catalog as grammar_catalog } from "@blackbelt-technology/pi-dashboard-grammar-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
@@ -278,6 +278,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "config": {
                     "actionId": "flows.run"
                 }
+            },
+            {
+                "slot": "shell-headless",
+                "component": "FlowOpenListener"
             }
         ],
         "client": "./src/client/index.tsx",
@@ -314,6 +318,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "flows", priority: 100, slot: "tool-renderer", toolName: "flow_agents", Component: FlowAgentsToolRenderer },
       { pluginId: "flows", priority: 100, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowsSettings"), "FlowsSettings") },
       { pluginId: "flows", priority: 100, slot: "automation-action-editor", config: {"actionId":"flows.run"}, Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowInputWiring"), "FlowInputWiringClaim") },
+      { pluginId: "flows", priority: 100, slot: "shell-headless", Component: FlowOpenListener },
     ],
     catalog: flows_catalog,
   },
@@ -1299,4 +1304,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "216130e075521bfe95cb32be1b83c639a5dc311b718612f78e401490f74a075e";
+export const PLUGIN_REGISTRY_HASH = "783105df0590a2337b5423d80078231abd6e33cafa873300d2c126868b394444";

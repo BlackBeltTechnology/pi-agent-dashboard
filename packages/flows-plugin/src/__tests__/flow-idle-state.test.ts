@@ -300,6 +300,35 @@ describe("resolveFlowSlot — decision table (E6)", () => {
   });
 });
 
+describe("resolveFlowSlot — view-only attachments (add-flow-open-tool E18, F4, X12)", () => {
+  const idleState = ready(SYNTHETIC_YAML, "flows/a/flow.yaml", "/w/flows/a/flow.yaml");
+  const readyLoad: IdleLoad = { kind: "ready", flowState: idleState };
+  const view = { id: "v", name: "flows/a/flow.yaml", source: "/w/flows/a/flow.yaml", baselineStartedAt: 1000, viewOnly: true as const };
+  const cat = { id: "c", name: "A", source: "/a", baselineStartedAt: 1000 };
+  const slot = (attachment: typeof view | typeof cat, flows: Array<{ name: string }>, extra: Partial<Parameters<typeof resolveFlowSlot>[0]> = {}) =>
+    resolveFlowSlot({ live: null, liveStates: new Map(), attachment, idle: readyLoad, lastFlowStartedAt: 500, flows, ...extra });
+
+  it("E18: view-only ignores catalog membership; catalog attachments unchanged", () => {
+    expect(slot(view, [{ name: "B" }]).mode).toBe("idle");
+    expect(slot(view, []).mode).toBe("idle");
+    expect(slot(cat, [{ name: "B" }]).error).toEqual({ kind: "unavailable" });
+    expect(slot(cat, [{ name: "A" }]).mode).toBe("idle");
+    expect(slot(cat, []).mode).toBe("idle");
+  });
+
+  it("F4: a flow started after the server-stamped baseline goes live and consumes the pin", () => {
+    const running: FlowState = ready(SYNTHETIC_YAML, "B", "/b");
+    const r = slot(view, [], { live: running, liveStates: new Map([["B", running]]), lastFlowStartedAt: 2000 });
+    expect(r.mode).toBe("live");
+    expect(r.attachmentConsumed).toBe(true);
+  });
+
+  it("X12: a view-only definition that no longer loads is a load error (not unavailable)", () => {
+    const r = slot(view, [{ name: "B" }], { idle: { kind: "error", message: "HTTP 403" } });
+    expect(r).toMatchObject({ mode: "error", error: { kind: "load", message: "HTTP 403" } });
+  });
+});
+
 describe("isAttachmentConsumed — boundary (E7)", () => {
   it("null baseline never consumes", () => {
     expect(isAttachmentConsumed(null, 5000)).toBe(false);

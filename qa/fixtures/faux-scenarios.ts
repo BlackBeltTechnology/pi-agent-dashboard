@@ -1576,6 +1576,22 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "browser-show-in-pane:" },
   },
 
+  // `[[faux:flow-open]] <flowName>` — the agent calls the flows plugin's REAL
+  // bridge tool `flow_open { flow }`, then echoes the tool result.
+  // See change: add-flow-open-tool (F8, F9).
+  "flow-open": {
+    script: [
+      (context: FauxContext) => {
+        const last = [...context.messages].reverse().find((m) => m.role === "user");
+        const text = (last?.content ?? []).map((c) => c.text ?? "").join(" ");
+        const flow = /\[\[faux:flow-open\]\]\s+(\S+)/.exec(text)?.[1] ?? "";
+        return fauxAssistantMessage([fauxToolCall("flow_open", { flow })], { stopReason: "toolUse" });
+      },
+      (context: FauxContext) => fauxAssistantMessage([fauxText(`flow-open: ${lastToolResultText(context).slice(0, 200)}`)]),
+    ],
+    expect: { text: "flow-open:" },
+  },
+
   "tool-list-models": {
     script: [
       fauxAssistantMessage([fauxToolCall("list_models", {})], { stopReason: "toolUse" }),
