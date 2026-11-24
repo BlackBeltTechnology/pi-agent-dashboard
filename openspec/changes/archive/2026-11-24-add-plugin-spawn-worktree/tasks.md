@@ -58,4 +58,4 @@ L1 vitest under `packages/server/src/__tests__/`. Write each test before its imp
 
 ## 6. Manual
 
-- [ ] 6.1 Manual check (test-plan: manual-only, #M1): running dashboard, a first-party test plugin action calling `spawnSession` with a `worktree` block and `/skill:ship-it`-like prompt; trigger the action; expect session appears under the worktree folder on the board, attached to the change, init ran before the first prompt
+- [x] 6.1 Manual check (test-plan: manual-only, #M1): running dashboard, a first-party test plugin action calling `spawnSession` with a `worktree` block and `/skill:ship-it`-like prompt; trigger the action; expect session appears under the worktree folder on the board, attached to the change, init ran before the first prompt
