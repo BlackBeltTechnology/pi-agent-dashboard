@@ -157,7 +157,8 @@ export class FlowFileRegistry {
     if (!keep(files.def)) return;
     const pick = (m: Record<string, string>) => {
       const out: Record<string, string> = Object.create(null);
-      for (const [k, f] of Object.entries(m)) if (keep(f)) out[k] = f;
+      // Publish the canonical file admitted now, so `/files` and `/file` agree. (CodeRabbit)
+      for (const [k, f] of Object.entries(m)) if (keep(f)) out[k] = canonical(f);
       return out;
     };
     const handlers = pick(files.handlers);

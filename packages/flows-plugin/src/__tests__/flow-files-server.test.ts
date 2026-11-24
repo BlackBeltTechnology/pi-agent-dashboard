@@ -319,6 +319,13 @@ describe("flow/open path admission (E2–E7, X6)", () => {
     expect(h.readFileGuarded).not.toHaveBeenCalled();
   });
 
+  it("CR: a directory named flow.yaml beside a valid flow.yml falls back to flow.yml", async () => {
+    fs.mkdirSync(path.join(w, "z", "flow.yaml"), { recursive: true });
+    write("z/flow.yml");
+    const h = openHarness({ sessions: { S: w }, autoAck: ["ws"] });
+    expect(await h.call({ path: "z" })).toMatchObject({ status: "shown", name: "z/flow.yml" });
+  });
+
   it("E6: session cwd `/` admits an absolute path (no `//` prefix bug)", async () => {
     const f = write("tmpx/flow.yaml");
     const h = openHarness({ sessions: { S: "/" }, autoAck: ["ws"] });

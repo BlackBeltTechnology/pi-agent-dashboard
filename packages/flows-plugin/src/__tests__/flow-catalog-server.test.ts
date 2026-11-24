@@ -279,6 +279,39 @@ describe("flow/open lane handler (E1, E8–E11, E17, X1–X3, X8, X11)", () => {
     expect(h.ctl.pendingSize()).toBe(0);
   });
 
+  it("CR: the baseline is the call time, stamped before the catalog rediscovery wait", async () => {
+    const h = openHarness({ sessions: { S: w }, autoAck: ["ws"] });
+    const t0 = Date.now();
+    setTimeout(() => h.setFlows("S", [entry("custom:a", "/x/flow.yaml")]), 600);
+    const p = h.ctl.handle({ flow: "custom:a" }, { sessionId: "S" });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(await p).toMatchObject({ status: "shown" });
+    expect(h.broadcasts[0].attachment.baselineStartedAt).toBe(t0);
+  });
+
+  it("CR: a full pending-ack map refuses new calls instead of evicting an open window", async () => {
+    const flows = Object.fromEntries(Array.from({ length: 70 }, (_, i) => [`S${i}`, [entry("custom:a", "/x/flow.yaml")]]));
+    const h = openHarness({ sessions: { S: w }, flows });
+    const ps = Array.from({ length: 70 }, (_, i) => h.ctl.handle({ flow: "custom:a" }, { sessionId: `S${i}` }));
+    await vi.advanceTimersByTimeAsync(0);
+    const first = h.broadcasts[0].requestId;
+    h.ack("ws", "S0", first);
+    await vi.advanceTimersByTimeAsync(1_500);
+    const results = await Promise.all(ps);
+    expect(results[0]).toMatchObject({ status: "shown", acks: 1 });
+    expect(results.filter((r) => r.status === "refused" && r.reason === "rate-limited")).toHaveLength(6);
+  });
+
+  it("CR: a mapping without a steps array is not a flow; inherited agent names are ignored", async () => {
+    fs.mkdirSync(path.join(w, "n"), { recursive: true });
+    fs.writeFileSync(path.join(w, "n", "flow.yaml"), "title: Notes\n");
+    fs.mkdirSync(path.join(w, "t"), { recursive: true });
+    fs.writeFileSync(path.join(w, "t", "flow.yaml"), "steps:\n  - id: a\n    type: agent\n    agent: toString\n");
+    const h = openHarness({ sessions: { S: w }, autoAck: ["ws"] });
+    expect(await h.call({ path: "n" })).toEqual({ status: "refused", reason: "not-a-flow" });
+    expect(await h.call({ path: "t" })).toMatchObject({ status: "shown", viewOnly: true });
+  });
+
   it("X8: the lane is registered hub-local-only (a remote origin is denied by the host)", () => {
     const h = openHarness({ sessions: { S: w } });
     expect(h.lane()).toEqual({ type: "flow/open", opts: { hubLocalOnly: true } });

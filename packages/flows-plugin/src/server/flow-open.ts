@@ -39,6 +39,8 @@ const RATE_WINDOW_MS = 10_000;
 const MAX_CANDIDATES = 20;
 const MAX_CANDIDATE_DEPTH = 6;
 const MAX_PATH_CHARS = 4096;
+/** Most directories the candidate walk visits (caps the scan, not just the answer). */
+const MAX_VISITED_DIRS = 2_000;
 const FLOW_FILE = /^flow\.ya?ml$/;
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
 
@@ -116,8 +118,14 @@ function flowFilesIn(dir: string): string[] {
 function findFlowCandidates(dir: string, cwdReal: string): string[] {
   const out: string[] = [];
   let level: string[] = [dir];
+  let visited = 0;
   for (let depth = 1; depth <= MAX_CANDIDATE_DEPTH && level.length > 0; depth++) {
-    level = level.flatMap(childDirs);
+    const next: string[] = [];
+    for (const d of level) {
+      if (++visited > MAX_VISITED_DIRS) return out;
+      next.push(...childDirs(d));
+    }
+    level = next;
     for (const child of level) {
       out.push(...flowFilesIn(child).map((file) => path.relative(cwdReal, file)));
       if (out.length >= MAX_CANDIDATES) return out.slice(0, MAX_CANDIDATES);
@@ -128,7 +136,7 @@ function findFlowCandidates(dir: string, cwdReal: string): string[] {
 
 /** A directory's direct flow file, canonical and confined; or the refusal. */
 function directFlowFile(dir: string, cwdReal: string): Located {
-  const direct = ["flow.yaml", "flow.yml"].map((f) => path.join(dir, f)).find((f) => statOrNull(f) !== null);
+  const direct = ["flow.yaml", "flow.yml"].map((f) => path.join(dir, f)).find((f) => statOrNull(f)?.isFile() === true);
   if (!direct) return { ok: false, reason: "not-a-flow", candidates: findFlowCandidates(dir, cwdReal) };
   const real = realpathOrNull(direct);
   if (real === null) return { ok: false, reason: "not-a-flow" };
@@ -250,20 +258,18 @@ export function registerFlowOpen(deps: FlowOpenDeps): FlowOpenController {
     sessionId: string,
     att: { name: string; source: string; viewOnly: boolean },
     relPath: string,
+    acceptedAt: number,
   ): Promise<FlowOpenResult> => {
     const requestId = randomUUID();
     const acks = new Set<unknown>();
+    // Never evict a pending ack whose window is still open: refuse instead.
+    if (pending.size >= MAX_PENDING_ACKS) return refused("rate-limited");
     pending.set(requestId, { sessionId, acks });
-    while (pending.size > MAX_PENDING_ACKS) {
-      const oldest = pending.keys().next().value;
-      if (oldest === undefined) break;
-      pending.delete(oldest);
-    }
     deps.broadcastToSubscribers({
       type: FLOWS_OPEN_FRAME,
       sessionId,
       requestId,
-      attachment: { ...att, baselineStartedAt: Date.now() },
+      attachment: { ...att, baselineStartedAt: acceptedAt },
     });
     await sleep(ACK_WINDOW_MS);
     pending.delete(requestId);
@@ -288,12 +294,12 @@ export function registerFlowOpen(deps: FlowOpenDeps): FlowOpenController {
   const relTo = (cwd: string | undefined, source: string) =>
     cwd && source ? path.relative(cwd, path.resolve(cwd, source)) : source;
 
-  const openCatalogFlow = async (sessionId: string, flow: unknown): Promise<FlowOpenResult> => {
+  const openCatalogFlow = async (sessionId: string, flow: unknown, acceptedAt: number): Promise<FlowOpenResult> => {
     if (!isValidFlowName(flow)) return refused("invalid-arguments");
     const entry = await findCatalogFlow(sessionId, flow);
     if (!entry) return refused("unknown-flow");
     const cwd = cwdOf(sessionId);
-    return deliver(sessionId, { name: entry.name, source: entry.source, viewOnly: false }, relTo(cwd, entry.source));
+    return deliver(sessionId, { name: entry.name, source: entry.source, viewOnly: false }, relTo(cwd, entry.source), acceptedAt);
   };
 
   /** Guarded read + parse of an admitted definition; a refusal on failure. */
@@ -306,11 +312,11 @@ export function registerFlowOpen(deps: FlowOpenDeps): FlowOpenController {
     } catch {
       return refused("not-a-flow");
     }
-    if (!doc || typeof doc !== "object" || Array.isArray(doc)) return refused("not-a-flow");
+    if (!doc || typeof doc !== "object" || !Array.isArray((doc as { steps?: unknown }).steps)) return refused("not-a-flow");
     return { doc };
   };
 
-  const openPathFlow = async (sessionId: string, input: unknown): Promise<FlowOpenResult> => {
+  const openPathFlow = async (sessionId: string, input: unknown, acceptedAt: number): Promise<FlowOpenResult> => {
     if (!isValidPathArg(input)) return refused("invalid-arguments");
     const cwd = cwdOf(sessionId);
     const read = deps.readFileGuarded;
@@ -322,20 +328,23 @@ export function registerFlowOpen(deps: FlowOpenDeps): FlowOpenController {
 
     // Same file as a catalog definition → the catalog flow (runnable). D4.
     const catalog = deps.store.getState(sessionId)?.flows?.find((f) => f.source && realpathOrNull(path.resolve(cwd, f.source)) === def);
-    if (catalog) return deliver(sessionId, { name: catalog.name, source: catalog.source, viewOnly: false }, relTo(cwd, catalog.source));
+    if (catalog) return deliver(sessionId, { name: catalog.name, source: catalog.source, viewOnly: false }, relTo(cwd, catalog.source), acceptedAt);
 
     const parsed = await readFlowDoc(def, read);
     if (!("doc" in parsed)) return parsed;
     const name = path.relative(cwdReal, def);
     admitOpened(sessionId, name, def, parsed.doc, cwd, cwdReal);
-    return deliver(sessionId, { name, source: def, viewOnly: true }, name);
+    return deliver(sessionId, { name, source: def, viewOnly: true }, name, acceptedAt);
   };
 
   /** Register a path-opened flow's own files (D3); agents only those the session's report resolves. */
   const admitOpened = (sessionId: string, name: string, def: string, doc: object, cwd: string, cwdReal: string) => {
     const reported = deps.registry.files(sessionId)?.agents ?? {};
     const agents: Record<string, string> = Object.create(null);
-    for (const a of agentNames(doc)) if (reported[a]) agents[a] = reported[a];
+    for (const a of agentNames(doc)) {
+      const file = Object.hasOwn(reported, a) ? reported[a] : undefined;
+      if (typeof file === "string") agents[a] = file;
+    }
     deps.registry.open(sessionId, name, { def, handlers: handlerPathsFromDoc(doc, def, cwd), agents }, cwdReal);
   };
 
@@ -343,7 +352,10 @@ export function registerFlowOpen(deps: FlowOpenDeps): FlowOpenController {
     const p = (payload ?? {}) as { flow?: unknown; path?: unknown };
     if (rateLimited(sessionId)) return refused("rate-limited");
     if ((p.flow !== undefined) === (p.path !== undefined)) return refused("invalid-arguments");
-    return p.flow !== undefined ? openCatalogFlow(sessionId, p.flow) : openPathFlow(sessionId, p.path);
+    // Baseline = call time, before any catalog wait: a flow started after the
+    // call consumes the pin. See change: add-flow-open-tool (D6).
+    const acceptedAt = Date.now();
+    return p.flow !== undefined ? openCatalogFlow(sessionId, p.flow, acceptedAt) : openPathFlow(sessionId, p.path, acceptedAt);
   };
 
   const handle = async (payload: unknown, meta: { sessionId: string }): Promise<FlowOpenResult> => {

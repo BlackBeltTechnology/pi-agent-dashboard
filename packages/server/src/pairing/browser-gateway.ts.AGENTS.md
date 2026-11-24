@@ -57,4 +57,4 @@ On-connect `sessions_snapshot` carries `pathKeyPlatform: sessionArchive.pathKeyP
 
 Routes `remove_steering_entry` → `handleRemoveSteeringEntry`, `clear_steering_entries` → `handleClearSteeringEntries`. See change: bridge-owned-cancellable-steer.
 
-`frameClassOf`: plugin frame `flows_open` → `{cls:"state", key:"flows_open:<sessionId>"}` (never shed), checked before the core switch. See change: add-flow-open-tool.
+`frameClassOf`: plugin frame `flows_open` → `{cls:"state", key:"flows_open:<sessionId>:<requestId>"}` (never shed, never coalesced — each pin acked), checked before the core switch. See change: add-flow-open-tool.
