@@ -12,7 +12,8 @@
  *   token) forces a policy re-read and a re-mint.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { mintLiveCapability, type PreviewPolicy, touchLiveCapability } from "../../../lib/api/live-server-api.js";
+import { type CapabilityResult, mintLiveCapability, type PreviewPolicy, touchLiveCapability } from "../../../lib/api/live-server-api.js";
+import type { MintShape } from "../../../lib/live-preview/mint-response.js";
 
 /** Re-mint this long before the capability's absolute expiry. */
 const REMINT_LEAD_MS = 10 * 60_000;
@@ -22,13 +23,33 @@ const REMINT_RETRY_MS = 30_000;
 const TOUCH_INTERVAL_MS = 5 * 60_000;
 
 export interface LiveCapability {
-  /** `/live/<id>/~c/<token>/` — framed, never displayed. */
+  /** The tier the server resolved: 1-4 frame `origin`, 5 `/preview/<pid>/`, `legacy` `/live/<id>/~c/<token>/`. */
+  tier: MintShape["tier"];
+  /** Tiers 1-4: the preview origin. Framed, never displayed. */
+  origin?: string;
+  /** Tier 1-4: `/` (tier 3 `/?k=…`); tier 5 / legacy: the capability path. Framed, never displayed. */
   path: string;
+  /** Tiers 1-4 of a site started under a tier-5 base. */
+  base?: string;
   expiresAt: number;
   tokenId?: string;
+  /** Tier 5: a previous pid was superseded; the running site must restart under the new base. */
+  restartRequired?: boolean;
   /** What the server actually granted (falls back to what was requested). */
   policy: PreviewPolicy;
 }
+
+/** The viewer-side shape of a successful mint. */
+const toCapability = (res: Extract<CapabilityResult, { ok: true }>, fallback: PreviewPolicy): LiveCapability => ({
+  tier: res.tier,
+  origin: res.origin,
+  path: res.path,
+  base: res.base,
+  expiresAt: res.expiresAt,
+  tokenId: res.tokenId,
+  restartRequired: res.restartRequired,
+  policy: res.policy ?? fallback,
+});
 
 interface Params {
   targetId: string | null;
@@ -81,13 +102,7 @@ export function useLiveCapability({ targetId, policy, runScripts, epoch, viewerI
         setError(res.error);
         return;
       }
-      setCap({
-        key,
-        path: res.path,
-        expiresAt: res.expiresAt,
-        tokenId: res.tokenId,
-        policy: res.policy ?? latest.current.policy,
-      });
+      setCap({ key, ...toCapability(res, latest.current.policy) });
     });
     return () => {
       cancelled = true;
@@ -106,7 +121,9 @@ export function useLiveCapability({ targetId, policy, runScripts, epoch, viewerI
       const next = await mint(targetId);
       if (cancelled) return;
       if (next.ok) {
-        setCap({ key: capKey, path: next.path, expiresAt: next.expiresAt, tokenId: next.tokenId, policy: next.policy ?? latest.current.policy });
+        setCap({ key: capKey, ...toCapability(next, latest.current.policy) });
+      } else if (next.rejected) {
+        setError(next.error); // terminal: a rejected response is never auto-retried (manual Retry only)
       } else if (Date.now() < expiresAt) {
         timer = setTimeout(run, REMINT_RETRY_MS);
       }

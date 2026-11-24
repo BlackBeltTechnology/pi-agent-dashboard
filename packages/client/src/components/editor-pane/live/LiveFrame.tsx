@@ -20,7 +20,7 @@ import { useI18n } from "../../../lib/i18n/i18n.js";
 import { frameSrc, isLocalOperator, localTargetUrl, type Opener, sandboxFor } from "../../../lib/live-preview/preview-policy.js";
 import { randomUuid } from "../../../lib/util/random-uuid.js";
 import { EgressBanner } from "./EgressBanner.js";
-import { AddressConfirm, ExposedNotice, InlineError, RootAbsoluteHint, UpdatedNotice } from "./LiveFrameParts.js";
+import { AddressConfirm, BasePathHint, ExposedNotice, InlineError, RootAbsoluteHint, UpdatedNotice } from "./LiveFrameParts.js";
 import { LiveHeader } from "./LiveHeader.js";
 import { useAddressBar } from "./useAddressBar.js";
 import { useEgressReport } from "./useEgressReport.js";
@@ -75,15 +75,30 @@ function useReloadOnChange(nonce: number | undefined, reload: () => void): void 
 }
 
 /** Frame body: the sandboxed iframe, the mint error, or the loading line. */
-function FrameBody({ src, sandbox, title, nonce, error }: { src: string | null; sandbox: string; title: string; nonce: number; error: string | null }) {
+function FrameBody({
+  src,
+  sandbox,
+  title,
+  nonce,
+  error,
+  onRetry,
+}: {
+  src: string | null;
+  sandbox: string;
+  title: string;
+  nonce: number;
+  error: string | null;
+  onRetry?: () => void;
+}) {
   const { t } = useI18n();
   if (src) {
     return (
       <iframe
         key={nonce}
         data-testid="live-iframe"
-        // D3: opaque origin — NEVER allow-same-origin, so the page cannot read the
-        // dashboard token or call /api/*. The token set follows the policy; scripts
+        // D3: tier 5 / legacy are opaque-origin — NEVER allow-same-origin, so the page cannot read the
+        // dashboard token or call /api/*. Tiers 1-4 frame their OWN origin (`sandboxFor` adds
+        // allow-same-origin there only). The token set follows the policy; scripts
         // off → the attribute is present and empty. No `srcdoc`, ever.
         sandbox={sandbox}
         src={src}
@@ -96,6 +111,11 @@ function FrameBody({ src, sandbox, title, nonce, error }: { src: string | null; 
     return (
       <div role="alert" data-testid="live-error" className="p-3 text-xs text-[var(--severity-error-fg)]">
         {error}
+        {onRetry && (
+          <button type="button" data-testid="live-retry" onClick={onRetry} className="ml-2 underline">
+            {t("common.retry", undefined, "Retry")}
+          </button>
+        )}
       </div>
     );
   }
@@ -110,7 +130,7 @@ export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunch
   const viewerId = useRef(newViewerId()).current;
   const bar = useAddressBar(target, initialDeep, onLaunchPort);
   const [frameNonce, setFrameNonce] = useState(0);
-  const { scriptsOn, setScriptsOn, exposure, runApproved, capability, error, granted, showRun, approveRun } = useFramePolicy(
+  const { scriptsOn, setScriptsOn, exposure, runApproved, capability, error, retry, granted, showRun, approveRun } = useFramePolicy(
     target.id,
     opener,
     viewerId,
@@ -170,6 +190,9 @@ export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunch
       )}
       {showRun && <ExposedNotice onRun={approveRun} />}
       {egress.report?.rootAbsolute && target.kind === "static" && <RootAbsoluteHint />}
+      {capability?.tier === 5 && target.kind === "port" && (
+        <BasePathHint base={capability.path} restartRequired={capability.restartRequired} />
+      )}
 
       {granted.egress === "restricted" && capability && (
         <EgressBanner
@@ -183,11 +206,12 @@ export function LiveFrame({ target, initialDeep, opener, title, onBack, onLaunch
       )}
 
       <FrameBody
-        src={capability ? frameSrc(getApiBase(), capability.path, bar.deep) : null}
-        sandbox={sandboxFor(granted)}
+        src={capability ? frameSrc(getApiBase(), capability, bar.deep) : null}
+        sandbox={sandboxFor(granted, capability?.tier)}
         title={title}
         nonce={frameNonce}
         error={error}
+        onRetry={retry}
       />
     </div>
   );

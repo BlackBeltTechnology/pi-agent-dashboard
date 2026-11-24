@@ -4,9 +4,9 @@
  * frame keeps to its policy/state logic.
  */
 
-import { mdiCheck, mdiEyeOffOutline, mdiInformationOutline, mdiOpenInNew, mdiScriptTextOutline } from "@mdi/js";
+import { mdiCheck, mdiContentCopy, mdiEyeOffOutline, mdiInformationOutline, mdiOpenInNew, mdiScriptTextOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { useI18n } from "../../../lib/i18n/i18n.js";
 import { SafeLink } from "../../../lib/nav/safe-navigation.js";
 
@@ -125,6 +125,55 @@ export function RootAbsoluteHint() {
           "This page uses root-absolute paths (/app.js) that cannot resolve here. Run a dev server bound to localhost and open its localhost URL in the canvas.",
         )}
       </p>
+    </InfoNote>
+  );
+}
+
+/**
+ * Tier 5 / legacy: a dev server started under the stable base `/preview/<pid>/` resolves its root-absolute URLs.
+ * Shows the base path as selectable text with a copy button; a failed copy (or no `navigator.clipboard`) is announced
+ * via `aria-live="polite"` and the path stays selectable — no `execCommand` fallback. `restartRequired`: a previous base
+ * was superseded, so the running server must be restarted with the NEW one.
+ */
+export function BasePathHint({ base, restartRequired }: { base: string; restartRequired?: boolean }) {
+  const { t } = useI18n();
+  const [copy, setCopy] = useState<"idle" | "done" | "failed">("idle");
+  const onCopy = () => {
+    const clip = typeof navigator === "undefined" ? undefined : navigator.clipboard;
+    if (!clip?.writeText) {
+      setCopy("failed");
+      return;
+    }
+    clip.writeText(base).then(
+      () => setCopy("done"),
+      () => setCopy("failed"),
+    );
+  };
+  return (
+    <InfoNote
+      testId="live-hint-base-path"
+      action={
+        <button type="button" className={BTN} onClick={onCopy} aria-label={t("live.basePath.copyAria", undefined, "Copy base path")} data-testid="live-base-copy">
+          <Icon path={copy === "done" ? mdiCheck : mdiContentCopy} size={0.6} />
+          {t("live.basePath.copy", undefined, "Copy")}
+        </button>
+      }
+    >
+      <p className="m-0">
+        {restartRequired
+          ? t("live.basePath.restart", undefined, "The base path changed — restart your server with this base:")
+          : t("live.basePath.use", undefined, "Serve your site under this base path so root-absolute URLs resolve — restart your server with this base:")}{" "}
+        <code data-testid="live-base-path" className="select-all break-all">
+          {base}
+        </code>
+      </p>
+      <span aria-live="polite" data-testid="live-base-copy-status" className="sr-only">
+        {copy === "done"
+          ? t("live.basePath.copied", undefined, "Copied")
+          : copy === "failed"
+            ? t("live.basePath.copyFailed", undefined, "Copy failed — select the path")
+            : ""}
+      </span>
     </InfoNote>
   );
 }

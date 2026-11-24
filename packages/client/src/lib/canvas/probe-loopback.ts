@@ -20,7 +20,7 @@ export async function probeLoopbackServer(port: number, sessionId?: string): Pro
   const { mintLiveCapability, startLiveServer } = await import("../api/live-server-api.js");
   const started = await startLiveServer({ host: "127.0.0.1", port, addedBy: "preset", sessionId });
   if (!started.ok) return "not-running";
-  const cap = await mintLiveCapability(started.target.id, { policy: { egress: "restricted", scripts: false } });
+  const cap = await mintLiveCapability(started.target.id, { policy: { egress: "restricted", scripts: false }, negotiate: false });
   if (!cap.ok) return "not-running";
   let aborted = false;
   let ok = false;
