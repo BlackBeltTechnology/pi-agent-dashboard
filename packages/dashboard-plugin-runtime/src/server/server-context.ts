@@ -376,12 +376,35 @@ export interface PluginSpawnOptions {
   /** Optional session name passed as `--name`. */
   name?: string;
   /**
-   * Run isolation mode requested by the caller. `worktree` asks the host to
-   * run in an isolated git checkout; `local` runs in `cwd` directly. See
-   * change: redesign-automation-editor-and-board (4.2 limitation: worktree
-   * lifecycle not yet implemented in the host hook — falls back to `local`).
+   * Run isolation mode requested by the caller. `local` runs in `cwd`
+   * directly. `worktree` runs in a git worktree ONLY together with a
+   * {@link PluginSpawnOptions.worktree} block; `mode: "worktree"` WITHOUT the
+   * block keeps its original documented fallback and runs in `cwd` (so existing
+   * `mode: worktree` automations do not suddenly create worktrees). A host that
+   * predates the block ignores it and also runs in `cwd` — callers that need a
+   * worktree MUST treat a success without {@link PluginSpawnResult.worktreePath}
+   * as "not in a worktree" and stop. See change: redesign-automation-editor-and-board,
+   * add-plugin-spawn-worktree.
    */
   mode?: "worktree" | "local";
+  /**
+   * Create-or-reuse a git worktree for `branch` of the repository containing
+   * `cwd` and run the session there (requires `mode: "worktree"`). Failures are
+   * typed ({@link PluginSpawnResult.code}) and NEVER fall back to `cwd`.
+   * An existing local branch is checked out; a branch only on `origin` is
+   * continued from `origin/<branch>`; otherwise a new branch forks from `base`
+   * (default: the repository's default base). `base` is ignored when the branch
+   * or its worktree already exists. `ifExists` decides what an existing worktree
+   * for the branch means. `attachChange` (kebab-case OpenSpec change name)
+   * attaches the session to that change, as the dashboard's worktree dialog does.
+   * See change: add-plugin-spawn-worktree.
+   */
+  worktree?: {
+    branch: string;
+    base?: string;
+    ifExists: "reuse" | "fail";
+    attachChange?: string;
+  };
   /**
    * Sandbox level requested by the caller. See change:
    * redesign-automation-editor-and-board (4.2 limitation: pi exposes no
@@ -754,10 +777,35 @@ export type OnShutdownFn = (fn: () => void) => () => void;
  */
 export type PluginNetworkGuard = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 
+/**
+ * Typed failure of a spawn that carried a `worktree` block. The spawn started
+ * no session and queued no intent. `admission_unavailable` is retryable.
+ * See change: add-plugin-spawn-worktree.
+ */
+export type PluginSpawnWorktreeCode =
+  | "invalid_block"
+  | "not_git"
+  | "admission_unavailable"
+  | "branch_invalid"
+  | "exists"
+  | "base_not_found"
+  | "branch_in_use"
+  | "policy_mismatch"
+  | "init_failed"
+  | "git_failed";
+
 /** Result of a plugin session-spawn request. */
 export interface PluginSpawnResult {
   success: boolean;
   message?: string;
+  /** Set on a failed spawn that carried a `worktree` block. */
+  code?: PluginSpawnWorktreeCode;
+  /** Worktree the session runs in (present on success when a `worktree` block was honoured; absent = not in a worktree). */
+  worktreePath?: string;
+  /** Branch checked out in that worktree. */
+  branch?: string;
+  /** True iff this spawn created the worktree (false = reused). */
+  created?: boolean;
   /** Spawn correlation token (present on success). */
   spawnToken?: string;
   /** Set when a model / role / thinking choice was dropped (the spawn still ran). See change: add-spawn-model-choice. */

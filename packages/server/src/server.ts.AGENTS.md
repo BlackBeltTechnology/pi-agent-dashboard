@@ -148,3 +148,5 @@ Plugin context `readFileGuarded: guardedReadFile` (from `lib/dashboard-state-gua
 - fix-discovery-resurrects-archived: onChange resume check `wasEnded = endedSessionIds.has(id) || ctx?.priorStatus === "ended"` — an ended record `restore()`d after the boot snapshot still gets Resume placement. See change: fix-discovery-resurrects-archived.
 
 Registers `host.remirrorPiDefaults` + `host.defaultModelRef` from `createPiDefaultRemirror({readDashboardConfig: loadConfig})` (seeded at start, no write; `setActivePiDefaultRemirror`). See change: default-model-follows-role.
+
+Plugin ctx `spawnSession` = `createPluginSpawnHook({...})` from `spawn-process/plugin-spawn-worktree.ts`; the wiring supplies registries, spawn fns, `ensureWorktree` (with `knownFolderCwds` admission), cwd-policy resolver, `autoInitWorktreeOnSpawn` read, `startWorktreeInit`/`awaitInitRun`. See change: add-plugin-spawn-worktree.

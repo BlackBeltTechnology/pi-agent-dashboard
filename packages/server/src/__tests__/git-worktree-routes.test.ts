@@ -13,7 +13,9 @@ import { join } from "node:path";
 import { isAdmissionLive } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ensureWorktree } from "../git-worktree/ensure-worktree.js";
 import * as gitOps from "../git-worktree/git-operations.js";
+import { repoLockKey, withRepoLock } from "../git-worktree/repo-lock.js";
 import { type GitRoutesDeps, registerGitRoutes } from "../routes/git-routes.js";
 import {
   addLinkedWorktree,
@@ -604,5 +606,36 @@ describe("git routes — cwd admission", () => {
     known.push(realpathSync(wt)); // the spawned session registers
     expect((await probe()).statusCode).toBe(200);
     await app.close();
+  });
+});
+
+// See change: add-plugin-spawn-worktree (test-plan C2).
+describe("POST /api/git/worktree vs ensureWorktree — per-repo lock", () => {
+  it("C2: a plugin create that queues behind the route's create observes it (created:false on the route's path)", async () => {
+    const repo = makeRepo();
+    const app = await makeApp();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    // Hold the repo lock: the route and the plugin call must both queue behind it, route first.
+    const held = withRepoLock(repoLockKey(repo), () => gate);
+    const routeP = app.inject({ method: "POST", url: "/api/git/worktree", payload: { cwd: repo, base: "main", newBranch: "os/add-x" } });
+    let routeDone = false;
+    routeP.then(() => {
+      routeDone = true;
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const ensureP = ensureWorktree({ cwd: repo, branch: "os/add-x", ifExists: "reuse", knownCwds: () => KNOWN });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(routeDone, "the route must wait for the repo lock").toBe(false);
+    release();
+    await held;
+    const res = await routeP;
+    expect(res.statusCode).toBe(200);
+    const ensured = await ensureP;
+    expect(ensured).toMatchObject({ ok: true, created: false, path: res.json().data.path });
+    await app.close();
+    rmSync(repo, { recursive: true, force: true });
   });
 });

@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
@@ -11,6 +11,7 @@ import {
   restoreEnv,
 } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { type EnsureWorktreeOptions, ensureWorktree } from "../git-worktree/ensure-worktree.js";
 import * as gitOps from "../git-worktree/git-operations.js";
 import {
   checkoutBranch,
@@ -739,5 +740,197 @@ describe("checkoutBranch derived local name (SE6)", () => {
     } finally {
       rmSync(clone, { recursive: true, force: true });
     }
+  });
+});
+
+// ── ensureWorktree (change: add-plugin-spawn-worktree, test-plan E1–E7, X1–X5, X8–X11, C1) ──
+describe("ensureWorktree", () => {
+  const made: string[] = [];
+  const sh = (cmd: string, cwd: string) => execSync(cmd, { cwd, stdio: "pipe", encoding: "utf-8" }).trim();
+
+  /** Canonical temp repo whose default branch is `develop` (unless told otherwise) with one commit. */
+  function mkRepo(defaultBranch = "develop"): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ensure-wt-")));
+    made.push(dir);
+    sh(`git -c init.defaultBranch=${defaultBranch} init`, dir);
+    sh("git config user.email test@test.com", dir);
+    sh("git config user.name Test", dir);
+    writeFileSync(join(dir, "README.md"), "init");
+    sh("git add .", dir);
+    sh("git commit -m init", dir);
+    return dir;
+  }
+  const ensure = (repo: string, o: Partial<EnsureWorktreeOptions> = {}, deps = {}) =>
+    ensureWorktree({ cwd: repo, branch: "os/add-x", ifExists: "reuse", knownCwds: () => [repo], ...o }, deps);
+  const wtCount = (repo: string) => sh("git worktree list --porcelain", repo).split("\n").filter((l) => l.startsWith("worktree ")).length;
+
+  afterEach(() => {
+    for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("E1: creates a worktree on a new branch forked from the default base", async () => {
+    const repo = mkRepo();
+    const r = await ensure(repo);
+    expect(r).toMatchObject({ ok: true, created: true, branch: "os/add-x", path: join(repo, ".worktrees", "os-add-x") });
+    if (!r.ok) return;
+    expect(sh("git rev-parse --abbrev-ref HEAD", r.path)).toBe("os/add-x");
+    expect(sh("git rev-parse HEAD", r.path)).toBe(sh("git rev-parse develop", repo));
+    expect(readFileSync(join(repo, ".git", "info", "exclude"), "utf-8")).toContain(".worktrees/");
+  });
+
+  it("E2: a second call reuses the registered worktree", async () => {
+    const repo = mkRepo();
+    const first = await ensure(repo);
+    const n = wtCount(repo);
+    const second = await ensure(repo);
+    expect(second).toMatchObject({ ok: true, created: false });
+    expect(second.ok && first.ok && second.path === first.path).toBe(true);
+    expect(wtCount(repo)).toBe(n);
+  });
+
+  it("E3: an existing local branch without a worktree is checked out, not re-forked", async () => {
+    const repo = mkRepo();
+    sh("git checkout -b os/add-x", repo);
+    writeFileSync(join(repo, "ahead.txt"), "x");
+    sh("git add . && git commit -m ahead", repo);
+    const tip = sh("git rev-parse HEAD", repo);
+    sh("git checkout develop", repo);
+    const r = await ensure(repo);
+    expect(r).toMatchObject({ ok: true, created: true });
+    if (r.ok) expect(sh("git rev-parse HEAD", r.path)).toBe(tip);
+  });
+
+  it("E4: a branch only on origin is continued from origin/<branch>", async () => {
+    const repo = mkRepo();
+    const remote = realpathSync(mkdtempSync(join(tmpdir(), "ensure-wt-remote-")));
+    made.push(remote);
+    sh("git init --bare", remote);
+    sh(`git remote add origin ${remote}`, repo);
+    sh("git checkout -b os/add-x", repo);
+    writeFileSync(join(repo, "remote.txt"), "x");
+    sh("git add . && git commit -m remote-work", repo);
+    const tip = sh("git rev-parse HEAD", repo);
+    sh("git push origin develop os/add-x", repo);
+    sh("git checkout develop", repo);
+    sh("git branch -D os/add-x", repo);
+    expect(sh("git branch --list os/add-x", repo)).toBe("");
+    const r = await ensure(repo);
+    expect(r).toMatchObject({ ok: true, created: true });
+    if (!r.ok) return;
+    expect(sh("git rev-parse --abbrev-ref HEAD", r.path)).toBe("os/add-x");
+    expect(sh("git rev-parse HEAD", r.path)).toBe(tip);
+  });
+
+  it("E5: a stale registration (directory gone) is pruned and the worktree recreated", async () => {
+    const repo = mkRepo();
+    const first = await ensure(repo);
+    if (!first.ok) throw new Error("setup failed");
+    rmSync(first.path, { recursive: true, force: true });
+    const r = await ensure(repo);
+    expect(r).toMatchObject({ ok: true, created: true });
+    expect(existsSync(first.path)).toBe(true);
+    expect(wtCount(repo)).toBe(2);
+  });
+
+  it("E6: base is ignored when the worktree already exists", async () => {
+    const repo = mkRepo();
+    await ensure(repo);
+    const r = await ensure(repo, { base: "no-such-ref" });
+    expect(r).toMatchObject({ ok: true, created: false });
+  });
+
+  it("E7: ifExists=fail on an existing worktree returns `exists` and creates nothing", async () => {
+    const repo = mkRepo();
+    await ensure(repo);
+    const n = wtCount(repo);
+    const r = await ensure(repo, { ifExists: "fail" });
+    expect(r).toMatchObject({ ok: false, code: "exists" });
+    expect(wtCount(repo)).toBe(n);
+  });
+
+  it("X1: a directory that is not a git repository returns not_git without throwing", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ensure-wt-nogit-")));
+    made.push(dir);
+    await expect(ensure(dir)).resolves.toMatchObject({ ok: false, code: "not_git" });
+  });
+
+  it("X2: hostile branch names are rejected before any git write", async () => {
+    const repo = mkRepo();
+    const prune = vi.fn();
+    const before = sh("git branch --list", repo);
+    for (const branch of ["../../etc", "-x", "a..b", "@{-1}", "a b", "x\u0000"]) {
+      const r = await ensure(repo, { branch }, { prune });
+      expect(r, branch).toMatchObject({ ok: false, code: "branch_invalid" });
+    }
+    expect(sh("git branch --list", repo)).toBe(before);
+    expect(existsSync(join(repo, ".worktrees"))).toBe(false);
+    expect(wtCount(repo)).toBe(1);
+    expect(prune).not.toHaveBeenCalled();
+  });
+
+  it("X3: an unknown base for a new branch returns base_not_found and creates nothing", async () => {
+    const repo = mkRepo();
+    const r = await ensure(repo, { base: "no-such-ref" });
+    expect(r).toMatchObject({ ok: false, code: "base_not_found" });
+    expect(wtCount(repo)).toBe(1);
+    expect(sh("git branch --list os/add-x", repo)).toBe("");
+  });
+
+  it("X4: no resolvable default base returns base_not_found", async () => {
+    const repo = mkRepo("trunk");
+    expect(await ensure(repo)).toMatchObject({ ok: false, code: "base_not_found" });
+  });
+
+  it("X5: a branch checked out in the main checkout returns branch_in_use", async () => {
+    const repo = mkRepo();
+    sh("git checkout -b os/add-x", repo);
+    expect(await ensure(repo)).toMatchObject({ ok: false, code: "branch_in_use" });
+  });
+
+  it("X6: a registration outside <main>/.worktrees returns branch_in_use", async () => {
+    const repo = mkRepo();
+    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), "ensure-wt-elsewhere-")));
+    made.push(elsewhere);
+    sh(`git worktree add -b os/add-x ${join(elsewhere, "add-x")}`, repo);
+    expect(await ensure(repo)).toMatchObject({ ok: false, code: "branch_in_use" });
+  });
+
+  it("X8: a repository outside the known-folder set is refused as not_git", async () => {
+    const repo = mkRepo();
+    const r = await ensure(repo, { knownCwds: () => [] });
+    expect(r).toMatchObject({ ok: false, code: "not_git" });
+    expect(existsSync(join(repo, ".worktrees"))).toBe(false);
+  });
+
+  it("X9: an undecidable admission returns admission_unavailable", async () => {
+    const repo = mkRepo();
+    const admit = async () => ({ kind: "indeterminate" as const, failedProbes: ["x"], elapsedMs: 1 });
+    expect(await ensure(repo, {}, { admit })).toMatchObject({ ok: false, code: "admission_unavailable" });
+  });
+
+  it("X10: a failing cwd-policy check returns policy_mismatch before anything is created", async () => {
+    const repo = mkRepo();
+    const r = await ensure(repo, { checkTarget: () => false });
+    expect(r).toMatchObject({ ok: false, code: "policy_mismatch" });
+    expect(existsSync(join(repo, ".worktrees"))).toBe(false);
+    expect(sh("git branch --list os/add-x", repo)).toBe("");
+  });
+
+  it("X11: an exception from git is mapped to git_failed (the promise resolves)", async () => {
+    const repo = mkRepo();
+    const listWorktrees = () => {
+      throw new Error("boom");
+    };
+    await expect(ensure(repo, {}, { listWorktrees })).resolves.toMatchObject({ ok: false, code: "git_failed" });
+  });
+
+  it("C1: two concurrent reuse calls create exactly one worktree", async () => {
+    const repo = mkRepo();
+    const [a, b] = await Promise.all([ensure(repo), ensure(repo)]);
+    expect([a, b].every((r) => r.ok)).toBe(true);
+    if (!a.ok || !b.ok) return;
+    expect([a.created, b.created].sort()).toEqual([false, true]);
+    expect(a.path).toBe(b.path);
+    expect(wtCount(repo)).toBe(2);
   });
 });
