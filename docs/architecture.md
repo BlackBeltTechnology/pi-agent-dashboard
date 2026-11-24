@@ -1034,6 +1034,37 @@ pi-flows runs multi-agent workflows in-process. Subagent sessions use `SessionMa
 - Shared logic: `useFlowActions(session)` + `<FlowActionDialogs>`.
 - Flow list source: `useFlowCatalog(sessionId)` → `flow_catalog` (see Plugin-declared event forwarding).
 
+**Agent `flow_open` tool (add-flow-open-tool):**
+- Bridge `packages/flows-plugin/src/bridge/flow-open-tool.ts` registers pi tool `flow_open` via `pi.registerTool`.
+- Loads only where flows plugin bridge loads. pi-flows unchanged.
+- Params: exactly one of `flow` (catalog `<ns>:<name>`, runnable) or `path` (flow.yaml/flow.yml or dir directly containing one; view-only). Else `refused/invalid-arguments`.
+- `promptGuidelines`: call `flow_open` after writing/editing/inspecting a flow.
+- Bridge tracks active `runId`: `flow:flow-started` sets; `flow:complete` same `runId` clears; `session_start` resets. Active run → local `refused/flow-running`.
+- Relative `path` resolved vs tool ctx cwd.
+- Lane `requestPluginServer("flows","flow/open")`. Lane error or missing seam → `refused/unavailable`. Never throws.
+- Server `packages/flows-plugin/src/server/flow-open.ts` `registerFlowOpen`: lane `hubLocalOnly`. Session id from lane meta only.
+- `flow`: lookup `stateStore` catalog. Miss → `requestCatalog(sid,{rediscover:true})`, retried while cooldown-suppressed, poll 100 ms up to 1.5 s → else `unknown-flow`.
+- `path` admission (`locateFlowPath`): resolve vs session cwd → realpath → dir ⇒ direct `flow.yaml|flow.yml` → regular file ≤ `MAX_FILE_BYTES` (1 MiB) → confined to `realpath(cwd)` (cwd `/` handled). Refusals `path-not-allowed` / `not-a-flow`.
+- No content read before admission. Then read via host `readFileGuarded` (absent → `unavailable`).
+- Dir without direct flow → `candidates` (≤20, cwd-relative). Walk: lstat BFS depth ≤6, skip `node_modules`/`.git`, no symlink follow. Walk visits ≤2000 dirs.
+- Dir pick: first regular `flow.yaml`, else `flow.yml`. Definition must carry `steps` array, else `not-a-flow`.
+- Path equal to catalog definition (canonical; catalog `source` resolved vs cwd) → opens as catalog flow (runnable).
+- Path-opened flow files → `FlowFileRegistry.open()` (shared `flowFileRegistry`): def + code handlers + reported agents it names, each confined to cwd.
+- Registry entries survive `report()`. Dropped on session end.
+- Each `/api/plugins/flows/file` read re-realpaths (must be unchanged + inside cwd) else 403. Host routes unchanged.
+- Delivery: broadcast `flows_open {sessionId, requestId, attachment{name, source, viewOnly, baselineStartedAt: Date.now()}}`.
+- `baselineStartedAt` = call accept time, stamped before catalog rediscovery wait.
+- `frameClassOf` classes it `state`, key `flows_open:<sessionId>:<requestId>` (never shed; never coalesced; each pin acked). Owner-scoped where identity enforced.
+- Client `FlowOpenListener` (`shell-headless` claim): stores attachment per device (`flow-attach-store`).
+- Client expands panel (`setFlowCollapsed(sid,["dashboard"],false)`). Sends `flows_open_ack {sessionId, requestId}` (tier `observe`, session-owned). Dedupe 128 requestIds.
+- Server counts acks per ws over fixed 1.5 s window (pending map ≤ 64) → `shown {acks, name, path, viewOnly}` or `no-viewer`.
+- Full pending map → new call `refused/rate-limited`; never evicts an open window.
+- Rate limit 10 calls / 10 s per session (cleared on session end) → `rate-limited`.
+- One `logger.info` per call: `flow_open session=<id> kind=<flow|path> outcome=<…> reason=<…> acks=<n>`. Never file content.
+- View-only panel: no Run, no AUTO, no Edit…. Label "view only - not registered".
+- View-only definition fetched with `fetchFlowFile(..., {noHostFallback:true})`.
+- Load error adds "ask the agent to open it again" hint + Close.
+
 ### Extension UI System (Phases 1 + 2 shipped)
 
 A generalized mechanism for extensions to declare dashboard UIs as data without authoring React or importing a runtime SDK. Phase 1 (`management-modal` slot) shipped in change `add-extension-ui-modal`. Phase 2 (live in-page decorations) shipped in change `add-extension-ui-decorations`. Phase 4 RJSF is tracked in `add-extension-ui-rjsf-form`.
@@ -1707,6 +1738,77 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Name const `PATH_CONTAINMENT_GUARD_EXT_NAME` in `packages/shared/src/path-containment-guard-name.ts`.
 - Not a sandbox. Shell/MCP tools not path-checked. List them in `deniedTools`.
 - See change: add-path-containment-guard-extension.
+
+### Plugin Spawn Worktree (`add-plugin-spawn-worktree`)
+
+- `ServerPluginContext.spawnSession(opts)` gains optional `opts.worktree?: { branch; base?; ifExists: "reuse"|"fail"; attachChange? }`.
+- Honoured only with `mode: "worktree"`. Types: `packages/dashboard-plugin-runtime/src/server/server-context.ts`.
+- Bare `mode: "worktree"` (no block) → legacy local fallback: runs in `cwd`, warning logged.
+- Older host ignores block too. Caller treats success without `PluginSpawnResult.worktreePath` as "not in a worktree".
+- Trusted plugins only (`manifest.priority <= 100`). Same gate as `spawnSession`.
+- Hook body: `packages/server/src/spawn-process/plugin-spawn-worktree.ts` (`createPluginSpawnHook(deps)`). `server.ts` wires real deps.
+- Git step: `ensureWorktree` in `packages/server/src/git-worktree/ensure-worktree.ts`. Never throws.
+- Result: `{ok,path,branch,created}` | `{ok:false,code,message}`.
+
+`ensureWorktree` order:
+
+1. Known-folder admission (`admitRouteCwd`, same set as `POST /api/git/worktree`).
+2. Main-checkout resolve → `not_git`.
+3. Branch validation: `isValidRefArg`, `git check-ref-format --branch`, `@{` rejected, derived path under `<main>/.worktrees/`.
+4. Per-repo lock.
+5. Resolution.
+
+Resolution:
+
+- Registered worktree for branch → reuse (`created:false`). `ifExists:"fail"` → `exists`.
+- Stale registration (dir gone) → `git worktree prune` once.
+- Main checkout, or path outside `.worktrees/` → `branch_in_use`.
+- No registration:
+  - local branch → checkout.
+  - only `origin/<branch>` → `addWorktree({base:"origin/<branch>", newBranch})`.
+  - else fork `base ?? resolveDefaultBase` (verified; fail `base_not_found`).
+- `base` ignored when branch or worktree exists.
+
+Lock:
+
+- `withRepoLock(repoLockKey(cwd))` in `git-worktree/repo-lock.ts`.
+- Key = realpath of git common dir.
+- `POST /api/git/worktree` takes same lock. Responses unchanged.
+
+cwd-policy:
+
+- Hook `checkTarget` compares `cwdPolicyRegistry.resolve(worktreePath)` vs `resolve(opts.cwd)` before any git write.
+- Differ → `policy_mismatch`.
+
+Init:
+
+- `autoInitWorktreeOnSpawn` on → hook calls `startWorktreeInit(cwd,{skipIfRunning:true})` before filing intents. Awaits it.
+- `startWorktreeInit` in `git-worktree/start-worktree-init.ts`. Also used by `POST /api/git/worktree/init`.
+- Failed → `init_failed`. No spawn. Worktree kept.
+- Untrusted hook → never run. Spawn proceeds. Init stays pending.
+- `already_running` → `awaitInitRun` polls registry.
+- Server-side trigger. Browser-side twin: `auto-init-worktree.ts`.
+
+After success, every cwd-keyed step uses worktree path:
+
+- `pendingInitialPromptRegistry`.
+- `pendingAttachRegistry` (`attachChange`, kebab-case `^[a-z0-9][a-z0-9-]{0,99}$`). Withdrawn on spawn failure.
+- Full queue → `warning: "attach queue full; session not attached"`.
+- `spawnPiSession` / `spawnAcpSession`.
+- `armSpawnWatchdog`.
+- Headless PID registry.
+- No `gitWorktreeBase` written (dialog-only per `git-context`).
+
+Failure:
+
+- `success:false`. Nothing spawned, nothing queued. Never falls back to local.
+- Codes (`PluginSpawnWorktreeCode`): `invalid_block`, `not_git`, `admission_unavailable` (retryable), `branch_invalid`, `exists`, `base_not_found`, `branch_in_use`, `policy_mismatch`, `init_failed`, `git_failed`.
+
+Log per worktree spawn:
+
+- `[plugin-spawn] worktree <created|reused|failed> plugin=<id> branch=<json> code=<code>`.
+
+- See change: add-plugin-spawn-worktree.
 
 ### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
 

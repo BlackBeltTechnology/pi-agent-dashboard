@@ -10,7 +10,7 @@ import {
   COMMANDS_CHANGED_CHANNEL,
   REGISTER_EVENT_FORWARD_CHANNEL,
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { PluginForwardRegistry } from "../../../../extension/src/plugin-event-forward-registry.js";
 import { FLOW_RUN_DECLARATION, FLOW_REPLAY_ENTRY_TYPES } from "../flow-event-forward.js";
 import activate from "../index.js";
@@ -169,5 +169,101 @@ describe("flows-plugin bridge: persists run dismissals (T7)", () => {
     activate(pi);
     expect(() => pi.events.emit("flow:summary-dismissed", { runId: "r1" })).not.toThrow();
     expect(sent).toContain("flow_summary_dismissed");
+  });
+});
+
+// ── flow_open tool. See change: add-flow-open-tool (test-plan E21, X4, X5). ──
+
+describe("flows-plugin bridge: flow_open tool", () => {
+  type Tool = {
+    name: string;
+    description: string;
+    promptGuidelines: string[];
+    execute: (id: string, p: Record<string, unknown>, s?: unknown, u?: unknown, c?: { cwd?: string }) => Promise<{ details: Record<string, unknown> }>;
+  };
+  const SYM = Symbol.for("pi-dashboard.pluginRequest");
+  const g = globalThis as Record<symbol, unknown>;
+  afterEach(() => {
+    delete g[SYM];
+  });
+
+  function piWithTools() {
+    const base = fakePi();
+    const tools: Tool[] = [];
+    const lifecycle = new Map<string, Array<() => void>>();
+    return {
+      ...base,
+      tools,
+      on: (name: string, h: () => void) => lifecycle.set(name, [...(lifecycle.get(name) ?? []), h]),
+      fire: (name: string) => {
+        for (const h of lifecycle.get(name) ?? []) h();
+      },
+      registerTool: (t: Tool) => tools.push(t),
+    };
+  }
+
+  it("E21: activate registers one flow_open tool with description + promptGuidelines", () => {
+    const pi = piWithTools();
+    activate(pi);
+    const t = pi.tools.filter((x) => x.name === "flow_open");
+    expect(t).toHaveLength(1);
+    expect(t[0].description).toMatch(/flow/);
+    expect(t[0].promptGuidelines.join(" ")).toMatch(/writing, editing or inspecting.*flow_open/);
+  });
+
+  it("X4: refused flow-running between flow-started and its matching complete; rejected complete does not clear; session_start resets", async () => {
+    const calls: unknown[] = [];
+    g[SYM] = async (_p: string, _t: string, payload: unknown) => {
+      calls.push(payload);
+      return { ok: true, result: { status: "shown", acks: 1 } };
+    };
+    const pi = piWithTools();
+    activate(pi);
+    const tool = pi.tools.find((x) => x.name === "flow_open") as Tool;
+    const status = async () => (await tool.execute("1", { flow: "a:b" })).details;
+    expect(await status()).toMatchObject({ status: "shown" });
+    pi.events.emit("flow:flow-started", { runId: "r1" });
+    expect(await status()).toEqual({ status: "refused", reason: "flow-running" });
+    pi.events.emit("flow:complete", { status: "rejected" });
+    expect(await status()).toEqual({ status: "refused", reason: "flow-running" });
+    pi.events.emit("flow:complete", { runId: "other" });
+    expect(await status()).toEqual({ status: "refused", reason: "flow-running" });
+    pi.events.emit("flow:complete", { runId: "r1" });
+    expect(await status()).toMatchObject({ status: "shown" });
+    pi.events.emit("flow:flow-started", { runId: "r2" });
+    pi.fire("session_start");
+    expect(await status()).toMatchObject({ status: "shown" });
+    expect(calls).toEqual([{ flow: "a:b" }, { flow: "a:b" }, { flow: "a:b" }]);
+  });
+
+  it("X5: no seam, lane error, lane timeout or a throwing seam → refused unavailable, never throws", async () => {
+    const pi = piWithTools();
+    activate(pi);
+    const tool = pi.tools.find((x) => x.name === "flow_open") as Tool;
+    const run = () => tool.execute("1", { path: "f" }, undefined, undefined, { cwd: "/w" });
+    expect((await run()).details).toEqual({ status: "refused", reason: "unavailable" });
+    g[SYM] = async () => ({ ok: false, error: "no_handler" });
+    expect((await run()).details).toEqual({ status: "refused", reason: "unavailable" });
+    g[SYM] = async () => ({ ok: false, error: "timeout" });
+    expect((await run()).details).toEqual({ status: "refused", reason: "unavailable" });
+    g[SYM] = () => {
+      throw new Error("boom");
+    };
+    expect((await run()).details).toEqual({ status: "refused", reason: "unavailable" });
+  });
+
+  it("resolves a relative path against the tool cwd and rejects both/neither arguments", async () => {
+    const calls: unknown[] = [];
+    g[SYM] = async (_p: string, _t: string, payload: unknown) => {
+      calls.push(payload);
+      return { ok: true, result: { status: "no-viewer" } };
+    };
+    const pi = piWithTools();
+    activate(pi);
+    const tool = pi.tools.find((x) => x.name === "flow_open") as Tool;
+    await tool.execute("1", { path: "flows/a" }, undefined, undefined, { cwd: "/w" });
+    expect(calls).toEqual([{ path: path.resolve("/w", "flows/a") }]);
+    expect((await tool.execute("1", {})).details).toEqual({ status: "refused", reason: "invalid-arguments" });
+    expect((await tool.execute("1", { flow: "a:b", path: "x" })).details).toEqual({ status: "refused", reason: "invalid-arguments" });
   });
 });

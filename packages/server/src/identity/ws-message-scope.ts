@@ -41,6 +41,9 @@ export const SESSION_OWNED_MESSAGES: ReadonlySet<string> = new Set([
   "edit_followup_entry",
   "extension_ui_response",
   "fetch_content",
+  // A browser's acknowledgement of a `flows_open` pin for one session (flows plugin).
+  // See change: add-flow-open-tool.
+  "flows_open_ack",
   "force_kill",
   "history_backfill",
   "kill_process",
