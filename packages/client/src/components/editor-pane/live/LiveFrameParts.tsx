@@ -8,6 +8,7 @@ import { mdiCheck, mdiContentCopy, mdiEyeOffOutline, mdiInformationOutline, mdiO
 import { Icon } from "@mdi/react";
 import { type ReactNode, useState } from "react";
 import { useI18n } from "../../../lib/i18n/i18n.js";
+import { copyText } from "../../../lib/util/clipboard.js";
 import { SafeLink } from "../../../lib/nav/safe-navigation.js";
 
 const BTN =
@@ -139,15 +140,8 @@ export function BasePathHint({ base, restartRequired }: { base: string; restartR
   const { t } = useI18n();
   const [copy, setCopy] = useState<"idle" | "done" | "failed">("idle");
   const onCopy = () => {
-    const clip = typeof navigator === "undefined" ? undefined : navigator.clipboard;
-    if (!clip?.writeText) {
-      setCopy("failed");
-      return;
-    }
-    clip.writeText(base).then(
-      () => setCopy("done"),
-      () => setCopy("failed"),
-    );
+    // `copyText` is the secure-context-safe helper (clipboard API, then the selection fallback); `false` is announced.
+    void copyText(base).then((ok) => setCopy(ok ? "done" : "failed"));
   };
   return (
     <InfoNote

@@ -1,5 +1,5 @@
 /**
- * Tier-5 base-path hint: accessible copy button, announced failure, no execCommand fallback.
+ * Tier-5 base-path hint: accessible copy button, announced failure (via the shared `copyText` helper).
  * See change: serve-live-previews-on-capability-origin (D7, task 10.4).
  */
 // @vitest-environment jsdom
@@ -35,7 +35,7 @@ describe("BasePathHint", () => {
     vi.stubGlobal("navigator", {});
     render(<BasePathHint base={BASE} />);
     fireEvent.click(screen.getByTestId("live-base-copy"));
-    expect(screen.getByTestId("live-base-copy-status").textContent).toBe("Copy failed — select the path");
+    await waitFor(() => expect(screen.getByTestId("live-base-copy-status").textContent).toBe("Copy failed — select the path"));
   });
   it("restartRequired says the base changed", () => {
     render(<BasePathHint base={BASE} restartRequired />);
