@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { chipOpen, chipRun, expandSummary, openAgentCards, pickFlow, waitForFlowsChip } from "./helpers/flows-chip.js";
 
 // Change: attach-flow-before-run — L3 against the REAL pi-flows engine + faux
@@ -103,5 +103,35 @@ test.describe("attach flow before run (L3: real pi-flows engine + faux agents)",
     await expect(chipOpen(page)).toBeEnabled({ timeout: 30_000 });
     const wasDisabled = await page.evaluate(() => (window as unknown as { __openWasDisabled: boolean }).__openWasDisabled);
     expect(wasDisabled).toBe(true);
+  });
+  // Change: add-flow-open-tool — the agent's `flow_open` tool (real flows bridge,
+  // faux model scenario `[[faux:flow-open]] <flow>`) pins a catalog flow in the
+  // calling session's flow slot, expanded; the tool reports one acknowledging tab.
+  test("F8: agent flow_open pins the flow not-started and expanded; result shown, acks:1", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await waitForFlowsChip(page);
+
+    await sendPrompt(page, "[[faux:flow-open]] e2e:synthetic");
+
+    const panel = page.getByTestId("flow-dashboard");
+    await expect(panel).toHaveCount(1, { timeout: 60_000 });
+    await expect(panel).toHaveAttribute("data-flow-mode", "idle");
+    await expect(panel.getByText("not started")).toBeVisible();
+    await expect(panel.locator("[data-node]")).toHaveCount(2);
+    await expect(panel.getByTestId("flow-idle-run")).toBeVisible();
+    await expect(page.getByText(/flow-open: .*"status":"shown".*"acks":1/)).toBeVisible({ timeout: 60_000 });
+  });
+
+  test("F9: at 375 px the mobile flow bar shows the agent-pinned flow; acks:1", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await waitForFlowsChip(page);
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    await sendPrompt(page, "[[faux:flow-open]] e2e:synthetic");
+
+    await expect(page.getByText(/e2e:synthetic · not started/)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(/flow-open: .*"status":"shown".*"acks":1/)).toBeVisible({ timeout: 60_000 });
   });
 });

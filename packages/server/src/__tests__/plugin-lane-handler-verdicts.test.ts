@@ -26,6 +26,10 @@ const VERDICTS: Record<string, Record<string, Verdict>> = {
   "flows-plugin/src/server/flow-files.ts": {
     FLOW_FILES_REPORT: { kind: "hub-local-only" },
   },
+  // Agent `flow_open`: admits paths on the hub's disk. See change: add-flow-open-tool.
+  "flows-plugin/src/server/flow-open.ts": {
+    FLOW_OPEN_REQUEST: { kind: "hub-local-only" },
+  },
   "browser-plugin/src/server/index.ts": {
     '"browser/open"': { kind: "deferred", reason: "WS-05b: drives the hub relay browser; no stored secret" },
     '"browser/connect"': { kind: "deferred", reason: "WS-05b: same" },

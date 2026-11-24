@@ -6,7 +6,8 @@
  *   - `summary` (completed): Run again (hidden when the catalog no longer lists
  *     the flow), Open flow… (hidden when the catalog is empty), Edit…;
  *   - `live` (running): Open flow… (disabled, "A flow is running"), Edit…;
- *   - `idle` (opened, not started): Open flow… (swap the opened flow), Edit….
+ *   - `idle` (opened, not started): Open flow… (swap the opened flow), Edit…
+ *     (omitted for a view-only, path-opened flow — see change: add-flow-open-tool).
  *
  * Run again / Open flow… are disabled with "A flow is running" while any flow
  * in the session runs; hidden wins over disabled. Visible while collapsed.
@@ -26,10 +27,13 @@ export function FlowHeaderActions({
   sessionId,
   flowName,
   variant,
+  viewOnly = false,
 }: {
   sessionId: string;
   flowName: string;
   variant: FlowHeaderVariant;
+  /** Path-opened flow (not registered): no Edit… menu. */
+  viewOnly?: boolean;
 }) {
   const t = useT();
   const [editOpen, setEditOpen] = useState(false);
@@ -70,7 +74,9 @@ export function FlowHeaderActions({
           <Icon path={mdiEyeOutline} size={0.6} aria-hidden="true" />
         </button>
       )}
-      <FlowEditMenu actions={actions} open={editOpen} onOpenChange={setEditOpen} testIdPrefix="flow-header-edit" />
+      {!viewOnly && (
+        <FlowEditMenu actions={actions} open={editOpen} onOpenChange={setEditOpen} testIdPrefix="flow-header-edit" />
+      )}
       <FlowActionDialogs actions={actions} />
     </span>
   );

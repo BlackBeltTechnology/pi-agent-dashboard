@@ -43,10 +43,11 @@ import {
   type WorktreeRemovalVerdict,
   worktreeDiffStat,
 } from "../git-worktree/git-operations.js";
-import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
+import { hookDefHash, readInitHook } from "../git-worktree/worktree-init.js";
 import { gitErrorText, redactGitText } from "../git-worktree/redact-git-text.js";
 import { INVALID_REF_CODE, InvalidRefError, isMissingArg, isValidRefArg } from "../git-worktree/ref-arg.js";
-import { mapInitStderrToHint } from "../git-worktree/worktree-init-errors.js";
+import { repoLockKey, withRepoLock } from "../git-worktree/repo-lock.js";
+import { evaluateGateCached, startWorktreeInit } from "../git-worktree/start-worktree-init.js";
 import type { WorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
 import { isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
 import { admitRouteCwd, sendAdmissionUnavailable } from "../lib/route-admission.js";
@@ -124,15 +125,6 @@ const NO_DERIVATION_RUNNER: NonNullable<AdmitCwdOptions["runner"]> = async () =>
 });
 
 /**
- * Per-resolved-checkout cache of the gate result, with a short TTL.
- * Invalidated when a hook run starts/exits for that checkout.
- * See change: generalize-worktree-init-hook.
- */
-const GATE_CACHE_TTL_MS = 30 * 1000;
-const gateCache = new Map<string, { needsInit: boolean; evaluatedAt: number }>();
-function invalidateGateCache(checkoutPath: string) { gateCache.delete(checkoutPath); }
-
-/**
  * Per-artifact setup checklist for the init-status probe (change:
  * add-folder-action-banner, D5). A `stat` of a fixed five-entry list resolved at
  * the CONFIG ROOT (for a worktree row that is the main checkout, not the row's
@@ -166,27 +158,6 @@ function buildSetupChecklist(configRoot: string | null): SetupArtifact[] | undef
   } catch {
     return undefined;
   }
-}
-
-/**
- * Last non-empty line of the progress tail, for the ghost preview. The tail is
- * the most recent <= 4KB of combined output; the chip shows only its final line.
- * See change: friendlier-worktree-init.
- */
-function lastLineOf(tail: string): string {
-  const lines = tail.split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]?.trim();
-    if (line) return line;
-  }
-  return "";
-}
-async function evaluateGateCached(checkoutPath: string, hook: WorktreeInitHook): Promise<GateResult> {
-  const hit = gateCache.get(checkoutPath);
-  if (hit && Date.now() - hit.evaluatedAt < GATE_CACHE_TTL_MS) return { needsInit: hit.needsInit };
-  const res = await evaluateGate(checkoutPath, hook);
-  gateCache.set(checkoutPath, { needsInit: res.needsInit, evaluatedAt: Date.now() });
-  return res;
 }
 
 /**
@@ -640,52 +611,30 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           recordTrust(configRoot, hash, scope);
         }
       }
-      if (!isTrusted(configRoot, hash)) {
-        // Echo the hash so the client confirms with `confirmHash` without
-        // re-implementing the canonical hash. See change: generalize-worktree-init-hook.
-        return { success: false, code: "init_untrusted", data: { hook, hash } } satisfies ApiResponse;
-      }
-      // Re-trust case: the hook was edited (invalidating trust) but the gate is
-      // already satisfied (`needsInit === false`). Granting trust should clear
-      // the control WITHOUT re-running the hook. See change:
-      // friendlier-worktree-init (folder-action-bar spec).
-      const preGate = await evaluateGateCached(validated.cwd, hook);
-      if (!preGate.needsInit) {
-        return { success: true, data: { ran: false, skippedReason: "already_initialized" } } satisfies ApiResponse;
-      }
+      // Trust is checked (never granted) and the run is driven by the shared starter, which the
+      // plugin-spawn hook also uses. No `skipIfRunning`: a click restarts a live run, as before.
+      // See change: add-plugin-spawn-worktree (design D6).
       const requestId = typeof body.requestId === "string" && body.requestId.length > 0 ? body.requestId : undefined;
-      const cwd = validated.cwd;
-      // Fan out to the legacy per-click requestId subscriber (if any) AND to
-      // every cwd-keyed subscriber (refresh / second tab / auto-init).
-      // See change: friendlier-worktree-init.
-      const sendIf = (msg: any) => {
-        if (worktreeInitRegistry) {
-          if (requestId) worktreeInitRegistry.send(requestId, msg);
-          worktreeInitRegistry.sendCwd(cwd, msg);
-        }
-      };
-      worktreeInitRegistry?.startRun(cwd);
-      const onProgress = (p: InitProgress) => {
-        worktreeInitRegistry?.progressRun(cwd, lastLineOf(p.line), p.line);
-        sendIf({ type: "worktree_init_progress", requestId: requestId ?? "", cwd, line: p.line });
-      };
-      invalidateGateCache(cwd);
-      const runResult = await runInitHook(cwd, hook, onProgress);
-      invalidateGateCache(cwd);
-      if (runResult.ok) {
-        worktreeInitRegistry?.finishRun(cwd, "done");
-        sendIf({ type: "worktree_init_done", requestId: requestId ?? "", cwd, durationMs: runResult.durationMs });
-        return { success: true, data: { ran: true, durationMs: runResult.durationMs } } satisfies ApiResponse;
+      const started = await startWorktreeInit(validated.cwd, { registry: worktreeInitRegistry, requestId });
+      switch (started.status) {
+        case "untrusted":
+          // Echo the hash so the client confirms with `confirmHash` without
+          // re-implementing the canonical hash. See change: generalize-worktree-init-hook.
+          return { success: false, code: "init_untrusted", data: { hook: started.hook, hash: started.hash } } satisfies ApiResponse;
+        case "no_hook":
+          return { success: true, data: { ran: false, skippedReason: "no_hook" } } satisfies ApiResponse;
+        case "already_initialized":
+          return { success: true, data: { ran: false, skippedReason: "already_initialized" } } satisfies ApiResponse;
+        case "done":
+          return { success: true, data: { ran: true, durationMs: started.durationMs } } satisfies ApiResponse;
+        case "failed":
+          reply.code(500);
+          return { success: false, code: "init_failed", error: started.hint, stderr: started.stderr } satisfies ApiResponse;
+        default:
+          // `already_running` is only returned under `skipIfRunning`, which this route never passes.
+          reply.code(500);
+          return { success: false, code: "init_failed", error: "init run state unexpected" } satisfies ApiResponse;
       }
-      // B20: the mapper sees the RAW stderr (so it can match paths); BOTH the mapped hint and the
-      // stderr are redacted AFTER mapping, against the checkout the hook ran in (`cwd`, captured above).
-      const rawStderr = runResult.stderr ?? "";
-      const hint = redact(mapInitStderrToHint(rawStderr) ?? `init failed (${runResult.code ?? "unknown"})`, cwd);
-      const stderr = redact(rawStderr, cwd);
-      worktreeInitRegistry?.finishRun(cwd, "failed", runResult.code ?? "init_failed");
-      sendIf({ type: "worktree_init_failed", requestId: requestId ?? "", cwd, code: runResult.code ?? "init_failed", message: hint, stderr });
-      reply.code(500);
-      return { success: false, code: "init_failed", error: hint, stderr } satisfies ApiResponse;
     },
   );
 
@@ -715,13 +664,15 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       }
       // `newBranch` is optional: present → fork mode; absent → the server checks out the existing
       // `base` ref (checkout mode). See change: worktree-checkout-existing-branch.
-      const result = addWorktree({
+      // Serialized with plugin-spawn worktree creation for the same repository (design D4).
+      const addArgs = {
         cwd: validated.cwd,
         base: body.base,
         ...(body.newBranch !== undefined ? { newBranch: body.newBranch as string } : {}),
         path: typeof body.path === "string" && body.path.length > 0 ? body.path : undefined,
         force: body.force === true,
-      });
+      };
+      const result = await withRepoLock(repoLockKey(validated.cwd), () => addWorktree(addArgs));
       if (!result.ok) {
         const httpStatus =
           result.error === "branch_in_use" || result.error === "branch_exists" || result.error === "path_exists"

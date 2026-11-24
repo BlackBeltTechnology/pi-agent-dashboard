@@ -36,7 +36,9 @@ const YAML = /\.ya?ml$/i;
 const MARKDOWN = /\.md$/i;
 const HANDLER = /\.[cm]?[jt]s$/i;
 /** Largest file served / parsed (flow files are small text). */
-const MAX_FILE_BYTES = 1024 * 1024;
+export const MAX_FILE_BYTES = 1024 * 1024;
+/** Most path-opened flows kept per session (oldest dropped). See change: add-flow-open-tool. */
+const MAX_OPENED_PER_SESSION = 32;
 /** Largest number of flows / agents accepted per report. */
 const MAX_REPORT_ITEMS = 2000;
 /** Minimum gap between asks to one session's bridge to (re)report. */
@@ -75,14 +77,23 @@ function sanitize(list: unknown, ext: RegExp): ReportedFile[] {
 
 /** Handler files pi-flows would run for one flow.yaml (read from disk). */
 export function codeHandlerPaths(flowSource: string, cwd: string | undefined): Record<string, string> {
-  const out: Record<string, string> = Object.create(null);
-  if (!isSmallFile(flowSource)) return out;
+  if (!isSmallFile(flowSource)) return Object.create(null);
   let doc: unknown;
   try {
     doc = parseYaml(fs.readFileSync(flowSource, "utf8"));
   } catch {
-    return out;
+    return Object.create(null);
   }
+  return handlerPathsFromDoc(doc, flowSource, cwd);
+}
+
+/**
+ * Handler files pi-flows would run for an already-parsed flow document: the
+ * {@link codeHandlerPaths} rules without the disk read (the `flow_open`
+ * admission reads through the host guard). See change: add-flow-open-tool.
+ */
+export function handlerPathsFromDoc(doc: unknown, flowSource: string, cwd: string | undefined): Record<string, string> {
+  const out: Record<string, string> = Object.create(null);
   const steps = (doc as { steps?: unknown } | null)?.steps;
   if (!Array.isArray(steps)) return out;
   for (const raw of steps) {
@@ -100,8 +111,71 @@ export function codeHandlerPaths(flowSource: string, cwd: string | undefined): R
   return out;
 }
 
+/** True when canonical `p` is `root` or lies beneath it (`root` `/` included). */
+export function isInside(p: string, root: string): boolean {
+  if (p === root) return true;
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+  return p.startsWith(prefix);
+}
+
+/** One path-opened flow's readable files (canonical, confined to `cwd`). See change: add-flow-open-tool. */
+export interface OpenedFlowFiles {
+  /** Canonical definition file. */
+  def: string;
+  /** step id → handler file. */
+  handlers: Record<string, string>;
+  /** agent name → agent file. */
+  agents: Record<string, string>;
+}
+
+interface OpenedEntry extends OpenedFlowFiles {
+  /** lookup key → canonical file. */
+  allowed: Map<string, string>;
+  /** realpath of the session cwd at admission. */
+  cwd: string;
+}
+
 export class FlowFileRegistry {
   private readonly bySession = new Map<string, SessionFiles>();
+  /** Path-opened flows per session, by display name; independent of `report()`. */
+  private readonly opened = new Map<string, Map<string, OpenedEntry>>();
+
+  /**
+   * Admit one path-opened flow's files for one session. Every file must be
+   * canonically inside `cwdReal`; others are dropped. Survives `report()`.
+   * See change: add-flow-open-tool (D3).
+   */
+  open(sessionId: string, name: string, files: OpenedFlowFiles, cwdReal: string): void {
+    const allowed = new Map<string, string>();
+    const keep = (file: string): boolean => {
+      const real = canonical(file);
+      if (!isInside(real, cwdReal)) return false;
+      allowed.set(path.resolve(file), real);
+      allowed.set(real, real);
+      return true;
+    };
+    if (!keep(files.def)) return;
+    const pick = (m: Record<string, string>) => {
+      const out: Record<string, string> = Object.create(null);
+      // Publish the canonical file admitted now, so `/files` and `/file` agree. (CodeRabbit)
+      for (const [k, f] of Object.entries(m)) if (keep(f)) out[k] = canonical(f);
+      return out;
+    };
+    const handlers = pick(files.handlers);
+    const agents = pick(files.agents);
+    let perSession = this.opened.get(sessionId);
+    if (!perSession) {
+      perSession = new Map();
+      this.opened.set(sessionId, perSession);
+    }
+    perSession.delete(name);
+    perSession.set(name, { def: canonical(files.def), handlers, agents, allowed, cwd: cwdReal });
+    while (perSession.size > MAX_OPENED_PER_SESSION) {
+      const oldest = perSession.keys().next().value;
+      if (oldest === undefined) break;
+      perSession.delete(oldest);
+    }
+  }
 
   /** Replace a session's report. `cwd` resolves explicit code `target:`s. */
   report(sessionId: string, report: FlowFilesReport | null | undefined, cwd?: string): void {
@@ -130,11 +204,17 @@ export class FlowFileRegistry {
   }
 
   has(sessionId: string): boolean {
+    return this.bySession.has(sessionId) || this.opened.has(sessionId);
+  }
+
+  /** True once the session's bridge has reported (path-opened entries alone do not count). */
+  hasReport(sessionId: string): boolean {
     return this.bySession.has(sessionId);
   }
 
   remove(sessionId: string): void {
     this.bySession.delete(sessionId);
+    this.opened.delete(sessionId);
   }
 
   /**
@@ -144,7 +224,24 @@ export class FlowFileRegistry {
    */
   resolveAllowed(sessionId: string, filePath: string): string | null {
     if (!path.isAbsolute(filePath)) return null;
-    return this.bySession.get(sessionId)?.allowed.get(path.resolve(filePath)) ?? null;
+    const key = path.resolve(filePath);
+    const reported = this.bySession.get(sessionId)?.allowed.get(key);
+    if (reported) return reported;
+    // Path-opened files: re-check on every read that the stored canonical file
+    // is unchanged (no symlink swapped in) and still inside the cwd.
+    // See change: add-flow-open-tool (D3).
+    for (const entry of this.opened.get(sessionId)?.values() ?? []) {
+      const stored = entry.allowed.get(key);
+      if (!stored) continue;
+      let now: string;
+      try {
+        now = fs.realpathSync(stored);
+      } catch {
+        return null;
+      }
+      return now === stored && isInside(now, entry.cwd) ? stored : null;
+    }
+    return null;
   }
 
   /** True when `filePath` is exactly one of the session's reported files. */
@@ -155,17 +252,27 @@ export class FlowFileRegistry {
   /** Agent sources + per-flow code handler paths for one session. */
   files(sessionId: string): { agents: Record<string, string>; handlers: Record<string, Record<string, string>> } | null {
     const s = this.bySession.get(sessionId);
-    return s ? { agents: { ...s.agents }, handlers: { ...s.handlers } } : null;
+    const opened = this.opened.get(sessionId);
+    if (!s && !opened) return null;
+    const agents: Record<string, string> = { ...s?.agents };
+    const handlers: Record<string, Record<string, string>> = { ...s?.handlers };
+    for (const [name, e] of opened ?? []) {
+      handlers[name] = { ...e.handlers };
+      for (const [a, f] of Object.entries(e.agents)) agents[a] ??= f;
+    }
+    return { agents, handlers };
   }
 
   /** Drop sessions no longer live. */
   retainOnly(liveIds: ReadonlySet<string>): void {
     for (const id of this.bySession.keys()) if (!liveIds.has(id)) this.bySession.delete(id);
+    for (const id of this.opened.keys()) if (!liveIds.has(id)) this.opened.delete(id);
   }
 }
 
 
-const flowFileRegistry = new FlowFileRegistry();
+/** The one registry the routes and the `flow/open` lane share (D3). */
+export const flowFileRegistry = new FlowFileRegistry();
 
 interface RouteDeps {
   fastify: ServerPluginContext["fastify"];
@@ -244,8 +351,10 @@ export async function registerFlowFileRoutes(deps: RouteDeps): Promise<void> {
     const sessionId = liveSession(req.query);
     if (!sessionId) return reply.code(404).send({ success: false, error: "session not found" });
     const files = registry.files(sessionId);
+    // A path-opened flow alone answers `reported: true`, but still asks for the
+    // catalog report. See change: add-flow-open-tool.
+    if (!registry.hasReport(sessionId)) requestReport(sessionId);
     if (!files) {
-      requestReport(sessionId);
       return { success: true, data: { reported: false, agents: {}, handlers: {} } };
     }
     return { success: true, data: { reported: true, ...files } };
@@ -258,8 +367,8 @@ export async function registerFlowFileRoutes(deps: RouteDeps): Promise<void> {
     if (typeof filePath !== "string" || !filePath) {
       return reply.code(400).send({ success: false, error: "path parameter required" });
     }
+    if (!registry.hasReport(sessionId)) requestReport(sessionId);
     if (!registry.has(sessionId)) {
-      requestReport(sessionId);
       return reply.code(409).send({ success: false, error: "not reported yet", retry: true });
     }
     const target = registry.resolveAllowed(sessionId, filePath);

@@ -9,3 +9,5 @@ Core cwd admission: every `cwd` is admitted by `admitGitCwd` (`admitRouteCwd` + 
 
 B20: every outbound `error`/`message`/`stderr` (HTTP + WS `worktree_init_failed`) goes through `redact`/`redactErr` AFTER mapping, against the operation's `validated.cwd` (captured const); `mapInitStderrToHint` sees raw stderr. B1r: present invalid `branch`/`base`/`newBranch`/`path` (and remove `cwd`) → 400 `invalid_ref` BEFORE admission/git; missing keeps `cwd_and_branch_required` / `cwd_invalid`; remove-batch item → `code:"invalid_ref"`. See change: harden-git-terminal-plugin-boundaries.
 Worktree init session scope keeps `piTrust` choice in memory. See change: mirror-dashboard-trust-live-remote.
+
+Create and init: `POST /api/git/worktree` takes the per-repo lock (`withRepoLock`) around `addWorktree`; `POST /api/git/worktree/init` runs through the shared `startWorktreeInit` (trust grant stays here; responses unchanged). Gate cache moved to `git-worktree/start-worktree-init.ts`. See change: add-plugin-spawn-worktree.
