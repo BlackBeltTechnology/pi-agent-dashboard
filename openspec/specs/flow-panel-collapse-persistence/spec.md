@@ -13,7 +13,7 @@ The collapse/expand state of the flow socket SHALL persist per session across re
 - the **live `FlowDashboard` collapse** (its `collapsed`), and
 - the **Agent cards section** open state inside the expanded `FlowDashboard` (collapse kind `cards`).
 
-State SHALL be stored on the frontend in `localStorage`, under keys namespaced by both purpose and session id (e.g. `dashboard:flow-summary-collapsed:<sessionId>` and `dashboard:flow-dashboard-collapsed:<sessionId>`). Reads and writes SHALL be wrapped so a `localStorage` failure (quota, disabled storage, private mode) degrades to in-memory state without throwing. A session with no stored state SHALL default to **collapsed** for the panel and for the Agent cards section: the flow panel SHALL never expand on its own when a flow starts, progresses, completes or fails. It SHALL expand only when the user expands it, or when the user chooses Open flow… (an explicit request to see that flow). The Agent cards section SHALL open only when the user opens it or clicks a graph node. The user's choice SHALL persist per session as before. Persistence SHALL be scoped per session id: collapsing one session's panel SHALL NOT change another session's persisted state. The Summaries-list subsection toggle and the agent-row expansion remain ephemeral (not persisted) in this change.
+State SHALL be stored on the frontend in `localStorage`, under keys namespaced by both purpose and session id (e.g. `dashboard:flow-summary-collapsed:<sessionId>` and `dashboard:flow-dashboard-collapsed:<sessionId>`). Reads and writes SHALL be wrapped so a `localStorage` failure (quota, disabled storage, private mode) degrades to in-memory state without throwing. A session with no stored state SHALL default to **collapsed** for the panel and for the Agent cards section: the flow panel SHALL never expand on its own when a flow starts, progresses, completes or fails. It SHALL expand only when the user expands it, when the user chooses Open flow… (an explicit request to see that flow), or when the session's agent calls `flow_open` to show a flow (see `flow-open-tool`). The Agent cards section SHALL open only when the user opens it or clicks a graph node. The user's choice SHALL persist per session as before. Persistence SHALL be scoped per session id: collapsing one session's panel SHALL NOT change another session's persisted state. The Summaries-list subsection toggle and the agent-row expansion remain ephemeral (not persisted) in this change.
 
 #### Scenario: Collapse is remembered on remount
 - **WHEN** the user collapses a session's flow panel and that component later remounts (navigation, reload, re-render)
@@ -52,6 +52,11 @@ State SHALL be stored on the frontend in `localStorage`, under keys namespaced b
 #### Scenario: Open flow expands the panel
 - **WHEN** the user chooses Open flow… and picks a flow
 - **THEN** the panel SHALL expand to show that flow
+
+#### Scenario: Agent flow_open expands the panel
+- **GIVEN** the user collapsed session S's flow panel
+- **WHEN** the agent in S calls `flow_open` and a browser stores the attachment
+- **THEN** that browser's panel for S SHALL expand to show the flow
 
 #### Scenario: Collapse survives selecting the session again
 - **GIVEN** the user collapsed a session's flow panel

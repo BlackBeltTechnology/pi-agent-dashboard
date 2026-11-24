@@ -49,6 +49,10 @@ export { SessionFlowMenuClaim } from "./SessionFlowMenuClaim.js";
 // flows-dock-chip-and-panel-actions.
 export { FlowsContextGroup } from "./FlowsContextGroup.js";
 
+// `shell-headless` claim: always-mounted receiver of the agent `flow_open` pin
+// (stores + acks on every connected browser). See change: add-flow-open-tool.
+export { FlowOpenListener } from "./FlowOpenListener.js";
+
 // Manifest-level shouldRender predicate for the `session-card-flows` claim
 // (any flow event). See change: add-flows-subcard, add-session-actions-flyout.
 export { shouldRenderFlowsSubcard } from "./shouldRender.js";
