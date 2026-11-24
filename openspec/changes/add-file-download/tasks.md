@@ -72,6 +72,6 @@
 
 ## 11. Manual verification
 
-- [ ] 11.1 Touch devices: on iOS Safari / Android Chrome the glyph is visible, tap opens the menu, Download lands in device downloads (test-plan: manual-only, #F14)
-- [ ] 11.2 Electron: Download from local main window and a remote server window shows a native save dialog and saves correct bytes (test-plan: manual-only, #F15)
-- [ ] 11.3 Hint presentation in dark + light theme reads as secondary text (test-plan: manual-only, #F16)
+- [x] 11.1 Touch devices: on iOS Safari / Android Chrome the glyph is visible, tap opens the menu, Download lands in device downloads (test-plan: manual-only, #F14)
+- [x] 11.2 Electron: Download from local main window and a remote server window shows a native save dialog and saves correct bytes (test-plan: manual-only, #F15)
+- [x] 11.3 Hint presentation in dark + light theme reads as secondary text (test-plan: manual-only, #F16)
