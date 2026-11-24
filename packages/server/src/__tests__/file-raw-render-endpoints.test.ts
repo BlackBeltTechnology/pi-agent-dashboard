@@ -21,6 +21,9 @@ import * as officePreviewModule from "../lib/office-preview.js";
 import { OFFICE_CAPS } from "../lib/office-preview.js";
 import { isScriptableMediaType, registerFileRoutes } from "../routes/file-routes.js";
 
+/** `app.inject` reaches the page as `Host: localhost:80`: the dashboard CSP frames `http://*.localhost` there (D6). */
+const PREVIEW_FRAMES = ["http://*.localhost"];
+
 // Fault injection for the shared DOMPurify loader (change:
 // sanitize-untrusted-rendered-content). Defaults to the REAL loader.
 const purifyFault = vi.hoisted(() => ({
@@ -398,8 +401,8 @@ function expectRawModeHeaders(svg: Record<string, unknown>, pdf: Record<string, 
   expect(pdf["content-security-policy"] === undefined).toBe(mode !== "enforce");
   const pdfRo = kinds(pdf, "content-security-policy-report-only");
   expect(pdfRo).toHaveLength(report ? 2 : 0);
-  for (const ro of report ? [svgRo, pdfRo] : []) expect([starts(ro, buildCsp()), starts(ro, buildStrictCsp())]).toEqual([1, 1]);
-  if (mode === "enforce") expect(starts(kinds(pdf, "content-security-policy"), buildStrictCsp())).toBe(1);
+  for (const ro of report ? [svgRo, pdfRo] : []) expect([starts(ro, buildCsp(PREVIEW_FRAMES)), starts(ro, buildStrictCsp(undefined, PREVIEW_FRAMES))]).toEqual([1, 1]);
+  if (mode === "enforce") expect(starts(kinds(pdf, "content-security-policy"), buildStrictCsp(undefined, PREVIEW_FRAMES))).toBe(1);
 }
 
 describe("GET /api/file/raw — sandbox × dashboard CSP mode (E8)", () => {

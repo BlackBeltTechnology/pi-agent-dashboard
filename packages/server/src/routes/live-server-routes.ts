@@ -24,7 +24,6 @@ import type { LocalTrustContext } from "../auth/local-proof.js";
 import {
   canDiscloseAccessPosture,
   hasProxyForwardingHeaders,
-  isGenuinelyLocal,
   isLocallyTrusted,
   isTrustedSource,
 } from "../auth/localhost-guard.js";
@@ -332,7 +331,7 @@ export function registerLiveServerRoutes(
         const decision = selectMintTier({
           hostHeader: request.headers.host,
           socketPort: request.raw.socket?.localPort,
-          genuinelyLocal: isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>),
+          genuinelyLocal: isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }),
           forwardingHeaders: hasProxyForwardingHeaders(request.headers as Record<string, unknown>),
           socketTls: (request.raw.socket as { encrypted?: boolean } | undefined)?.encrypted === true,
           originHeader: typeof request.headers.origin === "string" ? request.headers.origin : undefined,

@@ -16,6 +16,9 @@ import { getRuntimeClientRegistry, installRuntimeClientRegistry, resetRuntimeCli
 import { registerPluginActivationRoutes } from "../routes/plugin-activation-routes.js";
 import { registerPluginRuntimeClientRoutes } from "../routes/plugin-runtime-client-routes.js";
 
+/** `app.inject` reaches the page as `Host: localhost:80`: the dashboard CSP frames `http://*.localhost` there (D6). */
+const PREVIEW_FRAMES = ["http://*.localhost"];
+
 const HOME_OVERRIDE = path.join(os.tmpdir(), `pi-plugin-assets-int-${process.pid}`);
 let originalHome: string | undefined;
 let repoRoot: string;
@@ -68,8 +71,8 @@ describe("E83: the host baseline CSP stamps /plugin-assets; there is no per-app 
     // `report`: baseline + strict Report-Only; `enforce`: strict enforcing. A non-HTML asset carries no nonce.
     const ro = [res.headers["content-security-policy-report-only"]].flat().filter((v): v is string => typeof v === "string");
     const en = [res.headers["content-security-policy"]].flat().filter((v): v is string => typeof v === "string");
-    expect(ro.map((v) => v.split("; report-uri")[0])).toEqual(mode === "report" ? [buildCsp(), buildStrictCsp()] : []);
-    expect(en.map((v) => v.split("; report-uri")[0])).toEqual(mode === "enforce" ? [buildStrictCsp()] : []);
+    expect(ro.map((v) => v.split("; report-uri")[0])).toEqual(mode === "report" ? [buildCsp(PREVIEW_FRAMES), buildStrictCsp(undefined, PREVIEW_FRAMES)] : []);
+    expect(en.map((v) => v.split("; report-uri")[0])).toEqual(mode === "enforce" ? [buildStrictCsp(undefined, PREVIEW_FRAMES)] : []);
   });
 });
 

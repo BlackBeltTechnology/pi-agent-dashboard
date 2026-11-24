@@ -7,7 +7,7 @@
  * See change: serve-live-previews-on-capability-origin (D8).
  */
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { isGenuinelyLocal } from "../auth/localhost-guard.js";
+import { isLocallyTrusted } from "../auth/localhost-guard.js";
 import { parsePreviewPath } from "./preview-path.js";
 import type { PreviewPathStore } from "./preview-path-store.js";
 
@@ -24,7 +24,7 @@ export function createPreviewPreflight(getStore: () => PreviewPathStore | undefi
     // A preflight is not an accepted request: peek, never extend the idle expiry.
     const grant = store.validate(
       path.pid,
-      { genuinelyLocal: isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>) },
+      { genuinelyLocal: isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }) },
       false,
     );
     if (!grant) return;
