@@ -12,3 +12,5 @@ New deps wired by the server: `onStaticHtmlServed(grant, realPath)` (HTML served
 `isDeviceBearer(token, req)` takes the request; new `isKnownBearer` strips every registry-known bearer upstream. See change: prove-vault-bridge-tls.
 
 Forwarding core extracted as `createLiveForwarder(manager, deps)` (`forwardPort`/`forwardStatic`/`cspFor`/`reservedOr404`), shared by `registerLiveServerProxy` and the preview-origin `previewApp` (`ForwardPortOptions.rewriteOrigin` → `Origin`/same-origin `Referer` rewritten to the upstream; an empty `capabilityPrefix` `""` = preview origin, no path prefix). `pipeUpgradeToTarget` = the shared WS pipe (`Host` rewritten, `Origin` dropped). See change: serve-live-previews-on-capability-origin (D3).
+
+Tier 5 (D8): `fastify.all('/preview/:pid[/*]')` → `forwardPort(..., {fullPath, nullCors})` — the FULL `/preview/<pid>…` path goes upstream, a `Location` already inside the prefix is not re-prefixed, `ACAO: null` (+`Vary: Origin` merged, upstream CORS overwritten, no ACAC) only for `Origin: null` on a valid pid; `handleLiveServerUpgrade(..., {previewTargetId})` pipes the full path. See change: serve-live-previews-on-capability-origin.

@@ -47,6 +47,7 @@ import type { PreviewExposure } from "../live-server/live-exposure.js";
 import { type LiveLogSink, liveLog } from "../live-server/live-log.js";
 import type { LiveServerManager } from "../live-server/live-server-manager.js";
 import { safeSegments } from "../live-server/live-static.js";
+import type { PreviewPathStore } from "../live-server/preview-path-store.js";
 import { selectMintTier } from "../live-server/preview-tier.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -130,6 +131,8 @@ export interface LiveServerRouteDeps {
   capabilities?: LiveCapabilityStore;
   /** Resolved preview-origin config (tier selection); defaults to the live config snapshot. */
   previewOrigins?: () => import("@blackbelt-technology/pi-dashboard-shared/preview-origins.js").ResolvedPreviewOrigins;
+  /** Tier-5 pid store (D8); absent ⇒ a tier-5 outcome is the legacy path. */
+  previewPaths?: PreviewPathStore;
   /** Exposure service; absent ⇒ treated as `exposed` (fail closed). */
   exposure?: PreviewExposure;
   /** Is access prompting enabled (`accessGrants.promptEnabled`)? Absent ⇒ false. */
@@ -337,7 +340,29 @@ export function registerLiveServerRoutes(
           accept: body.accept,
           kind,
         });
-        const binding = typeof decision.tier === "number" ? decision : undefined;
+        const binding = decision.tier === 1 || decision.tier === 2 || decision.tier === 4 ? decision : undefined;
+        if (decision.tier === "tier5" && deps.previewPaths) {
+          const m = deps.previewPaths.mint(id, principal, {
+            policy: { egress, scripts },
+            localBound: isLocalBoundMint(request, principal),
+            exposure,
+          });
+          if (m.ok) {
+            liveServerManager.use(id);
+            log("mint", { tier: 5, reused: m.reused });
+            return {
+              success: true,
+              ok: true,
+              tier: 5,
+              path: `/preview/${m.pid}/`,
+              expiresAt: m.expiresAt,
+              tokenId: m.tokenId,
+              policy: m.policy,
+              ...(m.restartRequired ? { restartRequired: true } : {}),
+            } satisfies LiveCapabilityMintResponse;
+          }
+          log("mint", { tier: "legacy", reason: m.reason }); // at a cap: fall back to the legacy path below
+        }
         const minted = capabilities.mint(id, principal, {
           kind,
           policy: { egress, scripts },

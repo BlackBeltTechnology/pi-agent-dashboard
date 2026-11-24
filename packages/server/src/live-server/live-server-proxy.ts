@@ -20,6 +20,7 @@ import { buildLiveCsp, type LiveCspResult } from "./live-csp.js";
 import { registerCspReportParsers } from "./live-csp-report.js";
 import type { LiveServerManager } from "./live-server-manager.js";
 import { serveStatic } from "./live-static.js";
+import { parsePreviewPath } from "./preview-path.js";
 
 /** Dashboard cookie namespace (`pi_dash_token`, `pi_dash_device`, `pi_dash_local`, …). */
 const DASHBOARD_COOKIE_PREFIX = "pi_dash_";
@@ -81,6 +82,37 @@ function stripDashboardCredentials(
   return headers;
 }
 
+/** Tier 5: the upstream already serves under `prefix`, so a redirect inside it is left as is, never prefixed twice. */
+function rewriteFullPathLocation(location: string, prefix: string, host: string, port: number): string {
+  if (location.startsWith("/")) return staysInside(location, prefix) ? location : `${prefix}/`;
+  try {
+    const u = new URL(location);
+    if (u.hostname === host && u.port === String(port)) {
+      const local = `${u.pathname}${u.search}`;
+      return staysInside(local, prefix) ? local : `${prefix}/`;
+    }
+  } catch {
+    /* not an absolute URL — leave as-is */
+  }
+  return location;
+}
+
+/**
+ * Tier 5 CORS (P6): only on a VALID `/preview/<pid>/` response to `Origin: null`. Overwrites whatever the upstream said
+ * (a single `ACAO: null`, never credentials), and merges `Origin` into `Vary` without duplicating it.
+ */
+function applyNullCors(headers: Record<string, unknown>): void {
+  for (const k of Object.keys(headers)) if (k.toLowerCase().startsWith("access-control-")) delete headers[k];
+  headers["access-control-allow-origin"] = "null";
+  const vary = headers.vary;
+  const list = (Array.isArray(vary) ? vary.join(",") : typeof vary === "string" ? vary : "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  if (!list.some((v) => v.toLowerCase() === "origin" || v === "*")) list.push("Origin");
+  headers.vary = list.join(", ");
+}
+
 /**
  * Keep an upstream redirect inside the proxied prefix (`/live/<id>` or the
  * capability prefix). A relative or root-relative `Location` is prefixed; an
@@ -88,7 +120,8 @@ function stripDashboardCredentials(
  * rewritten into the prefix so the browser stays on the dashboard origin and the
  * single-port tunnel keeps working. Foreign absolute redirects are untouched.
  */
-function rewriteLocation(location: string, prefix: string, host: string, port: number): string {
+function rewriteLocation(location: string, prefix: string, host: string, port: number, fullPath = false): string {
+  if (fullPath) return rewriteFullPathLocation(location, prefix, host, port);
   const relative = location.startsWith("./") ? `${prefix}/${location.slice(2)}` : location.startsWith("/") ? `${prefix}${location}` : null;
   if (relative !== null) return staysInside(relative, prefix) ? relative : `${prefix}/`;
   try {
@@ -195,6 +228,14 @@ function rewritePreviewOrigin(headers: HeaderBag, upstreamOrigin: string, previe
 export interface ForwardPortOptions {
   /** Preview origin: the browser's `Origin`/`Referer` carry the preview origin, which the upstream must see as itself. */
   rewriteOrigin?: boolean;
+  /**
+   * Tier 5: `subPath` is relative to `capabilityPrefix` (reserved-path / CSP decisions) but the upstream receives the
+   * FULL `<prefix><subPath>` — the site was started under that base (D8) — and a `Location` already inside the
+   * prefix is left alone instead of being prefixed again.
+   */
+  fullPath?: boolean;
+  /** Tier 5: a valid response to an opaque `Origin: null` gets `Access-Control-Allow-Origin: null` (no credentials). */
+  nullCors?: boolean;
 }
 
 /**
@@ -217,7 +258,7 @@ export function createLiveForwarder(manager: LiveServerManager, deps: LiveProxyD
       granted = []; // a failing grant lookup must not widen the policy
     }
     // Tiers 1-4 are origin-bound: the policy comes from the entry, not from the request Host / scheme (D6).
-    const bound = grant.tier !== "legacy";
+    const bound = grant.tier !== "legacy" && grant.tier !== 5;
     if (bound && grant.origin === undefined) return null; // an origin-bound entry without its origin: fail closed
     return buildLiveCsp({
       policy: grant.policy,
@@ -269,7 +310,8 @@ export function createLiveForwarder(manager: LiveServerManager, deps: LiveProxyD
     // Redirects stay inside the capability prefix when the request used one.
     const prefix = capabilityPrefix ?? `/live/${target.id}`;
     const host = upstreamHost(target.host);
-    reply.from(`http://${host}:${target.port}${subPath}`, {
+    const upstreamPath = opts.fullPath && capabilityPrefix !== undefined ? `${capabilityPrefix}${subPath}` : subPath;
+    reply.from(`http://${host}:${target.port}${upstreamPath}`, {
       rewriteRequestHeaders: (_req, headers) => {
         headers.host = `${host}:${target.port}`;
         // Dashboard credentials never reach the previewed app; its own cookies
@@ -294,9 +336,10 @@ export function createLiveForwarder(manager: LiveServerManager, deps: LiveProxyD
           headers["referrer-policy"] = "no-referrer";
         }
         if (csp) appendCsp(headers, csp);
+        if (opts.nullCors && request.headers.origin === "null") applyNullCors(headers);
         const location = headers.location;
         if (typeof location === "string") {
-          headers.location = rewriteLocation(location, prefix, host, target.port);
+          headers.location = rewriteLocation(location, prefix, host, target.port, opts.fullPath === true);
         }
         return headers;
       },
@@ -358,6 +401,21 @@ export function registerLiveServerProxy(
 
   fastify.all("/live/:id/*", forward);
   fastify.all("/live/:id", forward);
+
+  /**
+   * Tier 5 (D8): `/preview/<pid>[/…]`. The capability hook validated the pid and set `liveCapability`; any request
+   * without one (browser-originated or not) is 404, as is a path the raw-path validator refuses.
+   */
+  const forwardPreview = (request: FastifyRequest, reply: FastifyReply) => {
+    const grant = (request as { liveCapability?: LiveCapabilityGrant }).liveCapability;
+    const path = parsePreviewPath(request.raw.url);
+    if (!grant || grant.tier !== 5 || !path) return notFoundReply(reply);
+    const target = manager.get(grant.targetId);
+    if (!target) return notFoundReply(reply);
+    return forwardPort(request, reply, target, path.rest, grant, path.prefix, { fullPath: true, nullCors: true });
+  };
+  fastify.all("/preview/:pid/*", forwardPreview);
+  fastify.all("/preview/:pid", forwardPreview);
 }
 
 /** Longest upstream 101 head we will buffer before giving up. */
@@ -399,8 +457,11 @@ export function handleLiveServerUpgrade(
   deps: LiveProxyDeps & {
     /** `/live/<id>/~c/<token>` when the upgrade was admitted by a validated capability. */
     capabilityPrefix?: string;
+    /** Tier 5: the upgrade was admitted by a valid `/preview/<pid>/` capability for this target; the FULL path is forwarded. */
+    previewTargetId?: string;
   } = {},
 ) {
+  if (deps.previewTargetId !== undefined) return upgradePreview(manager, request, socket, head, deps, deps.previewTargetId);
   const match = request.url?.match(/^\/live\/([^/?]+)(.*)$/);
   if (!match) {
     socket.destroy();
@@ -473,4 +534,23 @@ export function pipeUpgradeToTarget(
   socket.on("error", () => upstream.destroy());
   socket.on("close", () => upstream.destroy());
   upstream.on("close", () => socket.destroy());
+}
+
+/** Tier 5 upgrade: re-parse the raw path (never trust the caller) and pipe the FULL path to the target. */
+function upgradePreview(
+  manager: LiveServerManager,
+  request: import("node:http").IncomingMessage,
+  socket: import("node:stream").Duplex,
+  head: Buffer,
+  deps: LiveProxyDeps,
+  targetId: string,
+) {
+  const path = parsePreviewPath(request.url);
+  const target = path ? manager.get(targetId) : undefined;
+  if (!path || !target) {
+    socket.destroy();
+    return;
+  }
+  manager.use(target.id);
+  pipeUpgradeToTarget(target, request.url as string, request, socket, head, deps);
 }

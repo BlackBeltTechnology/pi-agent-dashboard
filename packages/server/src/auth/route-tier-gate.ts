@@ -27,8 +27,9 @@
  *
  * See change: expand-mcp-tiered-surface (task 2.2).
  */
-import { rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
+import { rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { LIVE_PREVIEW_TIER } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "./local-proof.js";
@@ -123,7 +124,7 @@ export function createRouteTierGate(deps: RouteTierGateDeps) {
     // tier its WS upgrade needs. See change: add-passkey-user-auth.
     let requiredTier: Tier;
     if (route.startsWith("/api/")) requiredTier = routeTier(request.method, route);
-    else if (route.startsWith("/live/")) requiredTier = LIVE_PREVIEW_TIER;
+    else if (route.startsWith("/live/") || route.startsWith("/preview/")) requiredTier = LIVE_PREVIEW_TIER;
     else return;
 
     const refusal = tierRefusalFor(request, requiredTier, deps.getTrustedNetworks, deps.localTrust);

@@ -169,7 +169,7 @@ export function classifyHttpRoad(
   if (route.startsWith("/editor/")) {
     return { road: "non-session", action: "editor.write", resource: { kind: "editor", route } };
   }
-  if (route.startsWith("/live/")) {
+  if (route.startsWith("/live/") || route.startsWith("/preview/")) {
     return { road: "non-session", action: `live.${verbOf(method)}`, resource: { kind: "live", route } };
   }
   if (!route.startsWith("/api/")) return undefined;

@@ -239,6 +239,8 @@ export interface LiveCapabilityMintResponse {
   origin?: string;
   path: string;
   base?: string;
+  /** Tier 5: a previous pid of this target was superseded, so the running site must restart under the new base. */
+  restartRequired?: boolean;
   expiresAt: number;
   tokenId: string;
   policy: { egress: "open" | "restricted"; scripts: boolean };

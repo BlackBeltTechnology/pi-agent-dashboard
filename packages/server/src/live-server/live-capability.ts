@@ -24,6 +24,7 @@ import type { TokenPayload } from "../auth/auth.js";
 import { isLocallyTrusted } from "../auth/localhost-guard.js";
 import { CAPABILITY_SEGMENT, redactCapability } from "./capability-redact.js";
 import { generatePreviewLabel, hashPreviewKey, splitCanonicalHost } from "./preview-origin.js";
+import { parsePreviewPath } from "./preview-path.js";
 
 // Lifetime note: a capability's life is bounded by its own idle/absolute limits and
 // by revocation (target removed, device revoked, logout / passkey revoke, restart).
@@ -48,8 +49,8 @@ const SWEEP_INTERVAL_MS = 60_000;
 /** Attempts to find a label not already in the index before the mint fails. */
 const LABEL_RETRIES = 8;
 
-/** Capability tier: 1-4 are origin-bound previews (D1); `legacy` is the `/live/<id>/~c/<token>/` path. */
-export type CapabilityTier = 1 | 2 | 3 | 4 | "legacy";
+/** Capability tier: 1-4 are origin-bound previews (D1), 5 the stable `/preview/<pid>/` path (D8, `PreviewPathStore`); `legacy` is the `/live/<id>/~c/<token>/` path. */
+export type CapabilityTier = 1 | 2 | 3 | 4 | 5 | "legacy";
 
 /** Why an entry left the store — the `onDelete` reason (D5, D13). */
 export type CapabilityDeleteReason =
@@ -783,20 +784,31 @@ interface CapabilityRequestState {
  * left untouched — the normal admission rules decide, and cannot tell a bad
  * token from none.
  */
-export function createLiveCapabilityHook(store: LiveCapabilityStore) {
+export function createLiveCapabilityHook(
+  store: LiveCapabilityStore,
+  previewPaths?: { validate: (pid: string, ctx: { genuinelyLocal: boolean }) => LiveCapabilityGrant | null },
+) {
   return async function liveCapabilityHook(request: {
     url: string;
     ip?: string;
     headers?: Record<string, unknown>;
   }): Promise<void> {
-    if (!request.url.startsWith("/live/")) return;
-    const cap = parseCapabilityPath(request.url);
-    if (!cap) return;
+    const isPreview = request.url.startsWith("/preview/");
+    if (!isPreview && !request.url.startsWith("/live/")) return;
     // A token minted by a genuinely local caller works only from genuinely local requests.
-    const grant = store.validateGrant(cap.targetId, cap.token, {
-      genuinelyLocal: isLocallyTrusted({ ip: request.ip ?? "", headers: request.headers ?? {} }),
-    });
-    if (!grant) return;
+    const ctx = { genuinelyLocal: isLocallyTrusted({ ip: request.ip ?? "", headers: request.headers ?? {} }) };
+    let cap: { prefix: string; grant: LiveCapabilityGrant } | null = null;
+    if (isPreview) {
+      const path = previewPaths ? parsePreviewPath(request.url) : null;
+      const g = path && previewPaths ? previewPaths.validate(path.pid, ctx) : null;
+      cap = path && g ? { prefix: path.prefix, grant: g } : null;
+    } else {
+      const parsed = parseCapabilityPath(request.url);
+      const g = parsed ? store.validateGrant(parsed.targetId, parsed.token, ctx) : null;
+      cap = parsed && g ? { prefix: parsed.prefix, grant: g } : null;
+    }
+    if (!cap) return;
+    const grant = cap.grant;
     const principal = grant.principal;
     const r = request as unknown as CapabilityRequestState;
     r.isAuthenticated = true;

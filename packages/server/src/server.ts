@@ -103,6 +103,7 @@ import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrust
 import { registerCspReportSink } from "./auth/csp-report-sink.js";
 import { CspReportStore } from "./auth/csp-report-store.js";
 import { stateCallerFor } from "./auth/dashboard-state-caller.js";
+import { createDuplicateCookieGate, refuseDuplicateCookieUpgrade } from "./auth/duplicate-cookie-gate.js";
 import { classifyAdmittedHostname, isHostAdmitted } from "./auth/host-admission.js";
 import {
   createHostGate,
@@ -139,7 +140,6 @@ import { UserDirectory } from "./auth/passkey/user-directory.js";
 import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
 import { isServerTrusted } from "./auth/plugin-server-trust.js";
-import { createDuplicateCookieGate, refuseDuplicateCookieUpgrade } from "./auth/duplicate-cookie-gate.js";
 import { bearerChannelOf, isProvenTls } from "./auth/proven-tls.js";
 import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
 import { hasAnthropicCredential, readAuthJson } from "./auth/provider-auth-storage.js";
@@ -249,6 +249,9 @@ import { createPreviewExposure, wirePreviewExposure } from "./live-server/live-e
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, type LiveProxyDeps, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { createPreviewDispatch, type PreviewDispatch, previewServerFactory, routePreviewUpgrade } from "./live-server/preview-dispatch.js";
+import { parsePreviewPath } from "./live-server/preview-path.js";
+import { PreviewPathStore } from "./live-server/preview-path-store.js";
+import { createPreviewPreflight } from "./live-server/preview-preflight.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
@@ -2088,6 +2091,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Late-bound: the capability store the dispatch needs is built further down, before `listen`.
   // See change: serve-live-previews-on-capability-origin.
   let previewDispatch: PreviewDispatch | undefined;
+  // Tier-5 pid store; late-bound like `previewDispatch` (the preflight hook is registered before the store exists).
+  let previewPaths: PreviewPathStore | undefined;
   const fastify = Fastify({
     logger: false,
     serverFactory: previewServerFactory(() => previewDispatch) as never,
@@ -2408,6 +2413,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // observer / `@fastify/cors`, so the refusal carries no ACAO and precedes every origin gate. previewApp is exempt
   // by construction (own Fastify instance). See change: serve-live-previews-on-capability-origin (D10).
   fastify.addHook("onRequest", createDuplicateCookieGate());
+  // Tier-5 opaque-origin preflight: answered for a VALID `/preview/<pid>/` before `@fastify/cors` denies `null` (D8, P6).
+  fastify.addHook("onRequest", createPreviewPreflight(() => previewPaths));
   // A denied cross-origin Origin may raise a DEFERRED cors-plane prompt; after
   // the host gate so a host-refused request never prompts. Never alters the
   // response. See change: add-access-grant-dialog.
@@ -2495,19 +2502,31 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // removed / refused-public-IdP provider is not live. See change: close-security-map-high-findings (D3).
   let sessionProviderRejectedAccessor: ((provider: unknown) => boolean) | null = null;
   const sessionProviderRejected = (provider: unknown): boolean => sessionProviderRejectedAccessor?.(provider) ?? false;
+  const capabilityPrincipalLive = (p: import("./live-server/live-capability.js").CapabilityPrincipal): boolean => {
+    if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
+    // Minted on network trust alone: only valid while network trust still authenticates.
+    if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
+    if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
+    if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService, sessionProviderRejected) !== null;
+    return true;
+  };
   const liveCapabilities = new LiveCapabilityStore({
     isTargetLive: (id) => liveServerManager.has(id),
-    isPrincipalLive: (p) => {
-      if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
-      // Minted on network trust alone: only valid while network trust still authenticates.
-      if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
-      if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
-      if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService, sessionProviderRejected) !== null;
-      return true;
-    },
+    isPrincipalLive: capabilityPrincipalLive,
   });
+  // Tier 5 (`/preview/<pid>/`, D8): one current pid per port target; liveness is re-checked at every use, so a revoked
+  // holder / removed target / disabled previews drops the pid on its next request or sweep.
+  previewPaths = new PreviewPathStore({
+    isTargetLive: (id) => liveServerManager.has(id),
+    isPrincipalLive: capabilityPrincipalLive,
+    isEnabled: () => getResolvedPreviewOrigins().enabled,
+  });
+  previewPaths.start();
   // An evicted preset / static target takes its tokens with it.
-  liveServerManager.setEvictionListener((id) => liveCapabilities.revokeByTarget(id));
+  liveServerManager.setEvictionListener((id) => {
+    liveCapabilities.revokeByTarget(id);
+    previewPaths?.revokeByTarget(id);
+  });
   // Per-token egress state (markup scan, CSP reports, allow-once, project grants). Project grants are read
   // from their store on every CSP build, so a grant or revoke applies on the next response with no restart.
   const previewEgress = createPreviewEgress({
@@ -2559,7 +2578,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   fastify.addHook("onRequest", async (request) => {
     previewExposure.noteRequest(request.headers as Record<string, unknown>);
   });
-  fastify.addHook("onRequest", createLiveCapabilityHook(liveCapabilities));
+  fastify.addHook("onRequest", createLiveCapabilityHook(liveCapabilities, previewPaths));
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
   registerDeviceSessionRoutes(fastify, {
     registry: pairedDeviceRegistry,
@@ -3560,6 +3579,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerLiveServerRoutes(fastify, liveServerManager, {
     networkGuard,
     capabilities: liveCapabilities,
+    previewPaths,
     exposure: previewExposure,
     promptingEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
     getTrustedNetworks: admissionList,
@@ -5048,11 +5068,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // only WITH a valid capability. See change: retire-trusted-networks-bypass (D5),
         // improve-canvas-html-and-url-ux (D10).
         const liveCap = scope === "live" ? parseCapabilityPath(request.url) : null;
-        const liveCapPrincipal = liveCap
-          ? liveCapabilities.validate(liveCap.targetId, liveCap.token, {
-              genuinelyLocal: isLocallyTrusted({ ip: remoteAddress, headers: request.headers as Record<string, unknown> }),
-            })
-          : null;
+        const wsLocal = isLocallyTrusted({ ip: remoteAddress, headers: request.headers as Record<string, unknown> });
+        // Tier 5: the same `live` scope, admitted by a valid `/preview/<pid>/` (full path forwarded). D8.
+        const previewWsPath = scope === "live" ? parsePreviewPath(request.url) : null;
+        const previewWsGrant = previewWsPath ? (previewPaths?.validate(previewWsPath.pid, { genuinelyLocal: wsLocal }) ?? null) : null;
+        const liveCapPrincipal = previewWsGrant
+          ? previewWsGrant.principal
+          : liveCap
+            ? liveCapabilities.validate(liveCap.targetId, liveCap.token, { genuinelyLocal: wsLocal })
+            : null;
         if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts(), liveCapPrincipal !== null)) {
           console.error(
             redactCapability(
@@ -5269,6 +5293,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
                 isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
                 capabilityPrefix: liveCapPrincipal && liveCap ? liveCap.prefix : undefined,
+                ...(previewWsGrant ? { previewTargetId: previewWsGrant.targetId } : {}),
               });
             });
             break;
