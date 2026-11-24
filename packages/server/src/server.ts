@@ -4964,7 +4964,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             })
           ) {
             console.error(
-              `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+              redactCapability(
+                `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+              ),
             );
             socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
             socket.destroy();
@@ -5016,7 +5018,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           : null;
         if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts(), liveCapPrincipal !== null)) {
           console.error(
-            `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+            redactCapability(
+              `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+            ),
           );
           socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
           socket.destroy();

@@ -228,7 +228,10 @@ export interface ResolvedPreviewOrigins {
   portPool?: string;
   pool?: { from: number; to: number };
   ipDnsSuffix?: string;
-  /** Available tiers, ascending. Empty when `enabled` is false (legacy path only). */
+  /**
+   * Available tiers, ascending. Empty when `enabled` is false (legacy path only); the validated
+   * `wildcard` / `pool` / `ipDnsSuffix` stay populated then, because they still define what is preview-shaped.
+   */
   tiers: number[];
   /** Overlap issues found here (parse issues are reported by {@link parsePreviewOrigins}). */
   issues: PreviewOriginsIssue[];
@@ -269,7 +272,6 @@ function findOverlap(
 /** Overlap validation against live server state. Pure; never throws. */
 export function resolvePreviewOrigins(config: PreviewOriginsConfig, ctx: PreviewOriginsContext): ResolvedPreviewOrigins {
   const issues: PreviewOriginsIssue[] = [];
-  if (!config.enabled) return { enabled: false, tiers: [], issues };
 
   const overlapSources = (wildcardForHosts: string[]): [string, string[]][] => [
     ["allowedHosts", ctx.allowedHosts],
@@ -306,7 +308,7 @@ export function resolvePreviewOrigins(config: PreviewOriginsConfig, ctx: Preview
     return true;
   };
 
-  const out: ResolvedPreviewOrigins = { enabled: true, tiers: [1], issues };
+  const out: ResolvedPreviewOrigins = { enabled: config.enabled, tiers: [1], issues };
 
   if (config.wildcard) {
     const { suffix, forHosts } = config.wildcard;
@@ -349,6 +351,9 @@ export function resolvePreviewOrigins(config: PreviewOriginsConfig, ctx: Preview
 
   out.tiers.push(5);
   out.tiers.sort((a, b) => a - b);
+  // `enabled:false` = legacy path only, but a valid configured suffix/pool stays PREVIEW-SHAPED so
+  // dispatch never routes such a host to the dashboard app (D3, Q11): keep the validated fields.
+  if (!config.enabled) out.tiers = [];
   return out;
 }
 

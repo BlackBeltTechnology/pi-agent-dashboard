@@ -23,11 +23,11 @@ import os from "node:os";
 import path from "node:path";
 import { type DashboardConfig, type HostGateMode, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import {
-  type PreviewOriginsIssue,
-  type ResolvedPreviewOrigins,
   formatTierSet,
+  type PreviewOriginsIssue,
   parsePreviewOrigins,
   previewOriginsConfigChanged,
+  type ResolvedPreviewOrigins,
   resolvePreviewOrigins,
 } from "@blackbelt-technology/pi-dashboard-shared/preview-origins.js";
 
@@ -236,6 +236,11 @@ const previewOriginsListeners = new Set<(next: ResolvedPreviewOrigins, prev: Res
 export function setPreviewOriginsRuntime(rt: PreviewOriginsRuntime): void {
   previewRuntime = rt;
   previewRuntimeEpoch++;
+}
+
+/** The registered runtime inputs (the static-admission classifier is read by the preview-shape predicate). */
+export function getPreviewOriginsRuntime(): PreviewOriginsRuntime {
+  return previewRuntime;
 }
 
 /** Call on tunnel connect/disconnect and TLS certificate change: the overlap set moved. */

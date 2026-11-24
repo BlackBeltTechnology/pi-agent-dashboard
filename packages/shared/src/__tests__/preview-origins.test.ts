@@ -4,8 +4,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  type PreviewOriginsContext,
   formatTierSet,
+  type PreviewOriginsContext,
   parsePreviewOrigins,
   previewOriginsConfigChanged,
   resolvePreviewOrigins,
@@ -161,6 +161,11 @@ describe("resolvePreviewOrigins — overlap validation", () => {
     expect(r.tiers).toEqual([1, 2, 3, 4, 5]);
     expect(formatTierSet(r)).toBe("1, 2, 3(8100-8199), 4, 5");
     expect(resolvePreviewOrigins(parsed({ enabled: false }), ctx()).tiers).toEqual([]);
+    // enabled:false keeps the validated fields: they still define what is preview-shaped (Q11)
+    const off = resolvePreviewOrigins(parsed({ enabled: false, wildcard, portPool: "8100-8199" }), ctx());
+    expect(off.tiers).toEqual([]);
+    expect(off.wildcard?.suffix).toBe("preview.example.com");
+    expect(off.pool).toEqual({ from: 8100, to: 8199 });
     expect(resolvePreviewOrigins(parsed({}), ctx()).tiers).toEqual([1, 5]);
   });
 

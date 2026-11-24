@@ -29,7 +29,7 @@ function write(data: object) {
 }
 const a26 = "a".repeat(26);
 const wildcard = { suffix: "preview.example.com", forHosts: ["dash.example.com"] };
-const lines = (spy: ReturnType<typeof vi.spyOn>, needle: string) =>
+const lines = (spy: { mock: { calls: unknown[][] } }, needle: string) =>
   spy.mock.calls.filter((c) => String(c[0]).includes(needle));
 
 beforeEach(() => {

@@ -18,8 +18,8 @@ import {
 } from "./heap-limits.js";
 import type { HostGateMode } from "./host-admission.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
-import { type PreviewOriginsConfig, parsePreviewOrigins } from "./preview-origins.js";
 import type { WindowsBashSourceSetting, WindowsGitSourceSetting } from "./platform/select-git-source.js";
+import { type PreviewOriginsConfig, parsePreviewOrigins } from "./preview-origins.js";
 import {
   defaultSchemeForPort,
   isValidPort,
@@ -32,13 +32,13 @@ import {
   routeKey,
 } from "./server-routes.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
+import { DEFAULT_SUDO_CREDENTIAL_PROMPT, parseSudoCredentialPrompt, type SudoCredentialPromptConfig } from "./sudo-credential.js";
 import { isTier, type Tier } from "./tiers.js";
 import {
   providerSupportsMode,
   type TunnelMode,
   type TunnelProviderId,
 } from "./tunnel-provider.js";
-import { DEFAULT_SUDO_CREDENTIAL_PROMPT, parseSudoCredentialPrompt, type SudoCredentialPromptConfig } from "./sudo-credential.js";
 import { clampVaultGraceHours, VAULT_GRACE_DEFAULT_HOURS } from "./vault-delivery.js";
 
 export type { WindowsBashSourceSetting, WindowsGitSourceSetting } from "./platform/select-git-source.js";

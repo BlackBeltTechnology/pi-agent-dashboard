@@ -21,7 +21,9 @@ import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identi
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { TokenPayload } from "../auth/auth.js";
 import { isLocallyTrusted } from "../auth/localhost-guard.js";
+import type { ResolvedPreviewOrigins } from "@blackbelt-technology/pi-dashboard-shared/preview-origins.js";
 import { CAPABILITY_SEGMENT, redactCapability } from "./capability-redact.js";
+import { generatePreviewLabel, hashPreviewKey, splitCanonicalHost } from "./preview-origin.js";
 
 // Lifetime note: a capability's life is bounded by its own idle/absolute limits and
 // by revocation (target removed, device revoked, logout / passkey revoke, restart).
@@ -39,6 +41,26 @@ const MAX_TOKENS = 1024;
 /** Live tokens per minting principal: one caller's mint loop evicts only ITS OWN oldest tokens. */
 const MAX_TOKENS_PER_PRINCIPAL = 64;
 const TOKEN_SHAPE = /^[A-Za-z0-9_-]{22,}$/;
+/** A mint for tiers 1-4 returns the live entry only while MORE than this remains: twice the 10-minute client re-mint lead (D2). */
+const REUSE_MIN_REMAINING_MS = 20 * 60_000;
+/** The store owns an `unref()`'d sweep so idle entries (and their pool ports) release without waiting for a mint (Q12). */
+const SWEEP_INTERVAL_MS = 60_000;
+/** Attempts to find a label not already in the index before the mint fails. */
+const LABEL_RETRIES = 8;
+
+/** Capability tier: 1-4 are origin-bound previews (D1); `legacy` is the `/live/<id>/~c/<token>/` path. */
+export type CapabilityTier = 1 | 2 | 3 | 4 | "legacy";
+
+/** Why an entry left the store — the `onDelete` reason (D5, D13). */
+export type CapabilityDeleteReason =
+  | "idle"
+  | "max"
+  | "revoked"
+  | "evicted"
+  | "disabled"
+  | "shutdown"
+  | "config-changed"
+  | "listener-error";
 
 /** Who minted a capability — the identity and tier an accepted request carries. */
 export interface CapabilityPrincipal {
@@ -76,7 +98,7 @@ export type LiveExposure = "local-only" | "exposed";
 const VIEWER_ID_SHAPE = /^[A-Za-z0-9_-]{8,64}$/;
 export const isViewerId = (v: unknown): v is string => typeof v === "string" && VIEWER_ID_SHAPE.test(v);
 
-interface Entry {
+export interface LiveCapabilityEntry {
   targetId: string;
   principal: CapabilityPrincipal;
   mintedAt: number;
@@ -94,7 +116,20 @@ interface Entry {
   localBound: boolean;
   idleMs: number;
   maxMs: number;
+  /** `legacy` for a `/live/<id>/~c/<token>/` path; 1-4 for an origin-bound preview (D2). */
+  tier: CapabilityTier;
+  /** Canonical `host[:port]` of the preview origin (tiers 1-4). Lookup key together with the label hash. */
+  originHost?: string;
+  /** Full origin (`scheme://originHost`). CSP sources come from here, never from the request (D6). Memory only. */
+  origin?: string;
+  /** Plaintext label (tiers 1, 2, 4). Memory only: never persisted, never logged unredacted. */
+  label?: string;
+  /** Canonical `Origin` of the mint request (fallback `scheme://Host`): who may frame this origin. */
+  ancestors: string[];
+  /** Tier 3: the pool port the listener is bound to. */
+  poolPort?: number;
 }
+type Entry = LiveCapabilityEntry;
 
 /** What the capability hook / proxy learn about a validated token. Never contains the secret. */
 export interface LiveCapabilityGrant {
@@ -105,9 +140,27 @@ export interface LiveCapabilityGrant {
   viewerId?: string;
   minterKey: string;
   principal: CapabilityPrincipal;
+  tier: CapabilityTier;
+  origin?: string;
+  originHost?: string;
+  poolPort?: number;
+  ancestors: string[];
+}
+
+/** Origin binding of a mint for tiers 1-4 (D1, D2). */
+export interface PreviewMintBinding {
+  tier: 1 | 2 | 3 | 4;
+  /** Canonical `Origin` of the mint request (fallback `scheme://Host`). */
+  ancestors: string[];
+  /** Tiers 1, 2, 4: builds the origin from a freshly generated label. */
+  buildOrigin?: (label: string) => { origin: string; originHost: string };
+  /** Tier 3: the bound listener's origin (`http://<ip>:<port>`), `host:port`, and port. */
+  fixed?: { origin: string; originHost: string; poolPort: number };
 }
 
 export interface MintOptions {
+  /** Origin binding for tiers 1-4; absent = legacy path token. */
+  preview?: PreviewMintBinding;
   kind?: LiveTargetKind;
   policy?: Partial<LivePolicy>;
   viewerId?: string;
@@ -133,7 +186,24 @@ export interface LiveCapabilityStoreOptions {
   isPrincipalLive?: (principal: CapabilityPrincipal) => boolean;
   /** Is the target still registered? */
   isTargetLive?: (targetId: string) => boolean;
+  /**
+   * Called ONCE per entry, after it has left every index, on every deletion path
+   * (idle/max, revoke, eviction, `enabled` flip, shutdown, listener error). Closes pool listeners.
+   * A throwing hook is logged (redacted) and never blocks the other deletions.
+   */
+  onDelete?: (entry: Readonly<LiveCapabilityEntry>, reason: CapabilityDeleteReason) => void;
+  /** Resolved preview-origin config; entries it no longer covers are revoked on every sweep (D12, Q8). */
+  getPreviewConfig?: () => ResolvedPreviewOrigins | undefined;
+  /** Random bytes source for labels (tests inject collisions). */
+  labelBytes?: (n: number) => Buffer;
+  /** Sweep interval; default 60 s (tests drive it with fake timers). */
+  sweepIntervalMs?: number;
 }
+
+/** A host-keyed lookup result. Refusals carry the ONLY detail logs may show; the HTTP answer is identical for all. */
+export type HostLookup =
+  | { ok: true; grant: LiveCapabilityGrant }
+  | { ok: false; reason: "unknown" | "expired" | "wrong-host" | "wrong-port" };
 
 /** Stable identity of a minting principal (device id, session key, else the shared "local"/"network" bucket). */
 const principalKey = (p: CapabilityPrincipal): string =>
@@ -142,41 +212,134 @@ const principalKey = (p: CapabilityPrincipal): string =>
 /** Stable identity of a minting principal; the egress / touch / allow-once routes compare it. */
 export const principalKeyOf = principalKey;
 
-const hash = (token: string): string => crypto.createHash("sha256").update(token).digest("hex");
+const hash = hashPreviewKey;
 
 /** sha256 of a session cookie value, for {@link CapabilityPrincipal.sessionKey}. */
 export function sessionKeyOf(cookieValue: string): string {
   return hash(cookieValue);
 }
 
+const sameList = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((v, i) => v === b[i]);
+
+/** Does `entry` still fall under the tier's CURRENT resolved config? (Tier 1 needs none.) */
+function entryMatchesConfig(e: Entry, cfg: ResolvedPreviewOrigins): boolean {
+  if (e.tier === "legacy" || e.tier === 1) return true;
+  if (e.tier === 3) return !!cfg.pool && e.poolPort !== undefined && e.poolPort >= cfg.pool.from && e.poolPort <= cfg.pool.to;
+  const host = e.originHost ? splitCanonicalHost(e.originHost) : undefined;
+  if (!host) return false;
+  if (e.tier === 2) {
+    const w = cfg.wildcard;
+    if (!w || !e.label) return false;
+    return host.hostname === `${e.label}.${w.suffix}` && host.port === w.port && !!e.origin?.startsWith(`${w.scheme}://`);
+  }
+  // tier 4
+  return !!cfg.ipDnsSuffix && host.hostname.endsWith(`.${cfg.ipDnsSuffix}`);
+}
+
 export class LiveCapabilityStore {
+  /** `hash(secret)` → entry. The secret is the label (tiers 1, 2, 4) or a random token (tier 3, legacy). */
   private readonly entries = new Map<string, Entry>();
+  /** `hash(originHost)` → entry key (tiers 1-4): the dynamic admission set; holds no plaintext label. */
+  private readonly byOriginHost = new Map<string, string>();
   /** viewerId → allow-once origins (insertion-ordered, bounded). */
   private readonly allowOnce = new Map<string, Set<string>>();
   private readonly now: () => number;
   private readonly isPrincipalLive: (p: CapabilityPrincipal) => boolean;
   private readonly isTargetLive: (id: string) => boolean;
+  private readonly onDelete?: LiveCapabilityStoreOptions["onDelete"];
+  private readonly getPreviewConfig?: () => ResolvedPreviewOrigins | undefined;
+  private readonly labelBytes?: (n: number) => Buffer;
+  private readonly sweepIntervalMs: number;
+  private sweeper: ReturnType<typeof setInterval> | undefined;
 
   constructor(opts: LiveCapabilityStoreOptions = {}) {
     this.now = opts.now ?? Date.now;
     this.isPrincipalLive = opts.isPrincipalLive ?? (() => true);
     this.isTargetLive = opts.isTargetLive ?? (() => true);
+    this.onDelete = opts.onDelete;
+    this.getPreviewConfig = opts.getPreviewConfig;
+    this.labelBytes = opts.labelBytes;
+    this.sweepIntervalMs = opts.sweepIntervalMs ?? SWEEP_INTERVAL_MS;
   }
 
   /**
-   * Mint a token for `targetId`. Only its hash is kept. The policy is fail-closed
+   * A live entry a new mint for tiers 1-4 may be answered with (D2 re-mint reuse): same target, minter,
+   * policy, tier and ancestors (never `viewerId`: the viewer mints a fresh id per mount), with MORE than
+   * 20 minutes of absolute lifetime left. Never resurrects an expired / revoked entry. Tier 3 callers
+   * check this BEFORE allocating a pool port.
+   */
+  findReusable(
+    targetId: string,
+    principal: CapabilityPrincipal,
+    opts: MintOptions,
+  ): { entry: Readonly<Entry>; grant: LiveCapabilityGrant } | null {
+    const b = opts.preview;
+    if (!b) return null;
+    const now = this.now();
+    const kind: LiveTargetKind = opts.kind === "static" ? "static" : "port";
+    const egress = opts.policy?.egress === "open" ? "open" : "restricted";
+    const scripts = opts.policy?.scripts === true;
+    const who = principalKey(principal);
+    for (const [key, e] of this.entries) {
+      if (e.tier !== b.tier || e.targetId !== targetId || e.minterKey !== who || e.kind !== kind) continue;
+      if (e.policy.egress !== egress || e.policy.scripts !== scripts) continue;
+      if (e.localBound !== (opts.localBound === true) || e.mintExposure !== (opts.exposure ?? "exposed")) continue;
+      if (!sameList(e.ancestors, b.ancestors)) continue;
+      if (this.expiryReason(e, now)) continue;
+      if (e.mintedAt + e.maxMs - now <= REUSE_MIN_REMAINING_MS) continue;
+      if (!this.isTargetLive(e.targetId) || !this.isPrincipalLive(e.principal)) {
+        this.remove(key, "revoked");
+        continue;
+      }
+      return { entry: e, grant: grantOf(e) };
+    }
+    return null;
+  }
+
+  /**
+   * Mint a capability for `targetId`. Only a hash is kept. The policy is fail-closed
    * (`restricted`, scripts off) unless the caller states otherwise; static targets
    * get the shorter 10 min / 2 h lifetime.
+   *
+   * With `opts.preview` (tiers 1-4) the entry is bound to its origin: tiers 1, 2, 4 generate a
+   * 128-bit label (re-drawn on a collision) and `token` is that label; a mint that matches a live
+   * entry (see {@link findReusable}) returns it with `reused: true`.
    */
   mint(
     targetId: string,
     principal: CapabilityPrincipal,
     opts: MintOptions = {},
-  ): { token: string; tokenId: string; expiresAt: number; policy: LivePolicy } {
+  ): {
+    token: string;
+    tokenId: string;
+    expiresAt: number;
+    policy: LivePolicy;
+    tier: CapabilityTier;
+    origin?: string;
+    originHost?: string;
+    poolPort?: number;
+    reused: boolean;
+  } {
     const now = this.now();
     this.sweep(now);
-    const token = crypto.randomBytes(32).toString("base64url");
-    const tokenId = crypto.randomBytes(16).toString("base64url");
+    const binding = opts.preview;
+    const reusable = this.findReusable(targetId, principal, opts);
+    if (reusable) {
+      const e = reusable.entry as Entry;
+      e.lastUsedAt = now;
+      return {
+        token: e.label ?? "",
+        tokenId: e.tokenId,
+        expiresAt: e.mintedAt + e.maxMs,
+        policy: { ...e.policy },
+        tier: e.tier,
+        origin: e.origin,
+        originHost: e.originHost,
+        poolPort: e.poolPort,
+        reused: true,
+      };
+    }
     const kind: LiveTargetKind = opts.kind === "static" ? "static" : "port";
     const policy: LivePolicy = {
       egress: opts.policy?.egress === "open" ? "open" : "restricted",
@@ -184,7 +347,35 @@ export class LiveCapabilityStore {
     };
     const idleMs = kind === "static" ? STATIC_CAPABILITY_IDLE_MS : CAPABILITY_IDLE_MS;
     const maxMs = kind === "static" ? STATIC_CAPABILITY_MAX_MS : CAPABILITY_MAX_MS;
-    this.entries.set(hash(token), {
+    const tokenId = crypto.randomBytes(16).toString("base64url");
+
+    let secret: string;
+    let preview: Pick<Entry, "tier" | "originHost" | "origin" | "label" | "poolPort" | "ancestors"> = {
+      tier: "legacy",
+      ancestors: [],
+    };
+    if (!binding) {
+      secret = crypto.randomBytes(32).toString("base64url");
+    } else if (binding.tier === 3) {
+      if (!binding.fixed) throw new Error("tier 3 mint needs the bound listener");
+      secret = crypto.randomBytes(32).toString("base64url");
+      preview = { tier: 3, ...binding.fixed, ancestors: [...binding.ancestors] };
+    } else {
+      if (!binding.buildOrigin) throw new Error(`tier ${binding.tier} mint needs buildOrigin`);
+      let label = "";
+      for (let i = 0; i < LABEL_RETRIES; i++) {
+        label = generatePreviewLabel(this.labelBytes);
+        if (!this.entries.has(hash(label))) break;
+        label = "";
+      }
+      if (!label) throw new Error("could not allocate a unique preview label");
+      secret = label;
+      const built = binding.buildOrigin(label);
+      preview = { tier: binding.tier, ...built, label, ancestors: [...binding.ancestors] };
+    }
+
+    const key = hash(secret);
+    const entry: Entry = {
       targetId,
       principal,
       mintedAt: now,
@@ -198,27 +389,39 @@ export class LiveCapabilityStore {
       localBound: opts.localBound === true,
       idleMs,
       maxMs,
-    });
+      ...preview,
+    };
+    this.entries.set(key, entry);
+    if (entry.originHost) this.byOriginHost.set(hash(entry.originHost), key);
+    this.ensureSweeper();
     // Evict within the minting principal first, so a mint loop cannot push out
-    // another user's active preview tokens.
-    const who = principalKey(principal);
-    let mine = [...this.entries].filter(([, e]) => principalKey(e.principal) === who);
-    while (mine.length > MAX_TOKENS_PER_PRINCIPAL) {
-      this.entries.delete(mine[0][0]);
-      mine = mine.slice(1);
-    }
+    // another user's active preview capabilities.
+    const who = entry.minterKey;
+    const mine = [...this.entries].filter(([, e]) => e.minterKey === who);
+    for (let i = 0; i < mine.length - MAX_TOKENS_PER_PRINCIPAL; i++) this.remove(mine[i][0], "evicted");
     while (this.entries.size > MAX_TOKENS) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) break;
-      this.entries.delete(oldest);
+      this.remove(oldest, "evicted");
     }
-    return { token, tokenId, expiresAt: now + maxMs, policy };
+    return {
+      token: secret,
+      tokenId,
+      expiresAt: now + maxMs,
+      policy,
+      tier: entry.tier,
+      origin: entry.origin,
+      originHost: entry.originHost,
+      poolPort: entry.poolPort,
+      reused: false,
+    };
   }
 
   /**
-   * Validate `token` for `targetId`. A hit extends the idle expiry. A missing,
-   * unknown, wrong-target, expired or no-longer-live token returns `null` — the
-   * caller cannot tell which.
+   * Validate a LEGACY `/live/<id>/~c/<token>/` token for `targetId`. A hit extends the idle expiry.
+   * A missing, unknown, wrong-target, expired or no-longer-live token returns `null` — the
+   * caller cannot tell which. Origin-bound entries (tiers 1-4) never validate here: their label has
+   * the token's shape but must not open a `/live/` path.
    *
    * `ctx` carries request-boundary facts: a token minted by a genuinely local
    * caller is refused when `ctx.genuinelyLocal` is false. Every request-facing
@@ -233,14 +436,15 @@ export class LiveCapabilityStore {
     if (!TOKEN_SHAPE.test(token)) return null;
     const key = hash(token);
     const entry = this.entries.get(key);
-    if (!entry || entry.targetId !== targetId) return null;
+    if (!entry || entry.tier !== "legacy" || entry.targetId !== targetId) return null;
     const now = this.now();
-    if (now - entry.lastUsedAt >= entry.idleMs || now - entry.mintedAt >= entry.maxMs) {
-      this.entries.delete(key);
+    const expired = this.expiryReason(entry, now);
+    if (expired) {
+      this.remove(key, expired);
       return null;
     }
     if (!this.isTargetLive(entry.targetId) || !this.isPrincipalLive(entry.principal)) {
-      this.entries.delete(key);
+      this.remove(key, "revoked");
       return null;
     }
     // Bound to the local machine: a leaked local token is useless from anywhere else.
@@ -250,13 +454,66 @@ export class LiveCapabilityStore {
     return grantOf(entry);
   }
 
-  /** The live token behind a non-secret `tokenId`, or `null` (expired / unknown). Does not extend idle. */
+  /**
+   * Look an origin-bound entry up by `hash(label)` and the request's canonical Host (D2, D3).
+   * The Host must equal `entry.originHost` exactly (no tier crossing, no port crossing); a tier-1
+   * or local-bound entry is served only to a genuinely local peer (`peerLocal`). A hit extends the
+   * idle expiry. `expired` is reported only while the entry still exists between expiry and sweep;
+   * afterwards the entry is gone and the answer is `unknown` (no tombstones, Q25).
+   */
+  lookupByHost(labelHash: string, canonicalHost: string, peerLocal: boolean): HostLookup {
+    const entry = this.entries.get(labelHash);
+    if (!entry || entry.tier === "legacy" || entry.tier === 3 || !entry.originHost) return { ok: false, reason: "unknown" };
+    const now = this.now();
+    const expired = this.expiryReason(entry, now);
+    if (expired) {
+      this.remove(labelHash, expired);
+      return { ok: false, reason: "expired" };
+    }
+    if (!this.isTargetLive(entry.targetId) || !this.isPrincipalLive(entry.principal)) {
+      this.remove(labelHash, "revoked");
+      return { ok: false, reason: "unknown" };
+    }
+    if (canonicalHost !== entry.originHost) {
+      const want = splitCanonicalHost(entry.originHost);
+      const got = splitCanonicalHost(canonicalHost);
+      return { ok: false, reason: want.hostname === got.hostname ? "wrong-port" : "wrong-host" };
+    }
+    if ((entry.tier === 1 || entry.localBound) && !peerLocal) return { ok: false, reason: "wrong-host" };
+    entry.lastUsedAt = now;
+    return { ok: true, grant: grantOf(entry) };
+  }
+
+  /** Tier 3: the live entry bound to pool `port`, or `null`. Does not touch. */
+  findByPoolPort(port: number): LiveCapabilityGrant | null {
+    const now = this.now();
+    for (const [key, e] of this.entries) {
+      if (e.tier !== 3 || e.poolPort !== port) continue;
+      const expired = this.expiryReason(e, now);
+      if (expired) {
+        this.remove(key, expired);
+        return null;
+      }
+      return grantOf(e);
+    }
+    return null;
+  }
+
+  /** Is `canonicalHost` the origin host of a live (unexpired) entry? The dynamic admission set; never enumerates labels. */
+  isAdmittedHost(canonicalHost: string): boolean {
+    const key = this.byOriginHost.get(hash(canonicalHost));
+    const e = key ? this.entries.get(key) : undefined;
+    return !!e && !this.expiryReason(e, this.now());
+  }
+
+  /** The live capability behind a non-secret `tokenId`, or `null` (expired / unknown). Does not extend idle. */
   findByTokenId(tokenId: string): LiveCapabilityGrant | null {
     const now = this.now();
     for (const [key, e] of this.entries) {
       if (e.tokenId !== tokenId) continue;
-      if (now - e.lastUsedAt >= e.idleMs || now - e.mintedAt >= e.maxMs) {
-        this.entries.delete(key);
+      const expired = this.expiryReason(e, now);
+      if (expired) {
+        this.remove(key, expired);
         return null;
       }
       return grantOf(e);
@@ -265,21 +522,22 @@ export class LiveCapabilityStore {
   }
 
   /**
-   * Extend a token's idle expiry (keepalive) without a request through its path.
+   * Extend a capability's idle expiry (keepalive) without a request through its path.
    * Only the minting principal may: `minterKey` must equal the entry's. Never
-   * extends past the absolute lifetime. Returns whether a live token was touched.
+   * extends past the absolute lifetime. Returns whether a live capability was touched.
    */
   touch(tokenId: string, minterKey: string): boolean {
     const now = this.now();
     for (const [key, e] of this.entries) {
       if (e.tokenId !== tokenId) continue;
       if (e.minterKey !== minterKey) return false;
-      if (now - e.lastUsedAt >= e.idleMs || now - e.mintedAt >= e.maxMs) {
-        this.entries.delete(key);
+      const expired = this.expiryReason(e, now);
+      if (expired) {
+        this.remove(key, expired);
         return false;
       }
       if (!this.isTargetLive(e.targetId) || !this.isPrincipalLive(e.principal)) {
-        this.entries.delete(key);
+        this.remove(key, "revoked");
         return false;
       }
       e.lastUsedAt = now;
@@ -314,12 +572,15 @@ export class LiveCapabilityStore {
     return viewerId ? [...(this.allowOnce.get(viewerId) ?? [])] : [];
   }
 
-  /** Revoke every token whose record matches `pred`. Returns how many died. Never exposes a token. */
-  revokeWhere(pred: (e: Readonly<{ kind: LiveTargetKind; policy: LivePolicy; mintExposure: LiveExposure; targetId: string }>) => boolean): number {
+  /** Revoke every capability whose record matches `pred`. Returns how many died. Never exposes a secret. */
+  revokeWhere(
+    pred: (e: Readonly<{ kind: LiveTargetKind; policy: LivePolicy; mintExposure: LiveExposure; targetId: string }>) => boolean,
+    reason: CapabilityDeleteReason = "revoked",
+  ): number {
     let n = 0;
-    for (const [key, e] of this.entries) {
+    for (const [key, e] of [...this.entries]) {
       if (pred(e)) {
-        this.entries.delete(key);
+        this.remove(key, reason);
         n++;
       }
     }
@@ -327,31 +588,117 @@ export class LiveCapabilityStore {
   }
 
   revokeByTarget(targetId: string): void {
-    for (const [key, e] of this.entries) if (e.targetId === targetId) this.entries.delete(key);
+    for (const [key, e] of [...this.entries]) if (e.targetId === targetId) this.remove(key, "revoked");
   }
 
   revokeByDevice(deviceId: string): void {
-    for (const [key, e] of this.entries) if (e.principal.deviceId === deviceId) this.entries.delete(key);
+    for (const [key, e] of [...this.entries]) if (e.principal.deviceId === deviceId) this.remove(key, "revoked");
   }
 
   revokeBySessionKey(sessionKey: string): void {
-    for (const [key, e] of this.entries) if (e.principal.sessionKey === sessionKey) this.entries.delete(key);
+    for (const [key, e] of [...this.entries]) if (e.principal.sessionKey === sessionKey) this.remove(key, "revoked");
   }
 
-  /** Count of live tokens (tests, diagnostics). Never exposes a token or its hash. */
+  /**
+   * Delete the entry bound to pool `port` (its listener errored or closed outside the store's control,
+   * Q36). The next mint reallocates; no rebind, so no zombie entry holds a listener-cap slot.
+   */
+  revokeByPoolPort(port: number, reason: CapabilityDeleteReason = "listener-error"): void {
+    for (const [key, e] of [...this.entries]) if (e.tier === 3 && e.poolPort === port) this.remove(key, reason);
+  }
+
+  /**
+   * Reconcile with the resolved preview-origin config (D12, Q8): `enabled:false` revokes every
+   * origin-bound entry (`disabled`); otherwise an entry whose `originHost` no longer matches its
+   * tier's current resolved config is revoked (`config-changed`). Legacy entries are untouched.
+   */
+  reconcilePreviewConfig(cfg: ResolvedPreviewOrigins): number {
+    let n = 0;
+    for (const [key, e] of [...this.entries]) {
+      if (e.tier === "legacy") continue;
+      if (!cfg.enabled) {
+        this.remove(key, "disabled");
+        n++;
+      } else if (!entryMatchesConfig(e, cfg)) {
+        this.remove(key, "config-changed");
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /** Delete everything (dashboard close) and stop the sweeper. */
+  close(reason: CapabilityDeleteReason = "shutdown"): void {
+    for (const key of [...this.entries.keys()]) this.remove(key, reason);
+    this.stopSweeper();
+  }
+
+  /** Count of live capabilities (tests, diagnostics). Never exposes a secret or its hash. */
   size(): number {
     return this.entries.size;
   }
 
-  /** True when no stored key equals the plaintext token (hash-only storage check). */
+  /** Size of the dynamic admission index (tests, leak soak). */
+  admittedHostCount(): number {
+    return this.byOriginHost.size;
+  }
+
+  /** Live per-viewer allow-once sets (tests, leak soak). */
+  allowOnceSize(): number {
+    return this.allowOnce.size;
+  }
+
+  /** True when no stored key equals the plaintext secret (hash-only storage check). */
   holdsPlaintext(token: string): boolean {
-    return this.entries.has(token);
+    return this.entries.has(token) || this.byOriginHost.has(token);
+  }
+
+  /** `max` / `idle` when the entry's lifetime is over, else `null`. */
+  private expiryReason(e: Entry, now: number): "max" | "idle" | null {
+    if (now - e.mintedAt >= e.maxMs) return "max";
+    if (now - e.lastUsedAt >= e.idleMs) return "idle";
+    return null;
+  }
+
+  /**
+   * Delete one entry from every index, THEN run the hook: a hook that throws or mints leaves a
+   * consistent store (X6). Exactly once per entry.
+   */
+  private remove(key: string, reason: CapabilityDeleteReason): void {
+    const e = this.entries.get(key);
+    if (!e) return;
+    this.entries.delete(key);
+    if (e.originHost) {
+      const hk = hash(e.originHost);
+      if (this.byOriginHost.get(hk) === key) this.byOriginHost.delete(hk);
+    }
+    try {
+      this.onDelete?.(e, reason);
+    } catch (err) {
+      console.error(redactCapability(`[live-preview] onDelete hook failed reason=${reason}: ${err instanceof Error ? err.message : String(err)}`));
+    }
+    if (this.entries.size === 0) this.stopSweeper();
   }
 
   private sweep(now: number): void {
-    for (const [key, e] of this.entries) {
-      if (now - e.lastUsedAt >= e.idleMs || now - e.mintedAt >= e.maxMs) this.entries.delete(key);
+    for (const [key, e] of [...this.entries]) {
+      const reason = this.expiryReason(e, now);
+      if (reason) this.remove(key, reason);
     }
+    const cfg = this.getPreviewConfig?.();
+    if (cfg) this.reconcilePreviewConfig(cfg);
+  }
+
+  private ensureSweeper(): void {
+    if (this.sweeper) return;
+    this.sweeper = setInterval(() => this.sweep(this.now()), this.sweepIntervalMs);
+    this.sweeper.unref?.();
+  }
+
+  private stopSweeper(): void {
+    if (!this.sweeper) return;
+    clearInterval(this.sweeper);
+    this.sweeper = undefined;
   }
 }
 
@@ -363,6 +710,11 @@ const grantOf = (e: Entry): LiveCapabilityGrant => ({
   ...(e.viewerId ? { viewerId: e.viewerId } : {}),
   minterKey: e.minterKey,
   principal: e.principal,
+  tier: e.tier,
+  ...(e.origin ? { origin: e.origin } : {}),
+  ...(e.originHost ? { originHost: e.originHost } : {}),
+  ...(e.poolPort !== undefined ? { poolPort: e.poolPort } : {}),
+  ancestors: [...e.ancestors],
 });
 
 /** A parsed capability URL. `rest` starts with `/` (or is `/`); `prefix` is `/live/<id>/~c/<token>`. */
