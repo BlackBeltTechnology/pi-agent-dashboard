@@ -17,7 +17,7 @@
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiChevronDown, mdiClose, mdiFileTreeOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { ancestorDirs } from "../../lib/layout/editor-pane-state.js";
@@ -381,6 +381,8 @@ export function EditorPane() {
 
   // ── Closing: single close (per tab) and the bulk runner (design D6) ────────
   // Handler lookups + built-in unsaved buffers (read live from the unsaved store).
+  // Re-render when a built-in buffer turns dirty/clean: `isTabDirty` (Download hint, tab-search marks) reads the store at render time.
+  useSyncExternalStore(unsavedStore.subscribe, unsavedStore.getState, unsavedStore.getState);
   const closeLookups: CloseRiskLookups = {
     ...fh.closeLookups,
     bufferDirty: (tab) => tab.viewer !== "terminal" && !tab.handlerMode && unsavedStore.hasUnsaved([unsavedKey(sessionId, tab.path)]),
@@ -481,6 +483,12 @@ export function EditorPane() {
     "inline-flex h-7 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50";
   const contextTab = contextMenu ? state.openFiles[contextMenu.index] : null;
 
+  // A built-in buffer with unsaved edits, or a handler instance reporting `dirty`.
+  const isTabDirty = (f: (typeof state.openFiles)[number]): boolean => {
+    const k = fh.closeLookups.keyOf(f);
+    return (!!k && fh.closeLookups.getInstance(k)?.dirty === true) || !!closeLookups.bufferDirty?.(f);
+  };
+
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
       {/* Pane bar: Files · tabs · + ··· ⌄ ✕ (design D1) */}
@@ -560,6 +568,7 @@ export function EditorPane() {
         claims={activeTab && !isPseudoTabViewer(activeTab.viewer) ? fh.matching : []}
         selectedMode={fh.handlerView ? activeTab?.handlerMode : undefined}
         outsideCwd={fh.outsideCwd}
+        dirty={!!activeTab && isTabDirty(activeTab)}
         onSelectMode={(m) => void fh.selectMode(m)}
         terminalTitle={terminalTitle}
         pluginLabel={pluginLabel}
@@ -576,16 +585,7 @@ export function EditorPane() {
           activeIndex={state.activeIndex}
           textDeps={textDeps}
           pluginLabel={pluginLabel}
-          unsavedPaths={
-            new Set(
-              state.openFiles
-                .filter((f) => {
-                  const k = fh.closeLookups.keyOf(f);
-                  return (!!k && fh.closeLookups.getInstance(k)?.dirty === true) || !!closeLookups.bufferDirty?.(f);
-                })
-                .map((f) => f.path),
-            )
-          }
+          unsavedPaths={new Set(state.openFiles.filter(isTabDirty).map((f) => f.path))}
           hasFileSearch={hasFileSearch}
           onActivate={(path) => {
             const i = stateRef.current.openFiles.findIndex((f) => f.path === path);
