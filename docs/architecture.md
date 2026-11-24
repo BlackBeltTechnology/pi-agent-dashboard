@@ -1739,6 +1739,77 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Not a sandbox. Shell/MCP tools not path-checked. List them in `deniedTools`.
 - See change: add-path-containment-guard-extension.
 
+### Plugin Spawn Worktree (`add-plugin-spawn-worktree`)
+
+- `ServerPluginContext.spawnSession(opts)` gains optional `opts.worktree?: { branch; base?; ifExists: "reuse"|"fail"; attachChange? }`.
+- Honoured only with `mode: "worktree"`. Types: `packages/dashboard-plugin-runtime/src/server/server-context.ts`.
+- Bare `mode: "worktree"` (no block) → legacy local fallback: runs in `cwd`, warning logged.
+- Older host ignores block too. Caller treats success without `PluginSpawnResult.worktreePath` as "not in a worktree".
+- Trusted plugins only (`manifest.priority <= 100`). Same gate as `spawnSession`.
+- Hook body: `packages/server/src/spawn-process/plugin-spawn-worktree.ts` (`createPluginSpawnHook(deps)`). `server.ts` wires real deps.
+- Git step: `ensureWorktree` in `packages/server/src/git-worktree/ensure-worktree.ts`. Never throws.
+- Result: `{ok,path,branch,created}` | `{ok:false,code,message}`.
+
+`ensureWorktree` order:
+
+1. Known-folder admission (`admitRouteCwd`, same set as `POST /api/git/worktree`).
+2. Main-checkout resolve → `not_git`.
+3. Branch validation: `isValidRefArg`, `git check-ref-format --branch`, `@{` rejected, derived path under `<main>/.worktrees/`.
+4. Per-repo lock.
+5. Resolution.
+
+Resolution:
+
+- Registered worktree for branch → reuse (`created:false`). `ifExists:"fail"` → `exists`.
+- Stale registration (dir gone) → `git worktree prune` once.
+- Main checkout, or path outside `.worktrees/` → `branch_in_use`.
+- No registration:
+  - local branch → checkout.
+  - only `origin/<branch>` → `addWorktree({base:"origin/<branch>", newBranch})`.
+  - else fork `base ?? resolveDefaultBase` (verified; fail `base_not_found`).
+- `base` ignored when branch or worktree exists.
+
+Lock:
+
+- `withRepoLock(repoLockKey(cwd))` in `git-worktree/repo-lock.ts`.
+- Key = realpath of git common dir.
+- `POST /api/git/worktree` takes same lock. Responses unchanged.
+
+cwd-policy:
+
+- Hook `checkTarget` compares `cwdPolicyRegistry.resolve(worktreePath)` vs `resolve(opts.cwd)` before any git write.
+- Differ → `policy_mismatch`.
+
+Init:
+
+- `autoInitWorktreeOnSpawn` on → hook calls `startWorktreeInit(cwd,{skipIfRunning:true})` before filing intents. Awaits it.
+- `startWorktreeInit` in `git-worktree/start-worktree-init.ts`. Also used by `POST /api/git/worktree/init`.
+- Failed → `init_failed`. No spawn. Worktree kept.
+- Untrusted hook → never run. Spawn proceeds. Init stays pending.
+- `already_running` → `awaitInitRun` polls registry.
+- Server-side trigger. Browser-side twin: `auto-init-worktree.ts`.
+
+After success, every cwd-keyed step uses worktree path:
+
+- `pendingInitialPromptRegistry`.
+- `pendingAttachRegistry` (`attachChange`, kebab-case `^[a-z0-9][a-z0-9-]{0,99}$`). Withdrawn on spawn failure.
+- Full queue → `warning: "attach queue full; session not attached"`.
+- `spawnPiSession` / `spawnAcpSession`.
+- `armSpawnWatchdog`.
+- Headless PID registry.
+- No `gitWorktreeBase` written (dialog-only per `git-context`).
+
+Failure:
+
+- `success:false`. Nothing spawned, nothing queued. Never falls back to local.
+- Codes (`PluginSpawnWorktreeCode`): `invalid_block`, `not_git`, `admission_unavailable` (retryable), `branch_invalid`, `exists`, `base_not_found`, `branch_in_use`, `policy_mismatch`, `init_failed`, `git_failed`.
+
+Log per worktree spawn:
+
+- `[plugin-spawn] worktree <created|reused|failed> plugin=<id> branch=<json> code=<code>`.
+
+- See change: add-plugin-spawn-worktree.
+
 ### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
 
 `ServerPluginContext.spawnSession` accepts `PluginSpawnOptions.lifecycle: PluginSessionLifecycle` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`). Owning plugin declares per-session lifecycle decisions; core reads the flags, never the plugin name.

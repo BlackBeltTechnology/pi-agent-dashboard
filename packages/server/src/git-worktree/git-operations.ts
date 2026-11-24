@@ -1032,7 +1032,7 @@ export interface LifecycleFailure<C extends string = string> {
  * (the `info/exclude` write) — the AUTHORIZATION anchor is
  * `resolveMainPath`.
  */
-function resolveCommonDirAbs(cwd: string): string | null {
+export function resolveCommonDirAbs(cwd: string): string | null {
   const raw = tryRun(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd);
   if (!raw) return null;
   return path.isAbsolute(raw) ? raw : path.resolve(cwd, raw);

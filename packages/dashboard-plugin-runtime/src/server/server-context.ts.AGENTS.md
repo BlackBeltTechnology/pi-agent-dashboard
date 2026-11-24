@@ -10,3 +10,5 @@ Optional `readFileGuarded?(absPath): Promise<string|null>` (`ReadFileGuardedFn`)
 See change: add-spawn-model-choice. `PluginSpawnOptions.thinkingLevel?` (canonical level → `thinking`); `model` may be `@role` (host resolves once); `PluginSpawnResult.warning?` on a dropped choice.
 
 See change: polish-automation-board. `PluginSessionManager.isConnected?(id): boolean` — open bridge socket only, trusted plugins (wired to `piGateway.isSessionConnected`), untrusted always false; new `createPluginSessionManager({listActive,listAll,getSession,isSessionConnected,trusted})` factory. `AbortSpawnedRunFn` args gain `onResult?({outcome,pid})` (called once on every path; untrusted no-op never calls it → callers treat absent call as unconfirmed).
+
+`PluginSpawnOptions.worktree?: {branch,base?,ifExists:"reuse"|"fail",attachChange?}` (with `mode:"worktree"`) → host creates/reuses a worktree; `PluginSpawnResult` gains `code?` (`PluginSpawnWorktreeCode`), `worktreePath?`, `branch?`, `created?`. A success without `worktreePath` = not in a worktree (older host / bare `mode:"worktree"`). Mapper does not copy the block. See change: add-plugin-spawn-worktree.

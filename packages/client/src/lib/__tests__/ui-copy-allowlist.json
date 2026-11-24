@@ -162,7 +162,7 @@
       "reason": "internal: OS child-process failure detail (node spawn), wrapped by a user-facing message upstream"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "\" is already pending for another spawn",
       "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
     },
@@ -172,22 +172,37 @@
       "reason": "log-only: console/server log line, never rendered in the dashboard UI"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "[plugin-spawn] mode=",
       "reason": "log-only: console/server log line, never rendered in the dashboard UI"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
+      "text": "[plugin-spawn] plugin=",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
+      "text": "[plugin-spawn] worktree ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
+      "text": "[plugin-spawn] worktree failed plugin=",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "spawn not permitted for plugin \"",
       "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "spawn options must be an object",
       "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "spawn options require a non-empty cwd",
       "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
     },
