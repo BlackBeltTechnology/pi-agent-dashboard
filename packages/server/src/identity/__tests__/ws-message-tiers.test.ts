@@ -17,6 +17,11 @@ describe("WS_MESSAGE_TIERS", () => {
     expect(Object.keys(WS_MESSAGE_TIERS).filter((t) => !protocol.has(t))).toEqual([]);
   });
 
+  it("X9: flows_open_ack is an observe-tier, session-owned message (add-flow-open-tool)", () => {
+    expect(WS_MESSAGE_TIERS.flows_open_ack).toBe("observe");
+    expect(SESSION_OWNED_MESSAGES.has("flows_open_ack")).toBe(true);
+  });
+
   it("unlisted (e.g. plugin-registered) types fail closed at operate", () => {
     expect(wsMessageTier("some_plugin_message")).toBe("operate");
     expect(wsMessageTier("__proto__")).toBe("operate");

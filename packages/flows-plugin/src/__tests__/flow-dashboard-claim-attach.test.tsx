@@ -39,7 +39,8 @@ import {
   getAttachment,
   setAttachment,
 } from "../client/flow-attach-store.js";
-import { flowCollapseKey } from "../client/flow-collapse-storage.js";
+import { flowCollapseKey, setFlowCollapsed } from "../client/flow-collapse-storage.js";
+import { __flowOpenSeenSizeForTests, __resetFlowOpenSeenForTests, FlowOpenListener } from "../client/FlowOpenListener.js";
 import type { FlowAttachment } from "../client/flow-idle-state.js";
 import { useIsolatedLocalStorage } from "./flows-test-harness.js";
 
@@ -880,5 +881,87 @@ describe("panel defaults to collapsed (E25) and the reported reopen (5.3)", () =
     first.unmount();
     renderClaim(sid, { collapsed: true });
     expect(summaryExpanded()).toBe("false");
+  });
+});
+
+// ── agent flow_open pin: shell-headless listener. See change: add-flow-open-tool (F1–F3, F5, F6). ──
+describe("FlowOpenListener (add-flow-open-tool)", () => {
+  function mountListener() {
+    const send = vi.fn();
+    const ws = new EventTarget() as unknown as WebSocket;
+    render(
+      <PluginContextProvider send={send} ws={ws}>
+        <FlowOpenListener />
+      </PluginContextProvider>,
+    );
+    const deliver = (frame: unknown) =>
+      act(() => {
+        (ws as unknown as EventTarget).dispatchEvent(new MessageEvent("message", { data: JSON.stringify(frame) }));
+      });
+    return { send, deliver };
+  }
+  const frame = (sessionId: string, requestId: string, over: Record<string, unknown> = {}) => ({
+    type: "flows_open",
+    sessionId,
+    requestId,
+    attachment: { name: "flows/a/flow.yaml", source: "/w/flows/a/flow.yaml", viewOnly: true, baselineStartedAt: 5000, ...over },
+  });
+  beforeEach(() => __resetFlowOpenSeenForTests());
+
+  it("F1: stores the attachment with the server baseline, expands the panel, acks once", () => {
+    const sid = nextSid();
+    localStorage.setItem(flowCollapseKey("dashboard", sid), "true");
+    const { send, deliver } = mountListener();
+    deliver(frame(sid, "r1"));
+    expect(getAttachment(sid)).toMatchObject({ name: "flows/a/flow.yaml", source: "/w/flows/a/flow.yaml", viewOnly: true, baselineStartedAt: 5000 });
+    expect(localStorage.getItem(flowCollapseKey("dashboard", sid))).toBe("false");
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ type: "flows_open_ack", sessionId: sid, requestId: "r1" });
+  });
+
+  it("F2: a duplicate frame acks once; the dedupe set stays bounded at 128", () => {
+    const sid = nextSid();
+    const { send, deliver } = mountListener();
+    deliver(frame(sid, "dup"));
+    deliver(frame(sid, "dup"));
+    expect(send).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 130; i++) deliver(frame(sid, `q${i}`));
+    expect(__flowOpenSeenSizeForTests()).toBeLessThanOrEqual(128);
+  });
+
+  it("F3: only the targeted session changes", () => {
+    const s1 = nextSid();
+    const s2 = nextSid();
+    const a2 = attach(s2, "other");
+    const { deliver } = mountListener();
+    deliver(frame(s1, "r3"));
+    expect(getAttachment(s2)).toEqual(a2);
+    expect(getAttachment(s1)?.name).toBe("flows/a/flow.yaml");
+  });
+
+  it("F5: an agent pin replaces a picker attachment", () => {
+    const sid = nextSid();
+    attach(sid, "A");
+    const { deliver } = mountListener();
+    deliver(frame(sid, "r5", { name: "B", viewOnly: false }));
+    expect(getAttachment(sid)?.name).toBe("B");
+    expect(getAttachment(sid)?.viewOnly).toBeUndefined();
+  });
+
+  it("F6: expands a collapsed panel (setFlowCollapsed(S,[dashboard],true) before)", () => {
+    const sid = nextSid();
+    setFlowCollapsed(sid, ["dashboard"], true);
+    const { deliver } = mountListener();
+    deliver(frame(sid, "r6"));
+    expect(localStorage.getItem(flowCollapseKey("dashboard", sid))).toBe("false");
+  });
+
+  it("ignores a malformed frame (no attachment, no ack)", () => {
+    const sid = nextSid();
+    const { send, deliver } = mountListener();
+    deliver({ type: "flows_open", sessionId: sid, requestId: "m1", attachment: { name: 7 } });
+    deliver({ type: "flows_open", requestId: "m2", attachment: { name: "x" } });
+    expect(getAttachment(sid)).toBeNull();
+    expect(send).not.toHaveBeenCalled();
   });
 });

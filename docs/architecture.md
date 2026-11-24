@@ -1034,6 +1034,37 @@ pi-flows runs multi-agent workflows in-process. Subagent sessions use `SessionMa
 - Shared logic: `useFlowActions(session)` + `<FlowActionDialogs>`.
 - Flow list source: `useFlowCatalog(sessionId)` → `flow_catalog` (see Plugin-declared event forwarding).
 
+**Agent `flow_open` tool (add-flow-open-tool):**
+- Bridge `packages/flows-plugin/src/bridge/flow-open-tool.ts` registers pi tool `flow_open` via `pi.registerTool`.
+- Loads only where flows plugin bridge loads. pi-flows unchanged.
+- Params: exactly one of `flow` (catalog `<ns>:<name>`, runnable) or `path` (flow.yaml/flow.yml or dir directly containing one; view-only). Else `refused/invalid-arguments`.
+- `promptGuidelines`: call `flow_open` after writing/editing/inspecting a flow.
+- Bridge tracks active `runId`: `flow:flow-started` sets; `flow:complete` same `runId` clears; `session_start` resets. Active run → local `refused/flow-running`.
+- Relative `path` resolved vs tool ctx cwd.
+- Lane `requestPluginServer("flows","flow/open")`. Lane error or missing seam → `refused/unavailable`. Never throws.
+- Server `packages/flows-plugin/src/server/flow-open.ts` `registerFlowOpen`: lane `hubLocalOnly`. Session id from lane meta only.
+- `flow`: lookup `stateStore` catalog. Miss → `requestCatalog(sid,{rediscover:true})`, retried while cooldown-suppressed, poll 100 ms up to 1.5 s → else `unknown-flow`.
+- `path` admission (`locateFlowPath`): resolve vs session cwd → realpath → dir ⇒ direct `flow.yaml|flow.yml` → regular file ≤ `MAX_FILE_BYTES` (1 MiB) → confined to `realpath(cwd)` (cwd `/` handled). Refusals `path-not-allowed` / `not-a-flow`.
+- No content read before admission. Then read via host `readFileGuarded` (absent → `unavailable`).
+- Dir without direct flow → `candidates` (≤20, cwd-relative). Walk: lstat BFS depth ≤6, skip `node_modules`/`.git`, no symlink follow. Walk visits ≤2000 dirs.
+- Dir pick: first regular `flow.yaml`, else `flow.yml`. Definition must carry `steps` array, else `not-a-flow`.
+- Path equal to catalog definition (canonical; catalog `source` resolved vs cwd) → opens as catalog flow (runnable).
+- Path-opened flow files → `FlowFileRegistry.open()` (shared `flowFileRegistry`): def + code handlers + reported agents it names, each confined to cwd.
+- Registry entries survive `report()`. Dropped on session end.
+- Each `/api/plugins/flows/file` read re-realpaths (must be unchanged + inside cwd) else 403. Host routes unchanged.
+- Delivery: broadcast `flows_open {sessionId, requestId, attachment{name, source, viewOnly, baselineStartedAt: Date.now()}}`.
+- `baselineStartedAt` = call accept time, stamped before catalog rediscovery wait.
+- `frameClassOf` classes it `state`, key `flows_open:<sessionId>:<requestId>` (never shed; never coalesced; each pin acked). Owner-scoped where identity enforced.
+- Client `FlowOpenListener` (`shell-headless` claim): stores attachment per device (`flow-attach-store`).
+- Client expands panel (`setFlowCollapsed(sid,["dashboard"],false)`). Sends `flows_open_ack {sessionId, requestId}` (tier `observe`, session-owned). Dedupe 128 requestIds.
+- Server counts acks per ws over fixed 1.5 s window (pending map ≤ 64) → `shown {acks, name, path, viewOnly}` or `no-viewer`.
+- Full pending map → new call `refused/rate-limited`; never evicts an open window.
+- Rate limit 10 calls / 10 s per session (cleared on session end) → `rate-limited`.
+- One `logger.info` per call: `flow_open session=<id> kind=<flow|path> outcome=<…> reason=<…> acks=<n>`. Never file content.
+- View-only panel: no Run, no AUTO, no Edit…. Label "view only - not registered".
+- View-only definition fetched with `fetchFlowFile(..., {noHostFallback:true})`.
+- Load error adds "ask the agent to open it again" hint + Close.
+
 ### Extension UI System (Phases 1 + 2 shipped)
 
 A generalized mechanism for extensions to declare dashboard UIs as data without authoring React or importing a runtime SDK. Phase 1 (`management-modal` slot) shipped in change `add-extension-ui-modal`. Phase 2 (live in-page decorations) shipped in change `add-extension-ui-decorations`. Phase 4 RJSF is tracked in `add-extension-ui-rjsf-form`.

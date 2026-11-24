@@ -3,3 +3,5 @@
 `WS_MESSAGE_TIERS`, `wsMessageTier` (unlisted ⇒ operate), `LIVE_PREVIEW_TIER`, `TERMINAL_TIER`. WS half of the tier model. See change: add-passkey-user-auth. `provision_response: "operate"`. See change: add-access-provisioning.
 
 `remove_steering_entry`, `clear_steering_entries` → `control`. See change: bridge-owned-cancellable-steer.
+
+`flows_open_ack: "observe"` (flows-plugin pin ack; read-only viewers counted). See change: add-flow-open-tool.
