@@ -18,7 +18,7 @@ const session = (v = COOKIE): CapabilityPrincipal => ({ kind: "session", tier: "
 
 /** A free run of `n` consecutive ports. */
 async function freeRange(n: number): Promise<{ from: number; to: number }> {
-  for (let base = 21000 + Math.floor(Math.random() * 20000); ; base += n + 1) {
+  for (let base = 21000 + Math.floor(Math.random() * 10000); ; base += n + 1) {
     const servers: net.Server[] = [];
     try {
       for (let i = 0; i < n; i++) {

@@ -19,7 +19,8 @@ export { sessionKeyOf };
 
 /** A free run of `n` consecutive loopback ports. */
 export async function freeRange(n: number): Promise<{ from: number; to: number }> {
-  for (let base = 21000 + Math.floor(Math.random() * 20000); ; base += n + 1) {
+  // 21000-30999 stays below Linux's ephemeral range (32768+): the test's own client sockets would otherwise take ports of the pool mid-run.
+  for (let base = 21000 + Math.floor(Math.random() * 10000); ; base += n + 1) {
     const servers: net.Server[] = [];
     try {
       for (let i = 0; i < n; i++) {
