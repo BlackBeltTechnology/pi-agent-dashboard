@@ -150,3 +150,5 @@ Plugin context `readFileGuarded: guardedReadFile` (from `lib/dashboard-state-gua
 Registers `host.remirrorPiDefaults` + `host.defaultModelRef` from `createPiDefaultRemirror({readDashboardConfig: loadConfig})` (seeded at start, no write; `setActivePiDefaultRemirror`). See change: default-model-follows-role.
 
 - serve-live-previews-on-capability-origin (D3): `Fastify({ serverFactory: previewServerFactory(() => previewDispatch) })` hands preview-shaped Hosts to the route-less `previewApp` before any dashboard routing; `previewDispatch` is built after `registerLiveServerProxy` (shared `liveProxyDeps`), `ready()` before `listen`, `close()` in `stop()`; `onUpgrade` starts with `previewDispatch.handleUpgrade` (ahead of the host gate). The TLS listener inherits the split (it emits into `fastify.server`). See change: serve-live-previews-on-capability-origin.
+
+- serve-live-previews-on-capability-origin (D10): `createDuplicateCookieGate()` `onRequest` hook directly after `createHostGate`; `refuseDuplicateCookieUpgrade` right after the host gate in `onUpgrade`. See change: serve-live-previews-on-capability-origin.

@@ -362,6 +362,32 @@ export function formatTierSet(r: Pick<ResolvedPreviewOrigins, "tiers" | "portPoo
   return r.tiers.map((t) => (t === 3 && r.portPool ? `3(${r.portPool})` : String(t))).join(", ");
 }
 
+/** Last two DNS labels of a bare host (`a.b.example.com` → `example.com`); `null` for IPs / single labels. */
+function registrableTail(host: string): string | null {
+  const h = normalizePreviewHost(host);
+  if (!h || h.includes(":") || IPV4.test(h)) return null;
+  const labels = h.split(".");
+  return labels.length >= 2 ? labels.slice(-2).join(".") : null;
+}
+
+/**
+ * Dashboard hosts (`forHosts`) that share a parent domain with the tier-2 wildcard suffix (D10): a preview on
+ * `<label>.<suffix>` could then set a `Domain=<parent>` cookie the dashboard host also receives (cookie tossing).
+ * A heuristic with no public-suffix list — the two share their last two labels — so `co.uk`-style suffixes over-warn,
+ * which is accepted. IP literals and single-label hosts never warn. Pure; the caller decides whether tier 2 is active.
+ */
+export function previewParentDomainSharers(suffix: string, forHosts: readonly unknown[]): string[] {
+  const tail = typeof suffix === "string" ? registrableTail(suffix) : null;
+  if (!tail) return [];
+  const out: string[] = [];
+  for (const raw of forHosts) {
+    if (typeof raw !== "string") continue;
+    const host = normalizePreviewHost(raw.replace(/:\d+$/, ""));
+    if (registrableTail(host) === tail && !out.includes(host)) out.push(host);
+  }
+  return out;
+}
+
 function signature(r: ResolvedPreviewOrigins): string {
   return JSON.stringify([r.enabled, r.tiers, r.wildcard ?? null, r.portPool ?? null, r.ipDnsSuffix ?? null, r.issues.map((i) => i.message)]);
 }

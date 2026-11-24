@@ -147,3 +147,78 @@ describe("churn (P6)", () => {
     expect(lines(warn, "portPool")).toHaveLength(2);
   });
 });
+
+describe("tier-2 parent-domain warning (D10; E159, E160, X40)", () => {
+  const warns = (spy: { mock: { calls: unknown[][] } }) => lines(spy, "shares a parent domain");
+  const withWildcard = (suffix: string, forHosts: unknown[], enabled = true) =>
+    write({ liveServer: { previewOrigins: { enabled, wildcard: { suffix, forHosts, scheme: "https" } } } });
+
+  it("E159: warns exactly in the heuristic cases, one line per offending host", () => {
+    const table: Array<[string, string[], string[]]> = [
+      ["preview.example.com", ["dash.example.com"], ["dash.example.com"]],
+      ["example-preview.net", ["dash.example.com"], []],
+      ["preview.dash.example.com", ["dash.example.com"], ["dash.example.com"]],
+      ["a.co.uk", ["b.co.uk"], ["b.co.uk"]], // over-warn accepted
+      ["PREVIEW.Example.com", ["dash.example.com."], ["dash.example.com"]],
+      ["preview.example.com", ["dash.example.com", "other.org"], ["dash.example.com"]],
+      ["preview.example.com", ["dash.example.com:8443"], []], // a port is invalid in forHosts: tier 2 is disabled by validation, nothing to warn about
+      ["preview.example.com", ["192.168.1.5", "localhost"], []],
+    ];
+    for (const [suffix, hosts, expected] of table) {
+      resetConfigSnapshot();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      withWildcard(suffix, hosts);
+      getResolvedPreviewOrigins();
+      expect(warns(warn).map((c) => String(c[0]).match(/with (\S+):/)?.[1]), `${suffix} ${hosts}`).toEqual(expected);
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("E159: no warning when tier 2 is invalid, or previews are disabled", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    withWildcard("preview.example.com", ["dash.example.com"], false);
+    getResolvedPreviewOrigins();
+    expect(warns(warn)).toHaveLength(0);
+    resetConfigSnapshot();
+    withWildcard("*.bad suffix", ["dash.example.com"]);
+    getResolvedPreviewOrigins();
+    expect(warns(warn)).toHaveLength(0);
+  });
+
+  it("E160: warns on the change that creates the share and on a new forHosts entry; not on an unchanged rewrite or after a revert", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    withWildcard("example-preview.net", ["dash.example.com"]);
+    getResolvedPreviewOrigins();
+    expect(warns(warn)).toHaveLength(0);
+    withWildcard("preview.example.com", ["dash.example.com"]);
+    getResolvedPreviewOrigins();
+    expect(warns(warn)).toHaveLength(1);
+    withWildcard("preview.example.com", ["dash.example.com"]); // unchanged rewrite
+    getResolvedPreviewOrigins();
+    expect(warns(warn)).toHaveLength(1);
+    withWildcard("preview.example.com", ["dash.example.com", "dash2.example.com"]);
+    getResolvedPreviewOrigins();
+    expect(warns(warn)).toHaveLength(3); // one line per offending host on this effective change
+    withWildcard("example-preview.net", ["dash.example.com"]); // revert
+    getResolvedPreviewOrigins();
+    expect(warns(warn)).toHaveLength(3);
+  });
+
+  it("X40: malformed forHosts / unparseable suffix never crash or warn", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    for (const [suffix, hosts] of [
+      ["preview.example.com", [42, null, "", "https://dash.example.com"]],
+      ["", ["dash.example.com"]],
+      ["not a suffix", [{}]],
+    ] as Array<[string, unknown[]]>) {
+      resetConfigSnapshot();
+      withWildcard(suffix, hosts);
+      expect(() => getResolvedPreviewOrigins()).not.toThrow();
+    }
+    expect(warns(warn)).toHaveLength(0);
+  });
+});

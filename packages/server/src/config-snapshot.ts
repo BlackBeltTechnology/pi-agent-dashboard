@@ -27,6 +27,7 @@ import {
   type PreviewOriginsIssue,
   parsePreviewOrigins,
   previewOriginsConfigChanged,
+  previewParentDomainSharers,
   type ResolvedPreviewOrigins,
   resolvePreviewOrigins,
 } from "@blackbelt-technology/pi-dashboard-shared/preview-origins.js";
@@ -269,6 +270,19 @@ function safeList(fn: (() => string[]) | undefined): string[] {
 }
 
 /**
+ * Cookie-tossing surface exists only while tier 2 is active (D10, Q21): warn per `forHosts` entry sharing a parent
+ * domain with the wildcard suffix. Called from the change-only logging block, so boot and every effective change.
+ */
+function warnParentDomainShare(value: ResolvedPreviewOrigins): void {
+  if (!(value.enabled && value.tiers.includes(2) && value.wildcard)) return;
+  for (const host of previewParentDomainSharers(value.wildcard.suffix, value.wildcard.forHosts)) {
+    console.warn(
+      `[live-preview] wildcard suffix shares a parent domain with ${host}: previews can set Domain= cookies the dashboard also receives; use a separate registrable domain`,
+    );
+  }
+}
+
+/**
  * `liveServer.previewOrigins` as resolved against live server state. Live (no restart); the
  * result is memoised per config stamp + runtime epoch, so a steady-state read is one `stat`.
  * Logs `[live-preview] tiers: …` and every issue at boot and afterwards only when the validation
@@ -310,6 +324,7 @@ export function getResolvedPreviewOrigins(): ResolvedPreviewOrigins {
     lastLoggedPo = value;
     for (const issue of value.issues) console.warn(`[live-preview] config: ${issue.message}`);
     console.log(`[live-preview] tiers: ${value.enabled ? formatTierSet(value) : "legacy path only (previewOrigins.enabled=false)"}`);
+    warnParentDomainShare(value);
   }
   if (prev && previewOriginsConfigChanged(prev, value)) {
     for (const cb of previewOriginsListeners) {

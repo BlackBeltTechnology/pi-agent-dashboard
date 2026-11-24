@@ -139,6 +139,7 @@ import { UserDirectory } from "./auth/passkey/user-directory.js";
 import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
 import { isServerTrusted } from "./auth/plugin-server-trust.js";
+import { createDuplicateCookieGate, refuseDuplicateCookieUpgrade } from "./auth/duplicate-cookie-gate.js";
 import { bearerChannelOf, isProvenTls } from "./auth/proven-tls.js";
 import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
 import { hasAnthropicCredential, readAuthJson } from "./auth/provider-auth-storage.js";
@@ -2403,6 +2404,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Origin at all). Report-only default; `PI_DASHBOARD_HOST_GATE=enforce`
   // or `hostGate.mode` flips it. See change: add-host-allowlist-admission (D1).
   fastify.addHook("onRequest", createHostGate(getHostGateCtx, hostGateState, () => config.port));
+  // Duplicate `pi_dash_*` cookie names → self-healing 400, directly after the host gate and before the CORS
+  // observer / `@fastify/cors`, so the refusal carries no ACAO and precedes every origin gate. previewApp is exempt
+  // by construction (own Fastify instance). See change: serve-live-previews-on-capability-origin (D10).
+  fastify.addHook("onRequest", createDuplicateCookieGate());
   // A denied cross-origin Origin may raise a DEFERRED cors-plane prompt; after
   // the host gate so a host-refused request never prompts. Never alters the
   // response. See change: add-access-grant-dialog.
@@ -4953,6 +4958,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           socket.destroy();
           return;
         }
+
+        // Duplicate `pi_dash_*` cookie names: 400 + expiry lines before any Origin gate or ticket (D10).
+        if (refuseDuplicateCookieUpgrade(request, socket)) return;
 
         // Access check for WebSocket upgrades
         const remoteAddress = request.socket.remoteAddress || "";
