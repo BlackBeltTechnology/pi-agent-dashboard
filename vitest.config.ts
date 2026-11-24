@@ -131,6 +131,8 @@ export default defineConfig({
       // team-plugin (change: add-team-plugin): personas, project teams, conversations and the
       // isolation guard. Its suites gate owner isolation and path confinement.
       "packages/team-plugin",
+      // agent-teams-plugin (change: add-agent-teams-core): team store, lane handlers, faux-pi-rpc harness.
+      "packages/agent-teams-plugin",
       // team-app (change: add-team-plugin): the Csapat SPA — grid, selector, editor, conversations.
       "packages/team-app",
       // Owns the pi-mcp-adapter config surface + version floor. See change:

@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.11.0",
+    "@blackbelt-technology/pi-dashboard-agent-teams-plugin": "^0.11.0",
     "@blackbelt-technology/pi-dashboard-apple-tools": "^0.11.0",
     "@blackbelt-technology/pi-dashboard-automation-plugin": "^0.11.0",
     "@blackbelt-technology/pi-dashboard-blackhole-plugin": "^0.11.0",

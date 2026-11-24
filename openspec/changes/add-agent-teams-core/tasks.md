@@ -1,20 +1,20 @@
 ## 1. Package skeleton and plugin registrations
 
-- [ ] 1.1 Create `packages/agent-teams-plugin/package.json` (name `@blackbelt-technology/pi-dashboard-agent-teams-plugin`, `type: module`, `publishConfig.access: public`, `files` mirroring `packages/goal-plugin/package.json`, deps on `@blackbelt-technology/dashboard-plugin-runtime` and `@blackbelt-technology/pi-dashboard-shared` at the current workspace version, `@fastify/rate-limit`, peer deps fastify/react/react-dom/wouter)
-- [ ] 1.2 Add the `pi-dashboard-plugin` manifest: `id: "agent-teams"`, `displayName`, `priority: 100`, `server`, `bridge`, `client`, `configSchema`, `i18nCatalog: "catalog"`, `claims: []`, `emits: ["agent-teams:mail","agent-teams:team_closed"]`
-- [ ] 1.3 Create the empty entry files (`src/server/index.ts`, `src/bridge/index.ts`, `src/client/index.tsx` stub barrel first so the client `prepare` step passes) and `README.md`
-- [ ] 1.4 Write `src/configSchema.json` with the settings listed in the runtime spec and their defaults
-- [ ] 1.5 Add the package name `@blackbelt-technology/pi-dashboard-agent-teams-plugin` to `.github/workflows/publish.yml` PACKAGES
-- [ ] 1.6 Add `agent-teams-plugin` to `packages/server/package.json#piDashboard.bundledPlugins`
-- [ ] 1.7 Add the package to `packages/client/package.json` dependencies and regenerate and commit `packages/client/src/generated/plugin-registry.tsx` and `plugin-sources.css` (no hand-written `@source` line)
-- [ ] 1.8 Add `packages/agent-teams-plugin` to root `vitest.config.ts` `projects` with a package `vitest.config.ts`
-- [ ] 1.9 Add a `packages/agent-teams-plugin` workspace to `knip.json` (entries: client/server/bridge entries, vitest config, tests)
-- [ ] 1.10 Add the `GET /api/plugins/agent-teams/teams` and `GET /api/plugins/agent-teams/teams/:id` rows to `packages/shared/src/route-tiers.ts` (tier `observe`)
-- [ ] 1.11 Add a `/api/plugins/agent-teams/` pattern with reason to `packages/mcp-server-plugin/src/server/tools.denylist.ts`
-- [ ] 1.12 Add the documented walk exclusion for `agent-teams-plugin/src/(server|bridge)` in `scripts/i18n-lint.mjs` (model-facing strings), keep the client subtree scanned
-- [ ] 1.13 Run `pnpm install --prefer-offline` and confirm the registration contract checks pass: bundled-plugins-complete, publish-allowlist-complete, publish-tarball-hygiene, no-direct-child-process, no-direct-process-kill, mcp-manifest-completeness, `assert-bundled-plugins-complete.mjs`
-- [ ] 1.14 Add a manifest contract check that every event type the plugin emits is listed in its manifest `emits` (later changes may add entries)
-- [ ] 1.15 Create the test infrastructure named in test-plan.md: the faux-pi-rpc vitest harness (`packages/agent-teams-plugin/src/__tests__/harness/`, N `pi --mode rpc` processes with scripted `fauxProvider` policies and the real bridge entry against an in-process store/lane stub), the injected clock + fake host `ctx` (`emitEventToSession`, `spawnSession`, `abortSession`, `shutdownSession`, `getPluginConfig`), `qa/tests/60-agent-teams-core.sh` and `tests/e2e/agent-teams-core.spec.ts` skeletons
+- [x] 1.1 Create `packages/agent-teams-plugin/package.json` (name `@blackbelt-technology/pi-dashboard-agent-teams-plugin`, `type: module`, `publishConfig.access: public`, `files` mirroring `packages/goal-plugin/package.json`, deps on `@blackbelt-technology/dashboard-plugin-runtime` and `@blackbelt-technology/pi-dashboard-shared` at the current workspace version, `@fastify/rate-limit`, peer deps fastify/react/react-dom/wouter)
+- [x] 1.2 Add the `pi-dashboard-plugin` manifest: `id: "agent-teams"`, `displayName`, `priority: 100`, `server`, `bridge`, `client`, `configSchema`, `i18nCatalog: "catalog"`, `claims: []`, `emits: ["agent-teams:mail","agent-teams:team_closed"]`
+- [x] 1.3 Create the empty entry files (`src/server/index.ts`, `src/bridge/index.ts`, `src/client/index.tsx` stub barrel first so the client `prepare` step passes) and `README.md`
+- [x] 1.4 Write `src/configSchema.json` with the settings listed in the runtime spec and their defaults
+- [x] 1.5 Add the package name `@blackbelt-technology/pi-dashboard-agent-teams-plugin` to `.github/workflows/publish.yml` PACKAGES
+- [x] 1.6 Add `agent-teams-plugin` to `packages/server/package.json#piDashboard.bundledPlugins`
+- [x] 1.7 Add the package to `packages/client/package.json` dependencies and regenerate and commit `packages/client/src/generated/plugin-registry.tsx` and `plugin-sources.css` (no hand-written `@source` line)
+- [x] 1.8 Add `packages/agent-teams-plugin` to root `vitest.config.ts` `projects` with a package `vitest.config.ts`
+- [x] 1.9 Add a `packages/agent-teams-plugin` workspace to `knip.json` (entries: client/server/bridge entries, vitest config, tests)
+- [x] 1.10 Add the `GET /api/plugins/agent-teams/teams` and `GET /api/plugins/agent-teams/teams/:id` rows to `packages/shared/src/route-tiers.ts` (tier `observe`)
+- [x] 1.11 Add a `/api/plugins/agent-teams/` pattern with reason to `packages/mcp-server-plugin/src/server/tools.denylist.ts`
+- [x] 1.12 Add the documented walk exclusion for `agent-teams-plugin/src/(server|bridge)` in `scripts/i18n-lint.mjs` (model-facing strings), keep the client subtree scanned
+- [x] 1.13 Run `pnpm install --prefer-offline` and confirm the registration contract checks pass: bundled-plugins-complete, publish-allowlist-complete, publish-tarball-hygiene, no-direct-child-process, no-direct-process-kill, mcp-manifest-completeness, `assert-bundled-plugins-complete.mjs`
+- [x] 1.14 Add a manifest contract check that every event type the plugin emits is listed in its manifest `emits` (later changes may add entries)
+- [x] 1.15 Create the test infrastructure named in test-plan.md: the faux-pi-rpc vitest harness (`packages/agent-teams-plugin/src/__tests__/harness/`, N `pi --mode rpc` processes with scripted `fauxProvider` policies and the real bridge entry against an in-process store/lane stub), the injected clock + fake host `ctx` (`emitEventToSession`, `spawnSession`, `abortSession`, `shutdownSession`, `getPluginConfig`), `qa/tests/60-agent-teams-core.sh` and `tests/e2e/agent-teams-core.spec.ts` skeletons
 
 ## 2. Shared protocol, store and identity
 

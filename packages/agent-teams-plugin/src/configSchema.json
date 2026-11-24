@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Agent teams plugin configuration",
+  "description": "Per-plugin (global) limits, rates, timeouts and TTLs for the agent-teams plugin. All caps are read via ctx.getPluginConfig. See change: add-agent-teams-core.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "maxTeammates": {
+      "type": "integer",
+      "default": 5,
+      "description": "Maximum teammates per team (clamped into 1-10). Counted synchronously before any await.",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "maxActiveTeams": {
+      "type": "integer",
+      "default": 3,
+      "description": "Maximum concurrently active teams across the server.",
+      "minimum": 1
+    },
+    "maxTasks": {
+      "type": "integer",
+      "default": 50,
+      "description": "Maximum NON-completed tasks per team (task ids keep increasing).",
+      "minimum": 1
+    },
+    "maxMessageChars": {
+      "type": "integer",
+      "default": 8000,
+      "description": "Maximum characters in one mail text (UTF-16 units).",
+      "minimum": 1
+    },
+    "maxResultChars": {
+      "type": "integer",
+      "default": 4000,
+      "description": "Maximum characters in a task result (truncation marker appended).",
+      "minimum": 1
+    },
+    "maxFinalTextChars": {
+      "type": "integer",
+      "default": 2000,
+      "description": "Maximum characters of a teammate's final text carried in the idle report.",
+      "minimum": 1
+    },
+    "mailRatePerMin": {
+      "type": "integer",
+      "default": 6,
+      "description": "Per-sender mail rate limit (token bucket, mails per minute).",
+      "minimum": 1
+    },
+    "pairExchangeLimit": {
+      "type": "integer",
+      "default": 10,
+      "description": "Per-pair loop breaker: mails between the same two members with no task state change in between before rate_limited.",
+      "minimum": 1
+    },
+    "maxMailLogBytes": {
+      "type": "integer",
+      "default": 2097152,
+      "description": "Mail-log size (bytes) that triggers compaction (keeps every unacked entry plus the newest until at most 50% of the cap).",
+      "minimum": 1024
+    },
+    "closedRetentionDays": {
+      "type": "integer",
+      "default": 7,
+      "description": "Days a closed team file is kept before pruning at startup.",
+      "minimum": 0
+    },
+    "wakeConfirmMs": {
+      "type": "integer",
+      "default": 15000,
+      "description": "Provisional-busy confirmation window after a waking mail.",
+      "minimum": 0
+    },
+    "urgentSettleWaitMs": {
+      "type": "integer",
+      "default": 2500,
+      "description": "How long an urgent mail waits for the aborted member's settle report before emitting.",
+      "minimum": 0
+    },
+    "notifyCoalesceMs": {
+      "type": "integer",
+      "default": 2000,
+      "description": "Window over which lead notices are coalesced into one agent-teams-notice mail.",
+      "minimum": 0
+    },
+    "spawnTimeoutMs": {
+      "type": "integer",
+      "default": 30000,
+      "description": "Bind + guarded hello + spawn_prompt ack deadline for a spawned member.",
+      "minimum": 1000
+    },
+    "shutdownGraceMs": {
+      "type": "integer",
+      "default": 10000,
+      "description": "Grace for a member's final turn after an approved shutdown before the host shutdown call.",
+      "minimum": 0
+    },
+    "reconcileGraceMs": {
+      "type": "integer",
+      "default": 30000,
+      "description": "Startup wait for hello/onSessionResolved re-binds before reconciling members as disconnected.",
+      "minimum": 0
+    },
+    "orphanTtlMs": {
+      "type": "integer",
+      "default": 1800000,
+      "description": "A lead absent this long closes the team (closeReason orphan_ttl); sessions are left untouched.",
+      "minimum": 0
+    },
+    "opGateBudgetMs": {
+      "type": "integer",
+      "default": 12000,
+      "description": "Total budget for registered op gates per call (must stay inside the 15 s lane timeout).",
+      "minimum": 0,
+      "maximum": 14000
+    },
+    "autoDispatch": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically hand pending tasks to idle members. Per-team override in Team.overrides."
+    },
+    "extraCwdRoots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Additional absolute directory roots a per-member cwd may live under, besides the lead's cwd."
+    }
+  }
+}

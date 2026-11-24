@@ -13,6 +13,7 @@ One row per file.
 | `agent-credential-refusal.spec.ts` | → `agent-credential-refusal.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → `agent-path-gate.spec.ts.AGENTS.md` |
 | `agent-secret-guards.spec.ts` | → `agent-secret-guards.spec.ts.AGENTS.md` |
+| `agent-teams-core.spec.ts` | L3 SKELETON (add-agent-teams-core 1.15, test-plan S133/S134): `test.fixme` rows for teammate-session-visible and orphan/restart card state; need a faux-scripted lead (TeamCreate/TeammateSpawn). Port from `BASE_URL`, never `:18000`. |
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → `archived-attachment.spec.ts.AGENTS.md` |
