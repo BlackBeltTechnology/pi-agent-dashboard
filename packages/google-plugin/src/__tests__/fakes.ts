@@ -317,7 +317,7 @@ export function makeHarness(opts: HarnessOptions = {}) {
       };
       const login = s.loginFlow.login(ix);
       login.catch(() => {});
-      for (let n = 0; n < 50 && !events.some((e) => e.type === "auth_url"); n++) await new Promise((r) => setTimeout(r, 1));
+      for (const deadline = Date.now() + 10_000; Date.now() < deadline && !events.some((e) => e.type === "auth_url"); ) await new Promise((r) => setTimeout(r, 1));
       const url = new URL(events.find((e) => e.type === "auth_url")?.url as string);
       nonce = url.searchParams.get("nonce") ?? "";
       aud = url.searchParams.get("client_id") ?? "";

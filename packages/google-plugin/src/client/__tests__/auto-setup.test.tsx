@@ -455,12 +455,15 @@ describe("test-plan #F4 — hand-off opens the manual wizard at the failed step"
     });
     await renderSettings();
     const note = await screen.findByTestId("google-setup-handoff");
-    expect(screen.getByTestId("google-guided")).toBeTruthy();
-    expect(screen.getByTestId("google-guided-toggle").getAttribute("aria-expanded")).toBe("true");
-    const current = [...document.querySelectorAll('[aria-current="step"]')].map((e) => (e as HTMLElement).dataset.testid);
-    expect(current).toEqual(["google-step-4"]);
-    expect((screen.getByTestId("google-project-id") as HTMLInputElement).value).toBe("acme-pi-connect");
-    expect((screen.getByTestId("google-owner-account") as HTMLInputElement).value).toBe("owner@gmail.com");
+    // The wizard opens / fills itself a render after the hand-off note appears: wait for it, never assume the tick.
+    await waitFor(() => {
+      expect(screen.getByTestId("google-guided")).toBeTruthy();
+      expect(screen.getByTestId("google-guided-toggle").getAttribute("aria-expanded")).toBe("true");
+      const current = [...document.querySelectorAll('[aria-current="step"]')].map((e) => (e as HTMLElement).dataset.testid);
+      expect(current).toEqual(["google-step-4"]);
+      expect((screen.getByTestId("google-project-id") as HTMLInputElement).value).toBe("acme-pi-connect");
+      expect((screen.getByTestId("google-owner-account") as HTMLInputElement).value).toBe("owner@gmail.com");
+    });
     expect(within(note).getByTestId("google-setup-handoff-reason").textContent).toBe(ERROR_EN.handoffSecretCaptureFailed);
     expect(within(note).getByTestId("google-setup-created").textContent).toContain("pi-dashboard-2");
     expect(within(note).getByTestId("google-setup-created").textContent).toContain("acme-pi-connect");

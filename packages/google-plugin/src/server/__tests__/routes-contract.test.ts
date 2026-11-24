@@ -63,7 +63,8 @@ async function begin(h: H, i = h.started.length - 1) {
     () => (settled.done = true),
     () => (settled.done = true),
   );
-  for (let n = 0; n < 500 && !events.some((e) => e.type === "auth_url"); n++) await new Promise((r) => setImmediate(r));
+  // setImmediate (not setTimeout): a few cases run under fake timers. A slow CI box needs far more turns than a laptop.
+  for (let n = 0; n < 50_000 && !events.some((e) => e.type === "auth_url"); n++) await new Promise((r) => setImmediate(r));
   const url = new URL(events.find((e) => e.type === "auth_url")?.url as string);
   const state = url.searchParams.get("state") as string;
   return {
