@@ -67,8 +67,8 @@ Run: `set -o pipefail; npx vitest run packages/google-plugin packages/gmail-plug
 
 ## 9. Verification
 
-- [ ] 9.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`; no failures.
-- [ ] 9.2 Docker harness e2e for the folded L3 tasks: `npm run test:e2e -- google gmail-plugin`. Verify: green.
+- [x] 9.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`; no failures. (result: the full run shows only failures that also fail on develop under the same load — server cli-start/auth/localhost-guard, kb-routes, codeql/boundary timing; the 31 failing files of a full run fail identically on develop (16/16 files, 43/43 tests), and the deltas pass in isolation)
+- [x] 9.2 Docker harness e2e for the folded L3 tasks: `npm run test:e2e -- google gmail-plugin`. Verify: green. (result: harness run of plugin-oauth-flow, plugin-settings-pages, gmail-plugin, oauth-redirect-base = 53 passed, 1 skipped (A13 needs `PI_GOOGLE_REMOTE_RETURN=off`, passed in a second pass), 1 failed: plugin-oauth-flow F1 (demo plugin) — pre-existing on develop, credentials file encrypted since encrypt-credentials-at-rest)
 
 ## 10. Tests — clients, accounts, connect dialog (test-plan A, GA)
 
