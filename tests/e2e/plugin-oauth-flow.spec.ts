@@ -143,7 +143,10 @@ test.describe("plugin bridge request lane via the demo plugin", () => {
  * route for `https://pi-dashboard.dev`; the Google window is resolved by the fake inside the container.
  */
 test.describe("google connect dialog (L3)", () => {
-  const cid = googleContainerId();
+  let cid = "";
+  test.beforeAll(() => {
+    cid = googleContainerId(); // lazily: `playwright test --list` loads this file without a harness
+  });
 
   test.beforeEach(async ({ page }) => {
     await gotoDashboard(page);

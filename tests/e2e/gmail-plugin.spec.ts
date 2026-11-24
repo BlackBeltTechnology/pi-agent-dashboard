@@ -61,7 +61,10 @@ test("harden-bridge-session-claim BE106: a paired-device session gets origin_den
  * through the in-container fake Google); Gmail's own settings page is only a pointer to it.
  */
 test.describe("google accounts: product changes and the Gmail pointer (L3)", () => {
-  const cid = googleContainerId();
+  let cid = "";
+  test.beforeAll(() => {
+    cid = googleContainerId(); // lazily: `playwright test --list` loads this file without a harness
+  });
 
   let flows: string[] = [];
   test.beforeEach(async ({ page }) => {

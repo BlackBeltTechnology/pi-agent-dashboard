@@ -425,7 +425,10 @@ test.describe("plugin settings pages (L3)", () => {
  * `builtin-remote` placeholder (`PI_E2E_GOOGLE_BUILTIN=1`, docker/test-up.sh).
  */
 test.describe("google accounts settings (L3)", () => {
-  const cid = containerId();
+  let cid = "";
+  test.beforeAll(() => {
+    cid = containerId(); // lazily: `playwright test --list` loads this file without a harness
+  });
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("dashboard:settings-plugins-expanded", "true"));
