@@ -15,7 +15,7 @@ const CHROMIUM_RULES = "MAP *.preview.test 127.0.0.1, MAP dash.test 127.0.0.1, M
 
 const test = base.extend<object, { launchOptions: Record<string, unknown> }>({
   launchOptions: [
-    async ({ browserName, launchOptions }, use) => {
+    async ({ browserName, launchOptions }: { browserName: string; launchOptions: unknown }, use: (value: unknown) => Promise<void>) => {
       const lo = launchOptions as Record<string, unknown>;
       await use(
         browserName === "firefox"
@@ -24,7 +24,7 @@ const test = base.extend<object, { launchOptions: Record<string, unknown> }>({
       );
     },
     { scope: "worker", option: true },
-  ],
+  ] as never,
 });
 test.use({ dashHost: "dash5.test" });
 

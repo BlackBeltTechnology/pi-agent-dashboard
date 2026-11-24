@@ -49,7 +49,7 @@ test("T.F53 / #F53 opaque degrade: lists and panes render, the notice names what
   await expect(note).toContainText(/pane-height memory/i);
   await expect(note).toContainText(/find-in-frame/i);
   await expect(note).toContainText(/highlight sync/i);
-  const a = page.frames().find((f) => f.url() === `${mock.url}/`) as Frame;
+  const a = page.frames().find((f) => f.url() === `${mock?.url}/`) as Frame;
   expect(await a.evaluate(() => window.origin), "the shell really is opaque").toBe("null");
   expect(await a.evaluate(() => { try { localStorage.getItem("x"); return "readable"; } catch { return "blocked"; } })).toBe("blocked");
   // Highlights still toggles for this page view (no storage involved).
@@ -66,8 +66,8 @@ test("T.F53 / #F53 opaque degrade: lists and panes render, the notice names what
   const real = page.frameLocator("#a");
   await expect(real.locator(".mk-frame")).toHaveCount(3, { timeout: 30_000 });
   await expect(real.getByTestId("mk-opaque-note")).toHaveCount(0);
-  const b = page.frames().find((f) => f.url() === `${mock.url}/`) as Frame;
-  expect(await b.evaluate(() => window.origin)).toBe(mock.url);
+  const b = page.frames().find((f) => f.url() === `${mock?.url}/`) as Frame;
+  expect(await b.evaluate(() => window.origin)).toBe(mock?.url);
   await real.getByLabel("Highlights").uncheck();
   expect(await b.evaluate(() => localStorage.getItem("mk-rings")), "storage works on a real origin").toBe("off");
   await page.reload();
@@ -83,7 +83,7 @@ test("T.F54 / #F54 message source checks: a sibling frame's forged missing repor
   await expect(shell.locator(".mk-frame")).toHaveCount(4, { timeout: 30_000 });
   for (const el of await shell.locator(".mk-pane").all()) await el.scrollIntoViewIfNeeded();
   await shell.locator(`[id="r-${LP_MOCK}/4/proposed"]`).scrollIntoViewIfNeeded();
-  const a = page.frames().find((f) => f.url() === `${mock.url}/`) as Frame;
+  const a = page.frames().find((f) => f.url() === `${mock?.url}/`) as Frame;
   const forger = page.frames().find((f) => f.url() === "about:srcdoc") as Frame;
   expect(await forger.evaluate(() => window.origin), "the forger is a sibling opaque frame").toBe("null");
 
