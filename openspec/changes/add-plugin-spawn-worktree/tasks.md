@@ -1,18 +1,61 @@
-## 1. Extract the shared create-or-reuse function
+## 1. `ensureWorktree` (server)
 
-- [ ] 1.1 Write failing tests for `ensureWorktree`: create, reuse, fail-on-exists, not_git, branch_invalid (`../x`, invalid ref chars), git failure mapping
-- [ ] 1.2 Extract `ensureWorktree` from the `POST /api/git/worktree` handler (D1, D3); route keeps byte-identical responses (existing route tests stay green)
-- [ ] 1.3 Add per-repo mutex; failing test: two concurrent reuse calls create exactly one worktree (D4)
+- [ ] 1.1 Add `packages/server/src/git-worktree/ensure-worktree.ts`: `ensureWorktree({ cwd, branch, base?, ifExists })` over `listWorktrees` + `addWorktree`, with the resolution steps of design D1 (bare-name match, stale-registration prune, main-checkout refusal, local/remote/new branch), the check order and never-throw rule of D1, the `checkTarget` callback run before any git write, D3 shape checks, admission (`admitRouteCwd` with the route's known-folder set + directory check, released in `finally`) and validation (`isValidRefArg` first, `git check-ref-format --branch`, `@{` rejected; `rev-parse --verify` for `base` only in D1 step 4), reuse containment under `<main>/.worktrees/`, and the D5 code mapping
+- [ ] 1.2 Add a per-repo async mutex keyed by the resolved `git rev-parse --git-common-dir`, held from the worktree list to the end of `addWorktree`; `POST /api/git/worktree` takes the same lock around its `addWorktree` call with unchanged responses (design D4)
 
-## 2. Plugin SDK + host hook
+## 2. Plugin SDK
 
-- [ ] 2.1 Add `PluginSpawnOptions.worktree` and worktree fields on `PluginSpawnResult`; mapper sanitizes the block (non-object → absent)
-- [ ] 2.2 Write failing tests: block present → session cwd is the worktree; bare `mode: "worktree"` → legacy local; untrusted plugin → refused
-- [ ] 2.3 Implement the host hook branch in `server.ts` calling `ensureWorktree` then the shared post-create wiring (D5)
-- [ ] 2.4 Write failing tests: `attachChange` attaches on register; untrusted init hook does not run; trusted + auto-init runs
-- [ ] 2.5 Log create/reuse/failure with branch and reason code
+- [ ] 2.1 In `packages/dashboard-plugin-runtime/src/server/server-context.ts`, add `PluginSpawnOptions.worktree?: { branch: string; base?: string; ifExists: "reuse" | "fail"; attachChange?: string }` and `PluginSpawnResult` fields `code?`, `worktreePath?`, `branch?`, `created?`; the mapper does not copy the block into session options (the host reads `opts.worktree` raw for the D3 shape check); update the `mode` comment (`:378-384`) and document that a success without `worktreePath` means "not in a worktree" (older hosts)
 
-## 3. Docs + verification
+## 3. Host hook
 
-- [ ] 3.1 Update AGENTS.md rows (`server-context.ts`, `git-worktree/`, `server.ts` sidecar); DocScribe note in `docs/architecture.md` plugin-spawn section
-- [ ] 3.2 Full test run; manual check spawning a worktree session from a test plugin action
+- [ ] 3.0 Move the worktree branch of the `spawnSession` hook into `packages/server/src/spawn-process/plugin-spawn-worktree.ts` with injected deps (`ensureWorktree`, registries, `startWorktreeInit`, spawn, watchdog, PID registry, preference read) so L1 can drive it; `server.ts` wires the real deps
+- [ ] 3.1 In the `spawnSession` hook (`packages/server/src/server.ts:4351`), when `mode === "worktree"` and a `worktree` block is present: call `ensureWorktree` (with the D6 policy `checkTarget`) right after option validation and BEFORE `pendingPluginRefRegistry.file` and the initial-prompt enqueue; on failure return `{ success: false, code, message }` with nothing filed; on success use `spawnCwd = worktreePath` for the prompt enqueue/withdraw, `spawnPiSession`/`spawnAcpSession`, `armSpawnWatchdog` and the headless PID registry; keep the warning only for a bare `mode: "worktree"` (design D6)
+- [ ] 3.2 Enqueue `attachChange` on `pendingAttachRegistry` keyed by `spawnCwd` before the spawn and withdraw it when the spawn fails; a `false` enqueue adds the D6 `warning`; write no `gitWorktreeBase` (design D6)
+- [ ] 3.3 Extract the run body of `POST /api/git/worktree/init` (`routes/git-routes.ts:596-688`) into a shared `startWorktreeInit(cwd, { confirmHash?, skipIfRunning? })`; the route passes no `skipIfRunning` and keeps byte-identical responses. For a created or reused worktree with `autoInitWorktreeOnSpawn` on, the hook calls it without `confirmHash`, with `skipIfRunning: true`, before filing intents, and awaits it; failure returns `init_failed` with no spawn; `init_untrusted` proceeds (design D6)
+- [ ] 3.4 Log one line per worktree spawn (design D7)
+
+## 4. Docs and verification
+
+- [ ] 4.1 Update AGENTS.md rows: `git-worktree/ensure-worktree.ts` (new), the shared init starter, `routes/git-routes.ts`, `server-context.ts`, the `server.ts` sidecar; DocScribe note in `docs/architecture.md` plugin-spawn section
+- [ ] 4.2 `openspec validate add-plugin-spawn-worktree --strict`; full test run
+
+## 5. Tests (folded from test-plan.md)
+
+L1 vitest under `packages/server/src/__tests__/`. Write each test before its implementation task and confirm it fails first.
+
+- [ ] 5.1 R1 create — state (no branch) (test-plan #E1), see `packages/server/src/__tests__/git-operations.test.ts`: input temp repo on `develop`, no `os/add-x` anywhere · trigger `ensureWorktree({branch:"os/add-x", ifExists:"reuse"})` · observable `ok`, `created:true`, path `<repo>/.worktrees/os-add-x`, `git -C path rev-parse --abbrev-ref HEAD` = `os/add-x`, HEAD = `develop`'s commit, `.git/info/exclude` contains `.worktrees/`
+- [ ] 5.2 R1 reuse — state (registered worktree) (test-plan #E2), see `packages/server/src/__tests__/git-operations.test.ts`: input E1 result present · trigger second `ensureWorktree` same args · observable `ok`, `created:false`, same path; `git worktree list` count unchanged
+- [ ] 5.3 R1 local branch — state (branch, no worktree) (test-plan #E3), see `packages/server/src/__tests__/git-operations.test.ts`: input local `os/add-x` one commit ahead of `develop`, no worktree · trigger `ensureWorktree` · observable `created:true`, worktree HEAD = that branch's commit (not `develop`)
+- [ ] 5.4 R1 origin only — state (remote-only branch) (test-plan #E4), see `packages/server/src/__tests__/git-operations.test.ts`: input bare remote `origin` has `os/add-x`; local clone has only `refs/remotes/origin/os/add-x` · trigger `ensureWorktree` · observable worktree on local `os/add-x` at `origin/os/add-x`'s commit
+- [ ] 5.5 R1 stale registration — state (`exists:false`) (test-plan #E5), see `packages/server/src/__tests__/git-operations.test.ts`: input worktree for `os/add-x` registered, its dir deleted · trigger `ensureWorktree` reuse · observable `git worktree prune` ran; new worktree created; `created:true`
+- [ ] 5.6 R1 base ignored on reuse — decision table (base × existing) (test-plan #E6), see `packages/server/src/__tests__/git-operations.test.ts`: input E2 state, `base:"no-such-ref"` · trigger `ensureWorktree` reuse · observable `ok`, `created:false` (no `base_not_found`)
+- [ ] 5.7 R2 fail policy — decision table (ifExists × exists) (test-plan #E7), see `packages/server/src/__tests__/git-operations.test.ts`: input E1 result present · trigger `ensureWorktree({ifExists:"fail"})` · observable `{ok:false, code:"exists"}`, worktree count unchanged
+- [ ] 5.8 R6 untrusted — decision table (priority) (test-plan #E8), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input plugin manifest `priority: 500`, valid block · trigger hook `spawnSession` · observable `success:false`; `ensureWorktree` stub not called; spawn stub not called
+- [ ] 5.9 R3 legacy mode — decision table (mode × block) (test-plan #E9), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input `mode:"worktree"`, no `worktree` key · trigger hook `spawnSession` · observable spawn stub called with `opts.cwd`; `ensureWorktree` stub not called
+- [ ] 5.10 R4 cwd rekey — state (intents) (test-plan #E10), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input valid block, `initialPrompt:"/skill:ship-it"`, `attachChange:"add-x"` · trigger hook `spawnSession` succeeds · observable prompt and attach registries hold entries keyed by the worktree path, none by `opts.cwd`; spawn stub, watchdog stub and PID registry stub all received the worktree path
+- [ ] 5.11 R4 attach queue full — BVA (cap 8) (test-plan #E11), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input attach registry stub whose `enqueue` returns `false` · trigger hook `spawnSession` · observable `success:true`, `warning` contains `attach queue full`
+- [ ] 5.12 R4 no base meta — invariant (test-plan #E12), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input E10 input · trigger hook `spawnSession` · observable `pendingWorktreeBaseRegistry.enqueue` not called
+- [ ] 5.13 R3 not git — fault (non-repo) (test-plan #X1), see `packages/server/src/__tests__/git-operations.test.ts`: input admitted temp dir without `.git` · trigger `ensureWorktree` · observable `{ok:false, code:"not_git"}`; no throw
+- [ ] 5.14 R3 hostile branch — EP (invalid refs) (test-plan #X2), see `packages/server/src/__tests__/git-operations.test.ts`: input branch ∈ {`../../etc`, `-x`, `a..b`, `@{-1}`, `a b`, `x\u0000`} · trigger `ensureWorktree` · observable each `code:"branch_invalid"`; no new branch, dir or worktree; `git worktree prune` not run
+- [ ] 5.15 R3 unknown base — fault (missing ref) (test-plan #X3), see `packages/server/src/__tests__/git-operations.test.ts`: input new branch, `base:"no-such-ref"` · trigger `ensureWorktree` · observable `code:"base_not_found"`; nothing created
+- [ ] 5.16 R3 no default base — fault (`resolveDefaultBase` null) (test-plan #X4), see `packages/server/src/__tests__/git-operations.test.ts`: input repo whose only branch is `trunk`, no `base` · trigger `ensureWorktree` new branch · observable `code:"base_not_found"`
+- [ ] 5.17 R3 main checkout — fault (branch in main) (test-plan #X5), see `packages/server/src/__tests__/git-operations.test.ts`: input main checkout on `os/add-x` · trigger `ensureWorktree` reuse · observable `code:"branch_in_use"`; no spawn path returned
+- [ ] 5.18 R3 outside worktree dir — fault (foreign registration) (test-plan #X6), see `packages/server/src/__tests__/git-operations.test.ts`: input `os/add-x` worktree registered at `<tmp>/elsewhere` · trigger `ensureWorktree` reuse · observable `code:"branch_in_use"`
+- [ ] 5.19 R3 malformed block — EP (block shape) (test-plan #X7), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input `worktree` ∈ {`"os/x"`, `[]`, `{}`, `{branch:"x", ifExists:"maybe"}`, `{branch:"x", ifExists:"reuse", attachChange:"Bad Name"}`} · trigger hook `spawnSession` · observable each `code:"invalid_block"`; spawn stub not called; no registry entry
+- [ ] 5.20 R3 admission — fault (unknown folder) (test-plan #X8), see `packages/server/src/__tests__/git-operations.test.ts`: input `cwd` a git repo not in the known-folder set · trigger `ensureWorktree` · observable `code:"not_git"`, no worktree
+- [ ] 5.21 R3 admission undecidable — fault (admission stub indeterminate) (test-plan #X9), see `packages/server/src/__tests__/git-operations.test.ts`: input admission dep returns indeterminate · trigger `ensureWorktree` · observable `code:"admission_unavailable"`
+- [ ] 5.22 R3 policy — fault (floor mismatch) (test-plan #X10), see `packages/server/src/__tests__/git-operations.test.ts`: input `checkTarget` returns mismatch · trigger `ensureWorktree` new branch · observable `code:"policy_mismatch"`; no branch or dir created
+- [ ] 5.23 R3 git throws — fault (exception) (test-plan #X11), see `packages/server/src/__tests__/git-operations.test.ts`: input `listWorktrees` dep throws · trigger `ensureWorktree` · observable `code:"git_failed"`; promise resolves (no rejection)
+- [ ] 5.24 R3 no residue on failure — invariant (test-plan #X12), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input `ensureWorktree` stub returns `branch_invalid`, `initialPrompt` set · trigger hook `spawnSession` · observable plugin-ref, prompt and attach registries all empty
+- [ ] 5.25 R4 init trusted — state (needsInit, trusted) (test-plan #X13), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input `startWorktreeInit` stub resolves `{ran:true, ok:true}` after 50 ms, auto-init on · trigger hook `spawnSession` · observable stub called with `{skipIfRunning:true}` and no `confirmHash`; spawn stub called after it resolved
+- [ ] 5.26 R4 init failed — fault (init exit 1) (test-plan #X14), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input `startWorktreeInit` stub resolves failed · trigger hook `spawnSession` · observable `code:"init_failed"`; spawn stub not called; no registry entry
+- [ ] 5.27 R4 init untrusted — state (untrusted) (test-plan #X15), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input stub returns `init_untrusted` · trigger hook `spawnSession` · observable spawn stub called; result `success:true`
+- [ ] 5.28 R4 auto-init off — decision table (test-plan #X16), see `packages/server/src/__tests__/plugin-spawn-choice.test.ts`: input preference off · trigger hook `spawnSession` · observable `startWorktreeInit` stub not called
+- [ ] 5.29 R4 route unchanged — regression (test-plan #X17), see `packages/server/src/__tests__/routes-git-worktree-init.test.ts`: input live run in registry for cwd · trigger `POST /api/git/worktree/init` (exemplar `routes-git-worktree-init.test.ts`) · observable run restarts as today (no `already_running`); existing route tests green
+- [ ] 5.30 R5 two plugin spawns — race (test-plan #C1), see `packages/server/src/__tests__/git-operations.test.ts`: input temp repo, no `os/add-x` · trigger `Promise.all` of two `ensureWorktree` reuse calls · observable one `created:true`, one `created:false`, same path; one worktree
+- [ ] 5.31 R5 route + plugin — race (test-plan #C2), see `packages/server/src/__tests__/git-worktree-routes.test.ts`: input temp repo · trigger `POST /api/git/worktree` (newBranch `os/add-x`) concurrent with `ensureWorktree` reuse (exemplar `git-worktree-routes.test.ts`) · observable route 200; `ensureWorktree` `created:false` on the route's path
+
+## 6. Manual
+
+- [ ] 6.1 Manual check (test-plan: manual-only, #M1): running dashboard, a first-party test plugin action calling `spawnSession` with a `worktree` block and `/skill:ship-it`-like prompt; trigger the action; expect session appears under the worktree folder on the board, attached to the change, init ran before the first prompt
