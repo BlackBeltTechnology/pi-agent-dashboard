@@ -18,10 +18,10 @@
  */
 import crypto from "node:crypto";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import type { ResolvedPreviewOrigins } from "@blackbelt-technology/pi-dashboard-shared/preview-origins.js";
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { TokenPayload } from "../auth/auth.js";
 import { isLocallyTrusted } from "../auth/localhost-guard.js";
-import type { ResolvedPreviewOrigins } from "@blackbelt-technology/pi-dashboard-shared/preview-origins.js";
 import { CAPABILITY_SEGMENT, redactCapability } from "./capability-redact.js";
 import { generatePreviewLabel, hashPreviewKey, splitCanonicalHost } from "./preview-origin.js";
 

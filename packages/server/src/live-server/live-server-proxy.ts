@@ -175,36 +175,36 @@ function upstreamHost(host: string): string {
   return host === "::1" ? "::1" : "127.0.0.1";
 }
 
-export function registerLiveServerProxy(
-  fastify: FastifyInstance,
-  manager: LiveServerManager,
-  deps: LiveProxyDeps = {},
-) {
+/**
+ * A preview-origin request reaches the upstream as if the browser had been talking to it directly:
+ * `Origin` (except the opaque `null`) and a same-origin `Referer` are rewritten to the upstream origin.
+ */
+function rewritePreviewOrigin(headers: HeaderBag, upstreamOrigin: string, previewHost: string | undefined): void {
+  if (typeof headers.origin === "string" && headers.origin !== "null") headers.origin = upstreamOrigin;
+  if (typeof headers.referer === "string") {
+    try {
+      const r = new URL(headers.referer);
+      if (r.host === previewHost) headers.referer = `${upstreamOrigin}${r.pathname}${r.search}`;
+    } catch {
+      delete headers.referer;
+    }
+  }
+}
+
+/** Options of a forwarded port request that differ between `/live/<id>` and a preview origin. */
+export interface ForwardPortOptions {
+  /** Preview origin: the browser's `Origin`/`Referer` carry the preview origin, which the upstream must see as itself. */
+  rewriteOrigin?: boolean;
+}
+
+/**
+ * The target-forwarding core shared by the main-origin `/live/:id/*` proxy and the preview-origin
+ * `previewApp` (D3): one CSP/cookie/credential/redirect policy, two entry points. The caller's
+ * Fastify instance must have `@fastify/reply-from` registered.
+ */
+export function createLiveForwarder(manager: LiveServerManager, deps: LiveProxyDeps = {}) {
   const isDeviceBearer = deps.isDeviceBearer ?? (() => false);
   const isKnownBearer = deps.isKnownBearer ?? (() => false);
-  // Register the `@fastify/reply-from` proxy plugin. live-server-proxy is now
-  // the SOLE consumer of the `from` decorator — the editor proxy that used to
-  // provide it was deleted in change: remove-external-editor-integration, which
-  // orphaned this call and produced `reply.from is not a function` on
-  // `/live/:id/*`. Owning the dependency here keeps the proxy self-contained.
-  // See change: improve-content-editor, fix-live-server-proxy-reply-from.
-  fastify.register(import("@fastify/reply-from"));
-  // CSP reports arrive as `application/csp-report` / `application/reports+json`.
-  if (deps.reservedHandler) registerCspReportParsers(fastify);
-
-  /**
-   * `capabilityPrefix` is set (by the capability hook, only after the token
-   * validated) when the request arrived under `/live/<id>/~c/<token>/`: that
-   * exact segment is removed from the upstream path and kept in redirects.
-   */
-  function resolve(url: string, capabilityPrefix?: string) {
-    const match = url.match(/^\/live\/([^/?]+)(.*)$/);
-    if (!match) return null;
-    let rest = match[2] || "";
-    if (capabilityPrefix && url.startsWith(capabilityPrefix)) rest = url.slice(capabilityPrefix.length);
-    const subPath = rest.startsWith("?") ? `/${rest}` : rest.startsWith("/") ? rest : "/";
-    return { id: match[1], subPath };
-  }
 
   /** CSP for a capability response, or `null` (fail closed) when no safe header can be built. */
   function cspFor(request: FastifyRequest, grant: LiveCapabilityGrant, prefix: string): LiveCspResult | null {
@@ -230,7 +230,7 @@ export function registerLiveServerProxy(
     grant: LiveCapabilityGrant | undefined,
     capabilityPrefix: string | undefined,
   ) => {
-    if (!grant || !capabilityPrefix) return notFoundReply(reply);
+    if (!grant || capabilityPrefix === undefined) return notFoundReply(reply);
     if (isReservedPath(subPath)) return reservedOr404(request, reply, grant, subPath);
     const csp = cspFor(request, grant, capabilityPrefix);
     if (!csp) return notFoundReply(reply);
@@ -249,9 +249,10 @@ export function registerLiveServerProxy(
     subPath: string,
     grant: LiveCapabilityGrant | undefined,
     capabilityPrefix: string | undefined,
+    opts: ForwardPortOptions = {},
   ) => {
     if (grant && isReservedPath(subPath)) return reservedOr404(request, reply, grant, subPath);
-    const csp = grant && capabilityPrefix ? cspFor(request, grant, capabilityPrefix) : null;
+    const csp = grant && capabilityPrefix !== undefined ? cspFor(request, grant, capabilityPrefix) : null;
     // A capability response without a buildable CSP would be less isolated than promised.
     if (grant && !csp) return notFoundReply(reply);
     manager.use(target.id);
@@ -269,6 +270,7 @@ export function registerLiveServerProxy(
         headers["x-forwarded-for"] = [headers["x-forwarded-for"], request.ip].filter(Boolean).join(", ");
         // A forwarded Referer must not carry the capability token upstream.
         if (typeof headers.referer === "string") headers.referer = stripCapabilitySegment(headers.referer);
+        if (opts.rewriteOrigin) rewritePreviewOrigin(headers as HeaderBag, `http://${host}:${target.port}`, request.headers.host);
         return headers;
       },
       rewriteHeaders: (headers) => {
@@ -291,6 +293,44 @@ export function registerLiveServerProxy(
     });
   };
 
+  const reservedOr404 = (request: FastifyRequest, reply: FastifyReply, grant: LiveCapabilityGrant, subPath: string) =>
+    deps.reservedHandler
+      ? deps.reservedHandler(request, reply, { grant, subPath })
+      : notFoundReply(reply);
+
+  return { forwardStatic, forwardPort, notFoundReply, cspFor, reservedOr404 };
+}
+
+export function registerLiveServerProxy(
+  fastify: FastifyInstance,
+  manager: LiveServerManager,
+  deps: LiveProxyDeps = {},
+) {
+  // Register the `@fastify/reply-from` proxy plugin. live-server-proxy is now
+  // the SOLE consumer of the `from` decorator — the editor proxy that used to
+  // provide it was deleted in change: remove-external-editor-integration, which
+  // orphaned this call and produced `reply.from is not a function` on
+  // `/live/:id/*`. Owning the dependency here keeps the proxy self-contained.
+  // See change: improve-content-editor, fix-live-server-proxy-reply-from.
+  fastify.register(import("@fastify/reply-from"));
+  // CSP reports arrive as `application/csp-report` / `application/reports+json`.
+  if (deps.reservedHandler) registerCspReportParsers(fastify);
+
+  /**
+   * `capabilityPrefix` is set (by the capability hook, only after the token
+   * validated) when the request arrived under `/live/<id>/~c/<token>/`: that
+   * exact segment is removed from the upstream path and kept in redirects.
+   */
+  function resolve(url: string, capabilityPrefix?: string) {
+    const match = url.match(/^\/live\/([^/?]+)(.*)$/);
+    if (!match) return null;
+    let rest = match[2] || "";
+    if (capabilityPrefix && url.startsWith(capabilityPrefix)) rest = url.slice(capabilityPrefix.length);
+    const subPath = rest.startsWith("?") ? `/${rest}` : rest.startsWith("/") ? rest : "/";
+    return { id: match[1], subPath };
+  }
+  const { forwardStatic, forwardPort, notFoundReply } = createLiveForwarder(manager, deps);
+
   const forward = (request: FastifyRequest, reply: FastifyReply) => {
     const capabilityPrefix = (request as { liveCapabilityPrefix?: string }).liveCapabilityPrefix;
     const grant = (request as { liveCapability?: LiveCapabilityGrant }).liveCapability;
@@ -305,11 +345,6 @@ export function registerLiveServerProxy(
     if (!target) return notFoundReply(reply);
     return forwardPort(request, reply, target, subPath, grant, capabilityPrefix);
   };
-
-  const reservedOr404 = (request: FastifyRequest, reply: FastifyReply, grant: LiveCapabilityGrant, subPath: string) =>
-    deps.reservedHandler
-      ? deps.reservedHandler(request, reply, { grant, subPath })
-      : notFoundReply(reply);
 
   fastify.all("/live/:id/*", forward);
   fastify.all("/live/:id", forward);
@@ -376,6 +411,22 @@ export function handleLiveServerUpgrade(
   let rest = match[2] || "";
   if (capabilityPrefix && request.url?.startsWith(capabilityPrefix)) rest = request.url.slice(capabilityPrefix.length);
   const subPath = rest.startsWith("?") ? `/${rest}` : rest.startsWith("/") ? rest : "/";
+  pipeUpgradeToTarget(target, subPath, request, socket, head, deps);
+}
+
+/**
+ * Open the upstream socket for an admitted upgrade and pipe both directions. Shared by the
+ * main-origin `/live/<id>` upgrade and the preview-origin upgrade (D3). The browser `Origin` is
+ * never forwarded; `Host` is rewritten to the upstream.
+ */
+export function pipeUpgradeToTarget(
+  target: LiveServerTarget,
+  subPath: string,
+  request: import("node:http").IncomingMessage,
+  socket: import("node:stream").Duplex,
+  head: Buffer,
+  deps: LiveProxyDeps,
+) {
   const host = upstreamHost(target.host);
   const isDeviceBearer = deps.isDeviceBearer ?? (() => false);
   const isKnownBearer = deps.isKnownBearer ?? (() => false);

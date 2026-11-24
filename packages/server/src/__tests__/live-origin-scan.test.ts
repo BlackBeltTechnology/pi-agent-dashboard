@@ -101,7 +101,7 @@ describe("E23 — origin scan", () => {
 });
 
 describe("E23 — lazily, per token, through the egress service", () => {
-  const grant = { targetId: "st-1", tokenId: "tok-1", kind: "static", policy: { egress: "restricted", scripts: false }, minterKey: "local", principal: { kind: "local" } } as const;
+  const grant = { targetId: "st-1", tokenId: "tok-1", kind: "static", policy: { egress: "restricted", scripts: false }, minterKey: "local", principal: { kind: "local" }, tier: "legacy", ancestors: [] as string[] } as const;
 
   it("scans only the HTML served under the token, on the first view, and re-scans after a change", async () => {
     const html = write("index.html", `<script src="https://cdn.tailwindcss.com"></script>`);

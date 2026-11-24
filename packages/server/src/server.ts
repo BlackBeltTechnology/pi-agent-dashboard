@@ -246,7 +246,8 @@ import { createReservedHandler } from "./live-server/live-csp-report.js";
 import { createEgressGrantRequester, createPreviewEgress, requestOriginsOf } from "./live-server/live-egress.js";
 import { createPreviewExposure, wirePreviewExposure } from "./live-server/live-exposure.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
-import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
+import { handleLiveServerUpgrade, type LiveProxyDeps, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
+import { createPreviewDispatch, type PreviewDispatch, previewServerFactory, routePreviewUpgrade } from "./live-server/preview-dispatch.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
@@ -2082,8 +2083,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     onParentDead: () => server.stop({ exitIntent: "ephemeral" }),
   });
 
+  // Preview-shaped Hosts are answered by the route-less `previewApp` and never enter the dashboard app (D3).
+  // Late-bound: the capability store the dispatch needs is built further down, before `listen`.
+  // See change: serve-live-previews-on-capability-origin.
+  let previewDispatch: PreviewDispatch | undefined;
   const fastify = Fastify({
     logger: false,
+    serverFactory: previewServerFactory(() => previewDispatch) as never,
     keepAliveTimeout: MAIN_KEEP_ALIVE_TIMEOUT_MS,
     connectionTimeout: MAIN_CONNECTION_TIMEOUT_MS,
     // Add-ons feature ids embed a local package's absolute path (`pkg:local:/…`), which exceeds
@@ -3571,7 +3577,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       return { ok: true, resolved: gate.resolved };
     },
   });
-  registerLiveServerProxy(fastify, liveServerManager, {
+  const liveProxyDeps: LiveProxyDeps = {
     isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
     isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
     grantedOrigins: (grant) => previewEgress.grantedFor(grant),
@@ -3584,6 +3590,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // a refusal here records no denial and raises no prompt.
     staticGate: async (cwd, absPath) =>
       !("code" in (await gateFilePath(cwd, absPath, fileRouteAdmission, { allowGrant: true, quiet: true }))),
+  };
+  registerLiveServerProxy(fastify, liveServerManager, liveProxyDeps);
+  previewDispatch = createPreviewDispatch({
+    store: liveCapabilities,
+    manager: liveServerManager,
+    proxyDeps: liveProxyDeps,
+    isPeerLocal: (request) =>
+      isLocallyTrusted({ ip: request.socket.remoteAddress ?? "", headers: request.headers as Record<string, unknown> }),
   });
 
   // ONE model runtime for the provider-auth flow listing AND the model proxy,
@@ -4089,6 +4103,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             secondFastify = null;
           }
           try { await tlsListener.stop(); } catch { /* ignore */ }
+          try { await previewDispatch?.close(); } catch { /* ignore */ }
           try { await fastify.close(); } catch { /* ignore */ }
         },
       });
@@ -4904,6 +4919,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // path, two transports). See change: add-tailscale-cert-tls (D1).
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
       const onUpgrade = (request: import("node:http").IncomingMessage, socket: import("node:stream").Duplex, head: Buffer): void => {
+        // FIRST branch (D3): a preview-shaped Host is served — or refused — by the preview dispatcher, ahead of
+        // the dashboard host gate, Origin gate and ticket. It never reaches the switch below.
+        if (routePreviewUpgrade(previewDispatch, request, socket, head)) return;
         // Stamp the local-credential verdict FIRST (before the Host/Origin gates):
         // everything below reads it via `hasLocalCredential(request.headers)`.
         // The proof floor is per transport: a TLS socket is stamped against the
@@ -5280,6 +5298,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       // The proof floor is taken after readiness, immediately before the bind.
+      await previewDispatch?.ready();
       await listenWithProofFloor(fastify, (at) => (httpBoundAt = at), { port: config.port, host: config.host });
       const bound = fastify.server.address();
       if (bound && typeof bound === "object") httpListenPort = bound.port;
@@ -5785,6 +5804,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       // The TLS listener (and its open connections) closes with the server.
       try { await tlsListener.stop(); } catch { /* ignore */ }
+      try { await previewDispatch?.close(); } catch { /* ignore */ }
       await fastify.close();
     },
   };
