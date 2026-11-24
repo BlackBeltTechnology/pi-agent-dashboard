@@ -198,6 +198,9 @@ export function createPluginSpawnHook(deps: PluginSpawnHookDeps): (opts: PluginS
     // Worktree block (design D2/D3): honoured only together with `mode: "worktree"`. A bare
     // `mode: "worktree"` keeps the documented local fallback.
     let block: WorktreeBlock | undefined;
+    if (opts.mode !== "worktree" && opts.worktree !== undefined) {
+      warn(`[plugin-spawn] plugin=${deps.plugin.id} passed a worktree block without mode "worktree"; ignoring it and running in-place`);
+    }
     if (opts.mode === "worktree" && opts.worktree !== undefined) {
       const parsed = parseWorktreeBlock(opts.worktree);
       if ("reason" in parsed) {

@@ -18,7 +18,7 @@
 ## 4. Docs and verification
 
 - [x] 4.1 Update AGENTS.md rows: `git-worktree/ensure-worktree.ts` (new), the shared init starter, `routes/git-routes.ts`, `server-context.ts`, the `server.ts` sidecar; DocScribe note in `docs/architecture.md` plugin-spawn section
-- [ ] 4.2 `openspec validate add-plugin-spawn-worktree --strict`; full test run
+- [x] 4.2 `openspec validate add-plugin-spawn-worktree --strict`; full test run
 
 ## 5. Tests (folded from test-plan.md)
 

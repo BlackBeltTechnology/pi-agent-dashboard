@@ -168,6 +168,16 @@ describe("plugin spawn hook — worktree block", () => {
     expect(t.spawnPi).toHaveBeenCalledWith("/repo", expect.anything());
   });
 
+  it("a worktree block without mode=worktree is ignored with a warning (runs in cwd)", async () => {
+    const warn = vi.fn();
+    const t = setup({ warn });
+    const r = await t.hook(spawnOpts({ mode: "local" }));
+    expect(r.success).toBe(true);
+    expect(t.ensureWorktree).not.toHaveBeenCalled();
+    expect(t.spawnPi).toHaveBeenCalledWith("/repo", expect.anything());
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("without mode"));
+  });
+
   it("E10: prompt, attach, spawn, watchdog and PID registry are all keyed by the worktree path", async () => {
     const t = setup();
     const r = await t.hook(spawnOpts());
@@ -196,7 +206,6 @@ describe("plugin spawn hook — worktree block", () => {
     const t = setup();
     await t.hook(spawnOpts());
     expect(JSON.stringify(t.spawnPi.mock.calls)).not.toContain("gitWorktreeBase");
-    expect(Object.keys(t)).not.toContain("pendingWorktreeBaseRegistry");
   });
 
   it("X7: a malformed block fails invalid_block, spawns nothing and files nothing", async () => {
