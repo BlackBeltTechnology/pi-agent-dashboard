@@ -53,6 +53,7 @@ import {
   isWithinBrowseRoots,
   resolveBrowseRoots,
 } from "../lib/browse-roots.js";
+import { contentDispositionAttachment } from "../lib/content-disposition.js";
 import { ContainmentBindingRefused, DashboardStateRefused, openStateChecked, readFileStateChecked } from "../lib/dashboard-state-guard.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
@@ -60,7 +61,6 @@ import { createDigestGate, type DigestGate, type DigestLane } from "../lib/diges
 import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
 import { admitFileCwd, CWD_UNAVAILABLE_FAILURE, cwdAnchors, type GateWire, releaseOnClose } from "../lib/file-cwd-admission.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
-import { contentDispositionAttachment } from "../lib/content-disposition.js";
 import { extToContentType } from "../lib/mime-types.js";
 import {
   convertBound,

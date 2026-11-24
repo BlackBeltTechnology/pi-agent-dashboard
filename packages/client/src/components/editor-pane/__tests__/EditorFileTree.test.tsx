@@ -30,8 +30,8 @@ import type {
   FileDiffEntry,
   SessionDiffResponse,
 } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
-import { startDownload } from "../../preview/download.js";
 import { SessionDiffProvider } from "../../diff/SessionDiffContext.js";
+import { startDownload } from "../../preview/download.js";
 import { EditorFileTree } from "../EditorFileTree.js";
 
 type Entry = { name: string; isDir: boolean };
