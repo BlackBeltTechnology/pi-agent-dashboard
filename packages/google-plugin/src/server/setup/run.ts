@@ -22,13 +22,13 @@ import {
   type SetupStepStatus,
   WIZARD_STEP_OF,
 } from "../../shared/auto-setup.js";
-import type { AccountStore } from "../accounts.js";
-import { storeClient } from "../store-client.js";
+import type { GoogleStore } from "../store.js";
 import type { DedicatedBrowserService } from "./browser-service.js";
 import { captureClient } from "./capture.js";
 import { type AxNode, CdpConnection, CdpError, CdpPage, defaultWsFactory, NavigationError, type PageInfo, type WsFactory } from "./cdp-page.js";
 import { RunAborted, SetupControl, SetupHandoff, SignInRequired } from "./errors.js";
 import { maskSecrets } from "./mask.js";
+import { storeCapturedClient } from "./store-client.js";
 import {
   buildSteps,
   DEFAULT_TIMING,
@@ -47,10 +47,8 @@ import {
 export interface RunDeps {
   /** Looked up per run (and per signed-in action): the browser plugin may load later. */
   getService(): DedicatedBrowserService | undefined;
-  store: AccountStore;
+  store: GoogleStore;
   logger: { info(m: string): void; warn(m: string): void };
-  /** Persist the run's inputs to the plugin config (`projectId`, `ownerAccount`). */
-  saveSetup(partial: { projectId: string; ownerAccount: string }): Promise<void>;
   timing?: Partial<Timing>;
   wsFactory?: WsFactory;
   newId?: () => string;
@@ -290,7 +288,7 @@ export class SetupRun {
     this.state = "cancelled";
     this.checkpoint = undefined;
     this.decision = undefined;
-    this.deps.logger.info("[gmail] setup run cancelled");
+    this.deps.logger.info("[google] setup run cancelled");
     this.abortWith(new RunAborted());
     await this.cleanup();
   }
@@ -299,13 +297,12 @@ export class SetupRun {
 
   private async main(): Promise<void> {
     try {
-      await this.deps.saveSetup({ projectId: this.input.projectId, ownerAccount: this.input.ownerEmail }).catch(() => undefined);
       await this.connectBrowser();
       this.state = "running";
       for (const def of STEPS) await this.runStep(def);
       this.ended = true;
       this.state = "done";
-      this.deps.logger.info("[gmail] setup run done");
+      this.deps.logger.info("[google] setup run done");
     } catch (err) {
       this.fail(err);
     } finally {
@@ -324,7 +321,7 @@ export class SetupRun {
       step = cause.step ?? this.step;
     } else {
       // Class name only: a message could carry page content.
-      this.deps.logger.warn(maskSecrets(`[gmail] setup run error: ${cause instanceof Error ? cause.name : "unknown"}`));
+      this.deps.logger.warn(maskSecrets(`[google] setup run error: ${cause instanceof Error ? cause.name : "unknown"}`));
     }
     this.ended = true;
     this.step = step;
@@ -342,7 +339,7 @@ export class SetupRun {
   }
 
   private logStep(id: SetupStepId, outcome: string): void {
-    this.deps.logger.info(maskSecrets(`[gmail] setup step ${id} ${outcome} ${Date.now() - this.stepStart}ms`));
+    this.deps.logger.info(maskSecrets(`[google] setup step ${id} ${outcome} ${Date.now() - this.stepStart}ms`));
   }
 
   private abortWith(err: SetupControl): void {
@@ -354,7 +351,7 @@ export class SetupRun {
     const service = this.deps.getService();
     if (!service) throw new SetupHandoff("unloaded", "project");
     this.service = service;
-    let res = await service.connect({ client: "gmail-setup", private: true, ephemeral: true });
+    let res = await service.connect({ client: "google-setup", private: true, ephemeral: true });
     if (this.ended) {
       // Cancelled (or the browser closed) while the connect was pending: stay terminal, never enter `busy`.
       if (res.ok) await service.disconnect(res.instanceId).catch(() => undefined);
@@ -366,7 +363,7 @@ export class SetupRun {
       this.state = "busy";
       await Promise.race([this.takeoverRequested.promise, this.abort.promise]);
       this.state = "starting";
-      res = await service.connect({ client: "gmail-setup", takeover: true, private: true, ephemeral: true });
+      res = await service.connect({ client: "google-setup", takeover: true, private: true, ephemeral: true });
     }
     if (this.ended) {
       if (res.ok) await service.disconnect(res.instanceId).catch(() => undefined);
@@ -680,7 +677,12 @@ class AttemptEnv implements StepEnv {
 
   async storeClient(json: unknown): Promise<{ ok: true; clientId: string } | { ok: false; error: string }> {
     this.live();
-    const r = await storeClient(this.run.deps.store, json, this.run.deps.logger);
+    const r = await storeCapturedClient(
+      this.run.deps.store,
+      json,
+      { projectId: this.run.input.projectId, ownerAccount: this.run.input.ownerEmail },
+      this.run.deps.logger,
+    );
     if (!r.ok) return { ok: false, error: r.error };
     this.run.clientId = r.client.clientId;
     return { ok: true, clientId: r.client.clientId };

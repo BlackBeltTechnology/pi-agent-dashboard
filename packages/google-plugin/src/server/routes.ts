@@ -16,6 +16,9 @@ import { availability, type Browser, type ClientDeps } from "./clients.js";
 import type { ConnectService } from "./connect.js";
 import { OAUTH_CALLBACK_PATH } from "./google-oauth.js";
 import { isLocal } from "./local-request.js";
+import type { DedicatedBrowserService } from "./setup/browser-service.js";
+import { type RunDeps, SetupRunManager } from "./setup/run.js";
+import { autoSetupState, registerSetupRoutes, type SetupRouteDeps } from "./setup/setup-routes.js";
 import { type GoogleStore, StoreError, summarize } from "./store.js";
 
 export interface GoogleRouteDeps {
@@ -27,6 +30,10 @@ export interface GoogleRouteDeps {
   dashboardBase: () => string | undefined;
   /** Picker token source: a lease for `drive` (hub-local only). Optional until the Picker task lands. */
   leaseToken?: (account: string) => Promise<{ accessToken: string; expiresAt: number }>;
+  /** Lazy lookup of the browser plugin's `browser.dedicated` service (`ctx.consume`), per request — no `dependsOn`. */
+  getBrowserService?: () => DedicatedBrowserService | undefined;
+  /** Test seams for the automatic setup run. */
+  setup?: Pick<RunDeps, "timing" | "wsFactory" | "newId">;
 }
 
 const PREFIX = "/api/plugins/google";
@@ -69,13 +76,14 @@ function respond(reply: FastifyReply, r: { ok: boolean; status?: number; error?:
   return reply.code(status ?? 400).send(rest);
 }
 
-function mountState(scope: Scope, deps: GoogleRouteDeps, guarded: Guarded): void {
+function mountState(scope: Scope, deps: GoogleRouteDeps, guarded: Guarded, setup: SetupRouteDeps): void {
   const { store, connect, clients } = deps;
   scope.get(`${PREFIX}/state`, guarded, async (request) => {
     const base = deps.dashboardBase();
     return {
       ...(await availability(clients, browserOf(request))),
       accounts: (await store.list()).map(summarize),
+      autoSetup: await autoSetupState(request, setup),
       disclosure: { version: DISCLOSURE_VERSION, accepted: await connect.disclosureAccepted() },
       products: CATALOGUE.map((p) => ({ id: p.id, levels: p.levels.map((l) => ({ id: l.id, builtin: l.builtin })) })),
       ...(base ? { webRedirectUri: `${base.replace(/\/+$/, "")}${OAUTH_CALLBACK_PATH}` } : {}),
@@ -221,7 +229,16 @@ export async function mountGoogleRoutes(fastify: FastifyInstance, deps: GoogleRo
   await fastify.register(async (scope) => {
     await scope.register(rateLimit, { global: true, max: 600, timeWindow: "1 minute", allowList: ["127.0.0.1", "::1"] });
     const guarded: Guarded = { preHandler: deps.networkGuard };
-    mountState(scope, deps, guarded);
+    // Run routes live under `/api/plugins/google/setup/` (the paths Gmail used to serve), same scope, limit and guard.
+    const manager = new SetupRunManager({
+      getService: () => deps.getBrowserService?.(),
+      store: deps.store,
+      logger: deps.logger,
+      ...deps.setup,
+    });
+    const setup: SetupRouteDeps = { prefix: PREFIX, guard: deps.networkGuard, store: deps.store, manager, getService: () => deps.getBrowserService?.() };
+    mountState(scope, deps, guarded, setup);
+    registerSetupRoutes(scope, setup);
     mountClients(scope, deps, guarded);
     mountAccounts(scope, deps, guarded);
     mountCallbacks(scope, deps);

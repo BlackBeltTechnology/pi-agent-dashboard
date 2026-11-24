@@ -11,7 +11,8 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { WsFactory, WsLike } from "../server/setup/cdp-page.js";
 import { EXPR } from "../server/setup/cdp-page.js";
-import { PATHS } from "../server/setup/steps.js";
+import { apiOverviewPath, PATHS } from "../server/setup/steps.js";
+import { GOOGLE_APIS } from "../shared/setup.js";
 
 export interface AxSpec {
   role: string;
@@ -42,7 +43,15 @@ export class FakeConsole {
   projectExists = false;
   projectId = "";
   org: string | null = null;
-  apiEnabled = false;
+  /** APIs enabled in the project (service names). */
+  enabledApis = new Set<string>();
+  /** Every product API on / off — the common test case. */
+  get apiEnabled(): boolean {
+    return GOOGLE_APIS.every((a) => this.enabledApis.has(a));
+  }
+  set apiEnabled(on: boolean) {
+    this.enabledApis = new Set(on ? GOOGLE_APIS : []);
+  }
   userType: "internal" | "external" | null = null;
   published = false;
   clients: string[] = [];
@@ -327,18 +336,20 @@ export class FakeConsole {
   }
 
   private route(u: URL): PageModel {
+    const api = GOOGLE_APIS.find((a) => u.pathname === apiOverviewPath(a));
+    if (api) {
+      return {
+        text: `${api} API`,
+        ax: this.enabledApis.has(api)
+          ? [{ role: "button", name: "Disable API" }]
+          : [{ role: "button", name: "Enable", onClick: () => void this.enabledApis.add(api) }],
+      };
+    }
     switch (u.pathname) {
       case PATHS.projectInfo:
         return this.projectInfoPage(u.searchParams.get("project"));
       case PATHS.projectCreate:
         return this.projectCreatePage();
-      case PATHS.apiOverview:
-        return {
-          text: "Gmail API",
-          ax: this.apiEnabled
-            ? [{ role: "button", name: "Disable API" }]
-            : [{ role: "button", name: "Enable", onClick: () => void (this.apiEnabled = true) }],
-        };
       case PATHS.audience:
         return this.audiencePage();
       case PATHS.brandingCreate:

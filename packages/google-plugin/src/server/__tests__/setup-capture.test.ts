@@ -1,14 +1,14 @@
 /**
  * Secret capture (test-plan #R8–#R11, task 2.6): dialog DOM path, JSON fallback
- * with guaranteed deletion, both failing, and the shared `client_in_use` rule.
- * See change: add-gmail-auto-setup.
+ * with guaranteed deletion, both failing, and storing as an organisation client (added, or updated when the
+ * Google client id is already known). See change: add-gmail-auto-setup; moved by add-google-connect.
  */
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CLIENT } from "../../__tests__/fakes.js";
+import { OWN_BB } from "../../__tests__/fakes.js";
 import { autopilot, makeHarness, preset, startExisting } from "../../__tests__/setup-harness.js";
-import { acctKey } from "../accounts.js";
+import { acctKey } from "../store.js";
 import { parseClientDialog } from "../setup/capture.js";
 import { PATHS } from "../setup/steps.js";
 
@@ -44,21 +44,44 @@ describe("R8 dialog path", () => {
     const v = await autopilot(h, id);
     expect(v.state).toBe("done");
     expect(v.clientId).toBe(h.console.clientId);
-    expect(await h.store.getClient()).toEqual({ clientId: h.console.clientId, clientSecret: SECRET, projectId: "pi-dashboard-abc123" });
+    expect(await h.store.listClients()).toEqual([
+      expect.objectContaining({
+        label: "pi-dashboard-abc123",
+        type: "installed",
+        clientId: h.console.clientId,
+        clientSecret: SECRET,
+        projectId: "pi-dashboard-abc123",
+        ownerAccount: "owner@example.com",
+      }),
+    ]);
     expect(h.console.clicks).not.toContain("button:Download JSON");
     // Logs, run view, state and route responses carry no secret.
     noSecret([...h.logger.lines, JSON.stringify(v), JSON.stringify(await h.state()), JSON.stringify(await h.view(id))].join("\n"));
-    expect(h.logger.lines).toContain("[gmail] oauth client configured");
+    expect(h.logger.lines).toContain("[google] client added type=installed");
   });
 
-  it("the same store function as PUT /client: a stored client is replaced when no account is connected", async () => {
+  it("an existing client with the same Google client id is updated (label kept), a different one is added alongside", async () => {
     const h = await captureHarness({ client: true });
-    expect((await h.store.getClient())?.clientId).toBe(CLIENT.clientId);
     const v = await autopilot(h, await startExisting(h));
     expect(v.state).toBe("done");
-    expect((await h.store.getClient())?.clientSecret).toBe(SECRET);
+    const all = await h.store.listClients();
+    expect(all.map((c) => c.label).sort()).toEqual(["BB", "pi-dashboard-abc123"]);
+    expect((await h.store.getClient("bb"))?.clientSecret).toBe(OWN_BB.clientSecret);
+
+    const h2 = await captureHarness();
+    const first = await autopilot(h2, await startExisting(h2));
+    expect(first.state).toBe("done");
+    // Same Google client id seen again (same dialog): update in place, no second client.
+    const [stored] = await h2.store.listClients();
+    h2.console.secret = "GOCSPX-rotatedSecret_9Z8y7X6w";
+    const again = await autopilot(h2, await startExisting(h2));
+    expect(again.state).toBe("done");
+    const after = await h2.store.listClients();
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ id: stored?.id, label: "pi-dashboard-abc123", clientSecret: "GOCSPX-rotatedSecret_9Z8y7X6w" });
+    expect(h2.logger.lines).toContain("[google] client updated type=installed");
   });
-});
+})
 
 describe("R9 JSON fallback", () => {
   it("(a) dialog read throws → stored from the downloaded JSON, file deleted", async () => {
@@ -67,7 +90,9 @@ describe("R9 JSON fallback", () => {
     const v = await autopilot(h, await startExisting(h));
     expect(v.state).toBe("done");
     expect(h.console.clicks).toContain("button:Download JSON");
-    expect(await h.store.getClient()).toMatchObject({ clientId: h.console.clientId, clientSecret: SECRET, projectId: "pi-dashboard-abc123" });
+    expect(await h.store.listClients()).toEqual([
+      expect.objectContaining({ clientId: h.console.clientId, clientSecret: SECRET, projectId: "pi-dashboard-abc123" }),
+    ]);
     expect(readdirSync(h.downloadsDir)).toEqual([]);
     noSecret(h.logger.lines.join("\n") + JSON.stringify(v));
   });
@@ -75,7 +100,7 @@ describe("R9 JSON fallback", () => {
   it("(b) the store throws after the read → the file is still deleted and nothing leaks", async () => {
     const h = await captureHarness();
     h.console.dialogReadThrows = true;
-    h.store.setClient = async () => {
+    h.store.upsertClient = async () => {
       throw new Error(`disk full while writing ${SECRET}`);
     };
     const v = await autopilot(h, await startExisting(h));
@@ -104,7 +129,7 @@ describe("R9 JSON fallback", () => {
     const v = await autopilot(h, await startExisting(h));
     expect(v.handoff).toMatchObject({ step: "capture", reason: "secret_capture_failed" });
     expect(readdirSync(h.downloadsDir)).toEqual([]);
-    expect(await h.store.getClient()).toBeUndefined();
+    expect(await h.store.listClients()).toEqual([]);
   });
 });
 
@@ -118,26 +143,30 @@ describe("R10 both reads fail", () => {
     expect(h.console.dialogOpen).toBe(false);
     expect(h.console.clicks.at(-1)).toBe("button:OK");
     expect(v.created.clients).toEqual(["pi-dashboard"]);
-    expect(await h.store.getClient()).toBeUndefined();
+    expect(await h.store.listClients()).toEqual([]);
     expect(readdirSync(h.downloadsDir)).toEqual([]);
     expect(h.browser.calls.disconnect).toEqual(["inst-1"]);
   });
 });
 
-describe("R11 client_in_use", () => {
-  it("an account added before capture stores → handoff client_in_use @ capture / 4", async () => {
+describe("a client in use no longer blocks a run", () => {
+  it("an account added to an existing client while the run creates a new one → new client alongside, no hand-off", async () => {
     const h = await captureHarness({ client: true });
     h.console.beforeNavigate = (u) => {
       if (u.pathname === PATHS.clientCreate) {
         h.creds.data.set(acctKey("s1"), {
-          sub: "s1", email: "a@x.com", tier: "readonly", scopes: [], refresh: "r", access: "a", expires: 1, status: "ok", addedAt: 1,
+          sub: "s1", email: "a@x.com", client: "own:bb",
+          grant: { clientId: OWN_BB.clientId, refresh: "r", access: "a", expires: 1, scopes: [], status: "ok", grantedAt: 1 },
+          products: {}, addedAt: 1,
         });
       }
     };
     const v = await autopilot(h, await startExisting(h));
-    expect(v.handoff).toEqual({ step: "capture", wizardStep: 4, reason: "client_in_use" });
-    expect(v.created.clients).toEqual(["pi-dashboard"]);
-    // The working client is untouched.
-    expect(await h.store.getClient()).toEqual({ ...CLIENT });
+    expect(v.state).toBe("done");
+    expect(v.handoff).toBeUndefined();
+    expect((await h.store.listClients()).map((c) => c.label).sort()).toEqual(["BB", "pi-dashboard-abc123"]);
+    // The working client and its account are untouched.
+    expect((await h.store.getClient("bb"))?.clientSecret).toBe(OWN_BB.clientSecret);
+    expect(await h.store.get("s1")).toBeDefined();
   });
 });

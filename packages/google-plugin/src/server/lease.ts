@@ -168,7 +168,10 @@ export function createLeaseHandler(deps: LeaseDeps) {
     const client = await usableClient(acct);
     assertGrantUsable(acct, product, sel);
     const token = await freshToken(acct, client);
-    return { accessToken: token.access, expiresAt: token.expires, email: acct.email, level: sel.level };
+    const reply: LeaseReply = { accessToken: token.access, expiresAt: token.expires, email: acct.email, level: sel.level };
+    // Non-secret product options (Gmail filters) so a delegating product plugin can enforce its own option gate.
+    if (sel.options && Object.keys(sel.options).length > 0) reply.options = { ...sel.options };
+    return reply;
   }
 
   return async (payload: unknown): Promise<LeaseReply> => {

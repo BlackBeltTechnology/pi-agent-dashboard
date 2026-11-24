@@ -15,7 +15,7 @@ import {
   startExisting,
   until,
 } from "../../__tests__/setup-harness.js";
-import { acctKey } from "../accounts.js";
+import { acctKey } from "../store.js";
 import { SetupRunManager } from "../setup/run.js";
 import { PATHS } from "../setup/steps.js";
 
@@ -30,7 +30,7 @@ describe("R7 browser closed / cancel", () => {
     const h = await makeHarness();
     preset(h.console, "project");
     // The api step is stuck so the close lands mid-step.
-    h.console.hang = (method, u) => method === "Accessibility.queryAXTree" && u.pathname === PATHS.apiOverview;
+    h.console.hang = (method, u) => method === "Accessibility.queryAXTree" && u.pathname.startsWith("/apis/api/");
     const id = await startExisting(h);
     await until(() => h.view(id), (v) => v.step === "api" && v.steps[1]?.status === "running");
     h.console.serverClose();
@@ -86,7 +86,7 @@ describe("R12 busy profile + takeover", () => {
     const busy = await until(() => h.view(id), (v) => v.state === "busy");
     expect(busy.busy).toEqual({ holder: "session-S" });
     expect(JSON.stringify(busy)).not.toContain("holder-instance");
-    expect(h.browser.calls.connect[0]).toEqual({ client: "gmail-setup", private: true, ephemeral: true });
+    expect(h.browser.calls.connect[0]).toEqual({ client: "google-setup", private: true, ephemeral: true });
     expect(h.browser.calls.connect).toHaveLength(1); // no takeover until the user confirms
 
     const r = await h.post(`/setup/run/${id}/takeover`);
@@ -94,7 +94,7 @@ describe("R12 busy profile + takeover", () => {
     expect(JSON.stringify(r.json())).not.toContain("holder-instance");
     const v = await until(() => h.view(id), (x) => x.state === "waiting_decision");
     expect(v.step).toBe("branding");
-    expect(h.browser.calls.connect[1]).toEqual({ client: "gmail-setup", takeover: true, private: true, ephemeral: true });
+    expect(h.browser.calls.connect[1]).toEqual({ client: "google-setup", takeover: true, private: true, ephemeral: true });
     expect(h.browser.calls.connect).toHaveLength(2);
     const done = await autopilot(h, id);
     expect(done.state).toBe("done");
@@ -118,7 +118,7 @@ describe("R12 busy profile + takeover", () => {
     h.console.userType = null;
     const id = await startExisting(h);
     await until(() => h.view(id), (v) => v.state === "waiting_decision");
-    expect(h.browser.calls.connect).toEqual([{ client: "gmail-setup", private: true, ephemeral: true }]);
+    expect(h.browser.calls.connect).toEqual([{ client: "google-setup", private: true, ephemeral: true }]);
   });
 });
 
@@ -144,12 +144,14 @@ describe("R13 other dedicated-browser refusals", () => {
 });
 
 describe("task 2.4 run bookkeeping", () => {
-  it("saves projectId + ownerAccount to the plugin config at start", async () => {
+  it("saves projectId + ownerAccount on the stored organisation client at capture", async () => {
     const h = await makeHarness();
-    await startExisting(h);
-    await until(() => h.configUpdates, (u) => u.length > 0);
-    expect(h.configUpdates[0]).toEqual({ projectId: "pi-dashboard-abc123", ownerAccount: OWNER });
-    expect(h.pluginConfig).toMatchObject({ projectId: "pi-dashboard-abc123", ownerAccount: OWNER });
+    preset(h.console, "publish");
+    const v = await autopilot(h, await startExisting(h));
+    expect(v.state).toBe("done");
+    expect(await h.store.listClients()).toEqual([
+      expect.objectContaining({ label: "pi-dashboard-abc123", projectId: "pi-dashboard-abc123", ownerAccount: OWNER }),
+    ]);
   });
 
   it("logs one masked line per step: id, outcome, ms", async () => {
@@ -157,12 +159,12 @@ describe("task 2.4 run bookkeeping", () => {
     preset(h.console, "api");
     const v = await autopilot(h, await startExisting(h));
     expect(v.state).toBe("done");
-    const stepLines = h.logger.lines.filter((l) => l.startsWith("[gmail] setup step"));
+    const stepLines = h.logger.lines.filter((l) => l.startsWith("[google] setup step"));
     expect(stepLines).toHaveLength(6);
     for (const id of ["project", "api", "branding", "publish", "client", "capture"]) {
-      expect(stepLines.filter((l) => l.startsWith(`[gmail] setup step ${id} `))).toHaveLength(1);
+      expect(stepLines.filter((l) => l.startsWith(`[google] setup step ${id} `))).toHaveLength(1);
     }
-    for (const l of stepLines) expect(l).toMatch(/^\[gmail\] setup step (project|api|branding|publish|client|capture) (done|skipped|handoff:[a-z_-]+) \d+ms$/);
+    for (const l of stepLines) expect(l).toMatch(/^\[google\] setup step (project|api|branding|publish|client|capture) (done|skipped|handoff:[a-z_-]+) \d+ms$/);
     expect(stepLines[0]).toContain("project skipped");
     expect(stepLines[2]).toContain("branding done");
     // No URL (and so no project id / email) in a step line.
@@ -173,13 +175,13 @@ describe("task 2.4 run bookkeeping", () => {
     const h = await makeHarness({ browser: { refuse: "no-chrome" } });
     const id = await startExisting(h);
     await until(() => h.view(id), (x) => x.state === "handoff");
-    expect(h.logger.lines.some((l) => /^\[gmail\] setup step project handoff:no-chrome \d+ms$/.test(l))).toBe(true);
+    expect(h.logger.lines.some((l) => /^\[google\] setup step project handoff:no-chrome \d+ms$/.test(l))).toBe(true);
   });
 
   it("an unexpected internal error hands off at the current step and logs the class name only", async () => {
     const h = await makeHarness();
     preset(h.console, "publish");
-    h.store.setClient = async () => {
+    h.store.upsertClient = async () => {
       throw new TypeError("kaboom GOCSPX-neverlogged_123");
     };
     const v = await autopilot(h, await startExisting(h));
@@ -196,7 +198,6 @@ describe("R17 secrets never reach a log, a run view or a response", () => {
       ...h.logger.lines,
       JSON.stringify(view),
       JSON.stringify(await h.state()),
-      JSON.stringify(h.configUpdates),
       ...extra,
     ].join("\n");
   }
@@ -209,29 +210,24 @@ describe("R17 secrets never reach a log, a run view or a response", () => {
     const bodies = [r.body];
     const v = await autopilot(h, id);
     expect(v.state).toBe("done");
-    expect((await h.store.getClient())?.clientSecret).toBe("GOCSPX-fullrunSecret_ABCDEF");
+    expect((await h.store.listClients())[0]?.clientSecret).toBe("GOCSPX-fullrunSecret_ABCDEF");
     const all = await collect(h, id, bodies);
     expect(all).not.toContain("fullrunSecret");
     expect(leaks(all)).toEqual([]);
     // One log line per step, still present.
-    expect(h.logger.lines.filter((l) => l.startsWith("[gmail] setup step"))).toHaveLength(6);
+    expect(h.logger.lines.filter((l) => l.startsWith("[google] setup step"))).toHaveLength(6);
   });
 
   it("a failing run (the store refuses after the secret was read): no secret anywhere", async () => {
-    const h = await makeHarness({ client: true });
+    const h = await makeHarness();
     h.console.secret = "GOCSPX-failingRunSecret_XYZ789";
     preset(h.console, "publish");
-    // An account connected during the run makes the store refuse the new client.
-    h.console.beforeNavigate = (u) => {
-      if (u.pathname === PATHS.clientCreate) {
-        h.creds.data.set(acctKey("s1"), {
-          sub: "s1", email: "a@x.com", tier: "readonly", scopes: [], refresh: "r", access: "a", expires: 1, status: "ok", addedAt: 1,
-        });
-      }
+    h.store.upsertClient = async () => {
+      throw Object.assign(new Error("store refused GOCSPX-failingRunSecret_XYZ789"), { code: "too_many_keys" });
     };
     const id = await startExisting(h);
     const v = await autopilot(h, id);
-    expect(v.handoff).toMatchObject({ reason: "client_in_use" });
+    expect(v.handoff).toMatchObject({ step: "capture", reason: "secret_capture_failed" });
     const all = await collect(h, id);
     expect(all).not.toContain("failingRunSecret");
     expect(leaks(all)).toEqual([]);

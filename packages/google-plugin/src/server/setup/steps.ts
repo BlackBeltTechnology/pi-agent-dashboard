@@ -22,6 +22,7 @@ import {
   type SetupDecision,
   type SetupStepId,
 } from "../../shared/auto-setup.js";
+import { GOOGLE_APIS } from "../../shared/setup.js";
 import type { AxNode, PageInfo } from "./cdp-page.js";
 import { NavigationError } from "./cdp-page.js";
 import { SetupHandoff } from "./errors.js";
@@ -38,13 +39,15 @@ const CLIENT_NAME = "pi-dashboard";
 export const PATHS = {
   projectInfo: "/iam-admin/settings",
   projectCreate: "/projectcreate",
-  apiOverview: "/apis/api/gmail.googleapis.com/overview",
   audience: "/auth/audience",
   brandingCreate: "/auth/overview/create",
   branding: "/auth/branding",
   clients: "/auth/clients",
   clientCreate: "/auth/clients/create",
 } as const;
+
+/** Console page of one API (`gmail.googleapis.com` …); the run enables every product API of the project. */
+export const apiOverviewPath = (api: string): string => `/apis/api/${api}/overview`;
 
 export interface Sel {
   role: string;
@@ -312,25 +315,35 @@ async function pollVerify(env: StepEnv, probe: () => Promise<boolean>): Promise<
   return Boolean(await env.waitFor(async () => (await probe()) || undefined, env.timing.verifyWaitMs));
 }
 
+/** `done` when the API's page offers "Disable", `todo` when it offers "Enable"; any other page is unexpected. */
+async function apiState(env: StepEnv, api: string): Promise<"done" | "todo"> {
+  await loadConsole(env, apiOverviewPath(api));
+  const state = await env.waitFor(async () => {
+    if (await env.find(SEL.disableApi)) return "done" as const;
+    if (await env.find(SEL.enableApi)) return "todo" as const;
+    return undefined;
+  }, env.timing.markerWaitMs);
+  if (!state) throw new SetupHandoff("unexpected_page");
+  return state;
+}
+
 const apiStep: StepDef = {
   id: "api",
   async check(env) {
-    await loadConsole(env, PATHS.apiOverview);
-    const state = await env.waitFor(async () => {
-      if (await env.find(SEL.disableApi)) return "done" as const;
-      if (await env.find(SEL.enableApi)) return "todo" as const;
-      return undefined;
-    }, env.timing.markerWaitMs);
-    if (!state) throw new SetupHandoff("unexpected_page");
-    return state === "done";
+    for (const api of GOOGLE_APIS) if ((await apiState(env, api)) === "todo") return false;
+    return true;
   },
   async act(env) {
-    await env.click(SEL.enableApi);
+    // Only the missing APIs are enabled; APIs that are already on stay untouched.
+    for (const api of GOOGLE_APIS) if ((await apiState(env, api)) === "todo") await env.click(SEL.enableApi);
   },
   verify: (env) =>
     pollVerify(env, async () => {
-      await loadConsole(env, PATHS.apiOverview);
-      return Boolean(await env.find(SEL.disableApi));
+      for (const api of GOOGLE_APIS) {
+        await loadConsole(env, apiOverviewPath(api));
+        if (!(await env.find(SEL.disableApi))) return false;
+      }
+      return true;
     }),
 };
 

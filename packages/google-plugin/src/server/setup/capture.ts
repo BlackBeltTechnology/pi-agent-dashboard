@@ -83,7 +83,7 @@ export async function captureClient(env: StepEnv): Promise<void> {
     const stored = await env.storeClient({
       installed: { client_id: captured.clientId, client_secret: captured.clientSecret, project_id: env.projectId },
     });
-    if (!stored.ok) throw new SetupHandoff(stored.error === "client_in_use" ? "client_in_use" : "secret_capture_failed");
+    if (!stored.ok) throw new SetupHandoff("secret_capture_failed");
   } catch (err) {
     if (err instanceof SetupControl) throw err;
     throw new SetupHandoff("secret_capture_failed");

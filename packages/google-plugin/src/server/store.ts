@@ -19,6 +19,8 @@ import type { AccountStatus } from "../shared/protocol.js";
 const CLIENT_PREFIX = "client:";
 const ACCT_PREFIX = "acct:";
 const DISCLOSURE_KEY = "disclosure";
+/** Non-secret automatic-setup record (confirmed publishing links). See change: add-gmail-auto-setup. */
+const SETUP_KEY = "setup";
 export const IMPORTED_GMAIL_KEY = "imported:gmail";
 /** Host namespace limit (`plugin-credential-store.ts`). */
 export const MAX_KEYS = 256;
@@ -551,6 +553,14 @@ export class GoogleStore {
   async acceptDisclosure(version: number, now = Date.now()): Promise<void> {
     try {
       await this.creds.set(DISCLOSURE_KEY, { version, acceptedAt: now });
+    } catch (err) {
+      fullAware(err);
+    }
+  }
+
+  async setSetupRecord(record: Record<string, unknown>): Promise<void> {
+    try {
+      await this.creds.set(SETUP_KEY, record);
     } catch (err) {
       fullAware(err);
     }

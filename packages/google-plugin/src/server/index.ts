@@ -14,6 +14,7 @@ import { createLegacyImporter } from "./import.js";
 import { createLeaseHandler } from "./lease.js";
 import { PendingFlows } from "./pending-flows.js";
 import { mountGoogleRoutes } from "./routes.js";
+import { BROWSER_DEDICATED_SERVICE, type DedicatedBrowserService } from "./setup/browser-service.js";
 import { GoogleStore, summarize } from "./store.js";
 
 export default async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
@@ -47,6 +48,8 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
     networkGuard: ctx.networkGuard,
     logger: ctx.logger,
     dashboardBase,
+    // No `dependsOn` on the browser plugin (hard + it ships disabled): look the service up per request.
+    getBrowserService: () => ctx.consume<DedicatedBrowserService>(BROWSER_DEDICATED_SERVICE),
     leaseToken: async (account) => {
       const r = await lease({ account, product: "drive" });
       return { accessToken: r.accessToken, expiresAt: r.expiresAt };

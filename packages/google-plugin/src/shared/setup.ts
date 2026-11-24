@@ -6,11 +6,42 @@
 /** A Google Cloud project id: 6–30 chars, lower-case letters, digits, hyphens. */
 export const PROJECT_ID_RE = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 
+/** Google APIs the organisation project needs, one per product (service names for `gcloud services enable`). */
+export const GOOGLE_APIS = [
+  "gmail.googleapis.com",
+  "calendar-json.googleapis.com",
+  "drive.googleapis.com",
+  "docs.googleapis.com",
+  "sheets.googleapis.com",
+  "slides.googleapis.com",
+  "tasks.googleapis.com",
+  "people.googleapis.com",
+] as const;
+
+/** The one-line command the manual wizard offers to enable every product API of a project. */
+export function enableApisCommand(projectId: string): string {
+  return `gcloud services enable ${GOOGLE_APIS.join(" ")} --project ${projectId}`;
+}
+
 /** RFC 5321 maximum address length. */
 const EMAIL_MAX = 254;
 
+export type ProjectIdClass = "ok" | "empty" | "looks_like_name" | "invalid";
+
+export function normalizeProjectId(v: string): string {
+  return v.trim();
+}
+
 export function normalizeEmail(v: string): string {
   return v.trim().toLowerCase();
+}
+
+/** `looks_like_name`: the console's display name (uppercase or whitespace) typed instead of the id. */
+export function classifyProjectId(v: string): ProjectIdClass {
+  const id = normalizeProjectId(v);
+  if (!id) return "empty";
+  if (/[A-Z\s]/.test(id)) return "looks_like_name";
+  return PROJECT_ID_RE.test(id) ? "ok" : "invalid";
 }
 
 /**

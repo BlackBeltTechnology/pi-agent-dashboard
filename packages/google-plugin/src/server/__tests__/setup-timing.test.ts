@@ -38,7 +38,7 @@ describe("R2 step limit: a step that hangs 61 s", () => {
     expect(run.view()).toMatchObject({ state: "handoff", handoff: { step: "client", wizardStep: 4, reason: "timeout" } });
     await run.settled;
     expect(h.browser.calls.disconnect).toEqual(["inst-1"]);
-    expect(h.logger.lines.some((l) => /^\[gmail\] setup step client handoff:timeout \d+ms$/.test(l))).toBe(true);
+    expect(h.logger.lines.some((l) => /^\[google\] setup step client handoff:timeout \d+ms$/.test(l))).toBe(true);
   });
 
   it("a long human wait does not count against the step limit (decision pending for 10 min, run then continues)", async () => {

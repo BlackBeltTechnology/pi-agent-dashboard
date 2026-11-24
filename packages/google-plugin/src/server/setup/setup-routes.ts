@@ -1,13 +1,13 @@
 /**
- * Automatic-setup routes + availability (design D3, D10). Mounted into the Gmail
- * scope by `routes.ts`, so they share its prefix, rate limit and network guard.
+ * Automatic-setup routes + availability (design D3, D10), served under `/api/plugins/google/setup/`.
+ * Mounted into the Google scope by `routes.ts`, so they share its prefix, rate limit and network guard.
  * Starting a run additionally requires a genuinely local request. Responses carry
- * the secret-free run view only. See change: add-gmail-auto-setup.
+ * the secret-free run view only. See change: add-gmail-auto-setup; moved by add-google-connect.
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AutoSetupState, SetupContinueRequest, SetupRunRequest } from "../../shared/auto-setup.js";
 import { classifyProjectId, isEmail, normalizeEmail, normalizeProjectId } from "../../shared/setup.js";
-import type { AccountStore } from "../accounts.js";
+import type { GoogleStore } from "../store.js";
 import type { DedicatedBrowserService } from "./browser-service.js";
 import { isGenuinelyLocal } from "./local.js";
 import type { SetupRunManager } from "./run.js";
@@ -15,7 +15,7 @@ import type { SetupRunManager } from "./run.js";
 export interface SetupRouteDeps {
   prefix: string;
   guard: unknown;
-  store: AccountStore;
+  store: GoogleStore;
   manager: SetupRunManager;
   getService(): DedicatedBrowserService | undefined;
 }
@@ -61,12 +61,11 @@ export async function autoSetupState(request: FastifyRequest, deps: SetupRouteDe
   }
   if (!status.enabled) return { available: false, reason: "disabled", local };
   if (!status.available) return { available: false, reason: status.reason ?? "unavailable", local };
-  const client = await deps.store.getClient();
-  if (client && (await deps.store.list()).length > 0) return { available: false, reason: "client_in_use", local };
+  // No condition on existing clients: a run adds a new organisation client or updates the one with the same id.
   if (!local) return { available: false, reason: "remote_dashboard", local };
   const live = deps.manager.live;
   if (live) return { available: false, reason: "run_active", local, runId: live.id };
-  return { available: true, local, ...(client ? { replacesClient: true } : {}) };
+  return { available: true, local };
 }
 
 export function registerSetupRoutes(scope: FastifyInstance, deps: SetupRouteDeps): void {

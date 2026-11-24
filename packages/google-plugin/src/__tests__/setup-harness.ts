@@ -1,24 +1,24 @@
 /**
- * Shared harness for the automatic-setup tests: the Gmail routes over a
+ * Shared harness for the automatic-setup tests: the Google routes over a
  * `FakeConsole` (behind a fake CDP socket) and a fake `browser.dedicated`
  * service, plus the same `RunDeps` for driving a `SetupRun` directly (needed
  * under fake timers). `autopilot` plays the human: answers decisions, ticks the
- * policy box, confirms publishing. See change: add-gmail-auto-setup.
+ * policy box, confirms publishing. See change: add-gmail-auto-setup; moved by add-google-connect.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
 import { afterEach } from "vitest";
-import { AccountStore, CLIENT_KEY } from "../server/accounts.js";
-import { mountGmailRoutes } from "../server/routes.js";
+import { mountGoogleRoutes } from "../server/routes.js";
 import type { DedicatedBrowserService } from "../server/setup/browser-service.js";
 import type { RunDeps } from "../server/setup/run.js";
 import type { Timing } from "../server/setup/steps.js";
 import type { SetupRunView } from "../shared/auto-setup.js";
 import { type FakeBrowserOptions, fakeBrowserService } from "./fake-browser-service.js";
 import { FakeConsole } from "./fake-console.js";
-import { CLIENT, capturingLogger, memoryCredentials, TEST_ENDPOINTS } from "./fakes.js";
+import { clientKey } from "../server/store.js";
+import { makeHarness as makeGoogleHarness, OWN_BB, ownClient } from "./fakes.js";
 
 export const OWNER = "owner@example.com";
 export const PID = "pi-dashboard-abc123";
@@ -38,54 +38,44 @@ export interface HarnessOptions {
   /** `consume("browser.dedicated")` returns undefined until `h.provide()`. */
   noService?: boolean;
   timing?: Partial<Timing>;
-  /** A client is already configured. */
+  /** An organisation client `bb` (client id `OWN_BB`) is already configured. */
   client?: boolean;
   initial?: Record<string, Record<string, unknown>>;
-  pluginConfig?: Record<string, unknown>;
 }
 
 export async function makeHarness(o: HarnessOptions = {}) {
-  const downloadsDir = mkdtempSync(path.join(tmpdir(), "gmail-dl-"));
+  const downloadsDir = mkdtempSync(path.join(tmpdir(), "google-dl-"));
   dirs.push(downloadsDir);
   const console_ = new FakeConsole(downloadsDir);
   const browser = fakeBrowserService({ downloadsDir, ...o.browser });
   let service: DedicatedBrowserService | undefined = o.noService ? undefined : browser.service;
-  const creds = memoryCredentials({ ...(o.client ? { [CLIENT_KEY]: { ...CLIENT } } : {}), ...(o.initial ?? {}) });
-  const store = new AccountStore(creds);
-  const logger = capturingLogger();
-  const pluginConfig: Record<string, unknown> = { ...(o.pluginConfig ?? {}) };
-  const configUpdates: Array<Record<string, unknown>> = [];
-  const config = {
-    get: () => ({ ...pluginConfig }),
-    update: async (partial: Record<string, unknown>) => {
-      configUpdates.push(partial);
-      Object.assign(pluginConfig, partial);
-    },
-  };
+  const g = makeGoogleHarness({
+    initial: { ...(o.client ? { [clientKey("bb")]: ownClient("bb", "BB") } : {}), ...(o.initial ?? {}) } as never,
+  });
+  const { creds, store, logger } = g;
   let ids = 0;
   const timing = { ...FAST, ...o.timing };
   const deps: RunDeps = {
     getService: () => service,
     store,
     logger,
-    saveSetup: (partial) => config.update(partial),
     timing,
     wsFactory: console_.wsFactory,
     newId: () => `run-${++ids}`,
   };
   const app = Fastify();
   apps.push(app);
-  await mountGmailRoutes(app, {
+  await mountGoogleRoutes(app, {
     store,
-    oauth: undefined,
-    endpoints: TEST_ENDPOINTS,
+    clients: g.clients,
+    connect: g.connect,
     networkGuard: async () => {},
     logger,
-    config,
+    dashboardBase: () => "https://dash.example.com",
     getBrowserService: () => service,
     setup: { timing, wsFactory: console_.wsFactory, newId: deps.newId },
   });
-  const url = (p: string) => `/api/plugins/gmail${p}`;
+  const url = (p: string) => `/api/plugins/google${p}`;
   return {
     app,
     console: console_,
@@ -93,8 +83,6 @@ export async function makeHarness(o: HarnessOptions = {}) {
     creds,
     store,
     logger,
-    pluginConfig,
-    configUpdates,
     deps,
     downloadsDir,
     /** The browser plugin loads later. */

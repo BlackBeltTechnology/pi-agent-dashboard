@@ -104,7 +104,7 @@ describe("full new-mode run over the FakeConsole", () => {
     expect(v.steps.map((s) => s.status)).toEqual(["done", "done", "done", "done", "done", "done"]);
     expect(v.created).toEqual({ projectId: v.projectId, clients: ["pi-dashboard"] });
     expect(h.console.projectId).toBe(v.projectId);
-    expect(await h.store.getClient()).toMatchObject({ clientId: h.console.clientId, projectId: v.projectId });
+    expect(await h.store.listClients()).toEqual([expect.objectContaining({ clientId: h.console.clientId, projectId: v.projectId })]);
   });
 
   it("every console navigation selects the owner account, the project and English", async () => {
@@ -141,14 +141,12 @@ describe("full new-mode run over the FakeConsole", () => {
 });
 
 describe("E6 generated project id", () => {
-  it("new mode without projectId: view and saved config carry a valid generated id", async () => {
+  it("new mode without projectId: the view carries a valid generated id", async () => {
     const h = await makeHarness();
     const r = await h.start({ mode: "new", ownerEmail: OWNER });
     const v = await h.view(r.json().runId);
     expect(v.projectId).toMatch(/^pi-dashboard-[a-z0-9]{6}$/);
     expect(classifyProjectId(v.projectId as string)).toBe("ok");
-    await until(() => h.configUpdates, (u) => u.length > 0);
-    expect(h.configUpdates[0]).toEqual({ projectId: v.projectId, ownerAccount: OWNER });
   });
 
   it("a supplied projectId is used as is", async () => {
@@ -277,7 +275,7 @@ describe("R2 handoff reasons", () => {
   it("unknown page at api → unexpected_page @ api / wizard 1", async () => {
     const h = await makeHarness();
     preset(h.console, "project");
-    h.console.override = (u) => (u.pathname === PATHS.apiOverview ? { text: "Something unexpected", ax: [] } : undefined);
+    h.console.override = (u) => (u.pathname.startsWith("/apis/api/") ? { text: "Something unexpected", ax: [] } : undefined);
     const v = await autopilot(h, await startExisting(h));
     expect(v.state).toBe("handoff");
     expect(v.handoff).toEqual({ step: "api", wizardStep: 1, reason: "unexpected_page" });
@@ -326,7 +324,7 @@ describe("E5 wizardStep map: a hand-off at each step id", () => {
         break;
       case "api":
         preset(h.console, "project");
-        h.console.override = (u) => (u.pathname === PATHS.apiOverview ? { text: "?", ax: [] } : undefined);
+        h.console.override = (u) => (u.pathname.startsWith("/apis/api/") ? { text: "?", ax: [] } : undefined);
         break;
       case "branding":
         preset(h.console, "api");

@@ -14,6 +14,8 @@ export interface LeaseReply {
   expiresAt: number;
   email: string;
   level: string;
+  /** Enabled product options (non-secret), present only when the selection has any. */
+  options?: Record<string, boolean>;
 }
 
 /** Refusal codes of a lease (design D7, D14 A13/A14). Thrown as `<code>: <detail>`. */

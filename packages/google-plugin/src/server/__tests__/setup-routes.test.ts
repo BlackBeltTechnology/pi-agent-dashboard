@@ -1,12 +1,12 @@
 /**
  * Automatic-setup routes (test-plan #E1–#E4, #E9, #R18, task 2.1/2.8): entry
  * availability, genuinely-local start, validation, single live run, the links
- * decision, lazy `browser.dedicated` lookup. See change: add-gmail-auto-setup.
+ * decision, lazy `browser.dedicated` lookup. See change: add-gmail-auto-setup; moved by add-google-connect.
  */
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { fakeBrowserService } from "../../__tests__/fake-browser-service.js";
-import { CLIENT, capturingLogger, memoryCredentials } from "../../__tests__/fakes.js";
+import { capturingLogger, memoryCredentials, OWN_BB, ownClient } from "../../__tests__/fakes.js";
 import {
   EXISTING,
   type Harness,
@@ -16,19 +16,16 @@ import {
   startExisting,
   until,
 } from "../../__tests__/setup-harness.js";
-import { acctKey, CLIENT_KEY } from "../accounts.js";
+import { acctKey, clientKey } from "../store.js";
 import registerPlugin from "../index.js";
 import { isGenuinelyLocal } from "../setup/local.js";
 
 const account = (sub: string) => ({
   sub,
   email: `${sub}@x.com`,
-  tier: "readonly",
-  scopes: [],
-  refresh: "r",
-  access: "a",
-  expires: 1,
-  status: "ok",
+  client: "own:bb",
+  grant: { clientId: OWN_BB.clientId, refresh: "r", access: "a", expires: 1, scopes: [], status: "ok", grantedAt: 1 },
+  products: {},
   addedAt: 1,
 });
 
@@ -48,21 +45,17 @@ describe("E1 entry point availability (GET state → autoSetup)", () => {
     expect((await h.state()).autoSetup).toMatchObject({ available: false, reason: "no-chrome" });
   });
 
-  it("enabled + available, no client → available, no replace flag", async () => {
+  it("enabled + available, no client → available", async () => {
     const h = await makeHarness();
+    expect((await h.state()).autoSetup).toMatchObject({ available: true, local: true });
+  });
+
+  it("client with accounts → still available (a run adds a new organisation client, or updates the same one)", async () => {
+    const h = await makeHarness({ client: true, initial: { [acctKey("s1")]: account("s1") } as never });
     const s = (await h.state()).autoSetup;
-    expect(s).toMatchObject({ available: true, local: true });
+    expect(s).toMatchObject({ available: true });
     expect(s.replacesClient).toBeUndefined();
-  });
-
-  it("client without accounts → available with the replace flag", async () => {
-    const h = await makeHarness({ client: true });
-    expect((await h.state()).autoSetup).toMatchObject({ available: true, replacesClient: true });
-  });
-
-  it("client with an account → unavailable", async () => {
-    const h = await makeHarness({ client: true, initial: { [acctKey("s1")]: account("s1") } });
-    expect((await h.state()).autoSetup).toMatchObject({ available: false, reason: "client_in_use" });
+    expect(s.reason).toBeUndefined();
   });
 
   it("non-local request → unavailable with local:false", async () => {
@@ -151,8 +144,7 @@ describe("E3 start validation", () => {
     const r = await h.start({ mode: "existing", projectId: "pi-dashboard-abc123", ownerEmail: "Owner@Example.com " });
     expect(r.statusCode).toBe(200);
     // The owner email is normalized before it is used or saved.
-    await until(() => h.configUpdates, (u) => u.length > 0);
-    expect(h.configUpdates[0]).toEqual({ projectId: "pi-dashboard-abc123", ownerAccount: OWNER });
+    expect((await h.view(r.json().runId)).ownerEmail).toBe(OWNER);
   });
 
   it("a start refused because setup is unavailable → 409 unavailable with the reason", async () => {
@@ -258,14 +250,14 @@ describe("E9 links decision validation", () => {
   });
 });
 
-describe("R18 / task 2.1 — gmail loads without the browser plugin and finds it lazily", () => {
+describe("R18 / task 2.1 — google loads without the browser plugin and finds it lazily", () => {
   it("consume undefined at load, defined later → GET state reports unavailable, then available", async () => {
     const app = Fastify();
     const fake = fakeBrowserService();
     let provided: unknown;
     const consume = vi.fn(() => provided);
     const ctx = {
-      credentials: memoryCredentials({ [CLIENT_KEY]: { ...CLIENT } }),
+      credentials: memoryCredentials({ [clientKey("bb")]: ownClient("bb", "BB") }),
       logger: capturingLogger(),
       fastify: app,
       networkGuard: async () => {},
@@ -276,10 +268,10 @@ describe("R18 / task 2.1 — gmail loads without the browser plugin and finds it
       oauth: undefined,
     };
     await registerPlugin(ctx as never);
-    const get = async () => (await app.inject({ method: "GET", url: "/api/plugins/gmail/state" })).json().autoSetup;
+    const get = async () => (await app.inject({ method: "GET", url: "/api/plugins/google/state" })).json().autoSetup;
     expect(await get()).toMatchObject({ available: false, reason: "service_missing" });
     provided = fake.service;
-    expect(await get()).toMatchObject({ available: true, replacesClient: true });
+    expect(await get()).toMatchObject({ available: true });
     expect(consume).toHaveBeenCalledWith("browser.dedicated");
     await app.close();
   });
@@ -301,7 +293,7 @@ describe("setup run routes are genuinely-local only (security review #1)", () =>
       const h = await makeHarness();
       preset(h.console, "branding");
       const id = await startExisting(h);
-      const base = `/api/plugins/gmail/setup/run/${id}`;
+      const base = `/api/plugins/google/setup/run/${id}`;
       const calls = [
         h.app.inject({ method: "GET", url: base, ...opts }),
         h.app.inject({ method: "POST", url: `${base}/continue`, payload: { confirmLinks: true }, ...opts }),
