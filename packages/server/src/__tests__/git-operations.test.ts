@@ -746,6 +746,8 @@ describe("checkoutBranch derived local name (SE6)", () => {
 // ── ensureWorktree (change: add-plugin-spawn-worktree, test-plan E1–E7, X1–X5, X8–X11, C1) ──
 describe("ensureWorktree", () => {
   const made: string[] = [];
+  /** Generous admission budgets: the real git probes must not turn into `admission_unavailable` on a loaded CI host. */
+  const SLOW_HOST_ADMISSION = { deadlineMs: 60_000, probeTimeoutMs: 30_000 };
   const sh = (cmd: string, cwd: string) => execSync(cmd, { cwd, stdio: "pipe", encoding: "utf-8" }).trim();
 
   /** Canonical temp repo whose default branch is `develop` (unless told otherwise) with one commit. */
@@ -761,7 +763,7 @@ describe("ensureWorktree", () => {
     return dir;
   }
   const ensure = (repo: string, o: Partial<EnsureWorktreeOptions> = {}, deps = {}) =>
-    ensureWorktree({ cwd: repo, branch: "os/add-x", ifExists: "reuse", knownCwds: () => [repo], ...o }, deps);
+    ensureWorktree({ cwd: repo, branch: "os/add-x", ifExists: "reuse", knownCwds: () => [repo], admitOptions: SLOW_HOST_ADMISSION, ...o }, deps);
   const wtCount = (repo: string) => sh("git worktree list --porcelain", repo).split("\n").filter((l) => l.startsWith("worktree ")).length;
 
   afterEach(() => {

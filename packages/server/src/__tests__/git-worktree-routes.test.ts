@@ -626,7 +626,13 @@ describe("POST /api/git/worktree vs ensureWorktree — per-repo lock", () => {
       routeDone = true;
     });
     await new Promise((r) => setTimeout(r, 150));
-    const ensureP = ensureWorktree({ cwd: repo, branch: "os/add-x", ifExists: "reuse", knownCwds: () => KNOWN });
+    const ensureP = ensureWorktree({
+      cwd: repo,
+      branch: "os/add-x",
+      ifExists: "reuse",
+      knownCwds: () => KNOWN,
+      admitOptions: { deadlineMs: 60_000, probeTimeoutMs: 30_000 },
+    });
     await new Promise((r) => setTimeout(r, 150));
     expect(routeDone, "the route must wait for the repo lock").toBe(false);
     release();
