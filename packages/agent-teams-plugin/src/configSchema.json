@@ -127,6 +127,10 @@
       },
       "default": [],
       "description": "Additional absolute directory roots a per-member cwd may live under, besides the lead's cwd."
+    },
+    "teammateMode": {
+      "type": "string",
+      "description": "Default teammate mode for TeamCreate when no mode is given. Unset resolves to \"session\". Must name a registered mode."
     }
   }
 }

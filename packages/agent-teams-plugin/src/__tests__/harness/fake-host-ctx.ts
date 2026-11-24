@@ -21,20 +21,20 @@ type HostCtxSurface = Pick<
   "emitEventToSession" | "spawnSession" | "abortSession" | "shutdownSession" | "getPluginConfig"
 >;
 
-interface RecordedEmit {
+export interface RecordedEmit {
   readonly sessionId: string;
   readonly eventType: string;
   readonly data: Record<string, unknown> | undefined;
 }
 
-interface FakeHostCtxOptions {
+export interface FakeHostCtxOptions {
   /** Overrides merged over the configSchema defaults. */
   config?: Record<string, unknown>;
   /** Sessions the host knows; unknown ids make emit/abort/shutdown return false. */
   knownSessions?: Iterable<string>;
 }
 
-interface FakeHostCtx {
+export interface FakeHostCtx {
   /** Pass this where the plugin expects its host context members. */
   readonly ctx: HostCtxSurface;
   readonly emits: RecordedEmit[];
