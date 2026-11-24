@@ -163,7 +163,14 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // lives in the index chunk. +~1.6 KB gz (CI: 637,599 B -> 639,186 B). 625 KiB (640,000 B) would leave only
 // ~800 B for CI's compressor variance, so 626 KiB (641,024 B, ~1.8 KB headroom). Smallest KiB step with CI
 // headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 626 * 1024;
+//
+// add-google-connect (2026-11-24): 626 -> 629 KiB. Unavoidably eager: the google plugin's i18n catalog (en +
+// zh-CN + hu, ~270 keys for the accounts page, connect dialog and setup wizard) ships with every plugin
+// catalog in the entry chunk, partly offset by the gmail catalog shrinking to its 4 pointer-notice keys; the
+// accounts UI itself is a lazy `import()` behind a thin wrapper (lazy-plugin-claims allow-list). 642,761 B on
+// CI, 1,737 B over the old cap; 628 KiB (643,072 B) would leave only ~300 B for CI's compressor variance, so
+// 629 KiB (644,096 B, ~1.3 KB headroom). Smallest KiB step with CI headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 629 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
