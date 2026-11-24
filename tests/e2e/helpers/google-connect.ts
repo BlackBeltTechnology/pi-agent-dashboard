@@ -13,9 +13,8 @@ import { expect } from "../fixtures.js";
 import { BASE_URL, DASHBOARD_PORT, harnessProject, REPO_ROOT } from "../lifecycle.js";
 import { FAKE_GOOGLE_BASE, fakeGoogleConsent, fakeGoogleControl, startFakeGoogle } from "./fake-google.js";
 
-export const GOOGLE_SETTINGS = "/settings/plugins/google";
+const GOOGLE_SETTINGS = "/settings/plugins/google";
 export const API = "/api/plugins/google";
-export const RETURN_PAGE = "https://pi-dashboard.dev/oauth/return.html";
 
 export function containerId(): string {
   return execFileSync("docker", ["ps", "-q", "--filter", `label=com.docker.compose.project=${harnessProject()}`], {
@@ -31,7 +30,7 @@ export function containerId(): string {
  * proof: `pi-dashboard api` run inside the container (the same path the entrypoint uses to mint a ws ticket).
  * Returns the parsed JSON body; a refusal throws with the CLI output.
  */
-export function localDashboardApi<T = unknown>(cid: string, method: string, path: string, data?: unknown): T {
+function localDashboardApi<T = unknown>(cid: string, method: string, path: string, data?: unknown): T {
   const args = ["exec", cid, "pi-dashboard", "api", method, path, "--port", String(DASHBOARD_PORT)];
   if (data !== undefined) args.push("--data", JSON.stringify(data));
   return JSON.parse(execFileSync("docker", args, { encoding: "utf8", timeout: 30_000 })) as T;
@@ -86,7 +85,7 @@ export async function addOwnClient(request: APIRequestContext, label = "E2E org"
 }
 
 /** The Google URL the server handed the dialog / REST caller for a flow. */
-export async function flowAuthUrl(request: APIRequestContext, flowId: string): Promise<string> {
+async function flowAuthUrl(request: APIRequestContext, flowId: string): Promise<string> {
   let url = "";
   await expect
     .poll(
@@ -101,7 +100,7 @@ export async function flowAuthUrl(request: APIRequestContext, flowId: string): P
   return url;
 }
 
-export async function waitForAccount(request: APIRequestContext, email: string): Promise<AccountRow> {
+async function waitForAccount(request: APIRequestContext, email: string): Promise<AccountRow> {
   let found: AccountRow | undefined;
   await expect
     .poll(async () => (found = (await googleState(request)).accounts.find((a) => a.email === email)) !== undefined, { timeout: 20_000 })
@@ -135,7 +134,7 @@ export async function seedAccount(
  * the real Google would — through the fake, inside the container — and hand `onRedirect` the location.
  * Default: answer 204 so the popup stays inert (the paste fallback / spec drives the rest).
  */
-export async function routeFakeGoogle(
+async function routeFakeGoogle(
   context: BrowserContext,
   cid: string,
   onAuth?: (authUrl: string, location: string) => string | undefined,
@@ -240,7 +239,7 @@ export async function cancelFlows(request: APIRequestContext, ids: string[]): Pr
 }
 
 /** GET a URL from INSIDE the container (loopback listeners the browser cannot reach); returns the status. */
-export function containerGet(cid: string, url: string): number {
+function containerGet(cid: string, url: string): number {
   const script = `fetch(${JSON.stringify(url)}).then((r) => process.stdout.write(String(r.status))).catch((e) => { process.stderr.write(String(e)); process.exit(1); });`;
   return Number(execFileSync("docker", ["exec", cid, "node", "-e", script], { encoding: "utf8", timeout: 30_000 }));
 }
