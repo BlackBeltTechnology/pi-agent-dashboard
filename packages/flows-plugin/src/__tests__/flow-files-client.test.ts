@@ -91,3 +91,26 @@ describe("withNodeFiles", () => {
     expect(withNodeFiles(enriched, files)).toBe(enriched);
   });
 });
+
+// ── path-opened (view-only) flows. See change: add-flow-open-tool (E16, F7). ──
+describe("view-only flow files", () => {
+  it("E16: a path-opened flow's handler map is keyed by its display name", () => {
+    const state: FlowState = {
+      flowName: "flows/a/flow.yaml",
+      task: "",
+      status: "running",
+      autonomousMode: true,
+      agents: new Map([["load", card({ agentName: "load", stepId: "load", nodeKind: "code" })]]),
+      dagSteps: [{ id: "load", stepType: "code", blockedBy: [] }],
+    };
+    const out = withNodeFiles(state, { agents: {}, handlers: { "flows/a/flow.yaml": { load: "/w/flows/a/load.ts" } } });
+    expect(out.agents.get("load")?.codeTarget).toBe("/w/flows/a/load.ts");
+  });
+
+  it("F7: noHostFallback never calls the host route and surfaces the plugin refusal", async () => {
+    const f = vi.fn(async (_url: string) => res(403, { success: false, error: "not a flow file of this session" }));
+    vi.stubGlobal("fetch", f);
+    await expect(fetchFlowFile("S1", "/w/f/flow.yaml", { noHostFallback: true })).rejects.toThrow("not a flow file of this session");
+    expect(f.mock.calls.some(([u]) => String(u).includes("/api/pi-resource-file"))).toBe(false);
+  });
+});

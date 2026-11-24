@@ -819,6 +819,7 @@
     "packages/video-transcription": {
       "entry": [
         "src/bin/transcribe.ts",
+        "src/bin/voiceid.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

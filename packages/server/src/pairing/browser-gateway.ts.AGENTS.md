@@ -56,3 +56,5 @@ On-connect `sessions_snapshot` carries `pathKeyPlatform: sessionArchive.pathKeyP
 `shutdownHeadlessProcesses({exitIntent})` async: awaits `headlessPidRegistry.killAll({exitIntent ?? null})`; `server.ts` `stop()` awaits it with `opts.exitIntent ?? "idle"`. See change: guard-restored-headless-identity.
 
 Routes `remove_steering_entry` → `handleRemoveSteeringEntry`, `clear_steering_entries` → `handleClearSteeringEntries`. See change: bridge-owned-cancellable-steer.
+
+`frameClassOf`: plugin frame `flows_open` → `{cls:"state", key:"flows_open:<sessionId>:<requestId>"}` (never shed, never coalesced — each pin acked), checked before the core switch. See change: add-flow-open-tool.

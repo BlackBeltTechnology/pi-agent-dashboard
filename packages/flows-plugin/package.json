@@ -113,6 +113,10 @@
         "config": {
           "actionId": "flows.run"
         }
+      },
+      {
+        "slot": "shell-headless",
+        "component": "FlowOpenListener"
       }
     ]
   },
