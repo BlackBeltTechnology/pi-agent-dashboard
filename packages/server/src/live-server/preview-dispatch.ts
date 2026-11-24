@@ -28,10 +28,10 @@ import { createLiveForwarder, type LiveProxyDeps, pipeUpgradeToTarget } from "./
 import {
   canonicalHostOf,
   hashPreviewKey,
-  previewLogHash,
   isPreviewShapedOrigin,
   PREVIEW_LABEL_SHAPE,
   type PreviewShapeDeps,
+  previewLogHash,
   splitHostHeader,
 } from "./preview-origin.js";
 

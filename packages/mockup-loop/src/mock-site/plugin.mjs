@@ -5,11 +5,11 @@
 // `mock-decide` CLI only. See change: add-live-component-mock-site (D1-D5),
 // add-mock-site-exact-env (D2, D6, D8).
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { createRequire } from "node:module";
+import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { discoverMocks, mockRoots } from "./discover.mjs";
 import { readDecisions } from "./decisions.mjs";
+import { discoverMocks, mockRoots } from "./discover.mjs";
 import { DEFAULT_FRAMEWORK, FRAMEWORK_ADAPTERS } from "./frameworks.mjs";
 
 const SITE_DIR = fileURLToPath(new URL("../../site/", import.meta.url));

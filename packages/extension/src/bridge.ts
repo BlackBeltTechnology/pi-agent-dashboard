@@ -11,12 +11,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
-import { applyDefaultModel as applyDefaultModelFromConfig } from "./default-model-apply.js";
 import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 import { processPidNamespace } from "@blackbelt-technology/pi-dashboard-shared/pid-namespace.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { rendezvousEndpoint } from "@blackbelt-technology/pi-dashboard-shared/rendezvous.js";
+import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AbortLatch } from "./abort-latch.js";
 import { type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
@@ -40,6 +39,7 @@ import { ConnectionManager, type WatchdogFireInfo } from "./connection.js";
 import { createCredentialGuard, createCredentialGuardToolCallHandler } from "./credential-guard.js";
 import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
+import { applyDefaultModel as applyDefaultModelFromConfig } from "./default-model-apply.js";
 import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
@@ -51,7 +51,6 @@ import {
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
-import { admitSteer, createSteerBuffer } from "./steer-buffer.js";
 import { drainOneFollowup } from "./followup-drain.js";
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
 import { createInboundLimits } from "./inbound-limits.js";
@@ -59,10 +58,8 @@ import { localCredentialPlan, proofFailureLogCause } from "./local-token-header.
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { createMcpDashboardRegistrar, type McpRegistrationApi, } from "./mcp-token-delivery.js";
 import { COALESCE_WINDOW_MS, MessageUpdateCoalescer } from "./message-update-coalescer.js";
-import { buildSpawnNewSessionMessage } from "./spawn-new-session.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { createPathGate } from "./path-gate/index.js";
-import { createPreviewPathLink, installBaseReservationListener } from "./preview-path-link.js";
 import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
@@ -70,6 +67,7 @@ import { isPinnedEndpoint } from "./pinned-endpoint.js";
 import { PluginForwardRegistry } from "./plugin-event-forward-registry.js";
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
+import { createPreviewPathLink, installBaseReservationListener } from "./preview-path-link.js";
 import { getOwnPgid, } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, awaitStartupProviderModels, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
@@ -79,11 +77,15 @@ import { activate as activateRoleManager, resolveNamingModel } from "./role-mana
 import { loadServerPins, serverPinsPath } from "./server-pin-store.js";
 import { replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, filterByEnabledModels, isLive } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
+import { buildSpawnNewSessionMessage } from "./spawn-new-session.js";
 import { captureSpawnTokenAtActivation } from "./spawn-token.js";
+import { admitSteer, createSteerBuffer } from "./steer-buffer.js";
 import { flushBufferedSubagentFrames, } from "./subagent-forward-sites.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
 import { SubagentTickThrottle } from "./subagent-tick-throttle.js";
+import { createSudoAskpass, createSudoConfigReader } from "./sudo-askpass/index.js";
+import { sudoMaskState } from "./sudo-askpass/sudo-mask-registry.js";
 import {
   createTerminalReload,
   isBridgeReentry,
@@ -95,8 +97,6 @@ import { drainUsageAndSend, makeCacheWarmingDecisionHandler, UsageDrain, } from 
 import { createVaultDelivery } from "./vault-delivery.js";
 import { createVaultForwardFilter } from "./vault-forwarder.js";
 import { createVaultRedaction } from "./vault-redaction.js";
-import { sudoMaskState } from "./sudo-askpass/sudo-mask-registry.js";
-import { createSudoAskpass, createSudoConfigReader } from "./sudo-askpass/index.js";
 
 /**
  * Formats the state behind a watchdog force-close for `server.log`.

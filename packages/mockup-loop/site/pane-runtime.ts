@@ -5,9 +5,10 @@
 // health / missing-fixture reports to the parent shell.
 // Query params: `mkLoops=N` (stop after N loops), `mkFast=1` (no pointer travel).
 // See change: add-mock-site-exact-env (design D3, D4, D5).
-import { originOk, postTarget } from "./frame-env.ts";
+
 import { clockStart, createClock, installClock } from "./clock.ts";
 import { type Fixtures, installFixtures } from "./fixtures.ts";
+import { originOk, postTarget } from "./frame-env.ts";
 import { createOverlay, runSteps, type ScriptStep } from "./script.ts";
 
 const HOLD_MS = 1800;

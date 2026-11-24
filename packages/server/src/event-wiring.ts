@@ -15,7 +15,6 @@ import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-
 import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import { createAgentConfirmRegistry } from "./access/agent-confirm-registry.js";
-import { bridgeReserverKey, handlePreviewPathRelease, handlePreviewPathRequest } from "./live-server/preview-path-bridge.js";
 import { handlePathGrantRequest } from "./access/agent-grant.js";
 import { handlePathGateRefusal, handlePathYoloRequest } from "./access/agent-yolo.js";
 import { announceableGrantStoreId } from "./access/grant-store-id.js";
@@ -30,6 +29,7 @@ import type { DirectoryService } from "./directory-service.js";
 import { captureLifecycleTimestamp } from "./embed-lifecycle/lifecycle-event-capture.js";
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
+import { bridgeReserverKey, handlePreviewPathRelease, handlePreviewPathRequest } from "./live-server/preview-path-bridge.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
 import { invalidateCatalogue, setCatalogueForSession } from "./package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "./pairing/browser-gateway.js";

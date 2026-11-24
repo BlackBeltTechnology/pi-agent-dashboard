@@ -5,10 +5,11 @@
 // The pane page (`?pane=<id>/<frame>/<side>&mkLoops=N`) runs the script and
 // publishes `window.__mkHealth = { completed, failed, errors }`.
 // See change: add-mock-site-exact-env (design D4, D7).
-import { joinUrl } from "./base.mjs";
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { joinUrl } from "./base.mjs";
 import { launchChromium } from "./browser.mjs";
 import { GENERATED_DIR } from "./env.mjs";
 import { parseRef } from "./refs.mjs";

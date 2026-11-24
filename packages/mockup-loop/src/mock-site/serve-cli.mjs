@@ -5,8 +5,8 @@
 //   node <pkg>/src/mock-site/serve-cli.mjs [--port 5299] [--lan] [--base /some/prefix/]
 // See change: add-mock-site-exact-env (design D1, D12).
 import { spawn } from "node:child_process";
-import { findProjectRoot } from "./cli.mjs";
 import { validateBase } from "./base.mjs";
+import { findProjectRoot } from "./cli.mjs";
 import { prepareMockSite } from "./env.mjs";
 
 const argv = process.argv.slice(2);

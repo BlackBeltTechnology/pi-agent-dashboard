@@ -5,7 +5,7 @@
  * (jiti gate). See change: add-live-component-mock-site (design D11),
  * add-mock-site-exact-env (D1, D10).
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";

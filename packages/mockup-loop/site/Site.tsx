@@ -5,12 +5,13 @@
 // "Show accepted / rejected". Fixture-backed and scripted panes run in their own
 // isolated same-origin document (`?pane=`). See change: add-live-component-mock-site,
 // add-mock-site-exact-env.
-import { BASE, fromChildFrame, isOpaque, originOk, postTarget, readStore, writeStore } from "./frame-env.ts";
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { tipsOf, type Frame, type Mock, type Status, type Decision, RefBase, RefLink, refId, InPlayer, MAX_WHY, paneContent } from "./kit.tsx";
-import { frameworkProblem } from "../src/mock-site/frameworks.mjs";
+
 import { MOCK_CONFIG } from "virtual:mock-site/config";
-import { MOCKS as LOADED, ERRORS } from "virtual:mock-site/mocks";
+import { ERRORS, MOCKS as LOADED } from "virtual:mock-site/mocks";
+import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { frameworkProblem } from "../src/mock-site/frameworks.mjs";
+import { BASE, fromChildFrame, isOpaque, originOk, postTarget, readStore, writeStore } from "./frame-env.ts";
+import { type Decision, type Frame, InPlayer, MAX_WHY, type Mock, paneContent, RefBase, RefLink, refId, type Status, tipsOf } from "./kit.tsx";
 
 type M = Mock & { id: string };
 const ALL: M[] = LOADED.map(({ id, mock }) => ({ ...mock, id }));

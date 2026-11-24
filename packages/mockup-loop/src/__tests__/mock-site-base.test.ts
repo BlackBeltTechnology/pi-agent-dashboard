@@ -10,8 +10,8 @@ import * as net from "node:net";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import frontendMockupLoop from "../extension.js";
-import { children, RESERVATION_WAIT_MS } from "../mock-site-serve.js";
 import { joinUrl, validateBase } from "../mock-site/base.mjs";
+import { children, RESERVATION_WAIT_MS } from "../mock-site-serve.js";
 import { makeServableFixture } from "./mock-site-fixture";
 
 // Loading the fixture's options file through Vite costs ~25 s on a loaded dev machine: every test pays it once.

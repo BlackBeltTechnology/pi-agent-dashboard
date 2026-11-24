@@ -6,12 +6,12 @@ import { parsePreviewOrigins, resolvePreviewOrigins } from "@blackbelt-technolog
 import { describe, expect, it } from "vitest";
 import { redactCapability } from "../live-server/capability-redact.js";
 import {
-  PREVIEW_LABEL_SHAPE,
   canonicalHostOf,
   generatePreviewLabel,
   isPreviewShapedHost,
   isPreviewShapedOrigin,
   isPreviewShapedOriginUrl,
+  PREVIEW_LABEL_SHAPE,
   previewLogHash,
   splitHostHeader,
 } from "../live-server/preview-origin.js";
