@@ -137,7 +137,7 @@ const schemeOfRaw = (request: http.IncomingMessage): "http" | "https" =>
  * preview config — it needs neither the capability store nor `previewApp`, so it still answers when the
  * dispatcher failed to initialise (the server then fails CLOSED for these Hosts, never open to the dashboard).
  */
-export function isPreviewShapedRequest(request: http.IncomingMessage, shape?: PreviewShapeDeps): boolean {
+function isPreviewShapedRequest(request: http.IncomingMessage, shape?: PreviewShapeDeps): boolean {
   const host = request.headers.host;
   if (typeof host !== "string") return false;
   const parsed = splitHostHeader(host);

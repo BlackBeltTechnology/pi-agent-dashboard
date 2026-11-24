@@ -19,15 +19,15 @@ import { sanitizeHeaderForLog } from "./cors-origin.js";
 import { wantsHtml } from "./host-gate.js";
 
 /** Dashboard cookie namespace (literal, case-sensitive). Mirrors `live-server-proxy.ts`. */
-export const DASHBOARD_COOKIE_PREFIX = "pi_dash_";
+const DASHBOARD_COOKIE_PREFIX = "pi_dash_";
 /** Names echoed in a body or log are truncated to this many characters (Q28). */
-export const COOKIE_NAME_ECHO_MAX = 128;
+const COOKIE_NAME_ECHO_MAX = 128;
 /** Self-heal covers prefixes of the first N path segments. */
-export const EXPIRY_MAX_SEGMENTS = 16;
+const EXPIRY_MAX_SEGMENTS = 16;
 /** Hard cap on `Set-Cookie` expiry lines per refusal. */
-export const EXPIRY_MAX_LINES = 64;
+const EXPIRY_MAX_LINES = 64;
 /** The paths the dashboard itself sets cookies at (token / local `/`, device `/api/`, oauth_state `/auth/`). */
-export const CANONICAL_COOKIE_PATHS = ["/", "/api/", "/auth/"] as const;
+const CANONICAL_COOKIE_PATHS = ["/", "/api/", "/auth/"] as const;
 /** Refusal log: one line per name per window, ≤ this many names tracked (parity with the host gate). */
 const LOG_WINDOW_MS = 60_000;
 const LOG_MAX_NAMES = 256;
@@ -112,7 +112,7 @@ export function ancestorDomains(hostHeader: string | undefined): string[] {
 }
 
 /** Is tier 2 (wildcard preview origins) active right now? Only then can a sibling subdomain toss a parent-domain cookie. */
-export function tier2Active(): boolean {
+function tier2Active(): boolean {
   const r = getResolvedPreviewOrigins();
   return r.enabled && r.tiers.includes(2) && !!r.wildcard;
 }
@@ -135,12 +135,12 @@ const escapeHtml = (v: string): string =>
   v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 /** The JSON refusal body. */
-export function duplicateCookieBody(name: string): { success: false; error: "duplicate_dashboard_cookie"; cookie: string } {
+function duplicateCookieBody(name: string): { success: false; error: "duplicate_dashboard_cookie"; cookie: string } {
   return { success: false, error: "duplicate_dashboard_cookie", cookie: truncate(name, COOKIE_NAME_ECHO_MAX) };
 }
 
 /** Static page for navigations: no script, no asset reference; the cookie name is escaped. */
-export function renderDuplicateCookieHtml(name: string): string {
+function renderDuplicateCookieHtml(name: string): string {
   const safe = escapeHtml(truncate(name, COOKIE_NAME_ECHO_MAX));
   return `<!doctype html>
 <html lang="en">
