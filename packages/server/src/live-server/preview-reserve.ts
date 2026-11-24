@@ -24,7 +24,7 @@ export type PreviewReserveOutcome =
   | { kind: "limit" }
   | { kind: "ok"; path: string; expiresAt: number };
 
-export const isValidPort = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 65535;
+const isValidPort = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 65535;
 
 export function reservePreviewPath(
   deps: PreviewReserveDeps,
