@@ -20,6 +20,7 @@ import type { ResolvedPreviewOrigins } from "@blackbelt-technology/pi-dashboard-
 import { splitHostHeader } from "./preview-origin.js";
 
 type MintTier = 1 | 2 | 4;
+type MintTierOrPool = MintTier | 3;
 type MintReason =
   | "disabled"
   | "no-accept"
@@ -47,6 +48,12 @@ export interface TierInput {
   /** The raw `accept` body value (untrusted). */
   accept: unknown;
   kind: "port" | "static";
+  /**
+   * Tier 3 (D5): can THIS principal on THIS Host have a pool listener? True only for a login-session principal (a `Path=/`
+   * cookie) whose Host IP is the bind address or a local interface address, with a pool configured and not exhausted.
+   * Absent = false.
+   */
+  poolEligible?: boolean;
 }
 
 export type TierDecision =
@@ -58,6 +65,8 @@ export type TierDecision =
       reason?: undefined;
     }
   /** `tier5`: the client accepts `preview`, the target is a port target and previews are on (group 8 mints it). */
+  /** Tier 3: the caller allocates a pool listener for `hostIp` (falls back to {@link selectMintTier} with `poolEligible:false`). */
+  | { tier: 3; ancestors: string[]; hostIp: string; reason?: undefined }
   | { tier: "legacy" | "tier5"; reason: MintReason };
 
 const ACCEPT_MAX_ENTRIES = 8;
@@ -106,7 +115,7 @@ interface TierCtx {
   port: number | undefined;
 }
 
-type TierMatch = Extract<TierDecision, { tier: MintTier }> | { refuse: MintReason } | null;
+type TierMatch = Extract<TierDecision, { tier: MintTierOrPool }> | { refuse: MintReason } | null;
 
 function matchTier1(c: TierCtx): TierMatch {
   const { hostname } = c.host;
@@ -139,6 +148,16 @@ function matchTier2(c: TierCtx): TierMatch {
       return { origin: `${scheme}://${originHost}`, originHost };
     },
   };
+}
+
+function matchTier3(c: TierCtx): TierMatch {
+  const { resolved } = c.input;
+  const { hostname } = c.host;
+  if (!c.input.poolEligible || !resolved.pool || !resolved.tiers.includes(3)) return null;
+  // canonical dotted IPv4 only, never loopback (tier 1 owns it), plain http on both the socket and the ancestor
+  if (!IPV4_TEXT.test(hostname) || isIP(hostname) !== 4 || isLoopbackIpv4(hostname) || c.raw.split(":")[0].endsWith(".")) return null;
+  if (c.input.socketTls || c.ancestorScheme !== "http") return null;
+  return { tier: 3, ancestors: c.ancestors, hostIp: hostname };
 }
 
 function matchTier4(c: TierCtx): TierMatch {
@@ -188,8 +207,8 @@ export function selectMintTier(input: TierInput): TierDecision {
     ancestorScheme: ancestorOrigin.startsWith("https:") ? "https" : "http",
     port: host.port ?? input.socketPort,
   };
-  // First match wins. Tier 3 (port pool) is minted by group 7.
-  for (const match of [matchTier1, matchTier2, matchTier4]) {
+  // First match wins; tier 3's listener is allocated by the caller (the pool), not here.
+  for (const match of [matchTier1, matchTier2, matchTier3, matchTier4]) {
     const m = match(c);
     if (m && "refuse" in m) return { ...tier5, reason: m.refuse };
     if (m) return m;

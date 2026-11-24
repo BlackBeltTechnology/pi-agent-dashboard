@@ -27,7 +27,7 @@ export type ServeResult =
   | { ok: true; port: number; local: string; lan: string | null; root: string; launcher: string; config: string; base: string | null; note?: string }
   | { ok: false; error: string };
 
-/** Ports the mock site must never take: 8000, PI_DASHBOARD_PORT, ~/.pi/dashboard/config.json port. */
+/** Ports the mock site must never take: 8000, PI_DASHBOARD_PORT, ~/.pi/dashboard/config.json port + the tier-3 preview pool. */
 function forbiddenPorts(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): Set<number> {
   const out = new Set<number>([8000]);
   const p = Number(env.PI_DASHBOARD_PORT);
@@ -36,6 +36,9 @@ function forbiddenPorts(env: NodeJS.ProcessEnv = process.env, home: string = os.
     const cfg = JSON.parse(fs.readFileSync(path.join(home, ".pi", "dashboard", "config.json"), "utf8"));
     const c = Number(cfg?.port);
     if (Number.isInteger(c) && c > 0) out.add(c);
+    // Tier-3 pool ports belong to the dashboard's preview listeners (`liveServer.previewOrigins.portPool`, "a-b", ≤ 100 ports).
+    const m = /^(\d{1,5})-(\d{1,5})$/.exec(String(cfg?.liveServer?.previewOrigins?.portPool ?? ""));
+    if (m && Number(m[2]) >= Number(m[1]) && Number(m[2]) - Number(m[1]) < 100) for (let p2 = Number(m[1]); p2 <= Number(m[2]); p2++) out.add(p2);
   } catch {
     /* no config */
   }

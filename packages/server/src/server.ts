@@ -247,6 +247,7 @@ import { createReservedHandler } from "./live-server/live-csp-report.js";
 import { createEgressGrantRequester, createPreviewEgress, requestOriginsOf } from "./live-server/live-egress.js";
 import { createPreviewExposure, wirePreviewExposure } from "./live-server/live-exposure.js";
 import { liveLog } from "./live-server/live-log.js";
+import { createPreviewPool, type PreviewPool } from "./live-server/preview-pool.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, type LiveProxyDeps, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { createPreviewDispatch, type PreviewDispatch, previewServerFactory, routePreviewUpgrade } from "./live-server/preview-dispatch.js";
@@ -1488,10 +1489,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   // Ports the dashboard itself listens on are never previewable (a loopback origin is trusted
   // by its CORS / mutation gates). See change: improve-canvas-html-and-url-ux (D1).
+  // Tier 3 pool (D5) + the proxy deps it forwards through: both late-bound (the manager's `ownPorts` reads the pool at seed time).
+  let previewPool: PreviewPool | undefined;
+  let liveProxyDepsRef: LiveProxyDeps | undefined;
   const liveServerManager = createLiveServerManager(preferencesStore, {
     ownPorts: () => {
       const tls = loadConfig().tls;
-      return [config.port, config.piPort, ...(tls?.enabled ? [tls.port] : [])];
+      // Pool ports (tier 3) are the dashboard's own: no target may point at one (D5).
+      return [config.port, config.piPort, ...(tls?.enabled ? [tls.port] : []), ...(previewPool?.poolPorts() ?? [])];
     },
   });
 
@@ -2527,9 +2532,25 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService, sessionProviderRejected) !== null;
     return true;
   };
+  // Tier 3 pool (D5): the store's `onDelete` closes the listener of a deleted entry on EVERY deletion path.
+  // Late-bound (`previewPool` is built just below the store it reads).
   const liveCapabilities = new LiveCapabilityStore({
     isTargetLive: (id) => liveServerManager.has(id),
     isPrincipalLive: capabilityPrincipalLive,
+    onDelete: (entry, reason) => previewPool?.onDelete(entry, reason),
+    getPreviewConfig: () => getResolvedPreviewOrigins(),
+  });
+  previewPool = createPreviewPool({
+    range: () => {
+      const r = getResolvedPreviewOrigins();
+      return r.enabled ? r.pool : undefined;
+    },
+    bindHost: () => config.host,
+    findByPoolPort: (port) => liveCapabilities.findByPoolPort(port),
+    revokeByPoolPort: (port, reason) => liveCapabilities.revokeByPoolPort(port, reason),
+    touch: (grant) => void liveCapabilities.touch(grant.tokenId, grant.minterKey),
+    manager: liveServerManager,
+    proxyDeps: () => liveProxyDepsRef,
   });
   // Tier 5 (`/preview/<pid>/`, D8): one current pid per port target; liveness is re-checked at every use, so a revoked
   // holder / removed target / disabled previews drops the pid on its next request or sweep.
@@ -3599,6 +3620,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerLiveServerRoutes(fastify, liveServerManager, {
     networkGuard,
     capabilities: liveCapabilities,
+    pool: previewPool,
     previewPaths,
     hasTier5Viewer: () => hasTier5Viewer(browserGateway.wss.clients),
     exposure: previewExposure,
@@ -3637,6 +3659,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     staticGate: async (cwd, absPath) =>
       !("code" in (await gateFilePath(cwd, absPath, fileRouteAdmission, { allowGrant: true, quiet: true }))),
   };
+  liveProxyDepsRef = liveProxyDeps;
   registerLiveServerProxy(fastify, liveServerManager, liveProxyDeps);
   const previewObserver = createPreviewObserver();
   previewDispatch = createPreviewDispatch({
@@ -4153,6 +4176,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           }
           try { await tlsListener.stop(); } catch { /* ignore */ }
           try { await previewDispatch?.close(); } catch { /* ignore */ }
+          try { liveCapabilities.close(); } catch { /* ignore */ }
+          try { await previewPool?.close(); } catch { /* ignore */ }
           try { await fastify.close(); } catch { /* ignore */ }
         },
       });
@@ -5864,6 +5889,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // The TLS listener (and its open connections) closes with the server.
       try { await tlsListener.stop(); } catch { /* ignore */ }
       try { await previewDispatch?.close(); } catch { /* ignore */ }
+          try { liveCapabilities.close(); } catch { /* ignore */ }
+          try { await previewPool?.close(); } catch { /* ignore */ }
       await fastify.close();
     },
   };

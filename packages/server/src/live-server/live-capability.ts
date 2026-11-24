@@ -99,7 +99,7 @@ export type LiveExposure = "local-only" | "exposed";
 const VIEWER_ID_SHAPE = /^[A-Za-z0-9_-]{8,64}$/;
 export const isViewerId = (v: unknown): v is string => typeof v === "string" && VIEWER_ID_SHAPE.test(v);
 
-interface LiveCapabilityEntry {
+export interface LiveCapabilityEntry {
   targetId: string;
   principal: CapabilityPrincipal;
   mintedAt: number;
