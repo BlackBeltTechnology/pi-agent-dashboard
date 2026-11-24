@@ -79,10 +79,16 @@ export function mockSite(options) {
     { id: "light", label: "Light", attrs: { "data-theme": "light" } },
   ];
   const current = () => discoverMocks(projectRoot);
+  /** The resolved Vite `base` (always ends with `/`). The plugin mounts BEFORE Vite's base middleware, so paths arrive unstripped. */
+  let base = "/";
 
   return {
     name: "mock-site",
     enforce: "pre",
+    /** @param {any} c */
+    configResolved(c) {
+      base = typeof c.base === "string" && c.base.startsWith("/") ? c.base.replace(/\/*$/, "/") : "/";
+    },
     async config() {
       if (lan) {
         const { version } = await import("vite");
@@ -137,10 +143,10 @@ export function mockSite(options) {
       for (const r of [mockupsDir, path.join(projectRoot, "openspec", "changes"), ...mockRoots(projectRoot)]) if (fs.existsSync(r)) srv.watcher.add(r);
       /** @param {string} f */
       const onFs = (f) => {
-        const base = path.basename(f);
+        const name = path.basename(f);
         if (!f.startsWith(projectRoot) || f.includes(`${path.sep}archive${path.sep}`) || f.includes(`${path.sep}node_modules${path.sep}`)) return;
-        if (base === "decision.json") srv.ws.send({ type: "custom", event: "mock:decisions" });
-        if (base === "mock.tsx") {
+        if (name === "decision.json") srv.ws.send({ type: "custom", event: "mock:decisions" });
+        if (name === "mock.tsx") {
           const mod = srv.moduleGraph.getModuleById("\0" + V_MOCKS);
           if (mod) srv.moduleGraph.invalidateModule(mod);
           srv.ws.send({ type: "full-reload" });
@@ -150,7 +156,7 @@ export function mockSite(options) {
       srv.watcher.on("unlink", onFs);
       srv.watcher.on("change", (/** @type {string} */ f) => { if (path.basename(f) === "decision.json") onFs(f); });
 
-      srv.middlewares.use("/__mock/decisions", (/** @type {any} */ _req, /** @type {any} */ res) => {
+      srv.middlewares.use(`${base}__mock/decisions`, (/** @type {any} */ _req, /** @type {any} */ res) => {
         const { mocks, errors } = current();
         const { decisions, warnings } = readDecisions(mocks);
         send(res, 200, { mockSite: true, decisions, warnings, errors });
@@ -160,7 +166,13 @@ export function mockSite(options) {
       srv.middlewares.use(async (/** @type {any} */ req, /** @type {any} */ res, /** @type {any} */ next) => {
         // Path only: `new URL("//…", base)` reads `//` as an authority and throws, killing the site.
         const pathname = (req.url ?? "/").split(/[?#]/, 1)[0];
-        if (req.method !== "GET" || (pathname !== "/" && pathname !== "/index.html")) return next();
+        // `<base minus the slash>` redirects to the base (Vite only does so for some `Accept` headers).
+        if (req.method === "GET" && base !== "/" && pathname === base.slice(0, -1)) {
+          res.statusCode = 302;
+          res.setHeader("location", base + (req.url ?? "").slice(pathname.length));
+          return res.end();
+        }
+        if (req.method !== "GET" || (pathname !== base && pathname !== `${base}index.html`)) return next();
         const html = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>${(options.title ?? "Mocks").replace(/[<&]/g, "")}</title></head>
 <body><div id="root"></div><script type="module" src="${fsUrl(path.join(siteDir, "main.tsx"))}"></script></body></html>`;

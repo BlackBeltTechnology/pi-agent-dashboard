@@ -152,3 +152,5 @@ body.mk-pane-only .mk-ring-n { left: 0; top: -22px; } /* above the ring, never o
 .mk-no-rings .mk-ring-n, .mk-no-rings .mk-ring > .mk-long { visibility: hidden; }
 @keyframes mk-hit { 0%, 60% { box-shadow: 0 0 0 6px var(--mk-accent); } 100% { box-shadow: 0 0 0 6px transparent; } }
 .mk-hit { animation: mk-hit 1.6s ease-out; border-radius: 12px; }
+/* Opaque (tier-5) frame: storage-dependent features are off. Noticeable, but below the sticky bar so it never hides rings. */
+.mk-opaque { margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--mk-line, currentColor); border-radius: 8px; font-size: 12px; color: var(--mk-muted); }

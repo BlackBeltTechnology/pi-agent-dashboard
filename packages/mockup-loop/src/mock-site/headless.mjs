@@ -5,6 +5,7 @@
 // The pane page (`?pane=<id>/<frame>/<side>&mkLoops=N`) runs the script and
 // publishes `window.__mkHealth = { completed, failed, errors }`.
 // See change: add-mock-site-exact-env (design D4, D7).
+import { joinUrl } from "./base.mjs";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -53,7 +54,7 @@ export function videoPath(root, spec, out) {
 
 /** @param {string} url */
 async function assertSite(url) {
-  const r = await fetch(`${url}/__mock/decisions`).then((x) => x.json()).catch(() => null);
+  const r = await fetch(joinUrl(url, "__mock/decisions")).then((x) => x.json()).catch(() => null);
   if (!r?.mockSite) throw new Error(`no mock site at ${url}; start it (serve_mock_site, or npm run mocks) or pass --url`);
 }
 
@@ -81,7 +82,7 @@ async function chromium() {
  * @param {{ open?: (url: string) => Promise<{ health: any, close: () => Promise<void> }> }} [deps]
  */
 async function runCheck(o, deps = {}) {
-  const target = `${o.url}/?pane=${encodeURIComponent(o.spec)}&mkLoops=${o.loops}&mkFast=1`;
+  const target = joinUrl(o.url, `?pane=${encodeURIComponent(o.spec)}&mkLoops=${o.loops}&mkFast=1`);
   if (deps.open) { const r = await deps.open(target); await r.close(); return r.health; }
   await assertSite(o.url);
   const { browser } = await launchChromium(await chromium());
@@ -102,7 +103,7 @@ async function runVideo(o) {
   try {
     const ctx = await browser.newContext({ recordVideo: { dir } });
     const page = await ctx.newPage();
-    await page.goto(`${o.url}/?pane=${encodeURIComponent(o.spec)}&mkLoops=1`);
+    await page.goto(joinUrl(o.url, `?pane=${encodeURIComponent(o.spec)}&mkLoops=1`));
     const h = await waitHealth(page, 1);
     await page.close();
     fs.mkdirSync(path.dirname(o.out), { recursive: true });

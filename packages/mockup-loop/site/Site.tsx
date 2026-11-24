@@ -5,6 +5,7 @@
 // "Show accepted / rejected". Fixture-backed and scripted panes run in their own
 // isolated same-origin document (`?pane=`). See change: add-live-component-mock-site,
 // add-mock-site-exact-env.
+import { BASE, fromChildFrame, isOpaque, originOk, postTarget, readStore, writeStore } from "./frame-env.ts";
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { tipsOf, type Frame, type Mock, type Status, type Decision, RefBase, RefLink, refId, InPlayer, MAX_WHY, paneContent } from "./kit.tsx";
 import { frameworkProblem } from "../src/mock-site/frameworks.mjs";
@@ -190,9 +191,9 @@ function applyTheme(t: string) {
     if (v === null) document.documentElement.removeAttribute(k); else document.documentElement.setAttribute(k, v);
   }
 }
-const storedTheme = () => { const t = localStorage.getItem("mk-theme"); return THEMES.some((x) => x.id === t) ? t! : THEMES[0].id; };
+const storedTheme = () => { const t = readStore("local", "mk-theme"); return THEMES.some((x) => x.id === t) ? t! : THEMES[0].id; };
 /** Ring highlights on/off: `mk-rings=off` in localStorage -> `mk-no-rings` on <html>; panes follow via `storage`. */
-const storedRings = () => localStorage.getItem("mk-rings") !== "off";
+const storedRings = () => readStore("local", "mk-rings") !== "off";
 const applyRings = (on: boolean) => document.documentElement.classList.toggle("mk-no-rings", !on);
 
 /** Content of `<side>` or `<side>/step-<k>` of a frame (undefined = no such pane). Script frames: either side. */
@@ -223,14 +224,14 @@ function PaneOnly({ spec }: { spec: string }): ReactElement {
     const apply = () => { applyTheme(storedTheme()); applyRings(storedRings()); };
     apply(); addEventListener("storage", apply); dark.addEventListener("change", apply);
     document.body.classList.add("mk-pane-only", f?.phone ? "mk-pane-phone" : "mk-pane-wide");
-    const post = () => parent.postMessage({ mkPane: spec, h: document.documentElement.scrollHeight }, location.origin);
+    const post = () => parent.postMessage({ mkPane: spec, h: document.documentElement.scrollHeight }, postTarget());
     const ro = new ResizeObserver(post); ro.observe(document.body);
     // Parent asks where a ring sits (deep link to a ring inside this iframe).
     const onMsg = (e: MessageEvent) => {
-      if (e.source !== parent || e.origin !== location.origin || typeof e.data?.mkFind !== "string") return;
+      if (e.source !== parent || !originOk(e) || typeof e.data?.mkFind !== "string") return;
       const el = document.getElementById(refId(e.data.mkFind));
       if (!el) return;
-      parent.postMessage({ mkFound: e.data.mkFind, top: el.getBoundingClientRect().top + scrollY }, location.origin);
+      parent.postMessage({ mkFound: e.data.mkFind, top: el.getBoundingClientRect().top + scrollY }, postTarget());
       el.classList.remove("mk-hit"); void el.offsetWidth; el.classList.add("mk-hit");
     };
     addEventListener("message", onMsg);
@@ -260,7 +261,7 @@ type Health = { completed: number; failed: number; error?: string };
 function PaneFrame({ spec, phone = false, width, lazy = false, scripted: isScripted = false }: { spec: string; phone?: boolean; width?: number; lazy?: boolean; scripted?: boolean }): ReactElement {
   // Start at the last height seen this session (else 240) with a loading line: no blank flash, no jump.
   const key = `mk-h:${spec}`;
-  const [h, setH] = useState(() => Number(sessionStorage.getItem(key)) || 240);
+  const [h, setH] = useState(() => Number(readStore("session", key)) || 240);
   const [loaded, setLoaded] = useState(false);
   const [near, setNear] = useState(!lazy);
   const [health, setHealth] = useState<Health | null>(null);
@@ -275,12 +276,12 @@ function PaneFrame({ spec, phone = false, width, lazy = false, scripted: isScrip
   }, [near]);
   useEffect(() => {
     const on = (e: MessageEvent) => {
-      if (e.origin !== location.origin || !frame.current || e.source !== frame.current.contentWindow) return;
-      if (e.data?.mkPane === spec) { setH(e.data.h); setLoaded(true); sessionStorage.setItem(key, String(e.data.h)); }
+      if (!originOk(e) || !frame.current || e.source !== frame.current.contentWindow) return;
+      if (e.data?.mkPane === spec) { setH(e.data.h); setLoaded(true); writeStore("session", key, String(e.data.h)); }
       if (e.data?.mkHealth === spec) setHealth({ completed: e.data.completed, failed: e.data.failed, error: e.data.error });
       if (e.data?.mkReady === spec) {
-        frame.current.contentWindow?.postMessage({ mkHidden: !visible.current }, location.origin);
-        frame.current.contentWindow?.postMessage({ mkPause: paneState.current.paused }, location.origin);
+        frame.current.contentWindow?.postMessage({ mkHidden: !visible.current }, postTarget());
+        frame.current.contentWindow?.postMessage({ mkPause: paneState.current.paused }, postTarget());
       }
     };
     addEventListener("message", on); return () => removeEventListener("message", on);
@@ -292,12 +293,12 @@ function PaneFrame({ spec, phone = false, width, lazy = false, scripted: isScrip
     if (!isScripted || !near || !wrap.current) return;
     const io = new IntersectionObserver((es) => {
       visible.current = es.some((e) => e.isIntersecting);
-      frame.current?.contentWindow?.postMessage({ mkHidden: !visible.current }, location.origin);
+      frame.current?.contentWindow?.postMessage({ mkHidden: !visible.current }, postTarget());
     });
     io.observe(wrap.current);
     return () => io.disconnect();
   }, [isScripted, near]);
-  const togglePause = () => { const p = !paused; setPaused(p); paneState.current.paused = p; frame.current?.contentWindow?.postMessage({ mkPause: p }, location.origin); };
+  const togglePause = () => { const p = !paused; setPaused(p); paneState.current.paused = p; frame.current?.contentWindow?.postMessage({ mkPause: p }, postTarget()); };
   return (
     <div className="mk-phone-wrap" ref={wrap}>
       {near ? <iframe ref={frame} className={`mk-iso${phone ? " mk-phone" : ""}`} data-pane={spec} title={spec} src={`?pane=${encodeURIComponent(spec)}`} style={{ width: phone ? 375 : width ?? 640, height: h }} />
@@ -321,13 +322,13 @@ function findInFrame(frame: HTMLIFrameElement, ref: string): Promise<boolean> {
     let timer = 0;
     const done = (ok: boolean) => { clearInterval(timer); removeEventListener("message", on); resolve(ok); };
     const on = (e: MessageEvent) => {
-      if (e.source !== frame.contentWindow || e.origin !== location.origin || e.data?.mkFound !== ref) return;
+      if (e.source !== frame.contentWindow || !originOk(e) || e.data?.mkFound !== ref) return;
       const top = frame.getBoundingClientRect().top + scrollY + e.data.top;
       scrollTo({ top: Math.max(0, top - innerHeight / 2) });
       done(true);
     };
     addEventListener("message", on);
-    const ask = () => { if (Date.now() - t0 > 3000) return done(false); frame.contentWindow?.postMessage({ mkFind: ref }, location.origin); };
+    const ask = () => { if (Date.now() - t0 > 3000) return done(false); frame.contentWindow?.postMessage({ mkFind: ref }, postTarget()); };
     ask(); timer = window.setInterval(ask, 150);
   });
 }
@@ -349,12 +350,12 @@ function Shell(): ReactElement {
   const [missing, setMissing] = useState<Missing>({});
   const [showClosed, setShowClosed] = useState(false);
 
-  const load = () => { void fetch("/__mock/decisions").then((r) => r.json()).then(setState).catch(() => {}); };
+  const load = () => { void fetch(`${BASE}__mock/decisions`).then((r) => r.json()).then(setState).catch(() => {}); };
   useEffect(() => { load(); import.meta.hot?.on("mock:decisions", load); }, []);
   useEffect(() => { const on = () => setHash(location.hash.slice(1)); addEventListener("hashchange", on); return () => removeEventListener("hashchange", on); }, []);
   useEffect(() => {
     const on = (e: MessageEvent) => {
-      if (e.origin !== location.origin || typeof e.data?.mkMissing !== "string") return;
+      if (!originOk(e) || !fromChildFrame(e.source) || typeof e.data?.mkMissing !== "string") return;
       const spec: string = e.data.mkMissing;
       const [id] = spec.split("/");
       const what = `${String(e.data.method)} ${String(e.data.path)}`;
@@ -366,10 +367,10 @@ function Shell(): ReactElement {
     addEventListener("message", on); return () => removeEventListener("message", on);
   }, []);
   useEffect(() => {
-    applyTheme(theme); localStorage.setItem("mk-theme", theme);
+    applyTheme(theme); writeStore("local", "mk-theme", theme);
     const on = () => applyTheme(theme); dark.addEventListener("change", on); return () => dark.removeEventListener("change", on);
   }, [theme]);
-  useEffect(() => { applyRings(rings); localStorage.setItem("mk-rings", rings ? "on" : "off"); }, [rings]);
+  useEffect(() => { applyRings(rings); writeStore("local", "mk-rings", rings ? "on" : "off"); }, [rings]);
   useEffect(() => {
     const on = (e: KeyboardEvent) => { if (e.key === "/" && document.activeElement?.id !== "mk-q") { e.preventDefault(); document.getElementById("mk-q")?.focus(); } };
     addEventListener("keydown", on); return () => removeEventListener("keydown", on);
@@ -440,6 +441,11 @@ function Shell(): ReactElement {
             ))}
           </span>
         </div>
+        {isOpaque() ? (
+          <p role="status" className="mk-opaque" data-testid="mk-opaque-note">
+            Storage unavailable in this preview: pane-height memory, find-in-frame and highlight sync between tabs are off. Highlights still toggles for this page.
+          </p>
+        ) : null}
         {ALL.length === 0 ? (
           <div className="mk-empty mk-none"><b>No mocks yet</b><p>Create <code>mockups/&lt;yyyy-mm-dd-slug&gt;/mock.tsx</code> (or <code>openspec/changes/&lt;change&gt;/mockups/&lt;id&gt;/mock.tsx</code>).</p></div>
         ) : shown.length === 0 ? <p className="mk-empty">{q.trim() ? "No match." : "Nothing open. All mocks are decided."}</p> : null}

@@ -211,12 +211,15 @@ the change's notes.
 
 - `serve_mockup{dir, port?, stop?}` — Node static server on 0.0.0.0; returns
   local + LAN URLs. Zero external deps.
-- `serve_mock_site{dir?, port?, lan?, stop?}` — start the project's
+- `serve_mock_site{dir?, port?, lan?, base?, stop?}` — start the project's
   live-component mock site through the project's own launcher with the
   inherited build config, plus the optional `mockups/mock-site.config.ts`
   options (default port 5299; reserved ports refused; localhost-only unless
   `lan`, and LAN clients are view-only). The result names the launcher and app
-  config used.
+  config used. `base` serves the site under a URL path prefix (`/some/prefix/`:
+  letters, digits, `. _ ~ -` segments, starts and ends with `/`; `/` = none). Without
+  it the tool may be handed a base by its host; when it is, show the URL the tool
+  returns exactly as printed (it already contains the base).
 - CLIs: `mock-decide list|accept|reject|reopen|adoptable|move` (the only writer
   of `decision.json`, `by: "agent"`), `mock-capture <url> <mockDir>` (HTTP →
   redacted `fixtures.har.json`; refuses on a surviving secret),
