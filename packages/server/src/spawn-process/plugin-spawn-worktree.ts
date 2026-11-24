@@ -57,6 +57,8 @@ export interface PluginSpawnHookDeps {
   startWorktreeInit: (cwd: string, opts: StartWorktreeInitOptions) => Promise<StartWorktreeInitResult>;
   /** Wait for a run another trigger started; defaults to "proceed". */
   awaitInitRun?: (cwd: string) => Promise<"done" | "failed" | "timeout">;
+  /** True once server shutdown has started; a launch that would outlive the shutdown sweeps is refused. */
+  isStopping?: () => boolean;
   log?: (line: string) => void;
   warn?: (line: string) => void;
 }
@@ -217,6 +219,12 @@ export function createPluginSpawnHook(deps: PluginSpawnHookDeps): (opts: PluginS
     const minted = resolveSpawnToken(deps, opts);
     if ("failure" in minted) return minted.failure;
     const spawnToken = minted.token;
+    // Snapshot every value read after the provisioning await, so a caller mutating its options object
+    // while a worktree is being prepared cannot change which driver launches or what gets filed.
+    const { agent, pluginRef, lifecycle } = opts;
+    const callerToken = typeof opts.spawnToken === "string" && opts.spawnToken.length > 0;
+    const initialPrompt =
+      typeof opts.initialPrompt === "string" && opts.initialPrompt.length > 0 ? opts.initialPrompt : undefined;
 
     let spawnCwd = opts.cwd;
     let worktree: PreparedWorktree | undefined;
@@ -225,14 +233,19 @@ export function createPluginSpawnHook(deps: PluginSpawnHookDeps): (opts: PluginS
       if ("failure" in prepared) return prepared.failure;
       worktree = prepared.worktree;
       spawnCwd = worktree.path;
+      // `has()` does not reserve a token: re-check after the await so a concurrent spawn with the same
+      // caller-supplied token cannot overwrite (or roll back) this call's entry; and refuse a launch that
+      // would start after shutdown began (its child would escape the shutdown sweeps).
+      if (deps.isStopping?.()) return { success: false, message: "server is shutting down" };
+      if (callerToken && deps.pendingPluginRefRegistry.has(spawnToken)) {
+        return { success: false, message: `spawnToken "${spawnToken}" is already pending for another spawn` };
+      }
     }
 
-    deps.pendingPluginRefRegistry.file(spawnToken, opts.pluginRef, deps.plugin.id, opts.lifecycle);
+    deps.pendingPluginRefRegistry.file(spawnToken, pluginRef, deps.plugin.id, lifecycle);
     // Fresh-spawn reprime rides the per-cwd pending-initial-prompt FIFO exactly as core's own respawn
     // path does: enqueue BEFORE the spawn await, withdraw on failure/throw so a dead spawn leaves no
     // stale intent for an unrelated later register in the same cwd. See change: relocate-goal-product-to-plugin (D1-#3).
-    const initialPrompt =
-      typeof opts.initialPrompt === "string" && opts.initialPrompt.length > 0 ? opts.initialPrompt : undefined;
     if (initialPrompt) deps.pendingInitialPromptRegistry.enqueue(spawnCwd, initialPrompt);
     // Attach intent, identical to the dialog's `attachProposal`; no `gitWorktreeBase` (dialog-only).
     const attachChange = block?.attachChange;
@@ -251,8 +264,8 @@ export function createPluginSpawnHook(deps: PluginSpawnHookDeps): (opts: PluginS
     };
     try {
       const result =
-        typeof opts.agent === "string"
-          ? await deps.spawnAcp(spawnCwd, { agent: opts.agent, spawnToken })
+        typeof agent === "string"
+          ? await deps.spawnAcp(spawnCwd, { agent, spawnToken })
           : await deps.spawnPi(spawnCwd, { ...sessionOptions, spawnToken });
       // Plugin/automation spawn: transport-less, reclaim required.
       deps.armWatchdog(spawnCwd, result);

@@ -798,7 +798,10 @@ export type PluginSpawnWorktreeCode =
 export interface PluginSpawnResult {
   success: boolean;
   message?: string;
-  /** Set on a failed spawn that carried a `worktree` block. */
+  /**
+   * Set when a spawn with a `worktree` block failed BEFORE a session launch was attempted (block, admission,
+   * worktree or init failure). A failure of the launch itself carries `message` only.
+   */
   code?: PluginSpawnWorktreeCode;
   /** Worktree the session runs in (present on success when a `worktree` block was honoured; absent = not in a worktree). */
   worktreePath?: string;

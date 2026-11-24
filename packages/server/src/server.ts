@@ -916,6 +916,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // so `worktree_init_*` events stream only to the dialog that
   // initiated the run. See change: generalize-worktree-init-hook.
   const worktreeInitRegistry = createWorktreeInitRegistry();
+  // Latched at the top of `stop()`: the plugin spawn hook refuses a launch that resumes after it
+  // (its child would escape the shutdown sweeps). See change: add-plugin-spawn-worktree.
+  let serverStopping = false;
 
   // Restore sessions from per-session .meta.json files (scans ~/.pi/agent/sessions/)
   const scanStartedAt = Date.now();
@@ -4376,6 +4379,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 autoInitEnabled: () => preferencesStore.getAutoInitWorktreeOnSpawn(),
                 startWorktreeInit: (cwd, o) => startWorktreeInit(cwd, { ...o, registry: worktreeInitRegistry }),
                 awaitInitRun: (cwd) => awaitInitRun(worktreeInitRegistry, cwd),
+                isStopping: () => serverStopping,
               }),
               // Spawn-env contributor hook. Trusted-gated like `spawnSession`
               // (policy, not a sandbox); untrusted plugins get a no-op.
@@ -5559,6 +5563,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     async stop(opts: { exitIntent?: ExitIntent } = {}) {
+      serverStopping = true;
       // A clean stop must also disarm the ephemeral watch so a
       // create/stop cycle in one process leaves no ticking timer.
       ephemeralParentWatch.stop();

@@ -17,7 +17,7 @@ import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveMainPath } from "../git-worktree/git-operations.js";
-import { startWorktreeInit } from "../git-worktree/start-worktree-init.js";
+import { awaitInitRun, startWorktreeInit } from "../git-worktree/start-worktree-init.js";
 import * as worktreeInit from "../git-worktree/worktree-init.js";
 import { hookDefHash, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
 import { createWorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
@@ -624,11 +624,57 @@ describe("startWorktreeInit — skipIfRunning", () => {
     expect(existsSync(join(repo, "ran-marker"))).toBe(false);
   });
 
+  it("a live run wins over a satisfied gate: a hook that created its gate artifact mid-run is still awaited", async () => {
+    const reg = createWorktreeInitRegistry();
+    const hook = scriptHook("test ! -d node_modules", ":");
+    repo = makeHookRepo(hook);
+    recordTrust(resolveMainPath(repo) as string, hookDefHash(hook), "project");
+    mkdirSync(join(repo, "node_modules")); // gate satisfied
+    reg.startRun(repo);
+    expect(await startWorktreeInit(repo, { registry: reg, skipIfRunning: true })).toEqual({ status: "already_running" });
+  });
+
+  it("the gate cache is keyed by hook definition: a different trusted hook evaluates its own gate", async () => {
+    const hookA = scriptHook("false", "touch a-ran");
+    const hookB = scriptHook("true", "touch b-ran");
+    repo = makeHookRepo(hookA);
+    const main = resolveMainPath(repo) as string;
+    recordTrust(main, hookDefHash(hookA), "project");
+    recordTrust(main, hookDefHash(hookB), "project");
+    expect(await startWorktreeInit(repo)).toEqual({ status: "already_initialized" }); // caches needsInit:false for A
+    writeFileSync(join(repo, ".pi", "settings.json"), JSON.stringify({ worktreeInit: hookB }));
+    expect(await startWorktreeInit(repo)).toMatchObject({ status: "done" });
+    expect(existsSync(join(repo, "b-ran"))).toBe(true);
+  });
+
   it("an untrusted hook is reported, never run", async () => {
     const hook = scriptHook("test ! -d node_modules", "touch ran-marker");
     repo = makeHookRepo(hook);
     const r = await startWorktreeInit(repo, { skipIfRunning: true });
     expect(r).toMatchObject({ status: "untrusted", hash: hookDefHash(hook) });
     expect(existsSync(join(repo, "ran-marker"))).toBe(false);
+  });
+});
+
+describe("awaitInitRun", () => {
+  const regWith = (runs: Array<{ cwd: string; phase: "running" | "done" | "failed" }>[]) => {
+    let i = 0;
+    return { getActiveRuns: () => (runs[Math.min(i++, runs.length - 1)] ?? []) as never } as unknown as ReturnType<typeof createWorktreeInitRegistry>;
+  };
+  const opts = { pollMs: 1, timeoutMs: 50 };
+
+  it("resolves the terminal phase of the run it was waiting on", async () => {
+    const running = [{ cwd: "/w", phase: "running" as const }];
+    expect(await awaitInitRun(regWith([running, [{ cwd: "/w", phase: "done" }]]), "/w", opts)).toBe("done");
+    expect(await awaitInitRun(regWith([running, [{ cwd: "/w", phase: "failed" }]]), "/w", opts)).toBe("failed");
+  });
+
+  it("an entry that is gone (evicted) is an unknown outcome, never success", async () => {
+    expect(await awaitInitRun(regWith([[{ cwd: "/w", phase: "running" }], []]), "/w", opts)).toBe("timeout");
+    expect(await awaitInitRun(regWith([[]]), "/w", opts)).toBe("timeout");
+  });
+
+  it("a run that never finishes times out", async () => {
+    expect(await awaitInitRun(regWith([[{ cwd: "/w", phase: "running" }]]), "/w", opts)).toBe("timeout");
   });
 });

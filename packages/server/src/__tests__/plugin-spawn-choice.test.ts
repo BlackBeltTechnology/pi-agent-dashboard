@@ -117,6 +117,7 @@ describe("plugin spawn hook — worktree block", () => {
       calls.order.push("spawn");
       return { success: true, message: "ok", pid: 7, process: {}, spawnToken: "tok-1" };
     });
+    const spawnAcp = vi.fn();
     const armWatchdog = vi.fn();
     const registerHeadlessPid = vi.fn();
     const startWorktreeInit = vi.fn(async (): Promise<StartWorktreeInitResult> => ({ status: "done", durationMs: 1 }));
@@ -129,7 +130,7 @@ describe("plugin spawn hook — worktree block", () => {
       pendingInitialPromptRegistry: regs.prompt,
       pendingAttachRegistry: regs.attach,
       spawnPi,
-      spawnAcp: vi.fn(),
+      spawnAcp,
       armWatchdog,
       registerHeadlessPid,
       ensureWorktree,
@@ -140,7 +141,7 @@ describe("plugin spawn hook — worktree block", () => {
       warn: () => undefined,
       ...over,
     };
-    return { hook: createPluginSpawnHook(deps), regs, calls, ensureWorktree, spawnPi, armWatchdog, registerHeadlessPid, startWorktreeInit };
+    return { hook: createPluginSpawnHook(deps), regs, calls, ensureWorktree, spawnPi, spawnAcp, armWatchdog, registerHeadlessPid, startWorktreeInit };
   }
   const spawnOpts = (over: Partial<PluginSpawnOptions> = {}): PluginSpawnOptions => ({
     cwd: "/repo",
@@ -289,6 +290,44 @@ describe("plugin spawn hook — worktree block", () => {
     const t = setup({ startWorktreeInit, awaitInitRun: async () => "failed" });
     expect(await t.hook(spawnOpts())).toMatchObject({ success: false, code: "init_failed" });
     expect(t.spawnPi).not.toHaveBeenCalled();
+  });
+
+  it("a launch that would start after shutdown began is refused and files nothing", async () => {
+    const t = setup({ isStopping: () => true });
+    const r = await t.hook(spawnOpts());
+    expect(r).toMatchObject({ success: false });
+    expect(r.message).toContain("shutting down");
+    expect(t.spawnPi).not.toHaveBeenCalled();
+    expect(t.regs.ref.size()).toBe(0);
+    expect(t.regs.prompt.size(WT)).toBe(0);
+    expect(t.regs.attach.size(WT)).toBe(0);
+  });
+
+  it("a caller-supplied token taken while the worktree was being prepared is not overwritten", async () => {
+    const regs = createPendingPluginRefRegistry();
+    const ensureWorktree = vi.fn(async () => {
+      regs.file("tok-x", { goalId: "other" }, "other-plugin"); // a concurrent spawn filed it during our await
+      return okEnsure();
+    });
+    const t = setup({ ensureWorktree, pendingPluginRefRegistry: regs });
+    const r = await t.hook(spawnOpts({ spawnToken: "tok-x" }));
+    expect(r).toMatchObject({ success: false });
+    expect(r.message).toContain("already pending");
+    expect(t.spawnPi).not.toHaveBeenCalled();
+    expect(regs.size()).toBe(1);
+  });
+
+  it("the driver is chosen from the options as validated, not re-read after the provisioning await", async () => {
+    const o = spawnOpts();
+    const ensureWorktree = vi.fn(async () => {
+      (o as { agent?: string }).agent = "late-acp"; // mutated while the worktree is being prepared
+      return okEnsure();
+    });
+    const t = setup({ ensureWorktree });
+    const r = await t.hook(o);
+    expect(r.success).toBe(true);
+    expect(t.spawnAcp).not.toHaveBeenCalled();
+    expect(t.spawnPi).toHaveBeenCalled();
   });
 
   it("the cwd-policy check compares the target floor with the spawn cwd's floor", async () => {

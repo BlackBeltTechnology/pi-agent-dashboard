@@ -25,20 +25,22 @@ import type { WorktreeInitRegistry } from "./worktree-init-registry.js";
 import { isTrusted } from "./worktree-init-trust.js";
 
 /**
- * Per-resolved-checkout cache of the gate result, with a short TTL.
+ * Per-resolved-checkout cache of the gate result, with a short TTL, keyed by the hook definition it
+ * was evaluated for (a different hook for the same checkout must evaluate its own gate).
  * Invalidated when a hook run starts/exits for that checkout.
  * See change: generalize-worktree-init-hook.
  */
 const GATE_CACHE_TTL_MS = 30 * 1000;
-const gateCache = new Map<string, { needsInit: boolean; evaluatedAt: number }>();
+const gateCache = new Map<string, { hash: string; needsInit: boolean; evaluatedAt: number }>();
 export function invalidateGateCache(checkoutPath: string): void {
   gateCache.delete(checkoutPath);
 }
 export async function evaluateGateCached(checkoutPath: string, hook: WorktreeInitHook): Promise<GateResult> {
+  const hash = hookDefHash(hook);
   const hit = gateCache.get(checkoutPath);
-  if (hit && Date.now() - hit.evaluatedAt < GATE_CACHE_TTL_MS) return { needsInit: hit.needsInit };
+  if (hit && hit.hash === hash && Date.now() - hit.evaluatedAt < GATE_CACHE_TTL_MS) return { needsInit: hit.needsInit };
   const res = await evaluateGate(checkoutPath, hook);
-  gateCache.set(checkoutPath, { needsInit: res.needsInit, evaluatedAt: Date.now() });
+  gateCache.set(checkoutPath, { hash, needsInit: res.needsInit, evaluatedAt: Date.now() });
   return res;
 }
 
@@ -88,10 +90,12 @@ export async function startWorktreeInit(cwd: string, opts: StartWorktreeInitOpti
   // Re-trust case: the hook was edited (invalidating trust) but the gate is already satisfied
   // (`needsInit === false`). Granting trust should clear the control WITHOUT re-running the hook.
   const preGate = await evaluateGateCached(cwd, hook);
-  if (!preGate.needsInit) return { status: "already_initialized" };
+  // A live run wins over a satisfied gate: a hook can create its gate artifact (e.g. `node_modules`) mid-run,
+  // and a skipIfRunning caller must still wait for the run. Checked synchronously before `startRun`.
   if (skipIfRunning && registry?.getActiveRuns().some((r) => r.cwd === cwd && r.phase === "running")) {
     return { status: "already_running" };
   }
+  if (!preGate.needsInit) return { status: "already_initialized" };
   // Fan out to the legacy per-click requestId subscriber (if any) AND to
   // every cwd-keyed subscriber (refresh / second tab / auto-init).
   const sendIf = (msg: any) => {
@@ -125,9 +129,11 @@ export async function startWorktreeInit(cwd: string, opts: StartWorktreeInitOpti
 }
 
 /**
- * Wait until the registry no longer shows a running run for `cwd`; resolves the final phase
- * (`done` / `failed`), or `timeout`. Used by the plugin-spawn hook when another trigger (the
- * browser) started the run first, so an unattended prompt never races `pnpm install`.
+ * Wait for the run the registry reported as running for `cwd`: resolves its terminal phase (`done` /
+ * `failed`), or `timeout` when it does not finish in time OR its entry is gone before a terminal phase
+ * was observed (evicted: the outcome is unknown, never assumed to be success). Used by the plugin-spawn
+ * hook when another trigger (the browser) started the run first, so an unattended prompt never races
+ * `pnpm install`.
  */
 export async function awaitInitRun(
   registry: WorktreeInitRegistry,
@@ -137,7 +143,7 @@ export async function awaitInitRun(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const run = registry.getActiveRuns().find((r) => r.cwd === cwd);
-    if (!run) return "done";
+    if (!run) return "timeout";
     if (run.phase !== "running") return run.phase === "failed" ? "failed" : "done";
     if (Date.now() >= deadline) return "timeout";
     await new Promise((r) => setTimeout(r, pollMs));
