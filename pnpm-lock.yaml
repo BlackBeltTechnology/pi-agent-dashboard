@@ -1100,6 +1100,9 @@ importers:
         specifier: ^8.18.0
         version: 8.21.3
     devDependencies:
+      '@blackbelt-technology/pi-dashboard-client-utils':
+        specifier: ^0.11.0
+        version: link:../client-utils
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.18
