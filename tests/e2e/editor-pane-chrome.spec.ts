@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import type { Download } from "@playwright/test";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { resolveContainer } from "./helpers/container-proc.js";
 import { chooseLayoutMode, FIXTURE_GIT, launchFromNewTabMenu, robustClick, spawnFreshGitSession } from "./helpers/index.js";
@@ -344,5 +346,47 @@ test.describe("unsaved built-in buffer guard", () => {
     await page.keyboard.press("Tab");
     await expect(page.getByTestId("unsaved-save")).toBeFocused();
     await page.keyboard.press("Escape");
+  });
+});
+
+// ── File download (change: add-file-download, test-plan #F12, #F13) ──
+// The viewer More menu and the tree row menu both save the file under its
+// basename with the exact bytes. `hello.txt` is a fixture file with known content.
+test.describe("file download", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+  });
+
+  const expectedBytes = (): string => inBox(`cat ${JSON.stringify(`${FIXTURE_GIT}/hello.txt`)}`);
+
+  async function saved(download: Download): Promise<string> {
+    const path = await download.path();
+    if (!path) throw new Error("download has no saved path");
+    return readFileSync(path, "utf8").trim();
+  }
+
+  test("F12: viewer More → Download saves hello.txt with its exact content", async ({ page }) => {
+    const sid = await sessionWithPane(page);
+    await openFile(page, sid, "hello.txt");
+    const p = pane(page);
+    await p.getByTestId("doc-more-menu").click();
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("doc-download").click()]);
+    expect(download.suggestedFilename()).toBe("hello.txt");
+    expect(await saved(download)).toBe(expectedBytes());
+  });
+
+  test("F13: tree row right-click → Download saves the file and leaves the tabs unchanged", async ({ page }) => {
+    const sid = await sessionWithPane(page);
+    await openFile(page, sid, "README.md");
+    const p = pane(page);
+    const tabsBefore = await p.getByTestId("editor-tab").count();
+    await p.getByTestId("tree-toggle").click();
+    const row = p.locator('[data-row="hello.txt"]');
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await row.click({ button: "right" });
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("tree-row-download").click()]);
+    expect(download.suggestedFilename()).toBe("hello.txt");
+    expect(await saved(download)).toBe(expectedBytes());
+    await expect(p.getByTestId("editor-tab")).toHaveCount(tabsBefore);
   });
 });

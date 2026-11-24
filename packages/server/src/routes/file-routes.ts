@@ -60,6 +60,7 @@ import { createDigestGate, type DigestGate, type DigestLane } from "../lib/diges
 import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
 import { admitFileCwd, CWD_UNAVAILABLE_FAILURE, cwdAnchors, type GateWire, releaseOnClose } from "../lib/file-cwd-admission.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
+import { contentDispositionAttachment } from "../lib/content-disposition.js";
 import { extToContentType } from "../lib/mime-types.js";
 import {
   convertBound,
@@ -1406,8 +1407,9 @@ export function registerFileRoutes(
   // Streams the file bytes with `Content-Type` from extension, supports
   // HTTP Range so `<video>` seek works. Same cwd-allowlist + anti-traversal
   // gate as `/api/file`. Sets `Content-Disposition: inline` and a short
-  // private cache.
-  fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
+  // private cache. `download=1` switches to an attachment disposition
+  // (change: add-file-download); nothing else about the route changes.
+  fastify.get<{ Querystring: { cwd?: string; path?: string; download?: string } }>(
     "/api/file/raw",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -1475,7 +1477,10 @@ export function registerFileRoutes(
       const size = stat.size;
 
       reply.header("Content-Type", contentType);
-      reply.header("Content-Disposition", "inline");
+      reply.header(
+        "Content-Disposition",
+        request.query.download === "1" ? contentDispositionAttachment(path.basename(resolved)) : "inline",
+      );
       // Scriptable media types (SVG/HTML/XML) opened directly would run with the
       // dashboard origin. Enforce an opaque-origin sandbox in EVERY dashboard CSP
       // mode, on 200/206/416 and every admission path. The baseline CSP hook
@@ -1546,6 +1551,7 @@ export function registerFileRoutes(
         reply.header("Cache-Control", "no-store");
         reply.removeHeader("Accept-Ranges");
         reply.removeHeader("Content-Security-Policy");
+        reply.removeHeader("Content-Disposition"); // `download=1` must not save the JSON refusal as the file
         return { success: false, error };
       };
       let grantedHandle: Awaited<ReturnType<typeof openVerifiedRegularFile>> | undefined;
@@ -1993,16 +1999,10 @@ export function registerFileRoutes(
         reply.code(404);
         return { success: false, error: "attachment index out of range" } satisfies ApiResponse;
       }
-      // Header-safe filename: strip CR/LF/quote (anti-injection), fold non-ASCII
-      // to `_` for the legacy `filename=`, and carry the exact name via RFC 5987
-      // `filename*` so UTF-8 names (e.g. Hungarian) survive.
-      const rawName = (att.filename || `attachment-${index}`).replace(/["\r\n]/g, "");
-      const asciiName = rawName.replace(/[^\x20-\x7e]/g, "_");
+      // Header-safe attachment name (shared helper; see change: add-file-download).
+      const rawName = att.filename || `attachment-${index}`;
       reply.header("Content-Type", att.contentType || "application/octet-stream");
-      reply.header(
-        "Content-Disposition",
-        `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(rawName)}`,
-      );
+      reply.header("Content-Disposition", contentDispositionAttachment(rawName));
       reply.header("X-Content-Type-Options", "nosniff");
       reply.header("Cache-Control", "private, max-age=60");
       reply.header("Content-Length", String(att.content.length));

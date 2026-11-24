@@ -481,6 +481,12 @@ export function EditorPane() {
     "inline-flex h-7 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50";
   const contextTab = contextMenu ? state.openFiles[contextMenu.index] : null;
 
+  // A built-in buffer with unsaved edits, or a handler instance reporting `dirty`.
+  const isTabDirty = (f: (typeof state.openFiles)[number]): boolean => {
+    const k = fh.closeLookups.keyOf(f);
+    return (!!k && fh.closeLookups.getInstance(k)?.dirty === true) || !!closeLookups.bufferDirty?.(f);
+  };
+
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
       {/* Pane bar: Files · tabs · + ··· ⌄ ✕ (design D1) */}
@@ -560,6 +566,7 @@ export function EditorPane() {
         claims={activeTab && !isPseudoTabViewer(activeTab.viewer) ? fh.matching : []}
         selectedMode={fh.handlerView ? activeTab?.handlerMode : undefined}
         outsideCwd={fh.outsideCwd}
+        dirty={!!activeTab && isTabDirty(activeTab)}
         onSelectMode={(m) => void fh.selectMode(m)}
         terminalTitle={terminalTitle}
         pluginLabel={pluginLabel}
@@ -576,16 +583,7 @@ export function EditorPane() {
           activeIndex={state.activeIndex}
           textDeps={textDeps}
           pluginLabel={pluginLabel}
-          unsavedPaths={
-            new Set(
-              state.openFiles
-                .filter((f) => {
-                  const k = fh.closeLookups.keyOf(f);
-                  return (!!k && fh.closeLookups.getInstance(k)?.dirty === true) || !!closeLookups.bufferDirty?.(f);
-                })
-                .map((f) => f.path),
-            )
-          }
+          unsavedPaths={new Set(state.openFiles.filter(isTabDirty).map((f) => f.path))}
           hasFileSearch={hasFileSearch}
           onActivate={(path) => {
             const i = stateRef.current.openFiles.findIndex((f) => f.path === path);

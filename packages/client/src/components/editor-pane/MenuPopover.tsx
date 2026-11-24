@@ -14,20 +14,22 @@ export interface MenuPopoverProps {
   label: string;
   testId: string;
   onClose: () => void;
+  /** Element refocused on Escape (default `anchorEl`). See change: add-file-download. */
+  returnFocusTo?: HTMLElement;
   children: ReactNode;
 }
 
 const MENU_ITEM_CLASS =
   "flex min-h-7 w-full items-center gap-2 whitespace-nowrap px-3 py-1 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus:bg-[var(--bg-hover)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
-export function MenuPopover({ anchorEl, label, testId, onClose, children }: MenuPopoverProps) {
+export function MenuPopover({ anchorEl, label, testId, onClose, returnFocusTo, children }: MenuPopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     enabledMenuItems(ref.current)[0]?.focus();
   }, []);
   const closeAndRefocus = () => {
     onClose();
-    anchorEl.focus();
+    (returnFocusTo ?? anchorEl).focus();
   };
   return (
     <Popover anchorEl={anchorEl} onDismiss={onClose}>
@@ -51,12 +53,17 @@ export interface MenuItemProps {
   disabled?: boolean;
   testId?: string;
   trailing?: ReactNode;
+  /** Muted second line under the label. See change: add-file-download. */
+  hint?: ReactNode;
 }
 
-export function MenuItem({ label, onSelect, disabled, testId, trailing }: MenuItemProps) {
+export function MenuItem({ label, onSelect, disabled, testId, trailing, hint }: MenuItemProps) {
   return (
     <button type="button" role="menuitem" data-testid={testId} disabled={disabled} onClick={onSelect} className={MENU_ITEM_CLASS}>
-      <span className="flex-1">{label}</span>
+      <span className="flex-1">
+        {label}
+        {hint && <span className="block text-[10px] text-[var(--text-tertiary)]">{hint}</span>}
+      </span>
       {trailing}
     </button>
   );
