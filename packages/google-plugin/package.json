@@ -1,0 +1,77 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-google-plugin",
+  "version": "0.11.0",
+  "description": "Google accounts (Google Connect) for pi agents — one place for Google OAuth clients, accounts, product grants and server-side token leases for Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks and Contacts.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/google-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    },
+    "./bridge": {
+      "types": "./src/bridge/index.ts",
+      "default": "./src/bridge/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "google",
+    "displayName": "Google accounts",
+    "i18nCatalog": "catalog",
+    "priority": 200,
+    "client": "./src/client/index.tsx",
+    "server": "./src/server/index.ts",
+    "bridge": "./src/bridge/index.ts",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "GoogleSettings",
+        "tab": "general"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.11.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.11.0",
+    "oauth4webapi": "^3.8.8",
+    "@fastify/rate-limit": "^11.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

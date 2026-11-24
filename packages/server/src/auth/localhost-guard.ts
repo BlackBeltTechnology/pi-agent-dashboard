@@ -547,6 +547,17 @@ const PUBLIC_IN_NAMESPACE_PATHS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Plugin OAuth return endpoints reachable WITHOUT a dashboard session, network pass condition or signed-in
+ * principal (GET only). The browser that completes a Google consent may be the system browser or another
+ * device with no dashboard cookie. The route accepts a code only for a pending sign-in whose unguessable
+ * `state` this dashboard issued (one-shot, 300 s) — the state is the credential, exactly like the login
+ * `/auth/callback/*`. Exact paths only; no prefix match. See change: add-google-connect (D12b).
+ */
+export const PUBLIC_PLUGIN_CALLBACK_PATHS: ReadonlySet<string> = new Set([
+  "/api/plugins/google/oauth/remote-callback",
+]);
+
+/**
  * Resolve `.` / `..` segments (RFC 3986 "remove_dot_segments") in an already
  * decoded absolute path. `..` above the root is clamped, as RFC 3986 requires.
  */
@@ -829,6 +840,7 @@ export function createNetworkGuardHook(opts: NetworkGuardHookOptions) {
     const bypassUrls = opts.getBypassUrls?.() ?? [];
     const isPublicInNamespace = (path: string): boolean =>
       (PUBLIC_IN_NAMESPACE_PATHS.has(path) && methodAllowsHealth) ||
+      (PUBLIC_PLUGIN_CALLBACK_PATHS.has(path) && methodAllowsHealth) ||
       pairingPrefixes.some((prefix) => path.startsWith(prefix)) ||
       isBypassed(path, bypassUrls);
     if (isPublicInNamespace(target.raw) && isPublicInNamespace(target.resolved)) return;

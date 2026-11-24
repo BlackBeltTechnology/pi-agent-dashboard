@@ -1346,6 +1346,13 @@ export interface ServerPluginContext {
    */
   readFileGuarded?: ReadFileGuardedFn;
   /**
+   * The dashboard's public base URL, no trailing slash — the same resolution the dashboard login's OAuth
+   * redirect uses (`auth.redirectBaseUrl` → tunnel → `http://localhost:<port>`). Optional: absent on hosts
+   * that do not wire it, where a plugin that needs a redirect address must refuse rather than guess.
+   * See change: add-google-connect (D2/D12).
+   */
+  getDashboardBaseUrl?: () => string;
+  /**
    * Subscribe to server shutdown (not trust-gated). See change:
    * relocate-goal-product-to-plugin (D1-#8).
    */
@@ -1548,6 +1555,8 @@ export interface ServerContextDeps {
   networkGuard: PluginNetworkGuard;
   /** Guarded UTF-8 file read (optional). See change: close-security-map-high-findings (D1). */
   readFileGuarded?: ReadFileGuardedFn;
+  /** Dashboard public base URL (optional). See change: add-google-connect. */
+  getDashboardBaseUrl?: () => string;
   /** Subscribe to server shutdown. See change: relocate-goal-product-to-plugin. */
   onShutdown: OnShutdownFn;
   /**
@@ -1679,6 +1688,7 @@ export function createServerPluginContext(
     assignSessionRef: deps.assignSessionRef,
     networkGuard: deps.networkGuard,
     readFileGuarded: deps.readFileGuarded,
+    getDashboardBaseUrl: deps.getDashboardBaseUrl,
     onShutdown: deps.onShutdown,
     // Workspace seam (add-chat-gateway-team-controls): defaulted so a host that
     // does not wire it still exposes a total accessor to plugins.

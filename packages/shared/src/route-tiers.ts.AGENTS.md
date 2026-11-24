@@ -77,3 +77,5 @@ improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` 
 `POST /api/file/resolve-mentions` (batch mention resolver) `observe`, same tier as `POST /api/file/resolve-mention`. See change: rich-chat-links.
 
 `POST /api/web/frame-policy` (framing probe: one outbound HEAD per click) `control`; MCP-denylisted. See change: rich-chat-links.
+
+`/api/plugins/google/*` (add-google-connect): every route `operate` (tokens + OAuth clients); MCP-denylisted. The two OAuth callbacks are `operate` for the tier gate but reachable by a pending sign-in's own `state` (`PUBLIC_PLUGIN_CALLBACK_PATHS`). See change: add-google-connect.

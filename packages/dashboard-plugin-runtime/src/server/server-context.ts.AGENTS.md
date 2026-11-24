@@ -10,3 +10,5 @@ Optional `readFileGuarded?(absPath): Promise<string|null>` (`ReadFileGuardedFn`)
 See change: add-spawn-model-choice. `PluginSpawnOptions.thinkingLevel?` (canonical level → `thinking`); `model` may be `@role` (host resolves once); `PluginSpawnResult.warning?` on a dropped choice.
 
 See change: polish-automation-board. `PluginSessionManager.isConnected?(id): boolean` — open bridge socket only, trusted plugins (wired to `piGateway.isSessionConnected`), untrusted always false; new `createPluginSessionManager({listActive,listAll,getSession,isSessionConnected,trusted})` factory. `AbortSpawnedRunFn` args gain `onResult?({outcome,pid})` (called once on every path; untrusted no-op never calls it → callers treat absent call as unconfirmed).
+
+`ServerPluginContext.getDashboardBaseUrl?(): string` (+ deps field) — the dashboard's public base URL, same resolution as the login redirect (`auth.redirectBaseUrl` → tunnel → `http://localhost:<port>`), wired in `server.ts`. Optional: a plugin that needs a redirect address refuses when absent. See change: add-google-connect.

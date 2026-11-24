@@ -80,6 +80,8 @@ function walk(dir) {
       // payloads + REST error payloads whose machine code the client maps to
       // its own translated copy. The client subtree stays scanned.
       // See change: add-gmail-plugin.
+      // google-plugin/src/{server,bridge}: same split as gmail (OAuth-flow prompt payloads, REST error
+      // codes, model-facing tool text); the client subtree stays scanned. See change: add-google-connect.
       //
       // obs-studio-plugin/src/(core|bin|server)/ is the `pi-obs` CLI (agent-
       // and terminal-facing diagnostics, `--json` payloads) and the panel's
@@ -88,7 +90,7 @@ function walk(dir) {
       // from the catalog at runtime. The client subtree stays scanned.
       // See change: add-obs-studio-plugin.
       if (
-        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|keycloak-resolver-plugin\/src\/server|fixture-policy-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core|gmail-plugin\/src\/(server|bridge)|obs-studio-plugin\/src\/(core|bin|server)/.test(
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|keycloak-resolver-plugin\/src\/server|fixture-policy-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core|gmail-plugin\/src\/(server|bridge)|google-plugin\/src\/(server|bridge)|obs-studio-plugin\/src\/(core|bin|server)/.test(
           p,
         )
       )

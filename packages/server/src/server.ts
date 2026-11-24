@@ -4563,6 +4563,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // `onRequest` scope) or the opened handle. Not trust-gated (it only narrows).
               // See change: close-security-map-high-findings (D1, H1).
               readFileGuarded: guardedReadFile,
+              // Public base for plugin OAuth return URLs: same resolution as the dashboard login redirect.
+              // See change: add-google-connect.
+              getDashboardBaseUrl: () => resolveRedirectBase(config.port, config.authConfig?.redirectBaseUrl).base,
               // Rename a live session: in-memory + `session_updated` broadcast
               // + `rename_session` to pi — the host's own rename block, lifted
               // verbatim (the broadcast carries `{ name: name || undefined }`).

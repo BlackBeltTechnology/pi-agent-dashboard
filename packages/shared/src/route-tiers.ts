@@ -85,6 +85,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // decouple-plugins-from-core: removes a plugin's whole trust entry; the matching POST also needs a genuinely local caller.
   { method: "DELETE", path: "/api/plugins/:id/trust", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/gmail/accounts/:sub", tier: "operate" },
+  // add-google-connect: Google accounts hold tokens + OAuth clients — every route is `operate`; the two OAuth
+  // callbacks accept a code only for a pending sign-in's own state (see `PUBLIC_PLUGIN_CALLBACK_PATHS`).
+  { method: "DELETE", path: "/api/plugins/google/accounts/:sub", tier: "operate" },
+  { method: "DELETE", path: "/api/plugins/google/clients/:id", tier: "operate" },
   // add-gmail-auto-setup: the automatic setup run drives the dedicated browser and stores a client secret, so every run route is `operate` (and genuinely-local on the plugin side).
   { method: "DELETE", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/agents/:key/conversations/:c", tier: "operate" },
@@ -242,6 +246,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/plugins/flows/edit-mode-default", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/edit-mode-state", tier: "observe" },
   { method: "GET", path: "/api/plugins/gmail/state", tier: "operate" },
+  { method: "GET", path: "/api/plugins/google/oauth/callback", tier: "operate" },
+  { method: "GET", path: "/api/plugins/google/oauth/remote-callback", tier: "operate" },
+  { method: "GET", path: "/api/plugins/google/state", tier: "operate" },
   { method: "GET", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
   // add-obs-studio-plugin: instance list + status are reads (never start OBS);
   // the screenshot (desktop / webcam pixels) and every toggle are `operate`,
@@ -310,6 +317,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PATCH", path: "/api/folders/goals/:id", tier: "control" },
   { method: "PATCH", path: "/api/openspec/groups/:id", tier: "control" },
   { method: "PATCH", path: "/api/plugins/gmail/accounts/:sub", tier: "operate" },
+  { method: "PATCH", path: "/api/plugins/google/accounts/:sub", tier: "operate" },
+  { method: "PATCH", path: "/api/plugins/google/clients/:id", tier: "operate" },
   { method: "PATCH", path: "/api/users/:id", tier: "operate" },
   { method: "PATCH", path: "/api/plugins/team/agents/:key/conversations/:c", tier: "operate" },
   { method: "PATCH", path: "/api/plugins/team/projects/:id", tier: "operate" },
@@ -472,6 +481,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/gmail/setup/run", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/setup/run/:id/continue", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/setup/run/:id/takeover", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/accounts", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/accounts/:sub/products", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/accounts/:sub/reauth", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/picker-token", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/flow/:flowId/input", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/radius/mcp", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/start", tier: "operate" },
@@ -554,6 +567,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/plugins/flows/edit-mode-default", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/client", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/setup", tier: "operate" },
+  { method: "PUT", path: "/api/plugins/google/clients", tier: "operate" },
+  { method: "PUT", path: "/api/plugins/google/disclosure", tier: "operate" },
   { method: "PUT", path: "/api/plugins/hermes-memory/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/context-mode-settings/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/team/personas/:key", tier: "operate" },
