@@ -188,7 +188,9 @@ import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycl
 import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embed-lifecycle/plugin-session-close.js";
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
+import { ensureWorktree } from "./git-worktree/ensure-worktree.js";
 import { resolveMainPath } from "./git-worktree/git-operations.js";
+import { awaitInitRun, startWorktreeInit } from "./git-worktree/start-worktree-init.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import {
   listPersistedTrust as listPersistedWorktreeTrust,
@@ -398,7 +400,7 @@ import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spaw
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
-import { mapPluginSpawnOptions } from "./spawn-process/plugin-spawn-choice.js";
+import { createPluginSpawnHook } from "./spawn-process/plugin-spawn-worktree.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createSessionTerminator } from "./spawn-process/session-terminator.js";
@@ -914,6 +916,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // so `worktree_init_*` events stream only to the dialog that
   // initiated the run. See change: generalize-worktree-init-hook.
   const worktreeInitRegistry = createWorktreeInitRegistry();
+  // Latched at the top of `stop()`: the plugin spawn hook refuses a launch that resumes after it
+  // (its child would escape the shutdown sweeps). See change: add-plugin-spawn-worktree.
+  let serverStopping = false;
 
   // Restore sessions from per-session .meta.json files (scans ~/.pi/agent/sessions/)
   const scanStartedAt = Date.now();
@@ -4346,124 +4351,36 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 piGateway.sendToSession(sessionId, buildPluginSendPrompt(sessionId, text, opts)),
               // Session-spawn hook. Gated to first-party/trusted plugins
               // (priority <= 100 by convention). Untrusted plugins get a
-              // hook that always rejects. See change: add-automation-plugin.
-              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
-              spawnSession: async (opts) => {
-                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
-                if (!trusted) {
-                  return { success: false, message: `spawn not permitted for plugin "${plugin.manifest.id}"` };
-                }
-                // Validate the untrusted root options object BEFORE mapping or
-                // dereferencing `opts.pluginRef`/`opts.cwd`. A JS plugin can
-                // call `spawnSession(null)` or omit `cwd`; reject both with a
-                // structured result instead of throwing.
-                if (typeof opts !== "object" || opts === null) {
-                  return { success: false, message: "spawn options must be an object" };
-                }
-                if (typeof opts.cwd !== "string" || opts.cwd.length === 0) {
-                  return { success: false, message: "spawn options require a non-empty cwd" };
-                }
-                // Map plugin-facing options to session options BEFORE filing
-                // the ref below. The mapper is total (never throws) and
-                // sanitizes untrusted plugin input. See change:
-                // add-plugin-spawn-scope (D7).
-                // ACP agent spawn: validate BEFORE anything is filed or spawned (pi-only
-                // options rejected, unknown agent rejected). See change: add-acp-session-driver (D14).
-                const acpRejection = validatePluginAcpSpawn(opts);
-                if (acpRejection) return { success: false, message: acpRejection };
-                // Literal model passes through; `@role` resolves once; a dropped
-                // choice is reported in `warning`. See change: add-spawn-model-choice.
-                const { options: sessionOptions, warning: choiceWarning } = mapPluginSpawnOptions(opts, {
-                  defaultModel: loadConfig().defaultModel || undefined,
-                });
-                // Honour a caller-supplied spawn token VERBATIM (trusted-only
-                // — this code only runs past the trusted gate). A token
-                // already pending for ANY owner is rejected via the
-                // non-destructive `has()` probe, leaving the prior owner's
-                // entry untouched. Otherwise mint up front so the ownership
-                // ref is filed against it BEFORE the `spawnPiSession` await
-                // (unchanged), closing the register-in-the-gap miss. See
-                // change: detach-automation-goal-from-core,
-                // relocate-goal-product-to-plugin (D1-#1).
-                const requested = typeof opts.spawnToken === "string" ? opts.spawnToken : "";
-                if (requested?.includes("\0")) {
-                  // A NUL cannot survive argv/registry round-trips — honouring
-                  // "used verbatim" means refusing, not silently re-minting a
-                  // token the caller's persisted state would never match.
-                  return { success: false, message: "spawnToken must not contain NUL" };
-                }
-                const spawnToken = requested || mintSpawnToken();
-                if (requested && pendingPluginRefRegistry.has(spawnToken)) {
-                  return {
-                    success: false,
-                    message: `spawnToken "${spawnToken}" is already pending for another spawn`,
-                  };
-                }
-                pendingPluginRefRegistry.file(
-                  spawnToken,
-                  opts.pluginRef,
-                  plugin.manifest.id,
-                  opts.lifecycle,
-                );
-                // Fresh-spawn reprime rides the per-cwd pending-initial-prompt
-                // FIFO exactly as core's own respawn path does: enqueue BEFORE
-                // the spawn await, consume on failure/throw so a dead spawn
-                // leaves no stale intent for an unrelated later register in
-                // the same cwd. See change:
-                // relocate-goal-product-to-plugin (D1-#3).
-                const initialPrompt =
-                  typeof opts.initialPrompt === "string" && opts.initialPrompt.length > 0
-                    ? opts.initialPrompt
-                    : undefined;
-                if (initialPrompt) pendingInitialPromptRegistry.enqueue(opts.cwd, initialPrompt);
-                // mode/sandbox threading (change: redesign-automation-editor-and-board).
-                // DOCUMENTED LIMITATION (task 4.2): the host hook does not yet
-                // enforce these. `worktree` would need ephemeral worktree
-                // create+cleanup wired to run-end correlation (discard/merge
-                // policy unspecified); pi exposes no `--sandbox` flag so the
-                // sandbox level cannot be applied at spawn. Both fall back to
-                // running in-place at `opts.cwd`. Log non-default requests so
-                // the gap is visible until the host gains support.
-                if (opts.mode === "worktree" || (opts.sandbox && opts.sandbox !== "workspace-write")) {
-                  console.warn(
-                    `[plugin-spawn] mode=${opts.mode ?? "local"} sandbox=${opts.sandbox ?? "(default)"} requested but not yet enforced by the host hook; running in-place at ${opts.cwd}`,
-                  );
-                }
-                try {
-                  const result =
-                    typeof opts.agent === "string"
-                      ? await spawnAcpSession(opts.cwd, { agent: opts.agent, spawnToken })
-                      : await spawnPiSession(opts.cwd, { ...sessionOptions, spawnToken });
-                  // Plugin/automation spawn: transport-less, reclaim required.
-                  armSpawnWatchdog(opts.cwd, "headless", result);
-                  if (result.process && result.pid) {
-                    browserGateway.headlessPidRegistry.register(
-                      result.pid,
-                      opts.cwd,
-                      result.process,
-                      result.spawnToken ?? spawnToken,
-                      keeperOptsFromSpawnResult(result),
-                    );
-                  }
-                  // Token-keyed, idempotent rollback on failure so no later
-                  // session resolves a stale ref; the queued initial prompt
-                  // is consumed with it.
-                  if (!result.success) {
-                    pendingPluginRefRegistry.remove(spawnToken);
-                    if (initialPrompt) pendingInitialPromptRegistry.withdraw(opts.cwd, initialPrompt);
-                  }
-                  return {
-                    success: result.success,
-                    message: result.message,
-                    ...(result.spawnToken ? { spawnToken: result.spawnToken } : { spawnToken }),
-                    ...(result.success && choiceWarning ? { warning: choiceWarning } : {}),
-                  };
-                } catch (err) {
-                  pendingPluginRefRegistry.remove(spawnToken);
-                  if (initialPrompt) pendingInitialPromptRegistry.withdraw(opts.cwd, initialPrompt);
-                  return { success: false, message: err instanceof Error ? err.message : String(err) };
-                }
-              },
+              // hook that always rejects. The flow (incl. the optional `worktree`
+              // block) lives in `createPluginSpawnHook`.
+              // See change: add-automation-plugin, add-plugin-spawn-worktree.
+              spawnSession: createPluginSpawnHook({
+                plugin: { id: plugin.manifest.id, priority: plugin.manifest.priority },
+                defaultModel: () => loadConfig().defaultModel,
+                mintSpawnToken,
+                validateAcp: validatePluginAcpSpawn,
+                pendingPluginRefRegistry,
+                pendingInitialPromptRegistry,
+                pendingAttachRegistry,
+                spawnPi: (cwd, o) => spawnPiSession(cwd, o as Parameters<typeof spawnPiSession>[1]),
+                spawnAcp: spawnAcpSession,
+                armWatchdog: (cwd, result) => armSpawnWatchdog(cwd, "headless", result),
+                registerHeadlessPid: (pid, cwd, child, token, result) =>
+                  browserGateway.headlessPidRegistry.register(
+                    pid,
+                    cwd,
+                    child as Parameters<typeof browserGateway.headlessPidRegistry.register>[2],
+                    token,
+                    keeperOptsFromSpawnResult(result),
+                  ),
+                ensureWorktree: (o) =>
+                  ensureWorktree({ ...o, knownCwds: knownFolderCwds, admitOptions: { onIndeterminate: cwdAdmissionLogger } }),
+                resolveCwdPolicy: (cwd) => cwdPolicyRegistry.resolve(cwd),
+                autoInitEnabled: () => preferencesStore.getAutoInitWorktreeOnSpawn(),
+                startWorktreeInit: (cwd, o) => startWorktreeInit(cwd, { ...o, registry: worktreeInitRegistry }),
+                awaitInitRun: (cwd) => awaitInitRun(worktreeInitRegistry, cwd),
+                isStopping: () => serverStopping,
+              }),
               // Spawn-env contributor hook. Trusted-gated like `spawnSession`
               // (policy, not a sandbox); untrusted plugins get a no-op.
               // See change: add-context-mode-settings-plugin.
@@ -5649,6 +5566,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     async stop(opts: { exitIntent?: ExitIntent } = {}) {
+      serverStopping = true;
       // A clean stop must also disarm the ephemeral watch so a
       // create/stop cycle in one process leaves no ticking timer.
       ephemeralParentWatch.stop();

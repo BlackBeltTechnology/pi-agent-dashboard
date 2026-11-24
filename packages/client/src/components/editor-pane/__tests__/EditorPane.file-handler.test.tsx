@@ -249,6 +249,14 @@ describe("leave guards (F7)", () => {
     return { reg, r };
   }
 
+  it("a dirty handler tab shows the Download hint (add-file-download #F2)", async () => {
+    await dirtyHandlerPane();
+    fireEvent.click(screen.getByTestId("doc-more-menu"));
+    const item = screen.getByTestId("doc-download") as HTMLButtonElement;
+    expect(item.disabled).toBe(false);
+    expect(item.textContent).toContain("Unsaved changes not included");
+  });
+
   it("mode switch with unsaved edits confirms; Cancel keeps the handler and its edits", async () => {
     await dirtyHandlerPane();
     fireEvent.click(screen.getByTestId("file-mode-builtin"));

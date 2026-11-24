@@ -404,11 +404,12 @@ describe("plugin-spawn-scope hook ordering (X5)", () => {
   it("maps options BEFORE filing the pluginRef against the spawn token", () => {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    const source = fs.readFileSync(path.resolve(__dirname, "..", "server.ts"), "utf8");
+    // The hook body moved out of server.ts. See change: add-plugin-spawn-worktree.
+    const source = fs.readFileSync(path.resolve(__dirname, "..", "spawn-process", "plugin-spawn-worktree.ts"), "utf8");
     // The total mapper is wrapped by `mapPluginSpawnOptions` (calls
     // `pluginSpawnToSessionOptions`) since add-spawn-model-choice.
     const mapIdx = source.indexOf("mapPluginSpawnOptions(opts");
-    const fileIdx = source.indexOf("pendingPluginRefRegistry.file(\n                  spawnToken");
+    const fileIdx = source.indexOf("deps.pendingPluginRefRegistry.file(spawnToken");
     expect(mapIdx, "mapPluginSpawnOptions(opts) call must be present").toBeGreaterThan(-1);
     expect(fileIdx, "pendingPluginRefRegistry.file(spawnToken, ...) must be present").toBeGreaterThan(-1);
     expect(

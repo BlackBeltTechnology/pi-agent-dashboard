@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import type { Download } from "@playwright/test";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { resolveContainer } from "./helpers/container-proc.js";
 import { chooseLayoutMode, FIXTURE_GIT, launchFromNewTabMenu, robustClick, spawnFreshGitSession } from "./helpers/index.js";
@@ -344,5 +346,58 @@ test.describe("unsaved built-in buffer guard", () => {
     await page.keyboard.press("Tab");
     await expect(page.getByTestId("unsaved-save")).toBeFocused();
     await page.keyboard.press("Escape");
+  });
+});
+
+// ── File download (change: add-file-download, test-plan #F12, #F13) ──
+// The viewer More menu and the tree row menu both save the file under its
+// basename with the exact bytes. `hello.txt` is a fixture file with known content.
+test.describe("file download", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+  });
+
+  // Raw buffers (no trim, no UTF-8 decode): a lost trailing newline or changed byte must fail.
+  const expectedBytes = (): Buffer =>
+    execFileSync("docker", ["exec", resolveContainer(), "cat", `${FIXTURE_GIT}/hello.txt`]);
+
+  async function saved(download: Download): Promise<Buffer> {
+    const path = await download.path();
+    if (!path) throw new Error("download has no saved path");
+    return readFileSync(path);
+  }
+
+  /** Fresh session, split layout, file rail open — rows are opened by click (the `?file=` deep link is not needed here). */
+  async function sessionWithRail(page: Page): Promise<Locator> {
+    await sessionWithPane(page);
+    await chooseLayoutMode(page, "split");
+    const p = pane(page);
+    await expect(p).toBeVisible({ timeout: 20_000 });
+    await p.getByTestId("tree-toggle").click();
+    const row = p.locator('[data-row="hello.txt"]');
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    return row;
+  }
+
+  test("F12: viewer More → Download saves hello.txt with its exact content", async ({ page }) => {
+    const row = await sessionWithRail(page);
+    const p = pane(page);
+    await row.getByText("hello.txt").click();
+    await expect(p.locator('[data-testid="editor-tab"][data-tab-path="hello.txt"]')).toBeVisible({ timeout: 20_000 });
+    await p.getByTestId("doc-more-menu").click();
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("doc-download").click()]);
+    expect(download.suggestedFilename()).toBe("hello.txt");
+    expect((await saved(download)).equals(expectedBytes())).toBe(true);
+  });
+
+  test("F13: tree row right-click → Download saves the file and leaves the tabs unchanged", async ({ page }) => {
+    const row = await sessionWithRail(page);
+    const p = pane(page);
+    const tabsBefore = await p.getByTestId("editor-tab").count();
+    await row.click({ button: "right" });
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("tree-row-download").click()]);
+    expect(download.suggestedFilename()).toBe("hello.txt");
+    expect((await saved(download)).equals(expectedBytes())).toBe(true);
+    await expect(p.getByTestId("editor-tab")).toHaveCount(tabsBefore);
   });
 });
