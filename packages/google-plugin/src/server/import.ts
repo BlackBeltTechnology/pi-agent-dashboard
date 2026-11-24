@@ -47,6 +47,8 @@ export interface LegacyImporter {
 }
 
 const TIERS = new Set(["readonly", "draft", "send"]);
+/** The credential store refuses records over 64 KiB; leave room for the fields the import adds (B85). */
+const MAX_LEGACY_ACCOUNT_BYTES = 60 * 1024;
 
 function validAccount(a: unknown): a is LegacyGmailAccount {
   const x = a as Partial<LegacyGmailAccount> | null;
@@ -58,7 +60,8 @@ function validAccount(a: unknown): a is LegacyGmailAccount {
     !!x.refresh &&
     typeof x.tier === "string" &&
     TIERS.has(x.tier) &&
-    Array.isArray(x.scopes)
+    Array.isArray(x.scopes) &&
+    Buffer.byteLength(JSON.stringify(x), "utf-8") <= MAX_LEGACY_ACCOUNT_BYTES
   );
 }
 
@@ -135,8 +138,15 @@ export function createLegacyImporter(deps: {
     if (!snapshot || !Array.isArray(snapshot.accounts)) return { ok: false, error: "invalid_snapshot" };
     const ledger = await store.getImportLedger();
     const fresh = await pending(snapshot, ledger.subs);
-    if (fresh.length === 0) return { ok: true, imported: 0, skipped: 0 };
     const cl = snapshot.client;
+    if (fresh.length === 0) {
+      // A legacy client with no accounts at all is still created (once, and only before any import happened); no ledger marker (B20/B84).
+      const keys = new Set(await store.rawCredentials().list());
+      if (cl?.clientId && snapshot.accounts.length === 0 && ledger.subs.length === 0 && !keys.has(clientKey(LEGACY_CLIENT_ID)) && keys.size < MAX_KEYS) {
+        await store.rawCredentials().set(clientKey(LEGACY_CLIENT_ID), clientRecord(cl, deps.now?.() ?? Date.now()) as unknown as PluginCredentialRecord);
+      }
+      return { ok: true, imported: 0, skipped: 0 };
+    }
     if (!cl?.clientId) return skipWithoutClient(fresh.length);
     const creds = store.rawCredentials();
     const keys = new Set(await creds.list());

@@ -75,7 +75,7 @@ describe("built-in disclosure gate (D8; B8)", () => {
 });
 
 describe("built-in rules enforced server-side (A2, B6)", () => {
-  it("full Drive on the built-in app → 400 own_client_required, for both refs", async () => {
+  it("#GC7 full Drive on the built-in app → 400 own_client_required, for both refs", async () => {
     const h = await accepted(makeHarness());
     for (const level of ["read", "write"]) {
       expect(await h.connect.startConnect({ products: { drive: level }, browser: "local" })).toMatchObject({ status: 400, error: "own_client_required" });

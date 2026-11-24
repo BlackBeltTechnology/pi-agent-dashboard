@@ -110,12 +110,12 @@ export async function clientForGrant(
   return { ok: true, client: fromOwn(own) };
 }
 
-/** What the dialog needs per browser: is the built-in app offered, and which own clients exist. */
+/** What the dialog needs per browser: is the built-in app offered (+ its public client id, shown for a Workspace block), and which own clients exist. */
 export async function availability(deps: ClientDeps, browser: Browser) {
   const b = builtinFor(deps, browser);
   return {
     browser,
-    builtin: b ? { ref: b.ref, available: true as const } : { available: false as const },
+    builtin: b ? { ref: b.ref, available: true as const, clientId: b.clientId } : { available: false as const },
     clients: await deps.store.summarizeClients(),
   };
 }

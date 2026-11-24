@@ -4,7 +4,7 @@
  */
 
 /** Google OAuth client secrets: `GOCSPX-` + url-safe base64. */
-const CLIENT_SECRET_RE = /GOCSPX-[A-Za-z0-9_-]+/g;
+const CLIENT_SECRET_RE = /GOCSPX-[A-Za-z0-9_-]+/gi;
 
 export function maskSecrets(text: string): string {
   return text.replace(CLIENT_SECRET_RE, "GOCSPX-***");

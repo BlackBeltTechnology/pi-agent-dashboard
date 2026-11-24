@@ -71,7 +71,7 @@ describe("importLegacyGmail", () => {
 
   it("an empty legacy namespace writes nothing — not even a marker (B20)", async () => {
     const { importer, creds } = setup();
-    expect(await importer.importLegacyGmail(snap([]))).toEqual({ ok: true, imported: 0, skipped: 0 });
+    expect(await importer.importLegacyGmail({ accounts: [] })).toEqual({ ok: true, imported: 0, skipped: 0 });
     expect(creds.data.size).toBe(0);
   });
 
@@ -116,5 +116,64 @@ describe("importLegacyGmail", () => {
     const { importer, logger } = setup();
     await importer.importLegacyGmail(snap([legacy("s1")]));
     expect(logger.lines.join("\n")).not.toMatch(/LEGACY|s1@x\.com/);
+  });
+});
+
+describe("importLegacyGmail — scenario edges (B79–B85)", () => {
+  it("B79: an existing account with a newer grant keeps its grant, alias and products (never overwritten)", async () => {
+    const mine = account("a", "a@x.com", { alias: "mine", client: "own:bb", products: { gmail: { level: "readonly" }, calendar: { level: "write" } } });
+    const { importer, store } = setup({ [acctKey("a")]: mine });
+    const before = await store.get("a");
+    await importer.importLegacyGmail(snap([legacy("a", { email: "a@x.com", refresh: "OLDER", tier: "send", alias: "legacy" })]));
+    expect(await store.get("a")).toEqual(before);
+  });
+
+  it("B80: a disconnected imported account is not restored by importing the same snapshot again; other subs are unaffected", async () => {
+    const { importer, store } = setup();
+    const s = snap([legacy("a"), legacy("b")]);
+    await importer.importLegacyGmail(s);
+    await store.remove("a");
+    expect(await importer.importLegacyGmail(s)).toMatchObject({ ok: true, imported: 0 });
+    expect((await store.list()).map((x) => x.sub)).toEqual(["b"]);
+  });
+
+  it("B81: a later legacy sub B is imported on the next run; A is not duplicated", async () => {
+    const { importer, store } = setup();
+    await importer.importLegacyGmail(snap([legacy("a")]));
+    expect(await importer.importLegacyGmail(snap([legacy("a"), legacy("b")]))).toMatchObject({ ok: true, imported: 1 });
+    expect((await store.list()).map((x) => x.sub).sort()).toEqual(["a", "b"]);
+  });
+
+  it("B82: a full store (255 keys, 2 accounts to import) writes nothing and leaves no partial record", async () => {
+    const filler = Object.fromEntries(Array.from({ length: 255 }, (_, i) => [`acct:f${i}`, account(`f${i}`, `f${i}@x.com`)]));
+    const { importer, creds } = setup(filler);
+    const before = JSON.stringify([...creds.data.entries()]);
+    expect(await importer.importLegacyGmail(snap([legacy("a"), legacy("b")]))).toEqual({ ok: false, error: "too_many_keys" });
+    expect(JSON.stringify([...creds.data.entries()])).toBe(before);
+  });
+
+  it("B84: empty → no-op; client-only → client created (no ledger marker); accounts without a client → skipped (G14)", async () => {
+    const empty = setup();
+    expect(await empty.importer.importLegacyGmail({ accounts: [] })).toEqual({ ok: true, imported: 0, skipped: 0 });
+    expect(empty.creds.data.size).toBe(0);
+    const clientOnly = setup();
+    expect(await clientOnly.importer.importLegacyGmail(snap([]))).toEqual({ ok: true, imported: 0, skipped: 0 });
+    expect([...clientOnly.creds.data.keys()]).toEqual([clientKey("gmail-legacy")]);
+    const noClient = setup();
+    expect(await noClient.importer.importLegacyGmail({ accounts: [legacy("a")] })).toEqual({ ok: true, imported: 0, skipped: 1 });
+    expect(noClient.creds.data.size).toBe(0);
+  });
+
+  it("B85: malformed items (no sub, non-string refresh, 65 KiB record) are skipped; valid neighbours still import; nothing throws", async () => {
+    const { importer, store } = setup();
+    const bad = [
+      { ...legacy("x"), sub: undefined },
+      { ...legacy("y"), refresh: 42 },
+      legacy("big", { alias: "A".repeat(65 * 1024) }),
+    ] as unknown as LegacyGmailAccount[];
+    const r = await importer.importLegacyGmail(snap([legacy("ok1"), ...bad, legacy("ok2")]));
+    expect(r).toMatchObject({ ok: true, imported: 2 });
+    expect((await store.list()).map((x) => x.sub).sort()).toEqual(["ok1", "ok2"]);
+    expect(await importer.importLegacyGmail({ accounts: "nope" } as never)).toEqual({ ok: false, error: "invalid_snapshot" });
   });
 });

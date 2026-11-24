@@ -2,10 +2,10 @@
  * "Set up automatically" (design D3/D5–D11): the secondary entry, the start form,
  * the run progress panel (polls `GET setup/run/:id` every second while live), the
  * human-checkpoint / audience / links / busy prompts and the hand-off notice.
- * The run itself lives in the gmail server; this file only renders its secret-free
+ * The run itself lives in the google server (`/api/plugins/google/setup/run`); this file only renders its secret-free
  * view and posts the user's answers. "Add account" stays the section's one primary
- * button (it lives in `GmailSettings.tsx`); everything here is secondary.
- * See change: add-gmail-auto-setup.
+ * button (`Connect a Google account`); everything here is secondary.
+ * See change: add-google-connect (ported from gmail-plugin).
  */
 import { SettingsNotice, TextField, ToggleField, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
@@ -42,7 +42,7 @@ const CHECKPOINT_EN: Record<string, string> = {
 
 const STEP_LABEL: Record<SetupStepId, [key: string, en: string]> = {
   project: ["autoStepProject", "Project"],
-  api: ["autoStepApi", "Gmail API"],
+  api: ["autoStepApis", "Product APIs"],
   branding: ["autoStepBranding", "Branding"],
   publish: ["autoStepPublish", "Audience + publish"],
   client: ["autoStepClient", "OAuth client"],
@@ -138,7 +138,7 @@ function StepChip({ id, status, current }: { id: SetupStepId; status: SetupStepS
   const [statusKey, statusEn] = STATUS_LABEL[status];
   return (
     <li
-      data-testid={`gmail-setup-step-${id}`}
+      data-testid={`google-setup-step-${id}`}
       data-status={status}
       aria-current={current ? "step" : undefined}
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[12px] font-semibold ${chipTone(status, current)}`}
@@ -155,7 +155,7 @@ function StepChips({ view }: { view: SetupRunView }) {
   const live = isLive(view.state);
   const status = new Map(view.steps.map((s) => [s.id, s.status]));
   return (
-    <ol className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label={t("autoStepsLabel", undefined, "Setup steps")} data-testid="gmail-setup-steps">
+    <ol className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label={t("autoStepsLabel", undefined, "Setup steps")} data-testid="google-setup-steps">
       {SETUP_STEP_IDS.map((id) => (
         <StepChip key={id} id={id} status={status.get(id) ?? "pending"} current={live && view.step === id} />
       ))}
@@ -176,7 +176,7 @@ function AudienceDecision({
   const internal = decision.detected === "internal";
   const org = decision.org ?? t("autoOrgFallback", undefined, "its organization");
   return (
-    <SettingsNotice tone="info" testId="gmail-setup-audience">
+    <SettingsNotice tone="info" testId="google-setup-audience">
       <div className="flex flex-col gap-2">
         <strong>{t("autoAudienceTitle", undefined, "Who will sign in to this app?")}</strong>
         <span>
@@ -194,11 +194,11 @@ function AudienceDecision({
         </span>
         <span className="flex flex-wrap gap-2" role="group" aria-label={t("autoAudienceTitle", undefined, "Who will sign in to this app?")}>
           {internal && (
-            <button type="button" className={btn} disabled={busy} data-testid="gmail-setup-audience-internal" onClick={() => onChoose("internal")}>
+            <button type="button" className={btn} disabled={busy} data-testid="google-setup-audience-internal" onClick={() => onChoose("internal")}>
               {t("autoAudienceInternal", undefined, "Internal")}
             </button>
           )}
-          <button type="button" className={btn} disabled={busy} data-testid="gmail-setup-audience-external" onClick={() => onChoose("external")}>
+          <button type="button" className={btn} disabled={busy} data-testid="google-setup-audience-external" onClick={() => onChoose("external")}>
             {t("autoAudienceExternal", undefined, "External")}
           </button>
         </span>
@@ -227,7 +227,7 @@ function LinksDecision({
   };
   const valid = Object.keys(errors).length === 0;
   return (
-    <SettingsNotice tone="info" testId="gmail-setup-links">
+    <SettingsNotice tone="info" testId="google-setup-links">
       <div className="flex flex-col gap-2">
         <strong>{t("autoLinksTitle", undefined, "Links for Google's consent screen")}</strong>
         <span>
@@ -244,7 +244,7 @@ function LinksDecision({
           value={links.homePage}
           onChange={set("homePage")}
           error={err("homePage")}
-          testIds={{ control: "gmail-setup-link-home", error: "gmail-setup-link-home-error" }}
+          testIds={{ control: "google-setup-link-home", error: "google-setup-link-home-error" }}
         />
         <TextField
           label={t("autoLinkPrivacy", undefined, "Privacy policy")}
@@ -253,7 +253,7 @@ function LinksDecision({
           value={links.privacyPolicy}
           onChange={set("privacyPolicy")}
           error={err("privacyPolicy")}
-          testIds={{ control: "gmail-setup-link-privacy", error: "gmail-setup-link-privacy-error" }}
+          testIds={{ control: "google-setup-link-privacy", error: "google-setup-link-privacy-error" }}
         />
         <TextField
           label={t("autoLinkDomain", undefined, "Authorized domain")}
@@ -262,12 +262,12 @@ function LinksDecision({
           value={links.authorizedDomain}
           onChange={set("authorizedDomain")}
           error={err("authorizedDomain")}
-          testIds={{ control: "gmail-setup-link-domain", error: "gmail-setup-link-domain-error" }}
+          testIds={{ control: "google-setup-link-domain", error: "google-setup-link-domain-error" }}
         />
         <ToggleField
           label={t("autoLinksConfirm", undefined, "I understand these links appear on Google's consent screen for every account, and I want to use them.")}
           hint={null}
-          testIds={{ control: "gmail-setup-links-confirm" }}
+          testIds={{ control: "google-setup-links-confirm" }}
           value={confirmed}
           onChange={setConfirmed}
         />
@@ -276,7 +276,7 @@ function LinksDecision({
             type="button"
             className={btn}
             disabled={busy || !confirmed || !valid}
-            data-testid="gmail-setup-links-continue"
+            data-testid="google-setup-links-continue"
             onClick={() => onConfirm({ homePage: links.homePage.trim(), privacyPolicy: links.privacyPolicy.trim(), authorizedDomain: links.authorizedDomain.trim().toLowerCase() })}
           >
             {t("autoLinksContinue", undefined, "Use these links")}
@@ -293,13 +293,13 @@ function BusyNotice({ holder, busy, onTakeover }: { holder?: string; busy: boole
   const [confirming, setConfirming] = useState(false);
   const who = holder ?? t("autoBusyUnknown", undefined, "another session");
   return (
-    <SettingsNotice tone="warning" testId="gmail-setup-busy">
+    <SettingsNotice tone="warning" testId="google-setup-busy">
       <div className="flex flex-col gap-2">
-        <span data-testid="gmail-setup-busy-holder">
+        <span data-testid="google-setup-busy-holder">
           {t("autoBusy", { holder: who }, `The dedicated browser is in use by ${who}. Setup waits until it is free, or you can take it over.`)}
         </span>
         <span>
-          <button type="button" className={btn} disabled={busy} data-testid="gmail-setup-takeover" onClick={() => setConfirming(true)}>
+          <button type="button" className={btn} disabled={busy} data-testid="google-setup-takeover" onClick={() => setConfirming(true)}>
             {t("autoTakeover", undefined, "Take over")}
           </button>
         </span>
@@ -333,12 +333,12 @@ function HandoffNotice({ view }: { view: SetupRunView }) {
   const clients = view.created.clients;
   const client = clients[clients.length - 1] ?? "";
   return (
-    <SettingsNotice tone="warning" testId="gmail-setup-handoff">
+    <SettingsNotice tone="warning" testId="google-setup-handoff">
       <div className="flex flex-col gap-1.5" data-reason={h.reason} data-step={h.wizardStep}>
         <strong>{t("autoHandoffTitle", undefined, "Automatic setup stopped — finish by hand")}</strong>
-        <span data-testid="gmail-setup-handoff-reason">{t(key, undefined, ERROR_EN[key])}</span>
+        <span data-testid="google-setup-handoff-reason">{t(key, undefined, ERROR_EN[key])}</span>
         {h.reason === "domain_blocked" && h.domains && h.domains.length > 0 && (
-          <ul className="m-0 list-disc pl-5" data-testid="gmail-setup-handoff-domains">
+          <ul className="m-0 list-disc pl-5" data-testid="google-setup-handoff-domains">
             {h.domains.map((d) => (
               <li key={d}>
                 <code>{d}</code>
@@ -354,7 +354,7 @@ function HandoffNotice({ view }: { view: SetupRunView }) {
           )}
         </span>
         {(projectId || clients.length > 0) && (
-          <div data-testid="gmail-setup-created">
+          <div data-testid="google-setup-created">
             <span>{t("autoCreated", undefined, "Already created in Google Cloud:")}</span>
             <ul className="m-0 list-disc pl-5">
               {projectId && <li>{t("autoCreatedProject", { id: projectId }, `Project ${projectId}`)}</li>}
@@ -365,7 +365,7 @@ function HandoffNotice({ view }: { view: SetupRunView }) {
           </div>
         )}
         {h.reason === "secret_capture_failed" && client && (
-          <span data-testid="gmail-setup-secret-help">
+          <span data-testid="google-setup-secret-help">
             {t(
               "autoSecretHelp",
               { client },
@@ -395,12 +395,12 @@ function useReportTerminal(view: SetupRunView | null, onFinished: (v: SetupRunVi
 function CheckpointNotice({ kind, busy, onSignedIn }: { kind: CheckpointKind; busy: boolean; onSignedIn: () => void }) {
   const t = useT();
   return (
-    <SettingsNotice tone="info" testId="gmail-setup-checkpoint">
+    <SettingsNotice tone="info" testId="google-setup-checkpoint">
       <div className="flex flex-col gap-2" data-kind={kind}>
         <span>{t(CHECKPOINT_KEY[kind], undefined, CHECKPOINT_EN[CHECKPOINT_KEY[kind]])}</span>
         {kind === "sign_in" && (
           <span>
-            <button type="button" className={btn} disabled={busy} data-testid="gmail-setup-signed-in" onClick={onSignedIn}>
+            <button type="button" className={btn} disabled={busy} data-testid="google-setup-signed-in" onClick={onSignedIn}>
               {t("autoSignedIn", undefined, "I've signed in")}
             </button>
           </span>
@@ -414,14 +414,14 @@ function EndNotice({ state }: { state: SetupRunState }) {
   const t = useT();
   if (state === "done") {
     return (
-      <SettingsNotice tone="success" testId="gmail-setup-done">
+      <SettingsNotice tone="success" testId="google-setup-done">
         {t("autoDone", undefined, "Automatic setup finished and the OAuth client is saved. Add your Google account below.")}
       </SettingsNotice>
     );
   }
   if (state !== "cancelled") return null;
   return (
-    <SettingsNotice tone="info" testId="gmail-setup-cancelled">
+    <SettingsNotice tone="info" testId="google-setup-cancelled">
       {t("autoCancelled", undefined, "Automatic setup was cancelled. Anything it already created in Google Cloud is kept.")}
     </SettingsNotice>
   );
@@ -430,7 +430,7 @@ function EndNotice({ state }: { state: SetupRunState }) {
 function LostNotice({ onDismiss }: { onDismiss: () => void }) {
   const t = useT();
   return (
-    <SettingsNotice tone="warning" testId="gmail-setup-lost">
+    <SettingsNotice tone="warning" testId="google-setup-lost">
       <div className="flex flex-col gap-2">
         <span>
           {t(
@@ -440,7 +440,7 @@ function LostNotice({ onDismiss }: { onDismiss: () => void }) {
           )}
         </span>
         <span>
-          <button type="button" className={btn} data-testid="gmail-setup-dismiss" onClick={onDismiss}>
+          <button type="button" className={btn} data-testid="google-setup-dismiss" onClick={onDismiss}>
             {t("autoDismiss", undefined, "Dismiss")}
           </button>
         </span>
@@ -489,7 +489,7 @@ function RunPanel({
   if (lost) return <LostNotice onDismiss={onDismiss} />;
   if (!view) {
     return (
-      <div role="status" className={muted} data-testid="gmail-setup-loading">
+      <div role="status" className={muted} data-testid="google-setup-loading">
         {t("autoStarting", undefined, "Starting the dedicated browser…")}
       </div>
     );
@@ -497,13 +497,13 @@ function RunPanel({
 
   const live = isLive(view.state);
   return (
-    <div className="flex flex-col gap-2" data-testid="gmail-setup-run" data-state={view.state} aria-busy={live || undefined}>
+    <div className="flex flex-col gap-2" data-testid="google-setup-run" data-state={view.state} aria-busy={live || undefined}>
       <h4 ref={heading} tabIndex={-1} className="focus-ring m-0 text-xs font-semibold text-[var(--text-primary)]">
         {t("autoRunTitle", undefined, "Automatic setup")}
       </h4>
       <StepChips view={view} />
       {(view.state === "starting" || view.state === "running") && (
-        <div role="status" className={muted} data-testid="gmail-setup-working">
+        <div role="status" className={muted} data-testid="google-setup-working">
           {view.state === "starting"
             ? t("autoStarting", undefined, "Starting the dedicated browser…")
             : t("autoWorking", undefined, "Working in the dedicated browser window. You do not need to do anything yet.")}
@@ -531,17 +531,17 @@ function RunPanel({
       <EndNotice state={view.state} />
       {view.state === "handoff" && <HandoffNotice view={view} />}
       {actionError && (
-        <div role="alert" className={errorText} data-testid="gmail-setup-action-error">
+        <div role="alert" className={errorText} data-testid="google-setup-action-error">
           {actionError}
         </div>
       )}
       <div className="flex flex-wrap gap-2">
         {live ? (
-          <button type="button" className={btn} disabled={busy} data-testid="gmail-setup-cancel" onClick={() => void act("", { method: "DELETE" })}>
+          <button type="button" className={btn} disabled={busy} data-testid="google-setup-cancel" onClick={() => void act("", { method: "DELETE" })}>
             {t("autoCancel", undefined, "Cancel setup")}
           </button>
         ) : (
-          <button type="button" className={btn} data-testid="gmail-setup-dismiss" onClick={onDismiss}>
+          <button type="button" className={btn} data-testid="google-setup-dismiss" onClick={onDismiss}>
             {t("autoDismiss", undefined, "Dismiss")}
           </button>
         )}
@@ -575,7 +575,7 @@ function StartForm({
   const cls = classifyProjectId(projectId);
   // New mode: an empty id is fine (the run generates one); a typed one must be valid.
   const projectOk = mode === "existing" ? cls === "ok" : projectId.trim() === "" || cls === "ok";
-  const ownerErr = touched.owner && !ownerOk ? t("errOwnerInvalid", undefined, "Enter a full email address, for example you@gmail.com.") : null;
+  const ownerErr = touched.owner && !ownerOk ? t("errOwnerInvalid", undefined, "Enter a full email address, for example you@example.com.") : null;
   const projectErr =
     touched.project && !projectOk
       ? cls === "looks_like_name"
@@ -592,19 +592,19 @@ function StartForm({
     });
   };
   return (
-    <div id={id} role="group" aria-label={t("autoRunTitle", undefined, "Automatic setup")} className="flex flex-col gap-2" data-testid="gmail-setup-form">
-      <fieldset className="m-0 flex flex-wrap items-center gap-3 border-0 p-0" data-testid="gmail-setup-mode">
+    <div id={id} role="group" aria-label={t("autoRunTitle", undefined, "Automatic setup")} className="flex flex-col gap-2" data-testid="google-setup-form">
+      <fieldset className="m-0 flex flex-wrap items-center gap-3 border-0 p-0" data-testid="google-setup-mode">
         <legend className="sr-only">{t("projectModeLegend", undefined, "Project")}</legend>
         {(["new", "existing"] as const).map((m) => (
           <label key={m} className={`${muted} flex items-center gap-1`}>
             <input
               type="radio"
-              name="gmail-setup-mode"
+              name="google-setup-mode"
               value={m}
               checked={mode === m}
               onChange={() => setMode(m)}
               className="focus-ring"
-              data-testid={`gmail-setup-mode-${m}`}
+              data-testid={`google-setup-mode-${m}`}
             />
             {m === "new" ? t("projectModeNew", undefined, "Create a new project") : t("projectModeExisting", undefined, "Use an existing project")}
           </label>
@@ -622,8 +622,8 @@ function StartForm({
           mono
           value={projectId}
           onChange={setProjectId}
-          placeholder="my-gmail-agent"
-          testIds={{ control: "gmail-setup-project-id", error: "gmail-setup-project-error" }}
+          placeholder="acme-pi-connect"
+          testIds={{ control: "google-setup-project-id", error: "google-setup-project-error" }}
         />
       </div>
       <div onBlur={() => setTouched((x) => ({ ...x, owner: true }))}>
@@ -635,20 +635,20 @@ function StartForm({
           autoComplete="email"
           value={owner}
           onChange={setOwner}
-          placeholder="you@gmail.com"
-          testIds={{ control: "gmail-setup-owner", error: "gmail-setup-owner-error" }}
+          placeholder="you@example.com"
+          testIds={{ control: "google-setup-owner", error: "google-setup-owner-error" }}
         />
       </div>
       {error && (
-        <div role="alert" className={errorText} data-testid="gmail-setup-start-error">
+        <div role="alert" className={errorText} data-testid="google-setup-start-error">
           {error}
         </div>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" className={btn} disabled={starting} data-testid="gmail-setup-start" onClick={submit}>
+        <button type="button" className={btn} disabled={starting} data-testid="google-setup-start" onClick={submit}>
           {t("autoStart", undefined, "Start automatic setup")}
         </button>
-        <button type="button" className={btn} data-testid="gmail-setup-close" onClick={onClose}>
+        <button type="button" className={btn} data-testid="google-setup-close" onClick={onClose}>
           {t("autoClose", undefined, "Close")}
         </button>
       </div>
@@ -673,7 +673,7 @@ export interface AutoSetupSectionProps {
 function RemoteNote() {
   const t = useT();
   return (
-    <SettingsNotice tone="info" testId="gmail-setup-remote">
+    <SettingsNotice tone="info" testId="google-setup-remote">
       {t(
         "autoRemoteNote",
         undefined,
@@ -701,12 +701,12 @@ function Entry({
   const formId = useId();
   const [formOpen, setFormOpen] = useState(false);
   return (
-    <div className="flex flex-col gap-2" data-testid="gmail-setup-auto">
+    <div className="flex flex-col gap-2" data-testid="google-setup-auto">
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           className={btn}
-          data-testid="gmail-setup-entry"
+          data-testid="google-setup-entry"
           aria-expanded={formOpen}
           aria-controls={formOpen ? formId : undefined}
           onClick={() => setFormOpen((o) => !o)}
@@ -717,11 +717,6 @@ function Entry({
           {t("autoEntryHelp", undefined, "Opens a dedicated browser window on this computer and does the console steps for you. You do the sign-in and the consent clicks yourself.")}
         </span>
       </div>
-      {autoSetup.replacesClient && (
-        <SettingsNotice tone="warning" testId="gmail-setup-replace">
-          {t("autoReplaceNote", undefined, "An OAuth client is already configured, but no account uses it. Automatic setup replaces it with a new client.")}
-        </SettingsNotice>
-      )}
       {formOpen && (
         <StartForm
           id={formId}
@@ -776,7 +771,7 @@ export function AutoSetupSection({ autoSetup, setup, onAudience, onOwnerEmail, o
 
   if (runId) {
     return (
-      <div className="flex flex-col gap-2" data-testid="gmail-setup-auto">
+      <div className="flex flex-col gap-2" data-testid="google-setup-auto">
         <RunPanel runId={runId} onAudience={onAudience} onDismiss={dismiss} onFinished={finished} />
       </div>
     );

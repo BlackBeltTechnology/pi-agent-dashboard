@@ -17,6 +17,7 @@ import {
 } from "../../__tests__/fakes.js";
 import type { BuiltInClients, Switches } from "../../shared/default-clients.js";
 import { SCOPE } from "../../shared/products.js";
+import { createLegacyImporter } from "../import.js";
 import { createLeaseHandler } from "../lease.js";
 import { acctKey, clientKey, GoogleStore } from "../store.js";
 
@@ -186,6 +187,41 @@ describe("logs (D13)", () => {
     await lease({ account: "s1", product: "gmail" });
     expect(logger.lines).toContain("[google] refresh client=builtin result=ok");
     expect(logger.lines.join("\n")).not.toMatch(/NEW-ACCESS|REFRESH|a@x\.com/);
+  });
+});
+
+describe("lease — imported legacy accounts, secrets in logs, dashboard-enforced levels (B83, B87, B105)", () => {
+  it("B83: an imported legacy account refreshes with grant.clientId and the legacy client's secret, no re-consent", async () => {
+    const t = setup({});
+    await createLegacyImporter({ store: t.store, logger: t.logger, now: () => NOW }).importLegacyGmail({
+      client: { clientId: OWN_BB.clientId, clientSecret: OWN_BB.clientSecret },
+      accounts: [{ sub: "s1", email: "a@x.com", tier: "send", scopes: [SCOPE.gmailModify], refresh: "LEGACY-RT", access: "OLD", expires: 1, status: "ok", addedAt: 1 }],
+    });
+    const r = await t.lease({ account: "a@x.com", product: "gmail", level: "send" });
+    expect(r).toMatchObject({ accessToken: "NEW-ACCESS", email: "a@x.com", level: "send" });
+    expect(t.google.calls).toHaveLength(1);
+    expect(t.google.calls[0]?.body.get("client_id")).toBe(OWN_BB.clientId);
+    expect(t.google.calls[0]?.body.get("client_secret")).toBe(OWN_BB.clientSecret);
+    expect(t.google.calls[0]?.body.get("refresh_token")).toBe("LEGACY-RT");
+  });
+
+  it("B87: an invalid_grant refresh logs `[google] refresh client=<ref> result=invalid_grant` — no token, no email", async () => {
+    const { lease, logger } = setup(
+      { [acctKey("s1")]: account("s1", "a@x.com", { client: "own:blackbelt", clientId: OWN_BB.clientId, expires: NOW + 59_000 }), [clientKey("blackbelt")]: ownClient("blackbelt", "BlackBelt") },
+      { refresh: () => ({ status: 400, body: { error: "invalid_grant", error_description: "REFRESH-s1 a@x.com" } }) },
+    );
+    await err(lease({ account: "s1", product: "gmail" }));
+    expect(logger.lines).toContain("[google] refresh client=own:blackbelt result=invalid_grant");
+    expect(logger.lines.join("\n")).not.toMatch(/REFRESH|ACCESS|a@x\.com|SECRET/);
+  });
+
+  it("B105: Calendar=read is enforced by the dashboard (level_insufficient) although the Google grant also covers write", async () => {
+    const { lease, google } = setup({
+      [acctKey("s1")]: account("s1", "a@x.com", { ...fresh, products: { calendar: { level: "read" } }, scopes: [SCOPE.calendarReadonly, SCOPE.calendarEvents] }),
+    });
+    expect(await err(lease({ account: "s1", product: "calendar", level: "write" }))).toMatch(/^level_insufficient:/);
+    expect(await lease({ account: "s1", product: "calendar", level: "read" })).toMatchObject({ level: "read" });
+    expect(google.calls).toHaveLength(0);
   });
 });
 

@@ -15,7 +15,6 @@ export const HANDOFF_KEY: Record<HandoffReason, string> = {
   publish_cancelled: "handoffPublishCancelled",
   timeout: "handoffTimeout",
   secret_capture_failed: "handoffSecretCaptureFailed",
-  client_in_use: "handoffClientInUse",
   browser_closed: "handoffBrowserClosed",
   disabled: "handoffDisabled",
   unloaded: "handoffUnloaded",
@@ -104,8 +103,6 @@ export const AUTO_SETUP_ERROR_EN: Record<string, string> = {
   handoffTimeout: "The automatic setup waited 15 minutes for a step on your side and gave up. Continue by hand, or start it again.",
   handoffSecretCaptureFailed:
     "The OAuth client was created, but its secret could not be read. The secret cannot be shown again, so add a new one to that client.",
-  handoffClientInUse:
-    "An OAuth client with connected accounts is already configured, and the automatic setup never replaces a working client. Revoke the accounts first, or keep the current client.",
   handoffBrowserClosed: "The dedicated browser window was closed. Continue by hand, or start the automatic setup again.",
   handoffDisabled: "The dedicated browser is turned off in the Browser plugin settings. Turn it on, or continue by hand.",
   handoffUnloaded: "The Browser plugin is not loaded, so the dedicated browser is not available. Continue by hand.",

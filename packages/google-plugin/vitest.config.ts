@@ -32,6 +32,8 @@ export default defineConfig({
       ),
       "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(__dirname, "../dashboard-plugin-runtime/src/index.ts"),
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
+      // Real host `ui:dialog` for the client tests (focus trap, Escape, focus return).
+      "@blackbelt-technology/pi-dashboard-client-utils/Dialog": path.resolve(__dirname, "../client-utils/src/Dialog.tsx"),
     },
   },
 });

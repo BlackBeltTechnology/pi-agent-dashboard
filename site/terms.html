@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>
+(function(){
+  var m='system';try{m=localStorage.getItem('pi-theme')||'system';}catch(e){}
+  var light=m==='light'||(m==='system'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches);
+  if(light)document.documentElement.setAttribute('data-theme','light');
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Terms of Service · PI Dashboard</title>
+<meta name="description" content="Terms for the pi-dashboard.dev website and the built-in Google sign-in option.">
+<link rel="canonical" href="https://pi-dashboard.dev/terms.html">
+<link rel="icon" href="/favicon.png">
+<style>
+:root{
+  --bg-primary:#0a0a0a;--bg-secondary:#141414;--bg-tertiary:#1e1e1e;
+  --text-primary:#e5e5e5;--text-secondary:#b0b0b0;
+  --accent:#3b82f6;--accent-text:#60a5fa;--border:#2a2a2a;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'SF Mono',Menlo,Monaco,'Cascadia Code',Consolas,monospace;
+  color-scheme:dark;
+}
+[data-theme="light"]{
+  --bg-primary:#ffffff;--bg-secondary:#fafafa;--bg-tertiary:#f0f0f0;
+  --text-primary:#1a1a1a;--text-secondary:#444444;
+  --accent:#2563eb;--accent-text:#1d4ed8;--border:#e0e0e0;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);font:16px/1.6 var(--sans)}
+main{max-width:46rem;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+nav a{color:var(--accent-text)}
+h1{font-size:2rem;line-height:1.2;margin:1.5rem 0 .5rem}
+h2{font-size:1.25rem;margin:2rem 0 .5rem}
+p,li{color:var(--text-secondary)}
+strong{color:var(--text-primary)}
+a{color:var(--accent-text)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code{font-family:var(--mono);font-size:.9em;background:var(--bg-tertiary);padding:.1em .3em;border-radius:4px}
+table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.95rem}
+th,td{border:1px solid var(--border);padding:.5rem .6rem;text-align:left;vertical-align:top;color:var(--text-secondary)}
+th{background:var(--bg-secondary);color:var(--text-primary)}
+.table-wrap{overflow-x:auto}
+.meta{font-size:.9rem}
+footer{border-top:1px solid var(--border);margin-top:3rem;padding-top:1rem;font-size:.9rem}
+footer a{margin-right:1rem}
+</style>
+</head>
+<body>
+<main>
+<nav><a href="/">← pi-dashboard.dev</a></nav>
+<h1>Terms of Service — pi-dashboard</h1>
+<p class="meta">Effective date: [[YYYY-MM-DD]] · Operator: [[legal entity]] · Contact: <a href="mailto:support@pi-dashboard.dev">support@pi-dashboard.dev</a></p>
+<ol>
+<li><strong>Software.</strong> pi-dashboard is open-source software licensed under [[license from repo LICENSE]]. These terms cover the website pi-dashboard.dev and the built-in “Connect with pi-dashboard.dev” Google sign-in option.</li>
+<li><strong>You run it.</strong> You install and operate pi-dashboard on systems you control and are responsible for their security, for the AI model provider you configure, and for actions you confirm the agent may take (for example sending email).</li>
+<li><strong>Google connection.</strong> Using the built-in Google sign-in is optional. You can use your own Google OAuth client instead. Your use of Google services is also subject to Google’s terms. Privacy: <a href="https://pi-dashboard.dev/privacy.html">https://pi-dashboard.dev/privacy.html</a>.</li>
+<li><strong>No warranty.</strong> Provided “as is”, without warranty of any kind, to the extent permitted by law.</li>
+<li><strong>Liability.</strong> [[Limitation of liability clause.]]</li>
+<li><strong>Availability.</strong> The built-in Google sign-in may be suspended or withdrawn (for example if Google verification lapses). The own-client option remains available.</li>
+<li><strong>Acceptable use.</strong> Do not use pi-dashboard to send spam, abuse Google services, or violate others’ rights.</li>
+<li><strong>Changes.</strong> We may update these terms; the effective date shows the current version.</li>
+<li><strong>Law.</strong> [[Governing law and venue.]]</li>
+</ol>
+<footer><a href="/">Home</a><a href="/privacy.html">Privacy Policy</a><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard">GitHub</a></footer>
+</main>
+</body>
+</html>

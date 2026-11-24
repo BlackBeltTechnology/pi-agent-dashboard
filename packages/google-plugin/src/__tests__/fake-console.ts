@@ -72,6 +72,9 @@ export class FakeConsole {
   denyNavigation?: (u: URL) => boolean;
   /** A command that never gets an answer (a hung step). */
   hang?: (method: string, u: URL) => boolean;
+  /** Answer this command after N ms instead of at once (a slow console page); N > 0 delays that command once. */
+  delay?: (method: string, u: URL) => number;
+  private readonly delayed = new WeakSet<object>();
   /** Runs when a navigation arrives, before it is applied. */
   beforeNavigate?: (u: URL) => void;
   /** The dialog text read fails (forces the JSON fallback). */
@@ -151,6 +154,7 @@ export class FakeConsole {
   // ───────────── socket ─────────────
 
   private socket(): WsLike {
+    this.socketClosed = false; // a fresh connection (a second run on the same console)
     const sock: WsLike = {
       send: (data) => void Promise.resolve().then(() => this.handle(JSON.parse(data))),
       close: () => {
@@ -192,6 +196,12 @@ export class FakeConsole {
       u = new URL("about:blank");
     }
     if (this.hang?.(method, u)) return;
+    const wait = this.delayed.has(msg) ? 0 : (this.delay?.(method, u) ?? 0);
+    if (wait > 0) {
+      this.delayed.add(msg);
+      setTimeout(() => this.handle(msg), wait);
+      return;
+    }
     switch (method) {
       case "Target.createTarget":
         return this.reply(id, { targetId: "T1" });

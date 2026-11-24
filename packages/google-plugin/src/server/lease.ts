@@ -74,7 +74,7 @@ export function createLeaseHandler(deps: LeaseDeps) {
   async function refreshError(acct: Account, err: unknown): Promise<Error> {
     if (err instanceof oauth.ResponseBodyError && err.error === "invalid_grant") {
       if (!(await deps.store.markReauthIf(acct.sub, acct.grant.refresh))) return new GrantChanged();
-      deps.logger.warn(`[google] refresh client=${acct.client} result=reauth_required`);
+      deps.logger.warn(`[google] refresh client=${acct.client} result=invalid_grant`);
       return new LeaseError("reauth_required", "this Google account needs to sign in again in Settings → Google accounts");
     }
     deps.logger.warn(`[google] refresh client=${acct.client} result=refresh_failed`);

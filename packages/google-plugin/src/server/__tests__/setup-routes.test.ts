@@ -309,3 +309,45 @@ describe("setup run routes are genuinely-local only (security review #1)", () =>
     });
   }
 });
+
+describe("B152 entry point is genuinely-local only (full header matrix)", () => {
+  type Opts = { remoteAddress?: string; headers?: Record<string, string> };
+  const fwd = (headers: Record<string, string>): Opts => ({ remoteAddress: "127.0.0.1", headers });
+  const rows: Array<[string, Opts, boolean]> = [
+    ["127.0.0.1, no headers", { remoteAddress: "127.0.0.1" }, true],
+    ["::1", { remoteAddress: "::1" }, true],
+    ["LAN IP", { remoteAddress: "192.168.1.5" }, false],
+    ["127.0.0.1 + X-Forwarded-For", fwd({ "x-forwarded-for": "203.0.113.9" }), false],
+    ["127.0.0.1 + X-Forwarded-Host", fwd({ "x-forwarded-host": "dash.example.com" }), false],
+    ["127.0.0.1 + Forwarded", fwd({ forwarded: "for=203.0.113.9" }), false],
+    ["127.0.0.1 + Via", fwd({ via: "1.1 zrok" }), false],
+  ];
+  for (const [name, opts, local] of rows) {
+    it(`${name} → ${local ? "passes the gate and starts a run" : "403 remote_dashboard, no run started"}`, async () => {
+      const h = await makeHarness();
+      const r = await h.start(EXISTING, opts);
+      if (local) {
+        expect(r.statusCode).toBe(200);
+        expect(h.browser.calls.connect).toHaveLength(1);
+      } else {
+        expect([r.statusCode, r.json().error]).toEqual([403, "remote_dashboard"]);
+        expect(h.browser.calls.connect).toHaveLength(0);
+        expect((await h.state()).autoSetup.runId).toBeUndefined();
+      }
+    });
+  }
+});
+
+describe("B154 setup routes live under /api/plugins/google/setup/", () => {
+  it("run start, view, continue, takeover and cancel all exist there (none answers an unknown-route 404)", async () => {
+    const h = await makeHarness();
+    const id = await startExisting(h);
+    const routes: Array<[string, string]> = [["GET", `/setup/run/${id}`], ["POST", `/setup/run/${id}/continue`], ["POST", `/setup/run/${id}/takeover`], ["DELETE", `/setup/run/${id}`]];
+    for (const [method, p] of routes) {
+      const r = await h.app.inject({ method: method as "GET", url: h.url(p), payload: method === "POST" ? {} : undefined });
+      expect([method, p, /^Route .* not found$/.test(r.json().message ?? "")]).toEqual([method, p, false]);
+    }
+    // the old Gmail prefix is not served by the google plugin
+    expect((await h.app.inject({ method: "POST", url: "/api/plugins/gmail/setup/run", payload: {} })).statusCode).toBe(404);
+  });
+});

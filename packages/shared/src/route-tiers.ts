@@ -91,6 +91,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/plugins/google/clients/:id", tier: "operate" },
   // add-gmail-auto-setup: the automatic setup run drives the dedicated browser and stores a client secret, so every run route is `operate` (and genuinely-local on the plugin side).
   { method: "DELETE", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
+  { method: "DELETE", path: "/api/plugins/google/setup/run/:id", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/agents/:key/conversations/:c", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/personas/:key", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/projects/:id", tier: "operate" },
@@ -245,11 +246,13 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // the global `flows.editFlow` default (PUT writes ~/.pi/agent/settings.json).
   { method: "GET", path: "/api/plugins/flows/edit-mode-default", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/edit-mode-state", tier: "observe" },
+  { method: "GET", path: "/api/plugins/gmail/accounts", tier: "operate" },
   { method: "GET", path: "/api/plugins/gmail/state", tier: "operate" },
   { method: "GET", path: "/api/plugins/google/oauth/callback", tier: "operate" },
   { method: "GET", path: "/api/plugins/google/oauth/remote-callback", tier: "operate" },
   { method: "GET", path: "/api/plugins/google/state", tier: "operate" },
   { method: "GET", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
+  { method: "GET", path: "/api/plugins/google/setup/run/:id", tier: "operate" },
   // add-obs-studio-plugin: instance list + status are reads (never start OBS);
   // the screenshot (desktop / webcam pixels) and every toggle are `operate`,
   // and the plugin additionally requires `identity.hasOperateAuthority`.
@@ -485,6 +488,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/google/accounts/:sub/products", tier: "operate" },
   { method: "POST", path: "/api/plugins/google/accounts/:sub/reauth", tier: "operate" },
   { method: "POST", path: "/api/plugins/google/picker-token", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/setup/run", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/setup/run/:id/continue", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/setup/run/:id/takeover", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/flow/:flowId/input", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/radius/mcp", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/start", tier: "operate" },

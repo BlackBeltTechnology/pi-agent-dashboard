@@ -184,7 +184,9 @@ export class ConnectService {
     const client = picked.client;
     const gate = await this.gateClient(client, sel);
     if (gate) return gate;
-    if (!(await this.deps.store.hasRoomForAccount())) return refuse(409, "too_many_keys");
+    // Only a NEW account needs a free key: reconnecting an existing one updates it in place (scenario-gate B17).
+    const known = email !== undefined && (await this.deps.store.list()).some((x) => x.email.toLowerCase() === email);
+    if (!known && !(await this.deps.store.hasRoomForAccount())) return refuse(409, "too_many_keys");
     return this.start({
       key: `add-${this.newId()}`,
       client,
@@ -374,8 +376,16 @@ export class ConnectService {
     if (o.expect && c.sub !== o.expect.sub) throw new GoogleFlowError("account_mismatch");
     const existing = await store.get(c.sub);
     if (existing && existing.client !== o.client.ref) throw new GoogleFlowError("client_mismatch");
-    // A reply narrower than what the account already relies on counts as not granted: nothing changes.
-    if (existing && !coversSelection(c.grantedScopes, existing.products)) throw new GoogleFlowError("scope_missing");
+    // A reply narrower than what the account already relies on counts as not granted: nothing changes. A product the
+    // user is moving to a level the reply DOES cover relies on the new level (Drive files → read), not the old one.
+    if (existing) {
+      const relied: Selection = { ...existing.products };
+      for (const p of PRODUCTS) {
+        const next = o.wanted[p];
+        if (relied[p] && next && coversProduct(c.grantedScopes, p, next)) relied[p] = next;
+      }
+      if (!coversSelection(c.grantedScopes, relied)) throw new GoogleFlowError("scope_missing");
+    }
 
     const { products, missing } = applyGranted(c.grantedScopes, o.wanted, existing?.products ?? {});
     if (!existing && Object.keys(products).length === 0) throw new GoogleFlowError("scope_missing");

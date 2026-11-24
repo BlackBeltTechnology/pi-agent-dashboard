@@ -15,6 +15,8 @@ import {
   startExisting,
   until,
 } from "../../__tests__/setup-harness.js";
+import { OWN_BB } from "../../__tests__/fakes.js";
+import type { HandoffReason } from "../../shared/auto-setup.js";
 import { acctKey } from "../store.js";
 import { SetupRunManager } from "../setup/run.js";
 import { PATHS } from "../setup/steps.js";
@@ -370,5 +372,95 @@ describe("review — a closed sign-in tab is not a completed sign-in", () => {
     h.console.signedIn = true;
     expect((await h.post(`/setup/run/${id}/continue`)).statusCode).toBe(200);
     expect((await autopilot(h, id)).state).toBe("done");
+  });
+});
+
+describe("B164–B173 run outcomes (server side)", () => {
+  const stateClients = async (h: Harness) => ((await h.state()) as { clients: Array<{ ref: string; label: string; projectId?: string }> }).clients;
+
+  it("B164: a finished run's new organisation client is listed by GET /state, labelled with the project id", async () => {
+    const h = await makeHarness();
+    preset(h.console, "publish");
+    expect((await autopilot(h, await startExisting(h))).state).toBe("done");
+    const [added] = await stateClients(h);
+    expect(added).toMatchObject({ ref: expect.stringMatching(/^own:/), label: "pi-dashboard-abc123", projectId: "pi-dashboard-abc123" });
+    expect(JSON.stringify(await h.state())).not.toMatch(/GOCSPX-(?!\*\*\*)/);
+  });
+
+  it("B167: a new run for a project a previous run set up skips project and api and continues at branding", async () => {
+    const h = await makeHarness();
+    preset(h.console, "project");
+    const first = await startExisting(h);
+    await autopilot(h, first, { stopAt: (x) => x.state === "waiting_decision" });
+    await h.del(`/setup/run/${first}`);
+    h.console.userType = null;
+    const id = await startExisting(h);
+    const v = await until(() => h.view(id), (x) => x.state === "waiting_decision");
+    expect(v.steps.slice(0, 2).map((s) => s.status)).toEqual(["skipped", "skipped"]);
+    expect(v.step).toBe("branding");
+  });
+
+  it("B171: the browser plugin refusing the console domain → handoff domain_blocked @ project / 1 naming the domains to allow", async () => {
+    const h = await makeHarness();
+    h.console.denyNavigation = (u) => u.origin === "https://console.cloud.google.com";
+    const id = await startExisting(h);
+    const v = await until(() => h.view(id), (x) => x.state === "handoff");
+    expect(v.handoff).toEqual({ step: "project", wizardStep: 1, reason: "domain_blocked", domains: ["console.cloud.google.com", "accounts.google.com"] });
+    expect((await h.view(id)).handoff?.domains).toEqual(["console.cloud.google.com", "accounts.google.com"]); // what the settings panel shows
+  });
+
+  const refusals: Array<[string, (h: Harness) => Harness | Promise<Harness>]> = [
+    ["a store that is full (too_many_keys)", async () => makeHarness({ initial: Object.fromEntries(Array.from({ length: 256 }, (_, i) => [`acct:f${i}`, { sub: `f${i}`, email: `f${i}@x.com`, client: "builtin", products: {}, addedAt: 1, grant: { clientId: "c", refresh: "r", access: "a", expires: 1, scopes: [], status: "ok", grantedAt: 1 } }])) as never })],
+    ["a locked store", (h) => { h.store.upsertClient = async () => { throw new Error("store locked"); }; return h; }],
+  ];
+  for (const [name, arrange] of refusals) {
+    it(`B172: ${name} at capture → handoff capture / 4, not a crash and not done; the created client is kept for the wizard`, async () => {
+      const h = await arrange(await makeHarness());
+      preset(h.console, "publish");
+      const id = await startExisting(h);
+      const v = await autopilot(h, id);
+      expect(v.state).toBe("handoff");
+      expect(v.handoff).toEqual({ step: "capture", wizardStep: 4, reason: "secret_capture_failed" });
+      expect(v.created.clients).toEqual(["pi-dashboard"]);
+      expect((await h.view(id)).created.clients).toEqual(["pi-dashboard"]);
+    });
+  }
+
+  it("B173: an account on an existing own client does not block a run creating another client; the account is untouched", async () => {
+    const h = await makeHarness({ client: true });
+    preset(h.console, "publish");
+    const rec = { sub: "s1", email: "a@x.com", client: "own:bb", grant: { clientId: OWN_BB.clientId, refresh: "r", access: "a", expires: 1, scopes: [], status: "ok", grantedAt: 1 }, products: {}, addedAt: 1 };
+    h.creds.data.set(acctKey("s1"), rec as never);
+    const v = await autopilot(h, await startExisting(h));
+    expect(v.state).toBe("done");
+    expect(v.handoff).toBeUndefined();
+    expect((await h.store.listClients()).map((c) => c.label).sort()).toEqual(["BB", "pi-dashboard-abc123"]);
+    expect(h.creds.data.get(acctKey("s1"))).toEqual(rec);
+  });
+});
+
+describe("GB21–GB23 existing behaviour unchanged", () => {
+  it("GB21: the hand-off reasons are exactly the existing set", () => {
+    const all: Record<HandoffReason, true> = {
+      unexpected_page: true, locale: true, domain_blocked: true, publish_cancelled: true, timeout: true, secret_capture_failed: true, browser_closed: true,
+      disabled: true, unloaded: true, "no-chrome": true, "no-display": true, "owned-by-other-server": true, "profile-in-use": true, "launch-failed": true,
+    };
+    expect(Object.keys(all).sort()).toEqual(
+      ["browser_closed", "disabled", "domain_blocked", "launch-failed", "locale", "no-chrome", "no-display", "owned-by-other-server", "profile-in-use", "publish_cancelled", "secret_capture_failed", "timeout", "unexpected_page", "unloaded"],
+    );
+  });
+
+  it("GB22: the client is named pi-dashboard-<n> (smallest unused n) when pi-dashboard exists", async () => {
+    const h = await makeHarness();
+    preset(h.console, "publish");
+    h.console.clients = ["pi-dashboard"];
+    expect((await autopilot(h, await startExisting(h))).created.clients).toEqual(["pi-dashboard-2"]);
+  });
+
+  it("GB23: for an Internal audience the publish step is reported skipped", async () => {
+    const h = await makeHarness();
+    preset(h.console, "branding", { org: "example.org", audience: "internal" });
+    const v = await autopilot(h, await startExisting(h));
+    expect(v.steps.find((s) => s.id === "publish")?.status).toBe("skipped");
   });
 });

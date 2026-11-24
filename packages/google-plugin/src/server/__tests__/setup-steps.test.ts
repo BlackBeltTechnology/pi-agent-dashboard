@@ -14,7 +14,7 @@ import {
   until,
 } from "../../__tests__/setup-harness.js";
 import { type SetupRunView, type SetupStepId, WIZARD_STEP_OF } from "../../shared/auto-setup.js";
-import { classifyProjectId, PROJECT_ID_RE } from "../../shared/setup.js";
+import { classifyProjectId, GOOGLE_APIS, PROJECT_ID_RE } from "../../shared/setup.js";
 import {
   consoleUrl,
   generateProjectId,
@@ -460,5 +460,108 @@ describe("R5b publish dialog cancelled", () => {
     expect(v.state).toBe("done");
     expect(status(v, "publish")).toBe("done");
     expect(h.console.published).toBe(true);
+  });
+});
+
+describe("B165–B177 verified, resumable steps", () => {
+  const ORDER = ["project", "api", "branding", "publish", "client", "capture"];
+
+  it("B165: steps run in the order project, api, branding, publish, client, capture; each acts only after a check and verifies after acting", async () => {
+    const fresh = await makeHarness();
+    const v = await autopilot(fresh, (await fresh.start({ mode: "new", ownerEmail: OWNER })).json().runId);
+    expect(v.steps.map((s) => s.id)).toEqual(ORDER);
+    expect(v.steps.map((s) => s.status)).toEqual(Array(6).fill("done"));
+
+    // acts only after a check: a console that already has everything gets no acting click for those steps
+    const done = await makeHarness();
+    preset(done.console, "publish");
+    const d = await autopilot(done, await startExisting(done));
+    expect(ORDER.slice(0, 4).map((id) => status(d, id as SetupStepId))).toEqual(Array(4).fill("skipped"));
+    expect(done.console.clicks).not.toContain("button:Enable");
+    expect(done.console.clicks).not.toContain("button:Create project");
+
+    // verifies after acting: an Enable click that changes nothing is not reported as done
+    const noop = await makeHarness();
+    preset(noop.console, "project");
+    noop.console.override = (u) => (u.pathname.startsWith("/apis/api/") ? { text: "API overview", ax: [{ role: "button", name: "Enable" }] } : undefined);
+    const n = await autopilot(noop, await startExisting(noop));
+    expect(n.state).toBe("handoff");
+    expect(n.handoff).toMatchObject({ step: "api", wizardStep: 1 });
+    expect(status(n, "api")).toBe("handoff");
+    expect(noop.console.clicks).toContain("button:Enable");
+  });
+
+  const eight = ["gmail", "calendar-json", "drive", "docs", "sheets", "slides", "tasks", "people"].map((s) => `${s}.googleapis.com`);
+  it("B166: the API set is exactly the eight product services", () => {
+    expect([...GOOGLE_APIS].sort()).toEqual([...eight].sort());
+  });
+  for (const have of [0, 1, 7, 8]) {
+    it(`B166: with ${have} of 8 APIs already enabled the api step is ${have === 8 ? "skipped" : `done, enabling exactly the missing ${8 - have}`}`, async () => {
+      const h = await makeHarness();
+      preset(h.console, "project");
+      h.console.enabledApis = new Set(eight.slice(0, have));
+      const v = await autopilot(h, await startExisting(h), { stopAt: (x) => x.state === "waiting_decision" });
+      expect(status(v, "api")).toBe(have === 8 ? "skipped" : "done");
+      expect(h.console.clicks.filter((c) => c === "button:Enable")).toHaveLength(8 - have);
+      expect([...h.console.enabledApis].sort()).toEqual([...eight].sort());
+    });
+  }
+
+  it("B170: another language, an unexpected page, and a step that cannot be verified each hand off with the step, wizard step and a reason", async () => {
+    const locale = await makeHarness();
+    preset(locale.console, "project");
+    locale.console.override = (u) => (u.pathname.startsWith("/apis/api/") ? { lang: "hu", text: "Üdv", ax: [] } : undefined);
+    expect((await autopilot(locale, await startExisting(locale))).handoff).toEqual({ step: "api", wizardStep: 1, reason: "locale" });
+
+    const unexpected = await makeHarness();
+    preset(unexpected.console, "project");
+    unexpected.console.override = (u) => (u.pathname.startsWith("/apis/api/") ? { text: "?", ax: [] } : undefined);
+    expect((await autopilot(unexpected, await startExisting(unexpected))).handoff).toEqual({ step: "api", wizardStep: 1, reason: "unexpected_page" });
+
+    const unverifiable = await makeHarness();
+    preset(unverifiable.console, "project");
+    unverifiable.console.override = (u) => (u.pathname.startsWith("/apis/api/") ? { text: "API", ax: [{ role: "button", name: "Enable" }] } : undefined);
+    expect((await autopilot(unverifiable, await startExisting(unverifiable))).handoff).toMatchObject({ step: "api", wizardStep: 1, reason: "unexpected_page" });
+  });
+
+  it("B174: the OAuth client is named pi-dashboard when free, otherwise the smallest unused pi-dashboard-<n>", async () => {
+    for (const [existing, expected] of [
+      [[], "pi-dashboard"],
+      [["pi-dashboard"], "pi-dashboard-2"],
+      [["pi-dashboard", "pi-dashboard-2"], "pi-dashboard-3"],
+      [["pi-dashboard", "pi-dashboard-3"], "pi-dashboard-2"],
+    ] as Array<[string[], string]>) {
+      const h = await makeHarness();
+      preset(h.console, "publish");
+      h.console.clients = [...existing];
+      const v = await autopilot(h, await startExisting(h));
+      expect(v.created.clients).toEqual([expected]);
+      expect(h.console.fills.find((f) => f.name === "Name")?.text).toBe(expected);
+    }
+  });
+
+  it("B175: External audience → the publish step acts and the app is in production; Internal → publish is skipped", async () => {
+    const ext = await makeHarness();
+    preset(ext.console, "branding", { audience: "external" });
+    const e = await autopilot(ext, await startExisting(ext));
+    expect(status(e, "publish")).toBe("done");
+    expect(ext.console.published).toBe(true);
+
+    const int = await makeHarness();
+    preset(int.console, "branding", { org: "example.org", audience: "internal" });
+    const i = await autopilot(int, await startExisting(int));
+    expect(status(i, "publish")).toBe("skipped");
+    expect(int.console.published).toBe(false);
+  });
+
+  it("B177: every console URL of an existing-mode run selects the owner account (authuser), the project and English", async () => {
+    const h = await makeHarness();
+    preset(h.console, "publish");
+    await autopilot(h, await startExisting(h));
+    const urls = h.console.navigations.map((u) => new URL(u)).filter((u) => u.origin === "https://console.cloud.google.com");
+    expect(urls.length).toBeGreaterThan(3);
+    for (const u of urls) {
+      expect([u.pathname, u.searchParams.get("authuser"), u.searchParams.get("project"), u.searchParams.get("hl")]).toEqual([u.pathname, OWNER, PID, "en"]);
+    }
   });
 });

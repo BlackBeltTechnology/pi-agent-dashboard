@@ -10,7 +10,7 @@ Contact: privacy@pi-dashboard.dev
 
 pi-dashboard is open-source software that you install and run yourself (desktop app, npm package or Docker image). It lets you monitor and control AI coding-agent sessions and, if you choose, connect your Google account so the agent can work with the Google products you turn on (Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks, Contacts).
 
-**We do not operate a server that receives your Google data.** When your dashboard runs on another computer, Google returns your browser to a static page on pi-dashboard.dev that only hands a one-time sign-in code back to your dashboard tab; that code cannot be used without a secret held by your dashboard, and the page stores nothing. When you connect a Google account, the sign-in happens between your browser, Google and the pi-dashboard instance you run. Tokens and data stay on the machine(s) you control.
+**We do not operate a server that receives your Google data.** When your dashboard runs on another computer, Google returns your browser once to a static page on pi-dashboard.dev (`https://pi-dashboard.dev/oauth/return.html`) that only hands a one-time sign-in code back to your dashboard in the same window, after you confirm the dashboard address; that code cannot be used without a secret held by your dashboard, and the page stores nothing. The static host may log the address of that page, including the one-time code in it. When you connect a Google account, the sign-in happens between your browser, Google and the pi-dashboard instance you run. Tokens and data stay on the machine(s) you control.
 
 ## 2. Google user data we access
 

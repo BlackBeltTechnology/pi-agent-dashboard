@@ -23,3 +23,20 @@ describe("E14 maskSecrets", () => {
     expect(maskSecrets("GOCSPX-***")).toBe("GOCSPX-***");
   });
 });
+
+describe("B157 maskSecrets over the shapes a secret travels in", () => {
+  const cases: Array<[string, string]> = [
+    ["GOCSPX-abc", "GOCSPX-***"],
+    ["first GOCSPX-one_1 then GOCSPX-two-2 end", "first GOCSPX-*** then GOCSPX-*** end"],
+    ['{"client_secret":"GOCSPX-abc_DEF-1","n":1}', '{"client_secret":"GOCSPX-***","n":1}'],
+    ["Error: failed to store GOCSPX-abc_DEF-1: disk full", "Error: failed to store GOCSPX-***: disk full"],
+    ["https://x.example/cb?secret=GOCSPX-abc_DEF-1&state=s", "https://x.example/cb?secret=GOCSPX-***&state=s"],
+    ["lower gocspx-abc_DEF-1 case", "lower GOCSPX-*** case"],
+  ];
+  for (const [input, expected] of cases) {
+    it(`${JSON.stringify(input)} → ${JSON.stringify(expected)}, and masking again changes nothing`, () => {
+      expect(maskSecrets(input)).toBe(expected);
+      expect(maskSecrets(maskSecrets(input))).toBe(expected);
+    });
+  }
+});

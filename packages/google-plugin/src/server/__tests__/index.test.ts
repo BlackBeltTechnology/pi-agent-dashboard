@@ -34,6 +34,7 @@ function ctxOf(over: Record<string, unknown> = {}) {
     networkGuard: async () => {},
     registerPiRequestHandler: (t: string, fn: (p: unknown) => Promise<unknown>, opts?: unknown) => handlers.set(t, { fn, opts }),
     provide: (n: string, v: unknown) => provided.set(n, v),
+    consume: () => undefined,
     getDashboardBaseUrl: () => "https://dash.example.com",
     ...over,
   };

@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { validateClientJson } from "../shared/client-json.js";
 import { DISCLOSURE_VERSION } from "../shared/default-clients.js";
 import { CATALOGUE } from "../shared/products.js";
+import { projectMismatch } from "../shared/setup.js";
 import { availability, type Browser, type ClientDeps } from "./clients.js";
 import type { ConnectService } from "./connect.js";
 import { OAUTH_CALLBACK_PATH } from "./google-oauth.js";
@@ -103,6 +104,8 @@ interface UploadBody {
   label?: unknown;
   domains?: unknown;
   ownerAccount?: unknown;
+  /** The project the wizard is setting up; only used to warn when the uploaded JSON belongs to another one (A6). */
+  expectedProjectId?: unknown;
 }
 
 /** The error code for a malformed non-JSON upload field, or `null` when they are all fine. */
@@ -127,7 +130,8 @@ function mountClients(scope: Scope, deps: GoogleRouteDeps, guarded: Guarded): vo
         ownerAccount: typeof body.ownerAccount === "string" ? body.ownerAccount : undefined,
       });
       logger.info(`[google] client ${created ? "added" : "updated"} type=${client.type}`);
-      return { ok: true, created, client: (await store.summarizeClients()).find((c) => c.id === client.id) };
+      const mismatch = projectMismatch(body.expectedProjectId, parsed.client.projectId);
+      return { ok: true, created, client: (await store.summarizeClients()).find((c) => c.id === client.id), ...(mismatch ? { projectMismatch: mismatch } : {}) };
     } catch (err) {
       return sendStoreError(reply, err);
     }

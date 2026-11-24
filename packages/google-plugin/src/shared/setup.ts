@@ -45,6 +45,17 @@ export function classifyProjectId(v: string): ProjectIdClass {
 }
 
 /**
+ * The project the wizard is setting up (`expected`) vs the project of an uploaded client JSON. A warning only,
+ * never a refusal (scenario-gate A6). It compares with the wizard's own project — the client being set up —
+ * never with the project of another client. `null` when either side is unknown or they agree.
+ */
+export function projectMismatch(expected: unknown, uploaded: string | undefined): { expected: string; uploaded: string } | null {
+  if (typeof expected !== "string" || !uploaded) return null;
+  const want = normalizeProjectId(expected);
+  return want && want !== uploaded ? { expected: want, uploaded } : null;
+}
+
+/**
  * One `@`, a non-empty local part, and a domain with an interior dot; no whitespace.
  * Linear time: a single `[^\s@]+\.[^\s@]+` regex backtracks polynomially because `.` also
  * matches the class (CodeQL js/polynomial-redos).

@@ -4,12 +4,10 @@
  * polling (F2), busy takeover (F3), hand-off into the manual wizard (F4), i18n parity (F6)
  * and the unverified-app sign-in notice (E11). Fetch is stubbed; only the interval timers
  * are faked so Testing Library's own waiting keeps working.
- * See change: add-gmail-auto-setup (test-plan #E11, #F1–#F4, #F6).
+ * Ported from the gmail plugin into Settings → Google accounts → Advanced → Add organisation sign-in. See change: add-google-connect (test-plan #B150 #B151 #B153 #B155 and the gmail #E11 #F1–#F4 #F6 cases).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
-import type { UiConfirmDialogProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { catalog } from "../../i18n.js";
@@ -23,11 +21,11 @@ import {
   WIZARD_STEP_OF,
 } from "../../shared/auto-setup.js";
 import { CHECKPOINT_KEY, HANDOFF_KEY, handoffKey, LINK_ERROR_KEY, showUnverifiedNotice, startErrorKey, validateLinks } from "../auto-setup.js";
-import { GmailSettings } from "../GmailSettings.js";
 import { ERROR_EN } from "../wizard.js";
+import { renderSettings as renderPage, state as baseState } from "./harness.js";
 
-const STATE_URL = "/api/plugins/gmail/state";
-const RUN_URL = "/api/plugins/gmail/setup/run";
+const STATE_URL = "/api/plugins/google/state";
+const RUN_URL = "/api/plugins/google/setup/run";
 const VIEW_URL = `${RUN_URL}/r1`;
 const FLOW_URL = "/api/provider-auth/flow/f1";
 
@@ -52,11 +50,10 @@ function view(state: SetupRunState, step: SetupStepId, extra: Partial<SetupRunVi
   };
 }
 
-const ACCOUNT = { sub: "s1", email: "a@x.com", tier: "send", status: "ok", addedAt: 1 };
+const ACCOUNT = { sub: "s1", email: "a@x.com", client: "builtin", status: "ok", products: { gmail: { level: "send" } }, addedAt: 1 };
 const configuredState = (autoSetup?: AutoSetupState, extra: Record<string, unknown> = {}) => ({
-  client: { configured: true, clientId: "x.apps.googleusercontent.com" },
-  accounts: [],
-  ...(autoSetup ? { autoSetup } : {}),
+  ...baseState(),
+  autoSetup,
   ...extra,
 });
 const AVAILABLE: AutoSetupState = { available: true, local: true };
@@ -87,8 +84,8 @@ function scriptedFetch(script: Script = {}) {
     [`DELETE ${VIEW_URL}`]: () => json({ ok: true }),
     [`POST ${VIEW_URL}/continue`]: () => json({ ok: true }),
     [`POST ${VIEW_URL}/takeover`]: () => json({ ok: true }),
-    "POST /api/plugins/gmail/accounts": () => json({ flowId: "f1" }),
-    [`GET ${FLOW_URL}`]: () => json({ flowId: "f1", provider: "gmail", status: "pending", authUrl: "https://accounts.google.com/x" }),
+    "POST /api/plugins/google/accounts": () => json({ ok: true, flowId: "f1", path: "local", client: "own:bb" }),
+    [`GET ${FLOW_URL}`]: () => json({ flowId: "f1", provider: "google", status: "pending", authUrl: "https://accounts.google.com/x" }),
   };
   const fn = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -96,37 +93,24 @@ function scriptedFetch(script: Script = {}) {
     return routes[`${method} ${url}`]?.() ?? json({ error: "nope" }, 404);
   });
   vi.stubGlobal("fetch", fn);
-  return { fn, calls, viewGets: () => calls.filter((c) => c.method === "GET" && c.url === VIEW_URL).length };
+  return { fn, calls, setRoute: (k: string, h: () => Response) => { routes[k] = h; }, viewGets: () => calls.filter((c) => c.method === "GET" && c.url === VIEW_URL).length };
 }
 
-function renderSettings() {
-  return render(
-    withUiPrimitiveProvider(
-      {
-        "ui:oauth-flow": () => <div data-testid="flow-view" />,
-        "ui:confirm-dialog": ({ message, confirmLabel, onConfirm, onCancel }: UiConfirmDialogProps) => (
-          <div data-testid="confirm-dialog">
-            <p>{message}</p>
-            <button type="button" data-testid="confirm-ok" onClick={onConfirm}>
-              {confirmLabel}
-            </button>
-            <button type="button" data-testid="confirm-cancel" onClick={onCancel}>
-              Cancel
-            </button>
-          </div>
-        ),
-      },
-      <GmailSettings />,
-    ),
-  );
+/** Open Advanced → Add organisation sign-in → guided setup (unless a live run already opened them). */
+async function renderSettings() {
+  renderPage();
+  await screen.findByTestId("google-connect");
+  if (!screen.queryByTestId("google-advanced-body")) fireEvent.click(screen.getByTestId("google-advanced-toggle"));
+  if (!screen.queryByTestId("google-add-client")) fireEvent.click(await screen.findByTestId("google-add-client-open"));
+  if (!screen.queryByTestId("google-guided")) fireEvent.click(await screen.findByTestId("google-guided-toggle"));
 }
 
 /** Open the start form, fill the owner email and press Start. */
 async function startRun(owner = "owner@gmail.com") {
-  fireEvent.click(await screen.findByTestId("gmail-setup-entry"));
-  fireEvent.change(screen.getByTestId("gmail-setup-owner"), { target: { value: owner } });
-  fireEvent.click(screen.getByTestId("gmail-setup-start"));
-  await screen.findByTestId("gmail-setup-run");
+  fireEvent.click(await screen.findByTestId("google-setup-entry"));
+  fireEvent.change(screen.getByTestId("google-setup-owner"), { target: { value: owner } });
+  fireEvent.click(screen.getByTestId("google-setup-start"));
+  await screen.findByTestId("google-setup-run");
 }
 
 /** Advance the fake 1 s poll timer once and let the fetch settle. */
@@ -152,76 +136,106 @@ describe("test-plan #F1 — entry point per autoSetup", () => {
     name: string;
     autoSetup: AutoSetupState | undefined;
     entry: boolean;
-    replace: boolean;
     remote: boolean;
   }> = [
-    { name: "available", autoSetup: AVAILABLE, entry: true, replace: false, remote: false },
-    { name: "available + replace", autoSetup: { ...AVAILABLE, replacesClient: true }, entry: true, replace: true, remote: false },
-    { name: "unavailable (no Chrome)", autoSetup: { available: false, reason: "no-chrome", local: true }, entry: false, replace: false, remote: false },
-    { name: "unavailable (older server)", autoSetup: undefined, entry: false, replace: false, remote: false },
+    { name: "available", autoSetup: AVAILABLE, entry: true, remote: false },
+    { name: "unavailable (no Chrome)", autoSetup: { available: false, reason: "no-chrome", local: true }, entry: false, remote: false },
+    { name: "unavailable (older server)", autoSetup: undefined, entry: false, remote: false },
     {
       name: "remote dashboard",
       autoSetup: { available: false, reason: "remote_dashboard", local: false },
       entry: false,
-      replace: false,
       remote: true,
     },
   ];
-  it.each(cases)("$name → entry/replace/remote as specified and exactly one primary button", async (c) => {
+  it.each(cases)("$name → entry/remote as specified and exactly one primary button", async (c) => {
     scriptedFetch({ state: configuredState(c.autoSetup) });
-    renderSettings();
-    await screen.findByTestId("gmail-add-account");
-    expect(!!screen.queryByTestId("gmail-setup-entry")).toBe(c.entry);
-    expect(!!screen.queryByTestId("gmail-setup-replace")).toBe(c.replace);
-    expect(!!screen.queryByTestId("gmail-setup-remote")).toBe(c.remote);
-    expect(primaryButtons().map((b) => b.dataset.testid)).toEqual(["gmail-add-account"]);
+    await renderSettings();
+    await screen.findByTestId("google-connect");
+    expect(!!screen.queryByTestId("google-setup-entry")).toBe(c.entry);
+    expect(!!screen.queryByTestId("google-setup-remote")).toBe(c.remote);
+    expect(primaryButtons().map((b) => b.dataset.testid)).toEqual(["google-connect"]);
     if (c.entry) {
-      const entry = screen.getByTestId("gmail-setup-entry");
+      const entry = screen.getByTestId("google-setup-entry");
       expect(entry.textContent).toBe("Set up automatically");
       expect(entry.className).not.toContain("--accent-solid");
       // The start form keeps the rule: still one primary, every form button secondary.
       fireEvent.click(entry);
       expect(entry.getAttribute("aria-expanded")).toBe("true");
-      expect(primaryButtons().map((b) => b.dataset.testid)).toEqual(["gmail-add-account"]);
+      expect(primaryButtons().map((b) => b.dataset.testid)).toEqual(["google-connect"]);
     }
-    if (c.replace) expect(screen.getByTestId("gmail-setup-replace").textContent).toMatch(/replaces it with a new client/);
-    if (c.remote) expect(screen.getByTestId("gmail-setup-remote").textContent).toMatch(/computer that runs the dashboard/);
+    if (c.remote) expect(screen.getByTestId("google-setup-remote").textContent).toMatch(/computer that runs the dashboard/);
   });
 
-  it("the start form uses labelled settings fields and posts mode, project id and owner email", async () => {
-    const h = scriptedFetch({ state: configuredState(AVAILABLE, { setup: { projectId: "pidashboard-510015", ownerAccount: "me@gmail.com" } }) });
-    renderSettings();
-    fireEvent.click(await screen.findByTestId("gmail-setup-entry"));
-    const form = within(screen.getByTestId("gmail-setup-form"));
-    const project = form.getByLabelText("Project id") as HTMLInputElement;
+  it("the start form uses labelled settings fields, takes the owner typed in the wizard and posts mode, project id and owner email", async () => {
+    const h = scriptedFetch({ state: configuredState(AVAILABLE) });
+    await renderSettings();
+    fireEvent.change(screen.getByTestId("google-owner-account"), { target: { value: "me@gmail.com" } });
+    fireEvent.click(await screen.findByTestId("google-setup-entry"));
+    const form = within(screen.getByTestId("google-setup-form"));
     const owner = form.getByLabelText("Google account that owns the project") as HTMLInputElement;
-    expect([project.value, owner.value]).toEqual(["pidashboard-510015", "me@gmail.com"]); // prefilled from the saved setup
-    expect((screen.getByTestId("gmail-setup-mode-existing") as HTMLInputElement).checked).toBe(true);
+    expect((form.getByLabelText("Project id (optional)") as HTMLInputElement).value).toBe("");
+    expect(owner.value).toBe("me@gmail.com");
+    fireEvent.click(screen.getByTestId("google-setup-mode-existing"));
+    fireEvent.change(form.getByLabelText("Project id"), { target: { value: "pidashboard-510015" } });
     // An invalid owner blocks the request and says why.
     fireEvent.change(owner, { target: { value: "not-an-email" } });
-    fireEvent.click(screen.getByTestId("gmail-setup-start"));
-    expect((await screen.findByTestId("gmail-setup-owner-error")).textContent).toMatch(/full email address/);
+    fireEvent.click(screen.getByTestId("google-setup-start"));
+    expect((await screen.findByTestId("google-setup-owner-error")).textContent).toMatch(/full email address/);
     expect(h.calls.some((c) => c.url === RUN_URL)).toBe(false);
     fireEvent.change(owner, { target: { value: "  Me@Gmail.com " } });
-    fireEvent.click(screen.getByTestId("gmail-setup-start"));
-    await screen.findByTestId("gmail-setup-run");
+    fireEvent.click(screen.getByTestId("google-setup-start"));
+    await screen.findByTestId("google-setup-run");
     expect(h.calls.find((c) => c.url === RUN_URL)?.body).toEqual({ mode: "existing", ownerEmail: "me@gmail.com", projectId: "pidashboard-510015" });
+  });
+
+  // #B150: the manual wizard is always there; "Set up automatically" only for present ∧ loaded+enabled ∧ available ∧ local.
+  const SERVICE = ["absent", "present"] as const;
+  const PLUGIN = ["unloaded", "disabled", "loaded+enabled"] as const;
+  const PROFILE = ["available", "unavailable"] as const;
+  const REQUEST = ["local", "remote"] as const;
+  const matrix = SERVICE.flatMap((svc) => PLUGIN.flatMap((plg) => PROFILE.flatMap((prf) => REQUEST.map((req) => ({ svc, plg, prf, req })))));
+  it.each(matrix)("#B150 service $svc × plugin $plg × profile $prf × $req", async ({ svc, plg, prf, req }) => {
+    const auto = svc === "present" && plg === "loaded+enabled" && prf === "available" && req === "local";
+    const autoSetup: AutoSetupState = auto
+      ? AVAILABLE
+      : req === "remote"
+        ? { available: false, reason: "remote_dashboard", local: false }
+        : { available: false, reason: svc === "absent" ? "service_missing" : plg === "unloaded" ? "unloaded" : plg === "disabled" ? "disabled" : "launch-failed", local: true };
+    scriptedFetch({ state: configuredState(autoSetup) });
+    await renderSettings();
+    expect(!!screen.queryByTestId("google-setup-entry")).toBe(auto);
+    expect(screen.getByTestId("google-wizard")).toBeTruthy();
+  });
+
+  it("#B151 an own client that already has accounts does not hide 'Set up automatically' (a new client is added)", async () => {
+    scriptedFetch({ state: configuredState(AVAILABLE, { clients: [{ id: "bb", ref: "own:bb", label: "BlackBelt", type: "installed", clientId: "bb.apps.googleusercontent.com", domains: ["blackbelt.hu"], accounts: 2 }] }) });
+    await renderSettings();
+    expect(screen.getByTestId("google-setup-entry")).toBeTruthy();
+    expect(screen.getByTestId("google-client-row")).toBeTruthy();
+  });
+
+  it("#B153 opened through a tunnel the entry is replaced by a note that it runs only on the dashboard host", async () => {
+    scriptedFetch({ state: configuredState({ available: false, reason: "remote_dashboard", local: false }, { browser: "remote" }) });
+    await renderSettings();
+    expect(screen.queryByTestId("google-setup-entry")).toBeNull();
+    expect(screen.getByTestId("google-setup-remote").textContent).toMatch(/computer that runs the dashboard/);
   });
 
   it("existing mode needs a valid project id; new mode may leave it empty", async () => {
     const h = scriptedFetch();
-    renderSettings();
-    fireEvent.click(await screen.findByTestId("gmail-setup-entry"));
-    fireEvent.change(screen.getByTestId("gmail-setup-owner"), { target: { value: "me@gmail.com" } });
-    fireEvent.click(screen.getByTestId("gmail-setup-mode-existing"));
-    fireEvent.change(screen.getByTestId("gmail-setup-project-id"), { target: { value: "PiDashboard" } });
-    fireEvent.click(screen.getByTestId("gmail-setup-start"));
-    expect((await screen.findByTestId("gmail-setup-project-error")).textContent).toMatch(/project name/);
+    await renderSettings();
+    fireEvent.click(await screen.findByTestId("google-setup-entry"));
+    fireEvent.change(screen.getByTestId("google-setup-owner"), { target: { value: "me@gmail.com" } });
+    fireEvent.click(screen.getByTestId("google-setup-mode-existing"));
+    fireEvent.change(screen.getByTestId("google-setup-project-id"), { target: { value: "PiDashboard" } });
+    fireEvent.click(screen.getByTestId("google-setup-start"));
+    expect((await screen.findByTestId("google-setup-project-error")).textContent).toMatch(/project name/);
     expect(h.calls.some((c) => c.url === RUN_URL)).toBe(false);
-    fireEvent.change(screen.getByTestId("gmail-setup-project-id"), { target: { value: "" } });
-    fireEvent.click(screen.getByTestId("gmail-setup-mode-new"));
-    fireEvent.click(screen.getByTestId("gmail-setup-start"));
-    await screen.findByTestId("gmail-setup-run");
+    fireEvent.change(screen.getByTestId("google-setup-project-id"), { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("google-setup-mode-new"));
+    fireEvent.click(screen.getByTestId("google-setup-start"));
+    await screen.findByTestId("google-setup-run");
     expect(h.calls.find((c) => c.url === RUN_URL)?.body).toEqual({ mode: "new", ownerEmail: "me@gmail.com" });
   });
 
@@ -231,12 +245,12 @@ describe("test-plan #F1 — entry point per autoSetup", () => {
     [400, { error: "invalid_project_id", message: "project id must be 6-30 characters" }, /project id must be 6-30 characters/],
   ])("a refused start (%i %j) is shown as a sentence and starts no run", async (status, error, text) => {
     scriptedFetch({ start: { status: status as number, body: typeof error === "string" ? { error } : error } });
-    renderSettings();
-    fireEvent.click(await screen.findByTestId("gmail-setup-entry"));
-    fireEvent.change(screen.getByTestId("gmail-setup-owner"), { target: { value: "me@gmail.com" } });
-    fireEvent.click(screen.getByTestId("gmail-setup-start"));
-    expect((await screen.findByTestId("gmail-setup-start-error")).textContent).toMatch(text);
-    expect(screen.queryByTestId("gmail-setup-run")).toBeNull();
+    await renderSettings();
+    fireEvent.click(await screen.findByTestId("google-setup-entry"));
+    fireEvent.change(screen.getByTestId("google-setup-owner"), { target: { value: "me@gmail.com" } });
+    fireEvent.click(screen.getByTestId("google-setup-start"));
+    expect((await screen.findByTestId("google-setup-start-error")).textContent).toMatch(text);
+    expect(screen.queryByTestId("google-setup-run")).toBeNull();
   });
 });
 
@@ -251,16 +265,16 @@ describe("test-plan #F2 — run progress by 1 s polling", () => {
     view("done", "capture", { ...owned, clientId: "x.apps.googleusercontent.com", steps: STEP_IDS.map((id) => ({ id, status: "done" as const })) }),
   ];
 
-  it("chips track step, prompts follow the state, and Add account is prefilled when done", async () => {
+  it("chips track step, prompts follow the state, and the run owner is remembered for the client when done", async () => {
     const h = scriptedFetch({ views: sequence });
-    renderSettings();
+    await renderSettings();
     await startRun();
-    const chip = (id: SetupStepId) => screen.getByTestId(`gmail-setup-step-${id}`);
-    const current = () => [...document.querySelectorAll('[data-testid^="gmail-setup-step-"][aria-current="step"]')].map((e) => (e as HTMLElement).dataset.testid);
+    const chip = (id: SetupStepId) => screen.getByTestId(`google-setup-step-${id}`);
+    const current = () => [...document.querySelectorAll('[data-testid^="google-setup-step-"][aria-current="step"]')].map((e) => (e as HTMLElement).dataset.testid);
 
     // 1: running at project
-    await waitFor(() => expect(current()).toEqual(["gmail-setup-step-project"]));
-    expect(screen.getByTestId("gmail-setup-working")).toBeTruthy();
+    await waitFor(() => expect(current()).toEqual(["google-setup-step-project"]));
+    expect(screen.getByTestId("google-setup-working")).toBeTruthy();
     expect(h.viewGets()).toBe(1);
     // Poll cadence: nothing before 1 s, one request at 1 s.
     await tick(999);
@@ -268,66 +282,53 @@ describe("test-plan #F2 — run progress by 1 s polling", () => {
     await tick(1);
     await waitFor(() => expect(h.viewGets()).toBe(2));
     // 2: running at api, project done
-    await waitFor(() => expect(current()).toEqual(["gmail-setup-step-api"]));
+    await waitFor(() => expect(current()).toEqual(["google-setup-step-api"]));
     expect(chip("project").dataset.status).toBe("done");
     expect(chip("project").textContent).toContain("done"); // never colour alone: sr-only status word
     // 3: waiting_user policy → plain-language prompt, run's own tab never ticks it
     await tick();
-    const cp = await screen.findByTestId("gmail-setup-checkpoint");
+    const cp = await screen.findByTestId("google-setup-checkpoint");
     expect(cp.textContent).toMatch(/Tick .*User Data Policy.* yourself/);
     expect(cp.textContent).toMatch(/never ticks it for you/);
-    expect(current()).toEqual(["gmail-setup-step-branding"]);
+    expect(current()).toEqual(["google-setup-step-branding"]);
     // 4: waiting_decision audience → Internal offered (organization), External too
     await tick();
-    const aud = await screen.findByTestId("gmail-setup-audience");
+    const aud = await screen.findByTestId("google-setup-audience");
     expect(aud.textContent).toContain("blackbelt.hu");
-    expect(screen.getByTestId("gmail-setup-audience-internal")).toBeTruthy();
-    expect(screen.getByTestId("gmail-setup-audience-external")).toBeTruthy();
-    expect(screen.queryByTestId("gmail-setup-checkpoint")).toBeNull();
+    expect(screen.getByTestId("google-setup-audience-internal")).toBeTruthy();
+    expect(screen.getByTestId("google-setup-audience-external")).toBeTruthy();
+    expect(screen.queryByTestId("google-setup-checkpoint")).toBeNull();
     // 5: busy → holder + Take over
     await tick();
-    expect((await screen.findByTestId("gmail-setup-busy-holder")).textContent).toContain("agent session 7");
-    expect(screen.getByTestId("gmail-setup-takeover").textContent).toBe("Take over");
-    // 6: done → success, polling stops, Add account prefilled with the owner email
+    expect((await screen.findByTestId("google-setup-busy-holder")).textContent).toContain("agent session 7");
+    expect(screen.getByTestId("google-setup-takeover").textContent).toBe("Take over");
+    // 6: done → success, polling stops, the state is reloaded, the owner email goes with the client upload
+    const stateGets = () => h.calls.filter((c) => c.url === STATE_URL).length;
+    const before = stateGets();
     await tick();
-    await screen.findByTestId("gmail-setup-done");
-    expect((screen.getByTestId("gmail-add-email") as HTMLInputElement).value).toBe("owner@gmail.com");
-    expect((screen.getByTestId("gmail-add-account") as HTMLButtonElement).disabled).toBe(false);
+    await screen.findByTestId("google-setup-done");
+    await waitFor(() => expect(stateGets()).toBeGreaterThan(before));
     const gets = h.viewGets();
     await tick(5000);
     expect(h.viewGets()).toBe(gets);
-    // The prefilled email is sent as `email` (login_hint).
-    fireEvent.click(screen.getByTestId("gmail-add-account"));
-    await screen.findByTestId("flow-view");
-    expect(h.calls.find((c) => c.url === "/api/plugins/gmail/accounts")?.body).toEqual({ tier: "readonly", email: "owner@gmail.com" });
+    h.setRoute("PUT /api/plugins/google/clients", () => json({ ok: true, created: true }));
+    fireEvent.change(screen.getByTestId("google-client-upload"), {
+      target: { files: [new File([JSON.stringify({ installed: { client_id: "x.apps.googleusercontent.com", client_secret: "s" } })], "c.json")] },
+    });
+    await screen.findByText("c.json");
+    fireEvent.click(screen.getByTestId("google-add-client-submit"));
+    await waitFor(() => expect(h.calls.find((c) => c.url === "/api/plugins/google/clients")?.body).toMatchObject({ ownerAccount: "owner@gmail.com" }));
     expect(primaryButtons().length).toBeLessThanOrEqual(1);
-  });
-
-  it("without a run email the add-account email stays empty and is not sent", async () => {
-    const h = scriptedFetch();
-    renderSettings();
-    fireEvent.click(await screen.findByTestId("gmail-add-account"));
-    await screen.findByTestId("flow-view");
-    expect(h.calls.find((c) => c.url === "/api/plugins/gmail/accounts")?.body).toEqual({ tier: "readonly" });
-  });
-
-  it("an invalid add-account email blocks the request", async () => {
-    const h = scriptedFetch();
-    renderSettings();
-    fireEvent.change(await screen.findByTestId("gmail-add-email"), { target: { value: "nope" } });
-    fireEvent.click(screen.getByTestId("gmail-add-account"));
-    expect((await screen.findByTestId("gmail-add-email-error")).textContent).toMatch(/full email address/);
-    expect(h.calls.some((c) => c.url === "/api/plugins/gmail/accounts")).toBe(false);
   });
 
   it("a personal account is offered External only", async () => {
     scriptedFetch({ views: [view("waiting_decision", "branding", { decision: { kind: "audience", detected: "external" } })] });
-    renderSettings();
+    await renderSettings();
     await startRun();
-    await screen.findByTestId("gmail-setup-audience");
-    expect(screen.queryByTestId("gmail-setup-audience-internal")).toBeNull();
-    expect(screen.getByTestId("gmail-setup-audience-external")).toBeTruthy();
-    expect(screen.getByTestId("gmail-setup-audience").textContent).toMatch(/hasn.t verified this app/);
+    await screen.findByTestId("google-setup-audience");
+    expect(screen.queryByTestId("google-setup-audience-internal")).toBeNull();
+    expect(screen.getByTestId("google-setup-audience-external")).toBeTruthy();
+    expect(screen.getByTestId("google-setup-audience").textContent).toMatch(/hasn.t verified this app/);
   });
 
   it.each<[CheckpointKind, RegExp]>([
@@ -337,12 +338,12 @@ describe("test-plan #F2 — run progress by 1 s polling", () => {
     ["publish", /Push to production/],
   ])("checkpoint %s has its own prompt; only sign_in offers 'I've signed in'", async (kind, text) => {
     const h = scriptedFetch({ views: [view("waiting_user", "project", { checkpoint: { kind } })] });
-    renderSettings();
+    await renderSettings();
     await startRun();
-    const cp = await screen.findByTestId("gmail-setup-checkpoint");
+    const cp = await screen.findByTestId("google-setup-checkpoint");
     expect(cp.textContent).toMatch(text);
     expect(CHECKPOINT_KEY[kind]).toMatch(/^autoCp/);
-    const signed = screen.queryByTestId("gmail-setup-signed-in");
+    const signed = screen.queryByTestId("google-setup-signed-in");
     expect(!!signed).toBe(kind === "sign_in");
     if (signed) {
       fireEvent.click(signed);
@@ -353,28 +354,28 @@ describe("test-plan #F2 — run progress by 1 s polling", () => {
 
   it("audience choice posts it and Internal drops the unverified-app notice (E11)", async () => {
     const h = scriptedFetch({ views: [view("waiting_decision", "branding", { decision: { kind: "audience", detected: "internal", org: "o.com" } })] });
-    renderSettings();
+    await renderSettings();
     await startRun();
-    fireEvent.click(await screen.findByTestId("gmail-setup-audience-internal"));
+    fireEvent.click(await screen.findByTestId("google-setup-audience-internal"));
     await waitFor(() => expect(h.calls.find((c) => c.url === `${VIEW_URL}/continue`)?.body).toEqual({ audience: "internal" }));
   });
 
   it("links decision: editable defaults, confirm checkbox required, posts links + confirmLinks", async () => {
     const h = scriptedFetch({ views: [view("waiting_decision", "publish", { decision: { kind: "links", links: DEFAULT_PUBLISH_LINKS } })] });
-    renderSettings();
+    await renderSettings();
     await startRun();
-    await screen.findByTestId("gmail-setup-links");
-    expect((screen.getByTestId("gmail-setup-link-home") as HTMLInputElement).value).toBe(DEFAULT_PUBLISH_LINKS.homePage);
-    expect(screen.getByTestId("gmail-setup-links").textContent).toMatch(/appear on Google's consent screen for every account/);
-    const go = screen.getByTestId("gmail-setup-links-continue") as HTMLButtonElement;
+    await screen.findByTestId("google-setup-links");
+    expect((screen.getByTestId("google-setup-link-home") as HTMLInputElement).value).toBe(DEFAULT_PUBLISH_LINKS.homePage);
+    expect(screen.getByTestId("google-setup-links").textContent).toMatch(/appear on Google's consent screen for every account/);
+    const go = screen.getByTestId("google-setup-links-continue") as HTMLButtonElement;
     expect(go.disabled).toBe(true); // explicit confirmation first
     fireEvent.click(screen.getByLabelText(/I understand these links appear/));
     expect(go.disabled).toBe(false);
     // A link off the authorized domain is refused locally.
-    fireEvent.change(screen.getByTestId("gmail-setup-link-privacy"), { target: { value: "https://evil.example/privacy" } });
-    expect(screen.getByTestId("gmail-setup-link-privacy-error").textContent).toMatch(/authorized domain/);
+    fireEvent.change(screen.getByTestId("google-setup-link-privacy"), { target: { value: "https://evil.example/privacy" } });
+    expect(screen.getByTestId("google-setup-link-privacy-error").textContent).toMatch(/authorized domain/);
     expect(go.disabled).toBe(true);
-    fireEvent.change(screen.getByTestId("gmail-setup-link-privacy"), { target: { value: "https://github.com/me/repo/privacy" } });
+    fireEvent.change(screen.getByTestId("google-setup-link-privacy"), { target: { value: "https://github.com/me/repo/privacy" } });
     expect(go.disabled).toBe(false);
     fireEvent.click(go);
     await waitFor(() => expect(h.calls.find((c) => c.url === `${VIEW_URL}/continue`)).toBeTruthy());
@@ -386,45 +387,45 @@ describe("test-plan #F2 — run progress by 1 s polling", () => {
 
   it("Cancel setup sends DELETE; a gone run (404) says so and can be dismissed", async () => {
     const h = scriptedFetch();
-    renderSettings();
+    await renderSettings();
     await startRun();
-    fireEvent.click(await screen.findByTestId("gmail-setup-cancel"));
+    fireEvent.click(await screen.findByTestId("google-setup-cancel"));
     await waitFor(() => expect(h.calls.some((c) => c.method === "DELETE" && c.url === VIEW_URL)).toBe(true));
     cleanup();
     scriptedFetch({ viewStatus: 404 });
-    renderSettings();
-    fireEvent.click(await screen.findByTestId("gmail-setup-entry"));
-    fireEvent.change(screen.getByTestId("gmail-setup-owner"), { target: { value: "owner@gmail.com" } });
-    fireEvent.click(screen.getByTestId("gmail-setup-start"));
-    expect((await screen.findByTestId("gmail-setup-lost")).textContent).toMatch(/no longer available/);
-    fireEvent.click(screen.getByTestId("gmail-setup-dismiss"));
-    expect(screen.queryByTestId("gmail-setup-lost")).toBeNull();
-    expect(screen.getByTestId("gmail-setup-entry")).toBeTruthy();
+    await renderSettings();
+    fireEvent.click(await screen.findByTestId("google-setup-entry"));
+    fireEvent.change(screen.getByTestId("google-setup-owner"), { target: { value: "owner@gmail.com" } });
+    fireEvent.click(screen.getByTestId("google-setup-start"));
+    expect((await screen.findByTestId("google-setup-lost")).textContent).toMatch(/no longer available/);
+    fireEvent.click(screen.getByTestId("google-setup-dismiss"));
+    expect(screen.queryByTestId("google-setup-lost")).toBeNull();
+    expect(screen.getByTestId("google-setup-entry")).toBeTruthy();
   });
 
   it("a cancelled run reads as cancelled and offers Dismiss instead of Cancel", async () => {
     scriptedFetch({ views: [view("cancelled", "api")] });
-    renderSettings();
+    await renderSettings();
     await startRun();
-    expect((await screen.findByTestId("gmail-setup-cancelled")).textContent).toMatch(/cancelled/);
-    expect(screen.queryByTestId("gmail-setup-cancel")).toBeNull();
-    expect(screen.getByTestId("gmail-setup-dismiss")).toBeTruthy();
+    expect((await screen.findByTestId("google-setup-cancelled")).textContent).toMatch(/cancelled/);
+    expect(screen.queryByTestId("google-setup-cancel")).toBeNull();
+    expect(screen.getByTestId("google-setup-dismiss")).toBeTruthy();
   });
 });
 
 describe("test-plan #F3 — busy dedicated profile: confirmed takeover", () => {
   it("Cancel in the confirm sends nothing; confirming sends exactly one POST takeover", async () => {
     const h = scriptedFetch({ views: [view("busy", "project", { busy: { holder: "agent session 7" } })] });
-    renderSettings();
+    await renderSettings();
     await startRun();
     const takeoverCalls = () => h.calls.filter((c) => c.url === `${VIEW_URL}/takeover`);
-    fireEvent.click(await screen.findByTestId("gmail-setup-takeover"));
+    fireEvent.click(await screen.findByTestId("google-setup-takeover"));
     expect(screen.getByTestId("confirm-dialog").textContent).toContain("agent session 7");
     fireEvent.click(screen.getByTestId("confirm-cancel"));
     expect(screen.queryByTestId("confirm-dialog")).toBeNull();
     await tick(10);
     expect(takeoverCalls()).toHaveLength(0);
-    fireEvent.click(screen.getByTestId("gmail-setup-takeover"));
+    fireEvent.click(screen.getByTestId("google-setup-takeover"));
     fireEvent.click(screen.getByTestId("confirm-ok"));
     await waitFor(() => expect(takeoverCalls()).toHaveLength(1));
     expect(takeoverCalls()[0]?.method).toBe("POST");
@@ -432,54 +433,54 @@ describe("test-plan #F3 — busy dedicated profile: confirmed takeover", () => {
 
   it("a busy run without a holder label still reads as a sentence", async () => {
     scriptedFetch({ views: [view("busy", "project", { busy: {} })] });
-    renderSettings();
+    await renderSettings();
     await startRun();
-    expect((await screen.findByTestId("gmail-setup-busy-holder")).textContent).toContain("another session");
+    expect((await screen.findByTestId("google-setup-busy-holder")).textContent).toContain("another session");
   });
 });
 
 describe("test-plan #F4 — hand-off opens the manual wizard at the failed step", () => {
   const capture = view("handoff", "capture", {
     handoff: { step: "capture", wizardStep: WIZARD_STEP_OF.capture, reason: "secret_capture_failed" },
-    projectId: "my-gmail-agent",
-    created: { projectId: "my-gmail-agent", clients: ["pi-dashboard-2"] },
+    projectId: "acme-pi-connect",
+    created: { projectId: "acme-pi-connect", clients: ["pi-dashboard-2"] },
     ownerEmail: "owner@gmail.com",
   });
 
   it("secret_capture_failed: wizard expanded at step 4, project + owner filled, reason, created client and add-secret guidance", async () => {
-    // A configured client with an account keeps the group collapsed by default — only the hand-off opens it.
+    // A live run the server still holds opens Advanced → Add organisation sign-in → guided setup by itself.
     scriptedFetch({
       state: configuredState({ available: false, reason: "run_active", local: true, runId: "r1" }, { accounts: [ACCOUNT] }),
       views: [capture],
     });
-    renderSettings();
-    const note = await screen.findByTestId("gmail-setup-handoff");
-    const details = screen.getByTestId("gmail-wizard").closest("details") as HTMLDetailsElement;
-    await waitFor(() => expect(details.open).toBe(true));
+    await renderSettings();
+    const note = await screen.findByTestId("google-setup-handoff");
+    expect(screen.getByTestId("google-guided")).toBeTruthy();
+    expect(screen.getByTestId("google-guided-toggle").getAttribute("aria-expanded")).toBe("true");
     const current = [...document.querySelectorAll('[aria-current="step"]')].map((e) => (e as HTMLElement).dataset.testid);
-    expect(current).toEqual(["gmail-step-4"]);
-    expect((screen.getByTestId("gmail-project-id") as HTMLInputElement).value).toBe("my-gmail-agent");
-    expect((screen.getByTestId("gmail-owner-account") as HTMLInputElement).value).toBe("owner@gmail.com");
-    expect(within(note).getByTestId("gmail-setup-handoff-reason").textContent).toBe(ERROR_EN.handoffSecretCaptureFailed);
-    expect(within(note).getByTestId("gmail-setup-created").textContent).toContain("pi-dashboard-2");
-    expect(within(note).getByTestId("gmail-setup-created").textContent).toContain("my-gmail-agent");
-    const help = within(note).getByTestId("gmail-setup-secret-help").textContent ?? "";
+    expect(current).toEqual(["google-step-4"]);
+    expect((screen.getByTestId("google-project-id") as HTMLInputElement).value).toBe("acme-pi-connect");
+    expect((screen.getByTestId("google-owner-account") as HTMLInputElement).value).toBe("owner@gmail.com");
+    expect(within(note).getByTestId("google-setup-handoff-reason").textContent).toBe(ERROR_EN.handoffSecretCaptureFailed);
+    expect(within(note).getByTestId("google-setup-created").textContent).toContain("pi-dashboard-2");
+    expect(within(note).getByTestId("google-setup-created").textContent).toContain("acme-pi-connect");
+    const help = within(note).getByTestId("google-setup-secret-help").textContent ?? "";
     expect(help).toContain("pi-dashboard-2");
     expect(help).toMatch(/Add secret/);
-    expect(primaryButtons().map((b) => b.dataset.testid)).toEqual(["gmail-add-account"]);
+    expect(primaryButtons().map((b) => b.dataset.testid)).toEqual(["google-connect"]);
   });
 
   it("a started run that hands off reaches the same state, and Dismiss clears the highlight", async () => {
-    scriptedFetch({ state: { client: { configured: false }, accounts: [], autoSetup: AVAILABLE }, views: [view("running", "client"), capture] });
-    renderSettings();
+    scriptedFetch({ state: configuredState(AVAILABLE), views: [view("running", "client"), capture] });
+    await renderSettings();
     await startRun();
     await tick();
-    await screen.findByTestId("gmail-setup-handoff");
-    await waitFor(() => expect(document.querySelector('[aria-current="step"]')?.getAttribute("data-testid")).toBe("gmail-step-4"));
-    fireEvent.click(screen.getByTestId("gmail-setup-dismiss"));
-    expect(screen.queryByTestId("gmail-setup-handoff")).toBeNull();
+    await screen.findByTestId("google-setup-handoff");
+    await waitFor(() => expect(document.querySelector('[aria-current="step"]')?.getAttribute("data-testid")).toBe("google-step-4"));
+    fireEvent.click(screen.getByTestId("google-setup-dismiss"));
+    expect(screen.queryByTestId("google-setup-handoff")).toBeNull();
     // The wizard falls back to "what to do next": step 1 (no client yet).
-    await waitFor(() => expect(document.querySelector('[aria-current="step"]')?.getAttribute("data-testid")).toBe("gmail-step-1"));
+    await waitFor(() => expect(document.querySelector('[aria-current="step"]')?.getAttribute("data-testid")).toBe("google-step-1"));
   });
 
   it.each(Object.keys(HANDOFF_KEY))("hand-off reason %s renders its own sentence", async (reason) => {
@@ -487,8 +488,8 @@ describe("test-plan #F4 — hand-off opens the manual wizard at the failed step"
       state: configuredState({ available: false, reason: "run_active", local: true, runId: "r1" }),
       views: [view("handoff", "project", { handoff: { step: "project", wizardStep: 1, reason: reason as never } })],
     });
-    renderSettings();
-    const sentence = await screen.findByTestId("gmail-setup-handoff-reason");
+    await renderSettings();
+    const sentence = await screen.findByTestId("google-setup-handoff-reason");
     expect(sentence.textContent).toBe(ERROR_EN[handoffKey(reason)]);
     expect(sentence.textContent?.length).toBeGreaterThan(20);
     cleanup();
@@ -505,10 +506,10 @@ describe("review — domain_blocked hand-off names the domains to allow", () => 
         }),
       ],
     });
-    renderSettings();
-    const list = await screen.findByTestId("gmail-setup-handoff-domains");
+    await renderSettings();
+    const list = await screen.findByTestId("google-setup-handoff-domains");
     expect(Array.from(list.querySelectorAll("li")).map((li) => li.textContent)).toEqual(["console.cloud.google.com", "accounts.google.com"]);
-    expect(screen.getByTestId("gmail-setup-handoff-reason").textContent).toMatch(/dedicated browser refused/);
+    expect(screen.getByTestId("google-setup-handoff-reason").textContent).toMatch(/dedicated browser refused/);
     cleanup();
   });
 
@@ -517,9 +518,9 @@ describe("review — domain_blocked hand-off names the domains to allow", () => 
       state: configuredState({ available: false, reason: "run_active", local: true, runId: "r1" }),
       views: [view("handoff", "project", { handoff: { step: "project", wizardStep: 1, reason: "timeout" } })],
     });
-    renderSettings();
-    await screen.findByTestId("gmail-setup-handoff-reason");
-    expect(screen.queryByTestId("gmail-setup-handoff-domains")).toBeNull();
+    await renderSettings();
+    await screen.findByTestId("google-setup-handoff-reason");
+    expect(screen.queryByTestId("google-setup-handoff-domains")).toBeNull();
     cleanup();
   });
 });
@@ -535,35 +536,37 @@ describe("test-plan #E11 — unverified-app notice while a sign-in waits", () =>
 
   async function signInAfterAudience(choice: "internal" | "external" | null) {
     const h = scriptedFetch({
-      state: configuredState(AVAILABLE),
+      state: configuredState(AVAILABLE, { builtin: { available: false }, clients: [{ id: "bb", ref: "own:bb", label: "BlackBelt", type: "installed", clientId: "bb.apps.googleusercontent.com", domains: [], accounts: 0 }] }),
       views: [view("waiting_decision", "branding", { decision: { kind: "audience", detected: "internal", org: "o.com" } })],
     });
-    renderSettings();
+    await renderSettings();
     if (choice) {
       await startRun();
-      fireEvent.click(await screen.findByTestId(`gmail-setup-audience-${choice}`));
+      fireEvent.click(await screen.findByTestId(`google-setup-audience-${choice}`));
       await waitFor(() => expect(h.calls.some((c) => c.url === `${VIEW_URL}/continue`)).toBe(true));
     }
-    fireEvent.click(await screen.findByTestId("gmail-add-account"));
-    await screen.findByTestId("flow-view");
+    fireEvent.click(await screen.findByTestId("google-connect"));
+    fireEvent.change(await screen.findByTestId("google-signin-with"), { target: { value: "own:bb" } });
+    fireEvent.click(screen.getByTestId("google-continue"));
+    await screen.findByTestId("google-waiting");
   }
 
   it("unknown audience (no run seen) shows the sentence", async () => {
     await signInAfterAudience(null);
-    const hint = screen.getByTestId("gmail-unverified-hint").textContent ?? "";
+    const hint = screen.getByTestId("google-unverified-hint").textContent ?? "";
     expect(hint).toMatch(/hasn.t verified this app/);
     expect(hint).toMatch(/Advanced/);
   });
 
   it("External shows the sentence", async () => {
     await signInAfterAudience("external");
-    expect(screen.getByTestId("gmail-unverified-hint")).toBeTruthy();
+    expect(screen.getByTestId("google-unverified-hint")).toBeTruthy();
   });
 
   it("Internal hides it", async () => {
     await signInAfterAudience("internal");
-    expect(screen.queryByTestId("gmail-unverified-hint")).toBeNull();
-    expect(screen.getByTestId("gmail-consent-hint")).toBeTruthy(); // the existing hint is untouched
+    expect(screen.queryByTestId("google-unverified-hint")).toBeNull();
+    expect(screen.getByTestId("google-waiting").textContent).toMatch(/Tick every box/); // the consent hint is untouched
   });
 });
 
@@ -589,7 +592,6 @@ describe("test-plan #F6 — i18n parity for the automatic setup", () => {
     "publish_cancelled",
     "timeout",
     "secret_capture_failed",
-    "client_in_use",
     "browser_closed",
     "disabled",
     "unloaded",
@@ -619,7 +621,7 @@ describe("test-plan #F6 — i18n parity for the automatic setup", () => {
 
   it("every dynamic and literal key the new UI uses exists in both catalogs; dynamic ones have English fallbacks", () => {
     const dir = join(__dirname, "..");
-    const src = ["AutoSetup.tsx", "GmailSettings.tsx"].map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+    const src = ["AutoSetup.tsx", "OrgSignIn.tsx", "ConnectDialog.tsx"].map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
     const literal = [...src.matchAll(/"((?:auto|handoff|unverified|addEmail|errLink)[A-Z][A-Za-z]*|unverifiedHint|addEmail)"/g)].map((m) => m[1] as string);
     const tables = [...Object.values(HANDOFF_KEY), ...Object.values(CHECKPOINT_KEY), ...Object.values(LINK_ERROR_KEY), "autoErrRunActive", "autoErrRemote", "autoErrGeneric"];
     const keys = new Set([...literal, ...tables]);

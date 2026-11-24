@@ -95,8 +95,9 @@ function validClaims(over: Record<string, unknown> = {}): Record<string, unknown
 }
 
 export interface FakeTokenOptions {
-  code?: () => Record<string, unknown> | { status: number; body: Record<string, unknown> };
-  refresh?: () => Record<string, unknown> | { status: number; body: Record<string, unknown> } | Promise<unknown>;
+  code?: () => Record<string, unknown> | { status: number; body: Record<string, unknown> } | Promise<Record<string, unknown> | { status: number; body: Record<string, unknown> }>;
+  /** Receives the request body (`refresh_token`, `client_id` …) so a test can answer per account. */
+  refresh?: (body: URLSearchParams) => Record<string, unknown> | { status: number; body: Record<string, unknown> } | Promise<unknown>;
   revoke?: () => number | Promise<number>;
 }
 
@@ -104,6 +105,17 @@ interface TokenCall {
   grant: string | null;
   body: URLSearchParams;
   signal: AbortSignal | null | undefined;
+}
+
+/** A pending answer that rejects like `fetch` when the request's signal aborts (a hung token endpoint). */
+function abortable<T>(p: T | Promise<T>, signal: AbortSignal | null | undefined): Promise<T> | T {
+  if (!signal) return p;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new DOMException("aborted", "AbortError"));
+    if (signal.aborted) return abort();
+    signal.addEventListener("abort", abort, { once: true });
+    Promise.resolve(p).then(resolve, reject);
+  });
 }
 
 /** fetch-shaped fake for the token + revoke endpoints; records calls. */
@@ -120,7 +132,7 @@ export function fakeGoogleFetch(opts: FakeTokenOptions) {
     const grant = body.get("grant_type");
     calls.push({ grant, body, signal });
     const handler = grant === "refresh_token" ? opts.refresh : opts.code;
-    const out = (await handler?.()) as Record<string, unknown> | undefined;
+    const out = (await abortable((handler as ((b: URLSearchParams) => unknown) | undefined)?.(body), signal)) as Record<string, unknown> | undefined;
     if (out && typeof out.status === "number" && out.body) return json(out.status as number, out.body);
     return json(200, out ?? {});
   };
@@ -167,12 +179,25 @@ export interface HarnessOptions {
   maxKeys?: number;
   base?: string | undefined;
   /** Sign-in the fake Google returns. */
-  google?: { sub?: string; email?: string; scope?: string[]; refresh?: string | null; extra?: Record<string, unknown>; revokeStatus?: number };
+  google?: {
+    sub?: string;
+    email?: string;
+    scope?: string[];
+    refresh?: string | null;
+    extra?: Record<string, unknown>;
+    revokeStatus?: number;
+    /** Merged over the id_token claims (`undefined` removes a claim): `email_verified`, `nonce`, `sub` … */
+    claims?: Record<string, unknown>;
+    /** Replaces the code-exchange answer (status/body, or a delayed one); a throw is a dropped connection. */
+    token?: () => Record<string, unknown> | { status: number; body: Record<string, unknown> } | Promise<Record<string, unknown> | { status: number; body: Record<string, unknown> }>;
+  };
 }
 
 /** Hand the authorization code to the flow the way its path would: pasted URL, loopback, or HTTP callback. */
 function deliverCode(d: {
   how: "auto" | "paste" | undefined;
+  /** What the user pastes instead of the well-formed redirect (paste path only). */
+  text?: string | ((state: string) => string);
   state: string;
   redirect: string;
   paste: { resolve: (v: string) => void };
@@ -180,7 +205,7 @@ function deliverCode(d: {
   connect: ConnectService;
 }): void {
   if (d.how === "paste") {
-    d.paste.resolve(`${d.redirect}?code=CODE&state=${encodeURIComponent(d.state)}`);
+    d.paste.resolve(typeof d.text === "function" ? d.text(d.state) : (d.text ?? `${d.redirect}?code=CODE&state=${encodeURIComponent(d.state)}`));
     return;
   }
   if (d.redirect.startsWith("http://127.0.0.1:5555")) {
@@ -212,13 +237,17 @@ export function makeHarness(opts: HarnessOptions = {}) {
   let aud = "";
   const g: NonNullable<HarnessOptions["google"]> = { ...(opts.google ?? {}) };
   const google = fakeGoogleFetch({
-    code: () => ({
+    code: () => g.token?.() ?? ({
       access_token: "ACCESS-new",
       ...(g.refresh === null ? {} : { refresh_token: g.refresh ?? "REFRESH-new" }),
       expires_in: 3600,
       token_type: "Bearer",
       scope: (g.scope ?? []).join(" "),
-      id_token: idToken(validClaims({ aud, nonce, sub: g.sub ?? "s1", email: g.email ?? "a@x.com" })),
+      id_token: idToken(
+        Object.fromEntries(
+          Object.entries(validClaims({ aud, nonce, sub: g.sub ?? "s1", email: g.email ?? "a@x.com", ...g.claims })).filter(([, v]) => v !== undefined),
+        ),
+      ),
       ...(g.extra ?? {}),
     }),
     refresh: () => ({ access_token: "ACCESS-refreshed", expires_in: 3600, token_type: "Bearer" }),
@@ -263,12 +292,14 @@ export function makeHarness(opts: HarnessOptions = {}) {
     /** The sign-in the fake Google returns — mutate between flows. */
     reply: g,
     connect,
+    /** Authorization URL of the most recent `runFlow` (kept when the sign-in then fails). */
+    lastAuthUrl: undefined as undefined | URL,
     loopback: undefined as undefined | { code: ReturnType<typeof deferred<{ code: string }>>; close: () => void },
     /**
      * Drive started flow `i` to completion: run `login`, deliver a code the way its path does, then `persist`.
      * `deliver` overrides how the code arrives (`"paste"` | `"callback"` | `"auto"`).
      */
-    async runFlow(i = started.length - 1, o: { deliver?: "auto" | "paste" } = {}) {
+    async runFlow(i = started.length - 1, o: { deliver?: "auto" | "paste"; abortAfterMs?: number; pasteText?: string | ((state: string) => string) } = {}) {
       const s = started[i] as PluginOAuthStartOptions;
       const events: Array<{ type: string; url?: string }> = [];
       const paste = deferred<string>();
@@ -289,7 +320,9 @@ export function makeHarness(opts: HarnessOptions = {}) {
       aud = url.searchParams.get("client_id") ?? "";
       const state = url.searchParams.get("state") as string;
       const redirect = url.searchParams.get("redirect_uri") as string;
-      deliverCode({ how: o.deliver, state, redirect, paste, loopback: harness.loopback, connect });
+      harness.lastAuthUrl = url;
+      deliverCode({ how: o.deliver, text: o.pasteText, state, redirect, paste, loopback: harness.loopback, connect });
+      if (o.abortAfterMs !== undefined) setTimeout(() => ac.abort(), o.abortAfterMs);
       const cred = await login;
       await s.persist(cred);
       return { url, cred };
