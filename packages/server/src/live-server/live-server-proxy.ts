@@ -216,7 +216,17 @@ export function createLiveForwarder(manager: LiveServerManager, deps: LiveProxyD
     } catch {
       granted = []; // a failing grant lookup must not widen the policy
     }
-    return buildLiveCsp({ policy: grant.policy, host, scheme: schemeOf(request), prefix, granted });
+    // Tiers 1-4 are origin-bound: the policy comes from the entry, not from the request Host / scheme (D6).
+    const bound = grant.tier !== "legacy";
+    if (bound && grant.origin === undefined) return null; // an origin-bound entry without its origin: fail closed
+    return buildLiveCsp({
+      policy: grant.policy,
+      host,
+      scheme: schemeOf(request),
+      prefix,
+      granted,
+      ...(bound ? { origin: grant.origin, ancestors: grant.ancestors } : {}),
+    });
   }
 
   const notFoundReply = (reply: FastifyReply) => reply.code(404).send({ error: "live-server target not found" });

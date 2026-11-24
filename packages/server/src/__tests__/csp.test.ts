@@ -485,12 +485,13 @@ describe("strict CSP emission", () => {
       "font-src 'self' data:",
       "worker-src 'self' blob:",
       "connect-src 'self' ws: wss:",
-      "frame-src 'self' https:", // rich-chat-links D13: was 'self'; see E36
       "object-src 'none'",
       "base-uri 'self'",
       "frame-ancestors 'self'",
     ])
       expect(strict.split("; ")).toContain(d);
+    // rich-chat-links D13: `'self' https:`, followed only by the live-preview capability sources (D6).
+    expect(strict.split("; ").find((d) => d.startsWith("frame-src "))).toMatch(/^frame-src 'self' https:( http:\/\/\*\.localhost(:\d+)?)?$/);
     expect(buildStrictCsp("abc")).toContain("script-src 'self' 'nonce-abc'");
     expect(buildStrictCsp()).toContain("script-src 'self';");
     await app.close();
@@ -518,7 +519,7 @@ describe("strict CSP emission", () => {
     for (const policy of policies.filter((p) => isBaseline(p) || isStrict(p))) {
       const ds = policy.split("; ");
       const frame = ds.find((d) => d.startsWith("frame-src"))!;
-      expect(frame).toBe("frame-src 'self' https:");
+      expect(frame).toMatch(/^frame-src 'self' https:( http:\/\/\*\.localhost(:\d+)?)?$/);
       for (const bad of ["http:", "data:", "blob:", "*"]) expect(frame.split(" ")).not.toContain(bad);
       for (const d of unchanged) expect(ds).toContain(d);
       // exactly the pre-change directive set plus nothing new (script-src, report tokens aside)

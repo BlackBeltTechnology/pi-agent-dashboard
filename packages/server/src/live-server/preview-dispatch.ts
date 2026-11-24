@@ -22,6 +22,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import Fastify from "fastify";
 import { getResolvedPreviewOrigins } from "../config-snapshot.js";
 import type { LiveCapabilityGrant, LiveCapabilityStore } from "./live-capability.js";
+import { registerCspReportParsers } from "./live-csp-report.js";
 import type { LiveServerManager } from "./live-server-manager.js";
 import { createLiveForwarder, type LiveProxyDeps, pipeUpgradeToTarget } from "./live-server-proxy.js";
 import {
@@ -199,6 +200,8 @@ export function createPreviewDispatch(deps: PreviewDispatchDeps): PreviewDispatc
   previewApp.register(import("@fastify/reply-from"));
   // Any body, any content type: the stream is forwarded untouched.
   previewApp.addContentTypeParser("*", (_req, payload, done) => done(null, payload));
+  // CSP reports parse as JSON (64 KiB cap) before the catch-all; the reserved handler is the ONLY consumer.
+  if (proxyDeps.reservedHandler) registerCspReportParsers(previewApp);
 
   // A dead or failing upstream is a bad gateway — not a 403 (that is the refusal) and never a dashboard page.
   previewApp.setErrorHandler((error: { statusCode?: number }, _request, reply) => {

@@ -348,4 +348,31 @@ describe("preview dispatch (D3)", () => {
     expect((await request(port, { host: `localhost:${port}`, path: "/api/health" })).status).toBe(200);
     await upstream.start(); // so afterEach's stop() is a no-op-safe close
   });
+
+  it("E150/E151: a served preview response carries the entry-derived CSP (origin-root lists, exact ancestors)", async () => {
+    const scripted = store.mint("vite-5173", { kind: "session", tier: "control", sessionKey: "s2" }, {
+      policy: { scripts: true },
+      preview: {
+        tier: 1,
+        ancestors: ["http://localhost:8000"],
+        buildOrigin: (l) => ({ origin: `http://${l}.localhost:8000`, originHost: `${l}.localhost:8000` }),
+      },
+    }).token;
+    const r = await request(port, { host: `${scripted}.localhost:8000`, path: "/app.js" });
+    const csp = String(r.headers["content-security-policy"]);
+    const origin = `http://${scripted}.localhost:8000`;
+    expect(csp).toContain("sandbox allow-scripts allow-same-origin allow-forms");
+    expect(csp).toContain(`frame-ancestors http://localhost:8000 ${origin}`);
+    expect(csp).toContain(`connect-src ${origin}/ ws://${scripted}.localhost:8000/`);
+    expect(csp).toContain("frame-src 'self'");
+    expect(csp).toContain("report-uri /__pi/csp-report");
+  });
+
+  it("E155: a CSP report on the live preview origin is accepted; on an unknown label origin it is refused", async () => {
+    const post = (host: string) =>
+      request(port, { host, path: "/__pi/csp-report", method: "POST", headers: { "content-type": "application/csp-report" }, body: JSON.stringify({ "csp-report": { "blocked-uri": "https://evil.example" } }) });
+    expect((await post(`${label}.localhost:8000`)).status).not.toBe(403);
+    expect(upstream.seen.some((s) => s.url === "/__pi/csp-report")).toBe(false); // never forwarded upstream
+    expect((await post(`${"d".repeat(26)}.localhost:8000`)).status).toBe(403);
+  });
 });

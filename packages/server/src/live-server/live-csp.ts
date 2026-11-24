@@ -23,6 +23,13 @@ export interface LiveCspInput {
   prefix: string;
   /** Granted egress origins `<G>`: project grants ∪ the viewer's allow-once set. */
   granted?: readonly string[];
+  /**
+   * Origin-bound capability (tiers 1-4, D6): the exact capability origin (`http://<label>.localhost:8000`) and
+   * the exact dashboard origin(s) it was minted from. Sources come from the ENTRY, never from the request.
+   * Absent ⇒ legacy / tier 5 (path-scoped lists, `frame-ancestors 'self'`, opaque sandbox).
+   */
+  origin?: string;
+  ancestors?: readonly string[];
 }
 
 export interface LiveCspResult {
@@ -34,15 +41,49 @@ export interface LiveCspResult {
 const SAFE_ORIGIN = /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/;
 /** A `Host` header value we are willing to embed in a header. */
 const SAFE_HOST = /^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i;
+/** A dashboard / capability origin we are willing to embed in `frame-ancestors` (http or https, never IPv6, no path). */
+const SAFE_ANCESTOR = /^https?:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i;
 
 /** The report endpoint, relative to the capability prefix. */
 export const CSP_REPORT_SUBPATH = "/__pi/csp-report";
 
-function sandboxDirective(policy: LivePolicy): string {
+function sandboxDirective(policy: LivePolicy, sameOrigin: boolean): string {
   if (!policy.scripts) return "sandbox";
+  // Without `allow-same-origin` the header would force an opaque origin whatever the frame attribute says (P3).
+  const so = sameOrigin ? " allow-same-origin" : "";
   return policy.egress === "open"
-    ? "sandbox allow-scripts allow-forms allow-popups allow-downloads"
-    : "sandbox allow-scripts allow-forms";
+    ? `sandbox allow-scripts${so} allow-forms allow-popups allow-downloads`
+    : `sandbox allow-scripts${so} allow-forms`;
+}
+
+/** `frame-ancestors` of an origin-bound capability: the minting dashboard origin(s) plus the capability origin itself. */
+function boundAncestors(origin: string, ancestors: readonly string[] | undefined): string | null {
+  if (!ancestors || ancestors.length === 0) return null;
+  const list = [...new Set([...ancestors, origin])];
+  if (!list.every((a) => SAFE_ANCESTOR.test(a))) return null;
+  return `frame-ancestors ${list.join(" ")}`;
+}
+
+/** Source bases of the restricted lists. Origin-bound: origin-root from the entry (never the request Host / scheme). Legacy / tier 5: path-scoped. */
+function sourceBases(input: LiveCspInput): { p: string; pws: string; frameSrc: string; reportPath: string } {
+  const { host, scheme, prefix } = input;
+  if (input.origin !== undefined) {
+    const originUrl = new URL(input.origin); // validated by `boundAncestors` (SAFE_ANCESTOR) before this runs
+    return {
+      p: `${input.origin}/`,
+      pws: `${originUrl.protocol === "https:" ? "wss" : "ws"}://${originUrl.host}/`,
+      frameSrc: "frame-src 'self'",
+      reportPath: CSP_REPORT_SUBPATH,
+    };
+  }
+  const p = `${scheme}://${host}${prefix}/`;
+  return {
+    p,
+    pws: `${scheme === "https" ? "wss" : "ws"}://${host}${prefix}/`,
+    // Tier 5 (a `/preview/<pid>` prefix) frames its own base; legacy keeps `'none'`.
+    frameSrc: prefix.startsWith("/preview/") ? `frame-src ${p}` : "frame-src 'none'",
+    reportPath: `${prefix}${CSP_REPORT_SUBPATH}`,
+  };
 }
 
 /**
@@ -51,23 +92,29 @@ function sandboxDirective(policy: LivePolicy): string {
  * header it cannot trust).
  */
 export function buildLiveCsp(input: LiveCspInput): LiveCspResult | null {
-  const { policy, host, scheme, prefix } = input;
+  const { policy, host } = input;
   if (!SAFE_HOST.test(host)) return null;
-  const sandbox = sandboxDirective(policy);
-
-  if (policy.egress === "open") {
-    return { csp: `${sandbox}; object-src 'none'; frame-ancestors 'self'` };
+  const bound = input.origin !== undefined;
+  const sandbox = sandboxDirective(policy, bound);
+  let frameAncestors = "frame-ancestors 'self'";
+  if (input.origin !== undefined) {
+    // Fail closed on a malformed origin / missing ancestors: a bad entry never yields a header (D6, X38).
+    if (!SAFE_ANCESTOR.test(input.origin)) return null;
+    const fa = boundAncestors(input.origin, input.ancestors);
+    if (!fa) return null;
+    frameAncestors = fa;
   }
 
-  const wsScheme = scheme === "https" ? "wss" : "ws";
-  const p = `${scheme}://${host}${prefix}/`;
-  const pws = `${wsScheme}://${host}${prefix}/`;
+  if (policy.egress === "open") {
+    return { csp: `${sandbox}; object-src 'none'; ${frameAncestors}` };
+  }
+
+  const { p, pws, frameSrc, reportPath } = sourceBases(input);
   const g = [...new Set(input.granted ?? [])].filter((o) => SAFE_ORIGIN.test(o));
   const gStr = g.length > 0 ? ` ${g.join(" ")}` : "";
   const scriptKw = policy.scripts ? "'unsafe-inline' 'unsafe-eval'" : "'unsafe-inline'";
   const s = `${p} ${scriptKw}${gStr}`;
   const styleS = `${p} 'unsafe-inline'${gStr}`;
-  const reportPath = `${prefix}${CSP_REPORT_SUBPATH}`;
   const directives = [
     sandbox,
     "default-src 'none'",
@@ -79,9 +126,9 @@ export function buildLiveCsp(input: LiveCspInput): LiveCspResult | null {
     `connect-src ${p} ${pws}${gStr}`,
     "form-action 'none'",
     "base-uri 'none'",
-    "frame-src 'none'",
+    frameSrc,
     "object-src 'none'",
-    "frame-ancestors 'self'",
+    frameAncestors,
     `worker-src ${p} blob:`,
     "manifest-src 'none'",
     `report-uri ${reportPath}`,
