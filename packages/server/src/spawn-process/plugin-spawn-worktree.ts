@@ -22,7 +22,7 @@ import type { StartWorktreeInitOptions, StartWorktreeInitResult } from "../git-w
 import { mapPluginSpawnOptions } from "./plugin-spawn-choice.js";
 
 /** The slice of a `spawnPiSession` / `spawnAcpSession` result the hook reads. */
-export interface PluginSpawnProcessResult {
+interface PluginSpawnProcessResult {
   success: boolean;
   message?: string;
   spawnToken?: string;

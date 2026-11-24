@@ -26,7 +26,7 @@ import type { WorktreeEntry } from "./git-worktree.js";
 import { isValidRefArg } from "./ref-arg.js";
 import { repoLockKey, withRepoLock } from "./repo-lock.js";
 
-export type EnsureWorktreeCode =
+type EnsureWorktreeCode =
   | "not_git"
   | "admission_unavailable"
   | "branch_invalid"
