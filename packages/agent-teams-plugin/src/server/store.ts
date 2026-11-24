@@ -59,6 +59,7 @@ export interface AddTaskInput {
   description: string;
   blockedBy?: string[];
   owner?: string;
+  ownerLocked?: boolean;
   createdBy: string;
 }
 
@@ -348,6 +349,7 @@ export class TeamStore {
       createdAt: this.clock.now(),
     };
     if (input.owner !== undefined) task.owner = input.owner;
+    if (input.ownerLocked) task.ownerLocked = true;
     team.tasks.push(task);
     this.commit(team);
     return task;
@@ -363,7 +365,10 @@ export class TeamStore {
     Object.assign(task, fields);
     if (clearOwner) delete task.owner;
     const now = this.clock.now();
-    if (from !== task.status && task.status === "in_progress") task.claimedAt = now;
+    if (from !== task.status && task.status === "in_progress") {
+      task.claimedAt = now;
+      delete task.note;
+    }
     if (from !== "completed" && task.status === "completed") task.completedAt = now;
     if (from === "in_progress" && task.status === "pending") delete task.claimedAt;
     const writeThrough = from !== task.status && (task.status === "in_progress" || task.status === "completed");

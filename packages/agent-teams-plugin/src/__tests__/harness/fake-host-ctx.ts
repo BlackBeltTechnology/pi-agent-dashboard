@@ -45,6 +45,8 @@ export interface FakeHostCtx {
   readonly sessions: Set<string>;
   /** Replace the spawn behaviour (default: succeed with a fresh `spawn-<n>` token). */
   onSpawn(handler: (opts: PluginSpawnOptions) => Promise<PluginSpawnResult> | PluginSpawnResult): void;
+  /** Replace the abort behaviour (default: true for a known session). */
+  onAbort(handler: (sessionId: string) => boolean): void;
   /** Replace the shutdown behaviour (default: resolve true for a known session). */
   onShutdown(handler: (sessionId: string) => Promise<boolean> | boolean): void;
   /** Merge a config patch; later `getPluginConfig()` calls see it. */
@@ -73,6 +75,7 @@ export function createFakeHostCtx(opts: FakeHostCtxOptions = {}): FakeHostCtx {
   let config: Record<string, unknown> = { ...loadConfigDefaults(), ...(opts.config ?? {}) };
   let spawnHandler: (o: PluginSpawnOptions) => Promise<PluginSpawnResult> | PluginSpawnResult;
   let shutdownHandler: (id: string) => Promise<boolean> | boolean = (id) => sessions.has(id);
+  let abortHandler: (id: string) => boolean = (id) => sessions.has(id);
   let spawnSeq = 0;
 
   spawnHandler = () => ({ success: true, spawnToken: `spawn-${++spawnSeq}` });
@@ -88,7 +91,7 @@ export function createFakeHostCtx(opts: FakeHostCtxOptions = {}): FakeHostCtx {
     },
     abortSession(sessionId) {
       aborts.push(sessionId);
-      return sessions.has(sessionId);
+      return abortHandler(sessionId);
     },
     async shutdownSession(sessionId) {
       shutdowns.push(sessionId);
@@ -108,6 +111,9 @@ export function createFakeHostCtx(opts: FakeHostCtxOptions = {}): FakeHostCtx {
     sessions,
     onSpawn(handler) {
       spawnHandler = handler;
+    },
+    onAbort(handler) {
+      abortHandler = handler;
     },
     onShutdown(handler) {
       shutdownHandler = handler;

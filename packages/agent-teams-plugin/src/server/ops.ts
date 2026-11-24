@@ -9,7 +9,7 @@
  *
  * Seams left for later sections (all optional, inert by default):
  *  - `planner` / `starter`  → §5 spawn (cwd confinement, scope, host spawn)
- *  - `mailer`               → §6 mail delivery (queued mail stays unacked until set)
+ *  - `mailer`               → replaces the built-in mail engine's flush (tests); the engine (`mail.ts`) is the default
  * See change: add-agent-teams-core.
  */
 import { randomUUID } from "node:crypto";
@@ -20,13 +20,13 @@ import {
   RESERVED_MEMBER_NAMES,
   TEAM_DESCRIPTION_MAX_CHARS,
   TEAM_NAME_MAX_CHARS,
+  TRUNCATION_MARKER,
 } from "../shared/constants.js";
 import { isRegisteredMailKind } from "../shared/mail-format.js";
 import { AGENT_TEAMS_PLUGIN_ID } from "../shared/plugin-id.js";
 import {
   type AckPayload,
   type BusyPayload,
-  type ErrorCode,
   type HelloPayload,
   type HelloReply,
   type IdlePayload,
@@ -41,22 +41,29 @@ import {
   type TeamRole,
   type TeamStatusResult,
 } from "../shared/protocol.js";
-import { sanitizeText } from "../shared/text.js";
-import {
-  type CloseReason,
-  type Committer,
-  type Mail,
-  type Member,
-  RELEASED_MEMBER_STATUSES,
-  type SessionBinding,
-  type Team,
+import { sanitizeText, truncateWithMarker } from "../shared/text.js";
+import type {
+  CloseReason,
+  Committer,
+  Mail,
+  Member,
+  SessionBinding,
+  Team,
 } from "../shared/types.js";
 import { isRecord, own, stringList, textField } from "./args.js";
 import type { ConfigReader, TeamsConfig } from "./config.js";
+import { createDispatcher } from "./dispatch.js";
 import type { MemberDriver } from "./driver.js";
 import type { ExtensionPoints, TrustedSpawnOptions } from "./extension-points.js";
+import { createMailEngine } from "./mail.js";
+import { createMailLimits } from "./mail-limits.js";
+import { createMessaging } from "./messaging.js";
 import type { ModeRegistry } from "./modes.js";
+import { createNoticeBuffer } from "./notices.js";
+import { fail, isLive } from "./op-util.js";
+import { createShutdown } from "./shutdown.js";
 import type { TeamStore } from "./store.js";
+import { createTaskOps } from "./tasks.js";
 import type { Actor, HostSessionLookup, Logger } from "./types.js";
 
 // ── caller / reports ──────────────────────────────────────────────────────────
@@ -155,12 +162,6 @@ export const defaultSpawnPlanner: SpawnPlanner = {
 
 // ── small helpers ────────────────────────────────────────────────────────────
 
-function fail(error: ErrorCode, message?: string, details?: Record<string, unknown>): { ok: false; error: ErrorCode; message?: string; details?: Record<string, unknown> } {
-  return { ok: false, error, ...(message !== undefined ? { message } : {}), ...(details ? { details } : {}) };
-}
-
-const isLive = (m: Member): boolean => !RELEASED_MEMBER_STATUSES.includes(m.status);
-
 function basename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? "team";
@@ -192,6 +193,59 @@ export function createOps(deps: OpsDeps) {
   const closeTimers = new Map<string, unknown>();
 
   const driverFor = (team: Team): MemberDriver | undefined => deps.modes.get(team.mode)?.driver ?? deps.modes.get("session")?.driver;
+
+  // ── §4/§6/§7 modules (constructed here; they call back through the lambdas below) ──
+  const limits = createMailLimits(clock);
+  const engine = createMailEngine({ store, clock, logger, config: deps.config, driverFor, onRevert: (team) => dispatcher.run(team) });
+  const mailer: MailFlusher = deps.mailer ?? engine;
+  const notices = createNoticeBuffer({
+    store,
+    clock,
+    logger,
+    config: deps.config,
+    post: (team, notice) => void mailTo(team, LEAD_ADDRESS, { from: "server", kind: "notice", text: notice.text, wake: notice.wake, details: notice.details }),
+  });
+  const dispatcher = createDispatcher({
+    store,
+    config: deps.config,
+    isEligible: (team, member) => isDispatchEligible(team, member),
+    mailTo: (team, to, input) => mailTo(team, to, input),
+    onClaim: (team) => limits.resetPairs(team.id),
+  });
+  const taskOps = createTaskOps({
+    store,
+    config: deps.config,
+    logger,
+    onActivity: (team) => {
+      limits.resetPairs(team.id);
+      dispatcher.run(team);
+    },
+    notify: (team, item) => notices.add(team, item),
+  });
+  const shutdown = createShutdown({
+    store,
+    clock,
+    logger,
+    config: deps.config,
+    engine,
+    driverFor,
+    mailTo: (team, to, input) => mailTo(team, to, input),
+    notify: (team, item) => notices.add(team, item),
+    releaseTasksOf: (team, name, reason) => taskOps.releaseTasksOf(team, name, reason),
+    onExit: (team, name) => void releaseMember(team, name, "gone", "shutdown approved"),
+    onResumed: (team) => void dispatcher.run(team),
+  });
+  const messaging = createMessaging({
+    store,
+    config: deps.config,
+    logger,
+    limits,
+    engine,
+    driverFor,
+    mailTo: (team, to, input) => mailTo(team, to, input),
+    notify: (team, item) => notices.add(team, item),
+    drainNotices: (team) => notices.drain(team),
+  });
 
   function refOf(team: Team, member: Member) {
     return { teamId: team.id, member: member.name, ...(member.sessionId ? { sessionId: member.sessionId } : {}) };
@@ -236,12 +290,18 @@ export function createOps(deps: OpsDeps) {
       ...(input.priority ? { priority: input.priority } : {}),
       ...(input.details ? { details: input.details } : {}),
     });
-    if (mail) deps.mailer?.flush(team.id, to);
+    if (mail) mailer.flush(team.id, to);
     return mail;
   }
 
-  /** Server-authored notice for the lead; queues while the team has no bound lead. */
+  /**
+   * Server-authored notice for the lead, appended at once (a direct, already
+   * composed notice: later changes use it for their own events); queues while the
+   * team has no bound lead. The coalesced lifecycle buffer is flushed first so
+   * mail ids keep the order the events happened in.
+   */
   function enqueueLeadNotice(team: Team, input: { text: string; wake: boolean }): Mail | undefined {
+    notices.drain(team);
     return mailTo(team, LEAD_ADDRESS, { from: "server", kind: "notice", text: input.text, wake: input.wake });
   }
 
@@ -259,29 +319,29 @@ export function createOps(deps: OpsDeps) {
 
   /**
    * A member is `gone`/`failed`: release its tasks (`in_progress` → `pending`
-   * unowned, owned `pending` → unowned), discard its queued mail and tell the
-   * lead (waking) which tasks were affected.
+   * unowned with a note, owned `pending` → unowned), discard its queued mail and
+   * tell the lead (waking; coalesced) which tasks were affected. A member that
+   * APPROVED a shutdown yields one item that also closes the handshake: it wakes
+   * the lead only when every outstanding request is resolved (and none was
+   * server-initiated).
    */
   function releaseMember(team: Team, name: string, status: "gone" | "failed", reason: string): { released: string[]; unowned: string[] } {
     const out = { released: [] as string[], unowned: [] as string[] };
     const member = store.member(team, name);
     if (!member || !isLive(member)) return out;
+    const handshake = shutdown.consume(team.id, name);
     store.patchMember(team.id, name, { status, goneReason: reason }, { writeThrough: true });
-    for (const task of [...team.tasks]) {
-      if (task.owner !== name || task.status === "completed") continue;
-      if (task.status === "in_progress") {
-        store.patchTask(team.id, task.id, { status: "pending", clearOwner: true });
-        out.released.push(task.id);
-      } else {
-        store.patchTask(team.id, task.id, { clearOwner: true });
-        out.unowned.push(task.id);
-      }
-    }
+    const freed = taskOps.releaseTasksOf(team, name, reason);
+    out.released.push(...(handshake?.released ?? []), ...freed.released);
+    out.unowned.push(...(handshake?.unowned ?? []), ...freed.unowned);
     store.discardMailFor(team.id, name);
-    const parts = [`${name} is ${status} (${reason})`];
+    engine.forget(team.id, name);
+    const parts = [handshake?.approved ? `${name} approved the shutdown request and exited` : `${name} is ${status} (${reason})`];
     if (out.released.length) parts.push(`released to pending: ${out.released.join(", ")}`);
     if (out.unowned.length) parts.push(`unowned: ${out.unowned.join(", ")}`);
-    enqueueLeadNotice(team, { text: parts.join("; "), wake: true });
+    const wake = handshake?.approved ? handshake.actor !== "server" && shutdown.pendingCount(team.id) === 0 : true;
+    notices.add(team, { head: parts.join("; "), wake });
+    dispatcher.run(team);
     return out;
   }
 
@@ -325,7 +385,8 @@ export function createOps(deps: OpsDeps) {
     if (!bound) return fail("team_closed");
     clearOrphanTimer(teamId);
     // Mail and notices for the lead queued while it was absent (starting/orphaned) flush on (re)bind.
-    deps.mailer?.flush(teamId, LEAD_ADDRESS);
+    mailer.flush(teamId, LEAD_ADDRESS);
+    dispatcher.run(bound);
     return { ok: true, data: bound };
   }
 
@@ -356,6 +417,9 @@ export function createOps(deps: OpsDeps) {
   function closeTeam(team: Team, reason: CloseReason): void {
     if (team.status === "closed") return;
     clearOrphanTimer(team.id);
+    limits.forgetTeam(team.id);
+    engine.dropTeam(team.id);
+    notices.drop(team.id);
     const closeTimer = closeTimers.get(team.id);
     if (closeTimer !== undefined) clock.clearTimeout(closeTimer);
     closeTimers.delete(team.id);
@@ -591,24 +655,13 @@ export function createOps(deps: OpsDeps) {
   // ── shutdown / delete / abort (actor ops) ───────────────────────────────────
 
   /**
-   * Request a member's shutdown (handshake request half): the member goes
-   * `shutdown_pending` and receives a waking `shutdown_request` mail. With actor
-   * `server` the envelope is `from server`; the lead is woken only on a
-   * rejection or a timeout (handled where the response is processed).
+   * Request a member's shutdown (handshake request half, `shutdown.ts`): the member
+   * goes `shutdown_pending` and receives a waking `shutdown_request` mail. With actor
+   * `server` the envelope is `from server`; the lead is woken only on a rejection or
+   * when the member never answers within `shutdownGraceMs`.
    */
   function requestShutdown(team: Team, name: string, opts: { actor: Actor; reason?: string }): OpResult<{ member: string; status: "shutdown_pending" }> {
-    const member = store.member(team, name);
-    if (!member) return fail("unknown_recipient", name);
-    if (!isLive(member)) return fail("member_gone", name);
-    store.patchMember(team.id, name, { status: "shutdown_pending" });
-    const from = opts.actor === "server" || opts.actor === "user" ? "server" : LEAD_ADDRESS;
-    mailTo(team, name, {
-      from,
-      kind: "shutdown_request",
-      text: opts.reason ? `Shutdown requested: ${opts.reason}` : "Shutdown requested. Finish your current step, then approve or reject.",
-      wake: true,
-    });
-    return { ok: true, data: { member: name, status: "shutdown_pending" } };
+    return shutdown.request(team, name, opts);
   }
 
   /**
@@ -716,6 +769,12 @@ export function createOps(deps: OpsDeps) {
 
   // ── lane reports: hello / busy / idle / ack ─────────────────────────────────
 
+  /** Re-deliver a recipient's unacked mail after it (re)connected. */
+  function redeliver(teamId: string, to: string): void {
+    if (deps.mailer) deps.mailer.flush(teamId, to);
+    else engine.noteHello(teamId, to);
+  }
+
   function hello(payload: HelloPayload, caller: Caller): OpResult<HelloReply> {
     reports.set(caller.sessionId, { ...payload, at: clock.now() });
     const { team } = caller;
@@ -727,10 +786,12 @@ export function createOps(deps: OpsDeps) {
           closeTeam(team, "orphan_ttl");
           return fail("not_in_team");
         }
-        bindLead(team.id, caller.sessionId);
+        engine.unhand(team.id, LEAD_ADDRESS);
+        bindLead(team.id, caller.sessionId); // flushes the queue once
         logger.info(`agent-teams: team ${team.id} lead re-bound`);
       } else {
         store.setLeadConnected(team.id, true);
+        redeliver(team.id, LEAD_ADDRESS);
       }
       return { ok: true, data: { role: "lead", teamId: team.id } };
     }
@@ -742,25 +803,70 @@ export function createOps(deps: OpsDeps) {
     if (member.status === "idle" || member.status === "busy" || member.status === "disconnected") {
       patch.status = payload.isIdle ? "idle" : "busy";
     }
+    engine.confirm(team.id, member.name); // `hello` is authoritative: a provisional busy ends here
+    engine.takeSuspect(team.id, member.name);
     store.patchMember(team.id, member.name, patch);
+    redeliver(team.id, member.name);
+    dispatcher.run(team);
     return { ok: true, data: { role: "member", teamId: team.id, member: member.name } };
+  }
+
+  /**
+   * A busy report arriving for a member the server believes confirmed-idle that
+   * already holds a just-dispatched, not-yet-acked task: the member was busy all
+   * along, so the task returns to `pending` (invariant: ≤1 `in_progress` task per
+   * member) and its undelivered `task_assigned` mail is discarded.
+   */
+  function undoUnackedDispatch(team: Team, member: Member): void {
+    for (const task of team.tasks.filter((t) => t.owner === member.name && t.status === "in_progress")) {
+      const mail = store.pendingMail(team.id, member.name).find((m) => m.kind === "task_assigned" && m.details?.taskId === task.id);
+      if (!mail) continue;
+      store.ackMail(team.id, [mail.id]);
+      store.patchTask(team.id, task.id, mail.details?.preOwned === true ? { status: "pending" } : { status: "pending", clearOwner: true });
+      logger.info(`agent-teams: task ${task.id} returned to pending: ${member.name} was already busy`);
+    }
   }
 
   function busy(_payload: BusyPayload, caller: Caller): OpResult<Record<string, never>> {
     const member = caller.team && caller.role === "member" ? store.member(caller.team, caller.name) : undefined;
     if (!caller.team || !member) return fail("not_in_team");
+    const confirmed = engine.confirm(caller.team.id, member.name);
+    const late = engine.takeSuspect(caller.team.id, member.name);
+    if (late || (member.status === "idle" && !confirmed)) undoUnackedDispatch(caller.team, member);
     if (member.status === "idle" || member.status === "disconnected") store.patchMember(caller.team.id, member.name, { status: "busy" });
     return { ok: true, data: {} };
   }
 
   function idle(payload: IdlePayload, caller: Caller): OpResult<{ ignored: boolean }> {
-    const member = caller.team && caller.role === "member" ? store.member(caller.team, caller.name) : undefined;
-    if (!caller.team || !member) return fail("not_in_team");
+    const team = caller.team;
+    const member = team && caller.role === "member" ? store.member(team, caller.name) : undefined;
+    if (!team || !member) return fail("not_in_team");
     if (!Number.isInteger(payload.settleId)) return fail("invalid_args");
     if (payload.settleId <= member.lastSettleId) return { ok: true, data: { ignored: true } };
     const patch: Partial<Member> = { lastSettleId: payload.settleId };
     if (member.status === "busy" || member.status === "disconnected" || member.status === "idle") patch.status = "idle";
-    store.patchMember(caller.team.id, member.name, patch);
+    engine.confirm(team.id, member.name);
+    engine.takeSuspect(team.id, member.name);
+    store.patchMember(team.id, member.name, patch);
+    shutdown.onSettle(team, member.name); // an approved member's session may now end
+    engine.releaseOnSettle(team.id, member.name); // an urgent mail held for this settle goes out before any claim
+    if (payload.aborted === true || member.status !== "idle") return { ok: true, data: { ignored: false } }; // aborted: no notice, no claim
+    const cfg = deps.config();
+    const name = member.name;
+    if (payload.error !== undefined) {
+      notices.add(team, { head: `${name} stopped with an error`, body: truncateWithMarker(sanitizeText(payload.error, { keepNewlines: true }), cfg.maxFinalTextChars, TRUNCATION_MARKER), wake: true });
+      return { ok: true, data: { ignored: false } };
+    }
+    const open = (): number => team.tasks.filter((t) => t.owner === name && t.status === "in_progress").length;
+    const before = open();
+    dispatcher.run(team);
+    const claimedNext = open() > before;
+    const text = payload.finalText === undefined ? "" : truncateWithMarker(sanitizeText(payload.finalText, { keepNewlines: true }).trim(), cfg.maxFinalTextChars, TRUNCATION_MARKER);
+    notices.add(team, {
+      head: `${name} is idle${text === "" ? " (no final text)" : ""}${claimedNext ? " and picked up its next task" : ""}`,
+      ...(text !== "" ? { body: text } : {}),
+      wake: !claimedNext,
+    });
     return { ok: true, data: { ignored: false } };
   }
 
@@ -770,7 +876,7 @@ export function createOps(deps: OpsDeps) {
     if (!team) return fail("not_in_team");
     const own = new Set(store.mailLog(team.id).filter((m) => m.to === caller.name).map((m) => m.id));
     const ids = (Array.isArray(payload.ids) ? payload.ids : []).filter((i): i is number => Number.isInteger(i) && own.has(i));
-    return { ok: true, data: { acked: store.ackMail(team.id, ids) } };
+    return { ok: true, data: { acked: engine.ack(team.id, ids) } };
   }
 
   // ── host session events ─────────────────────────────────────────────────────
@@ -805,6 +911,13 @@ export function createOps(deps: OpsDeps) {
     ["TeammateSpawn", teammateSpawn],
     ["TeamStatus", teamStatus],
     ["TeamDelete", teamDeleteOp],
+    ["TaskCreate", taskOps.taskCreate],
+    ["TaskList", taskOps.taskList],
+    ["TaskGet", taskOps.taskGet],
+    ["TaskUpdate", taskOps.taskUpdate],
+    ["SendMessage", messaging.sendMessage],
+    ["ShutdownRequest", shutdown.requestOp],
+    ["ShutdownResponse", shutdown.responseOp],
   ]);
 
   /** Later sections add their op here; identity is always `caller`, never a payload field. */
@@ -827,6 +940,9 @@ export function createOps(deps: OpsDeps) {
     for (const t of closeTimers.values()) clock.clearTimeout(t);
     orphanTimers.clear();
     closeTimers.clear();
+    notices.dispose();
+    engine.dispose();
+    shutdown.dispose();
   }
 
   return {
@@ -844,6 +960,8 @@ export function createOps(deps: OpsDeps) {
     sendServerMail,
     enqueueLeadNotice,
     releaseMember,
+    createTask: taskOps.createTask,
+    updateTask: taskOps.updateTask,
     orphanTeam,
     canDispatch,
     isDispatchEligible,

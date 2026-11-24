@@ -69,6 +69,10 @@ export interface Task {
   createdAt: number;
   claimedAt?: number;
   completedAt?: number;
+  /** Launcher-owned (server actor): the owner is immutable for lead/teammate callers (`owner_locked`). */
+  ownerLocked?: boolean;
+  /** Why the task last returned to `pending` (member exit / failed spawn / approved shutdown); cleared on the next claim. */
+  note?: string;
 }
 
 export interface Mail {

@@ -6,7 +6,7 @@
  * See change: add-agent-teams-core.
  */
 import { describe, expect, it, vi } from "vitest";
-import { createFakeRuntimeHost, FakeClock, memberFixture } from "../../__tests__/harness/index.js";
+import { createFakeRuntimeHost, createTeamsEnv, FakeClock, memberFixture } from "../../__tests__/harness/index.js";
 import { TEAM_TOOLS_BY_ROLE } from "../../shared/protocol.js";
 import { createSessionDriver } from "../driver.js";
 import { applySpawnContributors, createExtensionPoints, runOpGates } from "../extension-points.js";
@@ -418,6 +418,7 @@ describe("races without a host spawn (S65 / S64 / S63 sync half)", () => {
     await new Promise((r) => setTimeout(r, 0));
     const team = rt.store.get(created.data.teamId);
     expect(team && rt.store.member(team, "alice")?.status).toBe("failed");
+    clock.advance(2000); // lifecycle notices are coalesced (design D9): one notice per window
     expect(rt.store.pendingMail(created.data.teamId, "lead").some((m) => m.wake && m.text.includes("alice"))).toBe(true);
     expect((await fake.call("S-lead", "TeammateSpawn", { name: "alice", prompt: "again" })).ok).toBe(true);
   });
@@ -706,6 +707,7 @@ describe("member exit (releaseMember)", () => {
     expect(out).toEqual({ released: ["1"], unowned: ["2"] });
     expect(team.tasks.map((t) => [t.status, t.owner])).toEqual([["pending", undefined], ["pending", undefined], ["completed", "alice"]]);
     expect(s.rt.store.pendingMail(team.id, "alice")).toEqual([]);
+    s.clock.advance(2000); // lifecycle notices are coalesced (design D9): one notice per window
     const notice = s.rt.store.pendingMail(team.id, "lead")[0];
     expect(notice).toMatchObject({ wake: true });
     expect(notice?.text).toContain("released to pending: 1");
@@ -1033,5 +1035,103 @@ describe("args helpers (2.7 / 2.12)", () => {
     const { textField } = await import("../args.js");
     expect(textField("😀".repeat(4000), 8000, { multiline: true }).ok).toBe(true);
     expect(textField("😀".repeat(8001), 8000, { multiline: true }).ok).toBe(false);
+  });
+});
+
+// ── delivery, dispatch and notices across lead states (real mail engine) ───────
+
+describe("lead exit: dispatch pauses and resumes (S39, dispatch half)", () => {
+  it("an orphaned team dispatches nothing; a lead hello within the TTL re-binds and dispatch resumes", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    e.addMember(team, "alice", "idle");
+    e.fake.endSession(e.lead);
+    expect(team.status).toBe("orphaned");
+    e.rt.store.addTask(team.id, { title: "waiting", description: "d", createdBy: "lead" });
+    e.rt.ops.createTask(team, { title: "also waiting", description: "d" }, { actor: "server" });
+    expect(team.tasks.filter((t) => t.status === "in_progress")).toEqual([]);
+    e.clock.advance(1_800_000 - 1);
+    e.fake.addSession(e.lead, { cwd: "/work" });
+    expect(await e.hello("lead")).toMatchObject({ ok: true, data: { role: "lead" } });
+    expect(team.status).toBe("active");
+    expect(team.tasks.filter((t) => t.status === "in_progress")).toHaveLength(1);
+  });
+});
+
+describe("orphan activity (S40)", () => {
+  it("complete / SendMessage lead / TaskCreate all work while orphaned; notices and lead mail queue and flush on re-bind; only dispatch is paused", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    e.addMember(team, "alice", "busy");
+    e.rt.store.addTask(team.id, { title: "mid-task", description: "d", createdBy: "lead", owner: "alice" });
+    e.rt.store.patchTask(team.id, "1", { status: "in_progress" });
+    e.fake.endSession(e.lead);
+    expect(team.status).toBe("orphaned");
+    expect((await e.call("alice", "TaskUpdate", { id: "1", status: "completed", result: "done" })).ok).toBe(true);
+    expect((await e.call("alice", "SendMessage", { to: "lead", message: "finished while you were away" })).ok).toBe(true);
+    expect((await e.call("alice", "TaskCreate", { title: "follow-up", description: "d" })).ok).toBe(true);
+    await e.idle("alice", { settleId: 1, finalText: "all done" });
+    e.flushNotices();
+    expect(team.tasks[0]).toMatchObject({ status: "completed", result: "done" });
+    expect(team.tasks[1]?.owner).toBeUndefined(); // no dispatch while orphaned
+    expect(e.wireMails("lead")).toEqual([]); // nothing is emitted to an absent lead
+    const queued = e.rt.store.pendingMail(team.id, "lead");
+    expect(queued.map((m) => m.kind)).toEqual(expect.arrayContaining(["message", "notice"]));
+
+    e.fake.addSession(e.lead, { cwd: "/work" });
+    await e.hello("lead");
+    expect(e.wireMails("lead").map((m) => m.id).sort()).toEqual(queued.map((m) => m.id).sort());
+    expect(team.tasks[1]).toMatchObject({ owner: "alice", status: "in_progress" }); // dispatch resumed with the re-bind
+  });
+});
+
+describe("lead-bound-late team (S42)", () => {
+  it("a starting team queues the idle notice and the dispatch, delivers once after bind and emits lead_bound", async () => {
+    const e = createTeamsEnv();
+    const created = e.rt.ops.createTeam({ name: "srv", leadCwd: "/repo", starting: true });
+    if (!created.ok) throw new Error("create");
+    const team = created.data;
+    const seen: string[] = [];
+    e.rt.store.on("lead_bound", () => seen.push("bound"));
+    e.addMember(team, "alice", "busy");
+    e.rt.ops.createTask(team, { title: "queued work", description: "d" }, { actor: "server" });
+    await e.idle("alice", { settleId: 1, finalText: "hello from alice" });
+    e.flushNotices();
+    expect(team.tasks[0]?.owner).toBeUndefined(); // dispatch queued while starting
+    const pending = e.rt.store.pendingMail(team.id, "lead");
+    expect(pending).toHaveLength(1);
+    expect(e.wireMails("lead")).toEqual([]);
+
+    const leadSession = e.fake.addSession("S-srvlead", { cwd: "/repo", principalOwner: "P" });
+    e.fake.resolveSession(leadSession, { "agent-teams": { teamId: team.id, role: "lead" }, principalOwner: "P" });
+    expect(seen).toEqual(["bound"]);
+    expect(e.fake.base.emits.filter((m) => m.sessionId === leadSession)).toHaveLength(1);
+    const wire = e.fake.base.emits.filter((m) => m.sessionId === leadSession).flatMap((m) => (m.data as { mails: Array<{ id: number; kind: string }> }).mails);
+    expect(wire.map((m) => m.id)).toEqual(pending.map((m) => m.id));
+    expect(team.tasks[0]).toMatchObject({ owner: "alice", status: "in_progress" }); // dispatch ran once the lead bound
+  });
+});
+
+describe("exit vs dispatch (S67)", () => {
+  it("a session ending between the claim and the mail hand-over releases the task, discards the queued task_assigned, and a respawned same name does not receive it", async () => {
+    const e = createTeamsEnv();
+    const team = await e.createTeam();
+    e.addMember(team, "bob", "idle");
+    e.fake.base.sessions.delete(e.sid("bob")); // the hand-over cannot happen: the mail stays queued
+    await e.call("lead", "TaskCreate", { title: "three", description: "d" });
+    expect(team.tasks[0]).toMatchObject({ owner: "bob", status: "in_progress" });
+    expect(e.rt.store.pendingMail(team.id, "bob").map((m) => m.kind)).toEqual(["task_assigned"]);
+    e.fake.endSession(e.sid("bob"));
+    expect(team.tasks[0]).toMatchObject({ status: "pending" });
+    expect(team.tasks[0]?.owner).toBeUndefined();
+    expect(e.rt.store.pendingMail(team.id, "bob")).toEqual([]);
+    e.addMember(team, "bob", "idle", { spawnToken: "again" }); // a fresh member of the same name
+    const discarded = e.log(team).find((m) => m.kind === "task_assigned")?.id;
+    const from = e.fake.base.emits.length;
+    await e.hello("bob");
+    const after = e.fake.base.emits.slice(from).flatMap((m) => (m.data as { mails: Array<{ id: number; kind: string }> }).mails);
+    expect(after.filter((m) => m.kind === "task_assigned")).toHaveLength(1); // only the fresh dispatch of the pending task
+    expect(after.map((m) => m.id)).not.toContain(discarded);
+    expect(e.mailsTo(team, "bob").filter((m) => m.kind === "task_assigned")).toHaveLength(2);
   });
 });

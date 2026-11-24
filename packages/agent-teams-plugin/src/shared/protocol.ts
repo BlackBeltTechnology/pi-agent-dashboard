@@ -6,7 +6,7 @@
  * never by a field defined here.
  * See change: add-agent-teams-core.
  */
-import type { Committer, Mail, MailPriority } from "./types.js";
+import type { Committer, Mail, MailPriority, Task, TaskStatus } from "./types.js";
 
 /** Request-lane message types (`agent-teams/<type>`). One call type + four lifecycle types. */
 export const LANE_CALL = "agent-teams/call";
@@ -174,6 +174,89 @@ export interface TeamDeleteArgs {
 export interface TeamDeleteResult {
   closed: true;
   shutdown: string[];
+}
+
+// ── Task list ops (tasks 4.x) ─────────────────────────────────────────────────
+
+/** A task as returned to agents: the stored fields plus the DERIVED `blocked` / `claimable` flags. */
+export interface TaskView extends Task {
+  blocked: boolean;
+  claimable: boolean;
+}
+
+export interface TaskDependency {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  result?: string;
+}
+
+export interface TaskCreateArgs {
+  title: string;
+  description?: string;
+  blockedBy?: string[];
+  owner?: string;
+}
+export interface TaskCreateResult {
+  task: TaskView;
+}
+
+export interface TaskListArgs {
+  status?: TaskStatus;
+  owner?: string;
+  includeCompleted?: boolean;
+}
+export interface TaskListResult {
+  tasks: TaskView[];
+}
+
+export interface TaskGetResult {
+  task: TaskView;
+  dependencies: TaskDependency[];
+}
+
+export interface TaskUpdateArgs {
+  id: string;
+  status?: TaskStatus;
+  owner?: string | null;
+  title?: string;
+  description?: string;
+  addBlockedBy?: string[];
+  result?: string;
+}
+export interface TaskUpdateResult {
+  task: TaskView;
+  unblocked: string[];
+  /** Present on a claim, as in `TaskGet`. */
+  dependencies?: TaskDependency[];
+}
+
+// ── Messaging and shutdown ops (tasks 6.x / 7.x) ──────────────────────────────
+
+export interface SendMessageArgs {
+  to: string;
+  message: string;
+  summary?: string;
+  priority?: MailPriority;
+}
+export interface SendMessageResult {
+  mailIds: number[];
+  delivered: string[];
+  queued: string[];
+  /** `urgent_as_steer` when the interrupt was unavailable and the mail went out as a normal steer. */
+  degraded?: "urgent_as_steer";
+}
+
+export interface ShutdownRequestArgs {
+  to: string;
+  reason?: string;
+}
+export interface ShutdownResponseArgs {
+  approve: boolean;
+  reason?: string;
+}
+export interface ShutdownResponseResult {
+  approved: boolean;
 }
 
 // ── Lifecycle reports (hello / busy / idle / ack) ──────────────────────────────
