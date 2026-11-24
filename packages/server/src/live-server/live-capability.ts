@@ -98,7 +98,7 @@ export type LiveExposure = "local-only" | "exposed";
 const VIEWER_ID_SHAPE = /^[A-Za-z0-9_-]{8,64}$/;
 export const isViewerId = (v: unknown): v is string => typeof v === "string" && VIEWER_ID_SHAPE.test(v);
 
-export interface LiveCapabilityEntry {
+interface LiveCapabilityEntry {
   targetId: string;
   principal: CapabilityPrincipal;
   mintedAt: number;
@@ -148,7 +148,7 @@ export interface LiveCapabilityGrant {
 }
 
 /** Origin binding of a mint for tiers 1-4 (D1, D2). */
-export interface PreviewMintBinding {
+interface PreviewMintBinding {
   tier: 1 | 2 | 3 | 4;
   /** Canonical `Origin` of the mint request (fallback `scheme://Host`). */
   ancestors: string[];

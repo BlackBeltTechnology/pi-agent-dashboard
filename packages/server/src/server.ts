@@ -103,7 +103,7 @@ import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrust
 import { registerCspReportSink } from "./auth/csp-report-sink.js";
 import { CspReportStore } from "./auth/csp-report-store.js";
 import { stateCallerFor } from "./auth/dashboard-state-caller.js";
-import { isHostAdmitted } from "./auth/host-admission.js";
+import { classifyAdmittedHostname, isHostAdmitted } from "./auth/host-admission.js";
 import {
   createHostGate,
   evaluateHostGate,
@@ -171,6 +171,7 @@ import { buildPluginSendPrompt } from "./build-plugin-send-prompt.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { readRawConfig, seedWindowsSourceSettings, writeConfigPartial } from "./config-api.js";
 import {
+  getResolvedPreviewOrigins,
   liveAcceptLanRequests,
   liveAllowedHosts,
   liveCorsAllowedOrigins,
@@ -181,6 +182,7 @@ import {
   liveRequireLocalProof,
   liveTrustedNetworks,
   rawConfigHasHostGateMode,
+  setPreviewOriginsRuntime,
 } from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
@@ -2219,8 +2221,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       bindHost: config.host,
       // Exact certificate names of the TLS listener (empty unless enabled + bound).
       tlsListenerNames: () => tlsListener.tlsListenerNames(),
+      // The `live preview capability hosts` pattern row (D3): present whenever previews are on.
+      livePreviewEnabled: () => getResolvedPreviewOrigins().enabled,
     },
     ...resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()),
+  });
+  // Inputs of the preview-origin overlap checks (D12): live tunnels, TLS names and the static
+  // admission classifier, so a label-shaped host that is already admitted is never shaped as a preview.
+  setPreviewOriginsRuntime({
+    tunnelOrigins: liveTunnelOrigins,
+    tlsNames: () => tlsListener.tlsListenerNames(),
+    classifyAdmittedHostname: (hostname) => classifyAdmittedHostname(hostname, getHostGateCtx().admission),
   });
   /**
    * The ONE origin-policy input, shared by the CORS plugin, the WS upgrade gate

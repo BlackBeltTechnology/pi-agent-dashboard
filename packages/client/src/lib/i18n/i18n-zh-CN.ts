@@ -1797,6 +1797,7 @@ export const zhCNCatalog: Record<string, string> = {
   "settings.hostGate.source.cors-origin": "CORS 来源",
   "settings.hostGate.source.live-tunnel": "活动隧道",
   "settings.hostGate.source.tls-listener": "TLS 证书",
+  "settings.hostGate.source.live-preview": "实时预览",
   "settings.hostGate.source.allowed-host": "允许的主机",
   "settings.hostGate.editGateway": "网关 ▸",
   "settings.hostGate.editServer": "服务器 ▸",

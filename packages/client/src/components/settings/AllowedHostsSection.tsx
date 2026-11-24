@@ -50,6 +50,7 @@ const SOURCE_ORDER: HostGateAdmittedSource[] = [
   "cors-origin",
   "live-tunnel",
   "tls-listener",
+  "live-preview",
   "allowed-host",
 ];
 
@@ -64,6 +65,7 @@ const SOURCE_GROUP: Record<HostGateAdmittedSource, SourceGroup> = {
   "cors-origin": "gateway",
   "live-tunnel": "gateway",
   "tls-listener": "gateway",
+  "live-preview": "additional",
   "allowed-host": "additional",
 };
 
@@ -101,6 +103,7 @@ const SOURCE_LABEL: Record<HostGateAdmittedSource, string> = {
   "cors-origin": "CORS origin",
   "live-tunnel": "live tunnel",
   "tls-listener": "TLS certificate",
+  "live-preview": "live preview",
   "allowed-host": "allowed host",
 };
 

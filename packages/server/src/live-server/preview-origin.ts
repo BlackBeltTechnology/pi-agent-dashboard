@@ -42,7 +42,7 @@ export const previewLogHash = (secret: string): string => hashPreviewKey(secret)
 const DEFAULT_PORT = { http: 80, https: 443 } as const;
 
 /** IPv4-mapped IPv6 (`::ffff:a.b.c.d` or `::ffff:xxxx:xxxx`) → its IPv4, else unchanged. */
-export function unmapIPv4(host: string): string {
+function unmapIPv4(host: string): string {
   const dotted = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(host);
   if (dotted) return dotted[1];
   const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
@@ -55,7 +55,7 @@ export function unmapIPv4(host: string): string {
 }
 
 /** Lower-case, strip brackets and ONE trailing dot, unmap IPv4-mapped IPv6. */
-export function normalizePreviewHostname(host: string): string {
+function normalizePreviewHostname(host: string): string {
   let h = host.trim().toLowerCase();
   if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
   if (h.endsWith(".")) h = h.slice(0, -1);

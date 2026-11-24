@@ -97,7 +97,7 @@ describe("live re-evaluation (E9)", () => {
 });
 
 describe("tunnel / TLS runtime inputs (E53)", () => {
-  it("a live tunnel overlapping the suffix disables tier 2 after notify, and fires the change listener", () => {
+  it("a live tunnel overlapping the suffix disables tier 2 on the next read, and fires the change listener", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
     let tunnels: string[] = [];
@@ -107,11 +107,14 @@ describe("tunnel / TLS runtime inputs (E53)", () => {
     onPreviewOriginsChange((next) => seen.push(next.tiers));
     expect(getResolvedPreviewOrigins().tiers).toContain(2);
     tunnels = [`https://${a26}.preview.example.com`];
-    // memoised until the runtime says it moved
-    expect(getResolvedPreviewOrigins().tiers).toContain(2);
-    notifyPreviewOriginsRuntimeChanged();
+    // the tunnel list is part of the memo key: no notification is needed to see a connect
     expect(getResolvedPreviewOrigins().tiers).not.toContain(2);
     expect(seen).toEqual([[1, 5]]);
+    tunnels = [];
+    expect(getResolvedPreviewOrigins().tiers).toContain(2);
+    // an explicit notification also forces a recompute (certificate change with a stable name list)
+    notifyPreviewOriginsRuntimeChanged();
+    expect(getResolvedPreviewOrigins().tiers).toContain(2);
   });
 
   it("static admission rows disable the tier through the injected classifier", () => {

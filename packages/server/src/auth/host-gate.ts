@@ -351,6 +351,15 @@ export function admittedHostRows(
   for (const raw of safeLiveTunnelOrigins(opts)) add(hostnameFromUrl(raw), "live-tunnel");
   for (const name of safeTlsListenerNames(opts)) add(normalizeName(name), "tls-listener");
   for (const raw of opts.allowedHosts ?? []) add(normalizeName(raw), "allowed-host");
+  // One pattern row, never an enumeration: `admitted` is readable by every `GET /api/config` caller,
+  // and a label is a secret (D2). Present whenever previews are enabled, even with zero live entries.
+  let previewsOn = false;
+  try {
+    previewsOn = opts.livePreviewEnabled?.() === true;
+  } catch {
+    /* fail-empty, like the other dynamic sources */
+  }
+  if (previewsOn) add("live preview capability hosts", "live-preview");
   return rows;
 }
 

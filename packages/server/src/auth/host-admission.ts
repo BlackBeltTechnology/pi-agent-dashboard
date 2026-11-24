@@ -35,6 +35,13 @@ export interface HostAdmissionOptions {
    * See change: add-tailscale-cert-tls (D6).
    */
   tlsListenerNames?: () => string[];
+  /**
+   * Are live previews on? Adds the operator-visible pattern row `live preview capability hosts`
+   * to `GET /api/host-gate`. Preview hosts themselves are NEVER statically admitted: `previewApp`
+   * admits the exact `originHost` of a live capability, so a wildcard never admits a host.
+   * See change: serve-live-previews-on-capability-origin (D3).
+   */
+  livePreviewEnabled?: () => boolean;
 }
 
 /** The source labels the operator UI renders, in first-match order (D1). */

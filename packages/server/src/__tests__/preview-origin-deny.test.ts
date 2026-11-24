@@ -139,3 +139,15 @@ describe("admission gates (E47, E141)", () => {
     expect(isMutationOriginTrusted("http://dash.localhost:8000", "dash.localhost:8000", o)).toBe(true);
   });
 });
+
+describe("host-gate `live-preview` pattern row (E50, E138)", () => {
+  it("present when previews are enabled, absent otherwise; never enumerates a label", async () => {
+    const { admittedHostRows } = await import("../auth/host-gate.js");
+    const on = admittedHostRows({ livePreviewEnabled: () => true });
+    expect(on.filter((r) => r.source === "live-preview")).toEqual([{ host: "live preview capability hosts", source: "live-preview" }]);
+    expect(admittedHostRows({ livePreviewEnabled: () => false }).some((r) => r.source === "live-preview")).toBe(false);
+    expect(admittedHostRows({}).some((r) => r.source === "live-preview")).toBe(false);
+    expect(admittedHostRows({ livePreviewEnabled: () => { throw new Error("x"); } }).some((r) => r.source === "live-preview")).toBe(false);
+    expect(JSON.stringify(on)).not.toMatch(/[a-z2-7]{26}\./);
+  });
+});

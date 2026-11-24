@@ -2506,6 +2506,7 @@ export const huCatalog: Record<string, string> = {
   "settings.hostGate.source.cors-origin": "CORS eredet",
   "settings.hostGate.source.live-tunnel": "élő alagút",
   "settings.hostGate.source.tls-listener": "TLS tanúsítvány",
+  "settings.hostGate.source.live-preview": "élő előnézet",
   "settings.hostGate.source.allowed-host": "engedélyezett gépnév",
   "settings.hostGate.editGateway": "Gateway ▸",
   "settings.hostGate.editServer": "Server ▸",

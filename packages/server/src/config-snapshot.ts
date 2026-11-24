@@ -228,7 +228,7 @@ export interface PreviewOriginsRuntime {
 let previewRuntime: PreviewOriginsRuntime = {};
 /** Bumped when the runtime inputs change (tunnel connect, certificate change) so the memo is recomputed. */
 let previewRuntimeEpoch = 0;
-let resolvedPo: { stamp: string; epoch: number; value: ResolvedPreviewOrigins } | undefined;
+let resolvedPo: { stamp: string; epoch: string; value: ResolvedPreviewOrigins } | undefined;
 let lastLoggedPo: ResolvedPreviewOrigins | undefined;
 const previewOriginsListeners = new Set<(next: ResolvedPreviewOrigins, prev: ResolvedPreviewOrigins) => void>();
 
@@ -276,7 +276,13 @@ function safeList(fn: (() => string[]) | undefined): string[] {
  */
 export function getResolvedPreviewOrigins(): ResolvedPreviewOrigins {
   const cfg = getConfigSnapshot();
-  if (resolvedPo && resolvedPo.stamp === cachedStamp && resolvedPo.epoch === previewRuntimeEpoch) {
+  // The overlap set includes live tunnel origins and TLS names, which move without a config write:
+  // their (tiny) lists are part of the memo key, so a tunnel connect / certificate change is seen on
+  // the next read with no explicit notification.
+  const tunnelOrigins = safeList(previewRuntime.tunnelOrigins);
+  const tlsNames = safeList(previewRuntime.tlsNames);
+  const runtimeKey = `${previewRuntimeEpoch}|${tunnelOrigins.join(",")}|${tlsNames.join(",")}`;
+  if (resolvedPo && resolvedPo.stamp === cachedStamp && resolvedPo.epoch === runtimeKey) {
     return resolvedPo.value;
   }
   let resolved: ResolvedPreviewOrigins;
@@ -289,8 +295,8 @@ export function getResolvedPreviewOrigins(): ResolvedPreviewOrigins {
       allowedHosts: cfg.allowedHosts ?? [],
       publicBaseUrls: resolvePublicBaseUrls(cfg) ?? [],
       corsOrigins: cfg.cors?.allowedOrigins ?? [],
-      tunnelOrigins: safeList(previewRuntime.tunnelOrigins),
-      tlsNames: safeList(previewRuntime.tlsNames),
+      tunnelOrigins,
+      tlsNames,
       classifyAdmittedHostname: previewRuntime.classifyAdmittedHostname,
     });
   } catch (err) {
@@ -299,7 +305,7 @@ export function getResolvedPreviewOrigins(): ResolvedPreviewOrigins {
   }
   const value: ResolvedPreviewOrigins = { ...resolved, issues: [...cachedPoIssues, ...resolved.issues] };
   const prev = resolvedPo?.value;
-  resolvedPo = { stamp: cachedStamp, epoch: previewRuntimeEpoch, value };
+  resolvedPo = { stamp: cachedStamp, epoch: runtimeKey, value };
   if (previewOriginsConfigChanged(lastLoggedPo, value)) {
     lastLoggedPo = value;
     for (const issue of value.issues) console.warn(`[live-preview] config: ${issue.message}`);

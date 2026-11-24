@@ -40,7 +40,8 @@ export type HostGateAdmittedSource =
   | "cors-origin"
   | "live-tunnel"
   | "allowed-host"
-  | "tls-listener";
+  | "tls-listener"
+  | "live-preview";
 
 /** One row of the operator-visible *Currently admitted* list. */
 export interface HostGateAdmittedRow {
