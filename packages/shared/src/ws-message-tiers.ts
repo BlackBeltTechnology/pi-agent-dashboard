@@ -22,6 +22,7 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   browser_relay_unsubscribe: "observe",
   fetch_content: "observe",
   history_backfill: "observe",
+  live_preview_accept: "observe",
   list_files: "observe",
   list_sessions: "observe",
   openspec_get: "observe",

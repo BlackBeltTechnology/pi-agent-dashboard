@@ -62,6 +62,7 @@ import { COALESCE_WINDOW_MS, MessageUpdateCoalescer } from "./message-update-coa
 import { buildSpawnNewSessionMessage } from "./spawn-new-session.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { createPathGate } from "./path-gate/index.js";
+import { createPreviewPathLink, installBaseReservationListener } from "./preview-path-link.js";
 import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
@@ -1142,6 +1143,15 @@ function initBridge(pi: ExtensionAPI) {
   });
   inst.pathGate = pathGate;
 
+  // Reserve-path pair (D9): the neutral `mock-site:base-reservation` probe is answered by the server's decision.
+  // See change: serve-live-previews-on-capability-origin.
+  const previewPathLink = createPreviewPathLink({
+    send: (m) => inst.connection.sendIfOpen(m),
+    sessionId: () => inst.sessionId ?? "",
+  });
+  inst.previewPathLink = previewPathLink;
+  const disposeBaseReservation = installBaseReservationListener(pi.events, () => (isActive() ? previewPathLink : undefined));
+
   // Credential vault: applies the hub's granted env values to process.env and
   // reconciles on every connect and session_start. State lives on `process`, so
   // a reload keeps it. See change: add-credential-vault.
@@ -1336,6 +1346,7 @@ function initBridge(pi: ExtensionAPI) {
       if (inst.connection !== primaryConnection) return;
       pluginLaneDown();
       pathGate.reset();
+      previewPathLink.reset();
       vaultDelivery.onClose();
       sudoAskpass.onClose();
     },
@@ -2226,6 +2237,7 @@ function initBridge(pi: ExtensionAPI) {
     // Release our EventBus subscriptions. Nothing to "restore": the bridge no
     // longer replaces any host function. See change: fix-automation-run-lifecycle.
     disposeEventBusForwarding();
+    disposeBaseReservation();
     pluginForwardRegistry.dispose();
     inst.connection.disconnect();
   };

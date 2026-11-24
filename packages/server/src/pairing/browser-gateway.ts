@@ -3,6 +3,7 @@
  * Runs on the HTTP server port via upgrade handling.
  */
 
+import { markPreviewAccept } from "../live-server/preview-viewers.js";
 import type {
   BrowserOpenSpecUpdateMessage,
   BrowserToServerMessage,
@@ -2582,6 +2583,12 @@ export function createBrowserGateway(
             break;
           }
 
+          // Tab announces it renders `/preview/<pid>/` frames: counted as a tier-5 viewer when its upgrade
+          // classified to tier 5. See change: serve-live-previews-on-capability-origin (D9).
+          case "live_preview_accept": {
+            markPreviewAccept(ws, (msg as { accept?: unknown }).accept);
+            break;
+          }
           case "architect_prompt_response": {
             // Legacy: now handled by prompt_response via PromptBus.
             // Keep case to avoid "unhandled message" warnings from old clients.

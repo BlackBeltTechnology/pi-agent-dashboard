@@ -47,6 +47,7 @@ import { type LiveLogSink, liveLog } from "../live-server/live-log.js";
 import type { LiveServerManager } from "../live-server/live-server-manager.js";
 import { safeSegments } from "../live-server/live-static.js";
 import type { PreviewPathStore } from "../live-server/preview-path-store.js";
+import { reservePreviewPath } from "../live-server/preview-reserve.js";
 import { selectMintTier } from "../live-server/preview-tier.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -132,6 +133,8 @@ export interface LiveServerRouteDeps {
   previewOrigins?: () => import("@blackbelt-technology/pi-dashboard-shared/preview-origins.js").ResolvedPreviewOrigins;
   /** Tier-5 pid store (D8); absent ⇒ a tier-5 outcome is the legacy path. */
   previewPaths?: PreviewPathStore;
+  /** Is any connected browser a tier-5 viewer (D9)? Absent ⇒ the reserve route is not registered. */
+  hasTier5Viewer?: () => boolean;
   /** Exposure service; absent ⇒ treated as `exposed` (fail closed). */
   exposure?: PreviewExposure;
   /** Is access prompting enabled (`accessGrants.promptEnabled`)? Absent ⇒ false. */
@@ -301,6 +304,7 @@ export function registerLiveServerRoutes(
     },
   );
 
+  registerReserveRoutes(fastify, liveServerManager, deps, portMintRefused);
   if (capabilities) {
     // Mint a per-preview capability path. Route tier is raw-read (`observe`); a PORT
     // target additionally needs `control` (checked in the handler). The policy is
@@ -342,6 +346,7 @@ export function registerLiveServerRoutes(
         const binding = decision.tier === 1 || decision.tier === 2 || decision.tier === 4 ? decision : undefined;
         if (decision.tier === "tier5" && deps.previewPaths) {
           const m = deps.previewPaths.mint(id, principal, {
+            port: kind === "port" ? liveServerManager.get(id)?.port : undefined,
             policy: { egress, scripts },
             localBound: isLocalBoundMint(request, principal),
             exposure,
@@ -374,7 +379,21 @@ export function registerLiveServerRoutes(
         const { token, tokenId, expiresAt, policy } = minted;
         if (binding && minted.origin) {
           log("mint", { tier: minted.tier, reused: minted.reused });
-          return { success: true, ok: true, tier: minted.tier, origin: minted.origin, path: "/", expiresAt, tokenId, policy } satisfies LiveCapabilityMintResponse;
+          // A site started under a tier-5 base: the frame must load THAT base on the capability origin (D7/D9). The minter
+          // learns the pid, so it becomes a revocation-only holder (D-U7).
+          const livePid = kind === "port" ? (deps.previewPaths?.currentPid(id) ?? null) : null;
+          if (livePid) deps.previewPaths?.addRevocationHolder(livePid, principal);
+          return {
+            success: true,
+            ok: true,
+            tier: minted.tier,
+            origin: minted.origin,
+            path: "/",
+            expiresAt,
+            tokenId,
+            policy,
+            ...(livePid ? { base: `/preview/${livePid}/` } : {}),
+          } satisfies LiveCapabilityMintResponse;
         }
         log("mint", { tier: "legacy", reason: decision.reason ?? "no-match" });
         return {
@@ -409,6 +428,52 @@ export function registerLiveServerRoutes(
 
     if (deps.egress) registerEgressRoutes(fastify, { ...deps, egress: deps.egress, capabilities });
   }
+}
+
+/**
+ * Reserve / release a stable tier-5 base (D9). `control` tier (the route tier plus the in-handler strict-local-proof check),
+ * the port-target SSRF gate, and the decision lives here: no tier-5 viewer ⇒ `path: null`, nothing reserved.
+ * See change: serve-live-previews-on-capability-origin (D9).
+ */
+function registerReserveRoutes(
+  fastify: FastifyInstance,
+  manager: LiveServerManager,
+  deps: LiveServerRouteDeps,
+  refused: (request: FastifyRequest, reply: FastifyReply) => boolean,
+): void {
+  const { previewPaths, hasTier5Viewer, networkGuard } = deps;
+  if (!previewPaths || !hasTier5Viewer) return;
+  fastify.post<{ Body: Record<string, unknown> }>("/api/live-server/preview-path", { preHandler: networkGuard }, async (request, reply) => {
+    if (refused(request, reply)) return reply;
+    const body = asRecord(request.body);
+    let port: unknown = body.port;
+    if (port === undefined && typeof body.targetId === "string") port = manager.get(body.targetId)?.port;
+    const principal = capabilityPrincipalOf(request);
+    const out = reservePreviewPath(
+      { store: previewPaths, hasTier5Viewer, portRefusal: (p) => manager.portRefusal(p) },
+      port,
+      { key: principalKeyOf(principal), principal },
+    );
+    if (out.kind === "invalid-port") {
+      reply.code(400);
+      return { success: false, error: out.error } satisfies ApiResponse;
+    }
+    if (out.kind === "limit") {
+      reply.code(429);
+      return { success: false, error: "reservation_limit" } satisfies ApiResponse;
+    }
+    if (out.kind === "no-viewer") return { success: true, path: null, tier5Viewers: false };
+    return { success: true, path: out.path, expiresAt: out.expiresAt, tier5Viewers: true };
+  });
+  fastify.delete<{ Params: { pid: string } }>("/api/live-server/preview-path/:pid", { preHandler: networkGuard }, async (request, reply) => {
+    if (refused(request, reply)) return reply;
+    const released = previewPaths.releaseReservation(request.params.pid, principalKeyOf(capabilityPrincipalOf(request)));
+    if (!released) {
+      reply.code(404); // unknown, foreign or already ADOPTED: only an unbound reservation can be released
+      return { success: false, error: "reservation not found" } satisfies ApiResponse;
+    }
+    return { success: true };
+  });
 }
 
 /** Everything the egress routes read: the route deps with the egress service and capability store present. */

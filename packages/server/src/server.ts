@@ -251,6 +251,7 @@ import { handleLiveServerUpgrade, type LiveProxyDeps, registerLiveServerProxy } 
 import { createPreviewDispatch, type PreviewDispatch, previewServerFactory, routePreviewUpgrade } from "./live-server/preview-dispatch.js";
 import { parsePreviewPath } from "./live-server/preview-path.js";
 import { PreviewPathStore } from "./live-server/preview-path-store.js";
+import { hasTier5Viewer, stampPreviewViewer } from "./live-server/preview-viewers.js";
 import { createPreviewPreflight } from "./live-server/preview-preflight.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
@@ -2055,6 +2056,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingPromptAcks,
     dispatchPluginPiMessage,
     dispatchPluginRequest,
+    // D9: the bridge reserve-path pair; late-bound (the stores are built after `wireEvents`).
+    previewPathBridge: () =>
+      previewPaths
+        ? {
+            reserve: {
+              store: previewPaths,
+              hasTier5Viewer: () => hasTier5Viewer(browserGateway.wss.clients),
+              portRefusal: (port) => liveServerManager.portRefusal(port),
+            },
+            deviceTier: (deviceId) => pairedDeviceRegistry.list().find((d) => d.id === deviceId)?.tier,
+            isSessionLive: (id) => piGateway.getConnectedSessionIds().includes(id),
+          }
+        : undefined,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
     dispatchSessionRegisteredCwd,
@@ -2517,6 +2531,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Tier 5 (`/preview/<pid>/`, D8): one current pid per port target; liveness is re-checked at every use, so a revoked
   // holder / removed target / disabled previews drops the pid on its next request or sweep.
   previewPaths = new PreviewPathStore({
+    targetIdForPort: (port) => liveServerManager.getByPort(port)?.id,
+    isPortAllowed: (port) => liveServerManager.portRefusal(port) === null,
     isTargetLive: (id) => liveServerManager.has(id),
     isPrincipalLive: capabilityPrincipalLive,
     isEnabled: () => getResolvedPreviewOrigins().enabled,
@@ -3580,6 +3596,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     capabilities: liveCapabilities,
     previewPaths,
+    hasTier5Viewer: () => hasTier5Viewer(browserGateway.wss.clients),
     exposure: previewExposure,
     promptingEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
     getTrustedNetworks: admissionList,
@@ -5238,7 +5255,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               }
               // Locality is decided ONCE here, from the upgrade request; handlers read the bit.
               // See change: harden-server-capability-bounds (D1b).
-              stampSocketLocality(ws, request, localTrust);
+              const socketLocal = stampSocketLocality(ws, request, localTrust);
+              // D9: does this socket classify to tier 5? (counted only after the tab's `live_preview_accept`)
+              stampPreviewViewer(ws, request, { genuinelyLocal: socketLocal, resolved: getResolvedPreviewOrigins() });
               if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               if (sessionTierOf) (ws as TieredSocket).sessionTier = sessionTierOf;
               // Tag with the minting device so `closeDeviceSockets` can find it on revoke (D7).

@@ -6,7 +6,8 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { proofFetch } from "../test-support/local-credential-stamp.js";
+import { WebSocket } from "ws";
+import { proofFetch, proofHeaders } from "../test-support/local-credential-stamp.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 let handle: TestServerHandle | undefined;
@@ -118,3 +119,49 @@ describe("tiered preview inside the real server", () => {
     if (csp) expect(csp).toContain(`http://*.localhost:${port}`);
   });
 });
+
+describe("reserve-path API inside the real server (D9)", () => {
+  const open = (url: string, headers: Record<string, string> = {}) =>
+    new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(url, { headers });
+      ws.on("open", () => resolve(ws));
+      ws.on("error", reject);
+    });
+  const reserve = (port: number, body: unknown) =>
+    proofFetch(`http://127.0.0.1:${port}/api/live-server/preview-path`, {
+      method: "POST",
+      headers: { "content-type": "application/json", host: `localhost:${port}` },
+      body: JSON.stringify(body),
+    });
+
+  it("a loopback (tier-1) browser announcing `live_preview_accept` is NOT a tier-5 viewer: nothing is reserved, bodies are validated", async () => {
+    handle = await createTestServer();
+    const port = handle.httpPort;
+    const browser = await open(`ws://127.0.0.1:${port}/ws`, proofHeaders(`http://127.0.0.1:${port}/ws`));
+    browser.send(JSON.stringify({ type: "live_preview_accept", accept: ["origin", "preview"] }));
+    await new Promise((r) => setTimeout(r, 150));
+    const none = await reserve(port, { port: 5299 });
+    expect(none.status).toBe(200);
+    expect(await none.json()).toEqual({ success: true, path: null, tier5Viewers: false });
+    expect((await reserve(port, { port: 0 })).status).toBe(400);
+    browser.close();
+  });
+
+  it("the bridge pair works over the real gateway: request → result (no viewer ⇒ path null)", async () => {
+    handle = await createTestServer();
+    const bridge = await open(`ws://127.0.0.1:${handle.piPort}`);
+    const got = new Promise<Record<string, unknown>>((resolve) => {
+      bridge.on("message", (raw) => {
+        const m = JSON.parse(String(raw));
+        if (m.type === "preview_path_result") resolve(m);
+      });
+    });
+    bridge.send(JSON.stringify({ type: "session_register", sessionId: "resv", cwd: "/tmp", source: "cli" }));
+    bridge.send(JSON.stringify({ type: "replay_complete", sessionId: "resv" }));
+    await new Promise((r) => setTimeout(r, 200));
+    bridge.send(JSON.stringify({ type: "preview_path_request", requestId: "q1", sessionId: "resv", port: 5299 }));
+    expect(await got).toEqual({ type: "preview_path_result", requestId: "q1", path: null, tier5Viewers: false });
+    bridge.close();
+  });
+});
+

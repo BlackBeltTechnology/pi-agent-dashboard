@@ -11,7 +11,10 @@
  *  - Bounds: 32 pids created per principal, 256 in total. At a cap the mint is REFUSED (caller falls back to legacy);
  *    live pids are never evicted. Joining an existing pid creates nothing and is always allowed.
  *
- * See change: serve-live-previews-on-capability-origin (D8).
+ *  - Reservations (D9): a reserved-but-unadopted pid lives in a SEPARATE map, so it is indistinguishable from an unknown
+ *    pid at every road (`validate` never sees it). A control-tier tier-5 mint for the same port adopts the newest one.
+ *
+ * See change: serve-live-previews-on-capability-origin (D8, D9).
  */
 import crypto from "node:crypto";
 import { CAPABILITY_IDLE_MS, CAPABILITY_MAX_MS, type CapabilityPrincipal, type LiveCapabilityGrant, type LiveExposure, type LivePolicy, principalKeyOf } from "./live-capability.js";
@@ -24,9 +27,35 @@ const MAX_PIDS_PER_PRINCIPAL = 32;
 const MAX_PIDS_TOTAL = 256;
 const SWEEP_INTERVAL_MS = 60_000;
 
+/** Unbound reservations: 8 per principal, 64 in total; a replacement for the same (principal, port) is free. */
+const MAX_RESERVATIONS_PER_PRINCIPAL = 8;
+const MAX_RESERVATIONS_TOTAL = 64;
+/** An unbound reservation lives 10 min from creation, or up to 12 h while a target for its port exists. */
+const RESERVATION_NO_TARGET_MS = 10 * 60_000;
+const RESERVATION_WITH_TARGET_MS = 12 * 3_600_000;
+/** Who reserved: a REST principal or an authenticated bridge connection (`key` = the server-known identity). */
+export interface Reserver {
+  key: string;
+  principal?: CapabilityPrincipal;
+  /** Liveness of a non-principal reserver (a bridge session); absent ⇒ always live. */
+  isLive?: () => boolean;
+}
+interface Reservation {
+  pid: string;
+  port: number;
+  reserver: Reserver;
+  /** Bridge `requestId`, so a late `preview_path_release` can drop exactly this reservation. */
+  requestId?: string;
+  createdAt: number;
+}
+export type ReserveResult =
+  | { ok: true; pid: string; expiresAt: number; reserved: boolean }
+  | { ok: false; reason: "principal-cap" | "total-cap" };
 interface Holder {
   kind: "mint" | "revocation";
   principal: CapabilityPrincipal;
+  /** Liveness of a holder that is not a CapabilityPrincipal (a bridge-session reserver). */
+  isLive?: () => boolean;
   localBound: boolean;
   policy: LivePolicy;
   exposure: LiveExposure;
@@ -44,6 +73,8 @@ interface PathEntry {
 }
 
 export interface PreviewPathMintOptions {
+  /** The target's loopback port: lets the mint adopt a reservation made for it (D9). */
+  port?: number;
   policy: LivePolicy;
   localBound?: boolean;
   exposure?: LiveExposure;
@@ -61,9 +92,13 @@ export type PreviewPathMint =
       /** A previous pid of this target was superseded: the running site was started under the OLD base. */
       restartRequired: boolean;
     }
-  | { ok: false; reason: "principal-cap" | "total-cap" };
+  | { ok: false; reason: "principal-cap" | "total-cap" | "adoption-refused" };
 
 export interface PreviewPathStoreOptions {
+  /** The registered port target's id for a loopback port, or `undefined` (reserve returns its live pid; lifetime). */
+  targetIdForPort?: (port: number) => string | undefined;
+  /** The SSRF gate (loopback port target, never an `ownPorts` port): re-run at adoption (TOCTOU). */
+  isPortAllowed?: (port: number) => boolean;
   now?: () => number;
   isTargetLive?: (targetId: string) => boolean;
   isPrincipalLive?: (p: CapabilityPrincipal) => boolean;
@@ -96,6 +131,10 @@ export class PreviewPathStore {
   private readonly isPrincipalLive: (p: CapabilityPrincipal) => boolean;
   private readonly isEnabled: () => boolean;
   private readonly sweepIntervalMs: number;
+  private readonly targetIdForPort: (port: number) => string | undefined;
+  private readonly isPortAllowed: (port: number) => boolean;
+  /** `hash(pid)` → unbound reservation. Insertion order = age (newest last). */
+  private readonly reservations = new Map<string, Reservation>();
   private sweeper: ReturnType<typeof setInterval> | undefined;
 
   constructor(opts: PreviewPathStoreOptions = {}) {
@@ -104,6 +143,13 @@ export class PreviewPathStore {
     this.isPrincipalLive = opts.isPrincipalLive ?? (() => true);
     this.isEnabled = opts.isEnabled ?? (() => true);
     this.sweepIntervalMs = opts.sweepIntervalMs ?? SWEEP_INTERVAL_MS;
+    this.targetIdForPort = opts.targetIdForPort ?? (() => undefined);
+    this.isPortAllowed = opts.isPortAllowed ?? (() => true);
+  }
+
+  /** Unbound reservations currently held (introspection / bounds tests). */
+  reservationCount(): number {
+    return this.reservations.size;
   }
 
   size(): number {
@@ -136,6 +182,8 @@ export class PreviewPathStore {
     };
     const currentKey = this.current.get(targetId);
     const cur = currentKey ? this.entries.get(currentKey) : undefined;
+    // Precedence (D9): (1) a live pid of the target wins and every reservation for the port is discarded.
+    if (cur && opts.port !== undefined) this.dropReservationsForPort(opts.port);
     if (cur && cur.mintedAt + CAPABILITY_MAX_MS - now > SUPERSEDE_WITHIN_MS) {
       // Join: refresh as a mint holder (an earlier revocation-only holder is upgraded). Re-insert so it is the newest.
       cur.holders.delete(who);
@@ -146,7 +194,13 @@ export class PreviewPathStore {
     const created = [...this.entries.values()].filter((e) => e.creator === who).length;
     if (created >= MAX_PIDS_PER_PRINCIPAL) return { ok: false, reason: "principal-cap" };
     if (this.entries.size >= MAX_PIDS_TOTAL) return { ok: false, reason: "total-cap" };
-    const pid = crypto.randomBytes(16).toString("base64url");
+    // (2) else adopt the newest reservation for the port (older ones are dropped); (3) else a new pid.
+    const adopted = !cur && opts.port !== undefined ? this.newestReservation(opts.port) : undefined;
+    if (adopted && !this.isPortAllowed(adopted.port)) {
+      this.dropReservationsForPort(adopted.port); // the port can never adopt validly (Q35)
+      return { ok: false, reason: "adoption-refused" };
+    }
+    const pid = adopted?.pid ?? crypto.randomBytes(16).toString("base64url");
     const entry: PathEntry = {
       pid,
       tokenId: crypto.randomBytes(12).toString("base64url"),
@@ -159,7 +213,101 @@ export class PreviewPathStore {
     const key = hashPreviewKey(pid);
     this.entries.set(key, entry);
     this.current.set(targetId, key);
+    if (adopted && opts.port !== undefined) {
+      this.dropReservationsForPort(opts.port);
+      // The reserver already knows the pid: it may revoke it (D-U7) but never admits requests through it.
+      if (adopted.reserver.key !== who) this.addReserverHolder(entry, adopted.reserver);
+    }
     return this.result(entry, false, cur !== undefined);
+  }
+
+  /**
+   * Reserve a stable base for a loopback `port` (D9). A port whose target already has a live pid returns THAT pid and
+   * creates nothing (the caller becomes a revocation holder). Otherwise an unbound reservation `{pid, port, reserver}` is made:
+   * 8 per principal, 64 in total, never evicted; a repeat by the same reserver for the same port replaces the previous one.
+   */
+  reserve(port: number, reserver: Reserver, requestId?: string): ReserveResult {
+    const now = this.now();
+    this.sweep();
+    const targetId = this.targetIdForPort(port);
+    const live = targetId ? this.currentPid(targetId) : null;
+    if (live) {
+      const e = this.entries.get(hashPreviewKey(live));
+      if (e) this.addReserverHolder(e, reserver);
+      return { ok: true, pid: live, expiresAt: (e?.mintedAt ?? now) + CAPABILITY_MAX_MS, reserved: false };
+    }
+    for (const [k, r] of this.reservations) if (r.port === port && r.reserver.key === reserver.key) this.reservations.delete(k);
+    const mine = [...this.reservations.values()].filter((r) => r.reserver.key === reserver.key).length;
+    if (mine >= MAX_RESERVATIONS_PER_PRINCIPAL) return { ok: false, reason: "principal-cap" };
+    if (this.reservations.size >= MAX_RESERVATIONS_TOTAL) return { ok: false, reason: "total-cap" };
+    const pid = crypto.randomBytes(16).toString("base64url");
+    const r: Reservation = { pid, port, reserver, createdAt: now, ...(requestId ? { requestId } : {}) };
+    this.reservations.set(hashPreviewKey(pid), r);
+    return { ok: true, pid, expiresAt: this.reservationDeadline(r), reserved: true };
+  }
+
+  /** Release an UNBOUND reservation by pid (reserver only). `false` for an unknown, adopted or foreign pid. */
+  releaseReservation(pid: string, reserverKey: string): boolean {
+    if (!PID_SHAPE.test(pid)) return false;
+    const key = hashPreviewKey(pid);
+    const r = this.reservations.get(key);
+    if (!r || r.reserver.key !== reserverKey) return false;
+    return this.reservations.delete(key);
+  }
+
+  /** Release the unbound reservation a bridge request made (late `preview_path_release`). Idempotent. */
+  releaseByRequest(requestId: string, reserverKey: string): boolean {
+    for (const [k, r] of this.reservations) {
+      if (r.requestId === requestId && r.reserver.key === reserverKey) return this.reservations.delete(k);
+    }
+    return false;
+  }
+
+  /** Drop every unbound reservation of a reserver (its session ended / device revoked). */
+  dropReservationsBy(reserverKey: string): number {
+    let n = 0;
+    for (const [k, r] of this.reservations) {
+      if (r.reserver.key === reserverKey) {
+        this.reservations.delete(k);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  private reservationDeadline(r: Reservation): number {
+    return r.createdAt + (this.targetIdForPort(r.port) !== undefined ? RESERVATION_WITH_TARGET_MS : RESERVATION_NO_TARGET_MS);
+  }
+
+  private reservationAlive(key: string, r: Reservation): boolean {
+    const live = r.reserver.principal ? this.isPrincipalLive(r.reserver.principal) : (r.reserver.isLive?.() ?? true);
+    if (!this.isEnabled() || !live || this.now() >= this.reservationDeadline(r)) {
+      this.reservations.delete(key);
+      return false;
+    }
+    return true;
+  }
+
+  private newestReservation(port: number): Reservation | undefined {
+    let found: Reservation | undefined;
+    for (const [k, r] of this.reservations) if (r.port === port && this.reservationAlive(k, r)) found = r;
+    return found;
+  }
+
+  private dropReservationsForPort(port: number): void {
+    for (const [k, r] of this.reservations) if (r.port === port) this.reservations.delete(k);
+  }
+
+  private addReserverHolder(e: PathEntry, reserver: Reserver): void {
+    if (e.holders.has(reserver.key)) return;
+    e.holders.set(reserver.key, {
+      kind: "revocation",
+      principal: reserver.principal ?? { kind: "local" },
+      ...(reserver.isLive ? { isLive: reserver.isLive } : {}),
+      localBound: false,
+      policy: { egress: "restricted", scripts: false },
+      exposure: "exposed",
+    });
   }
 
   /** Tell the pid to a principal that only needs to be able to revoke it (reserver, tier 1-4 `base` minter). */
@@ -216,6 +364,7 @@ export class PreviewPathStore {
   revokeAll(): void {
     this.entries.clear();
     this.current.clear();
+    this.reservations.clear();
   }
 
   /** Remove expired / revoked entries; revoke everything while previews are disabled. */
@@ -225,6 +374,7 @@ export class PreviewPathStore {
       return;
     }
     for (const [key, e] of this.entries) this.alive(key, e);
+    for (const [key, r] of this.reservations) this.reservationAlive(key, r);
   }
 
   private result(e: PathEntry, reused: boolean, restartRequired: boolean): PreviewPathMint {
@@ -248,7 +398,7 @@ export class PreviewPathStore {
     }
     if (now - e.mintedAt >= CAPABILITY_MAX_MS || now - e.lastUsedAt >= CAPABILITY_IDLE_MS) return this.remove(key, e);
     if (!this.isTargetLive(e.targetId)) return this.remove(key, e);
-    for (const h of e.holders.values()) if (!this.isPrincipalLive(h.principal)) return this.remove(key, e);
+    for (const h of e.holders.values()) if (!(h.isLive ? h.isLive() : this.isPrincipalLive(h.principal))) return this.remove(key, e);
     return true;
   }
 

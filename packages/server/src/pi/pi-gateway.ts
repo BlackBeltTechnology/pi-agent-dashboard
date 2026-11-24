@@ -1283,7 +1283,7 @@ export function createPiGateway(
             // Only `plugin_request` and `sessions_list` carry the sending socket's own
             // origin + channel; every other message keeps the two-argument form.
             const conn: GatewayConn | undefined =
-              msg.type === "plugin_request" || msg.type === "sessions_list"
+              msg.type === "plugin_request" || msg.type === "sessions_list" || msg.type === "preview_path_request"
                 ? { originDeviceId, channel }
                 : undefined;
             if (conn) onEvent?.(eventSessionId ?? currentSessionId ?? "", msg, conn);

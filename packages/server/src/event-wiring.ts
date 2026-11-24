@@ -15,6 +15,7 @@ import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-
 import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import { createAgentConfirmRegistry } from "./access/agent-confirm-registry.js";
+import { bridgeReserverKey, handlePreviewPathRelease, handlePreviewPathRequest } from "./live-server/preview-path-bridge.js";
 import { handlePathGrantRequest } from "./access/agent-grant.js";
 import { handlePathGateRefusal, handlePathYoloRequest } from "./access/agent-yolo.js";
 import { announceableGrantStoreId } from "./access/grant-store-id.js";
@@ -252,6 +253,8 @@ export interface EventWiringDeps {
    * See change: add-goal-continuation-plugin.
    */
   dispatchPluginPiMessage?: (messageType: string, msg: unknown, sessionId: string) => void;
+  /** Bridge reserve-path pair (D9); absent ⇒ a request is answered "no reservation". */
+  previewPathBridge?: () => import("./live-server/preview-path-bridge.js").PreviewPathBridgeDeps | undefined;
   /** Private plugin request lane. See change: expose-plugin-credential-and-oauth-seams (D7). */
   dispatchPluginRequest?: (sessionId: string, msg: PluginRequestMessage, conn?: GatewayConn) => void;
   /**
@@ -511,6 +514,8 @@ export function wireEvents(deps: EventWiringDeps): void {
     // The prompt cannot be answered through a closed bridge: dismiss it on every
     // browser and clear the cache metadata. See change: add-sudo-credential-prompt (D9).
     if (disconnectedSessionId) deps.sudoCredential?.onBridgeDisconnect(disconnectedSessionId);
+    // An unbound base reservation dies with its bridge session (D9).
+    if (disconnectedSessionId) deps.previewPathBridge?.()?.reserve.store.dropReservationsBy(bridgeReserverKey(disconnectedSessionId));
     if (disconnectedSessionId && sessionManager.get(disconnectedSessionId)?.awaitingFileAccess) {
       sessionManager.update(disconnectedSessionId, { awaitingFileAccess: false });
       browserGateway.broadcastSessionUpdated(disconnectedSessionId, { awaitingFileAccess: false });
@@ -1135,6 +1140,23 @@ export function wireEvents(deps: EventWiringDeps): void {
     // Agent path gate: persist an "Always allow" grant bound to a raised confirm
     // prompt of THIS connection's session. `sessionId` is the gateway's socket key.
     // See change: ask-agent-file-access-in-chat (D3).
+    // Bridge reserve-path pair: the server decides (control tier, a tier-5 viewer, bounds); the bridge forwards.
+    // See change: serve-live-previews-on-capability-origin (D9).
+    if (msg.type === "preview_path_request") {
+      const bridge = deps.previewPathBridge?.();
+      piGateway.sendToSession(
+        sessionId,
+        bridge
+          ? handlePreviewPathRequest(sessionId, msg, conn, bridge)
+          : { type: "preview_path_result", requestId: String(msg.requestId ?? ""), path: null, tier5Viewers: false },
+      );
+      return;
+    }
+    if (msg.type === "preview_path_release") {
+      const bridge = deps.previewPathBridge?.();
+      if (bridge) handlePreviewPathRelease(sessionId, msg, bridge);
+      return;
+    }
     if (msg.type === "path_grant_request") {
       piGateway.sendToSession(sessionId, handlePathGrantRequest(sessionId, msg, { registry: agentConfirmRegistry }));
       return;
