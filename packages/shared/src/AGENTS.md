@@ -184,4 +184,4 @@ Files in this directory. One row per source file.
 | `tiers.ts` | `TIERS`, `Tier`, `isTier`, `rank`, `minTier`, `defaultTierForSource`. → see `tiers.ts.AGENTS.md` |
 | `usage-totals.ts` | Pure usage summing (seed / JSONL reader / replay agree). → see `usage-totals.ts.AGENTS.md` |
 
-- `live-server.ts`: `LiveCapabilityMintResponse` (mint response shape, tier union `1|2|3|4|5|"legacy"`). See change: serve-live-previews-on-capability-origin.
+- `live-server.ts` + `LiveCapabilityMintResponse` (mint body; tier `1|2|3|4|5|"legacy"`). Change: serve-live-previews-on-capability-origin.
