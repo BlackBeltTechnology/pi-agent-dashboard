@@ -2,91 +2,97 @@
   "schemaVersion": 1,
   "groups": [
     {
+      "id": "agent-teams",
+      "name": "Agent Teams",
+      "color": "#8b5cf6",
+      "order": 0
+    },
+    {
       "id": "queue",
       "name": "Queue",
       "color": "#ef4444",
-      "order": 0
+      "order": 1
     },
     {
       "id": "ui",
       "name": "Current",
       "color": "#22c55e",
-      "order": 1
+      "order": 2
     },
     {
       "id": "harden-security",
       "name": "Harden Security",
       "color": "#3b82f6",
-      "order": 2
+      "order": 3
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 3
+      "order": 4
     },
     {
       "id": "artcraft-craft-apps",
       "name": "ArtCraft Craft Apps",
-      "order": 4
+      "order": 5
     },
     {
       "id": "project-workflows",
       "name": "Project Workflows",
       "color": "#14b8a6",
-      "order": 5
+      "order": 6
     },
     {
       "id": "vault",
       "name": "Vault",
       "color": "#f97316",
-      "order": 6
+      "order": 7
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 7
+      "order": 8
     },
     {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 8
+      "order": 9
     },
     {
       "id": "customer-web-chat",
       "name": "Customer Web Chat",
-      "order": 9
+      "order": 10
     },
     {
       "id": "unify-context-manager",
       "name": "Unify Context Manager",
       "color": "#06b6d4",
-      "order": 10
+      "order": 11
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 11
+      "order": 12
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 12
+      "order": 13
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 13
+      "order": 14
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 14
+      "order": 15
     }
   ],
   "assignments": {
@@ -338,7 +344,7 @@
     "add-pending-question-stack": "project-workflows",
     "add-kb-git-forge-scope": "ui",
     "redesign-directory-home-split": "ui",
-    "add-plugin-spawn-worktree": "customer-web-chat",
+    "add-plugin-spawn-worktree": "queue",
     "add-project-workflows": "project-workflows",
     "add-workflow-auto-advance": "project-workflows",
     "add-plugin-capability-routes": "customer-web-chat",
@@ -455,7 +461,17 @@
     "stabilize-blocking-test-lanes": "queue",
     "rich-chat-links": "queue",
     "update-pi-core-1-6-adopt-apis": "queue",
-    "fix-nightly-publish-pnpm-lockfile": "queue"
+    "fix-nightly-publish-pnpm-lockfile": "queue",
+    "serve-live-previews-on-capability-origin": "queue",
+    "add-file-download": "queue",
+    "add-google-connect": "queue",
+    "add-agent-teams-core": "agent-teams",
+    "add-agent-teams-ui": "agent-teams",
+    "add-agent-teams-templates-hooks": "agent-teams",
+    "add-agent-teams-openspec": "agent-teams",
+    "add-agent-teams-in-process": "agent-teams",
+    "fix-kb-parent-link-and-section-miss": "queue",
+    "fix-discovery-resurrects-archived": "queue"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -465,14 +481,20 @@
       "ab-test-rlm-delegation-claim",
       "fix-npm12-remote-tarball-install",
       "migrate-budget-assertions",
-      "rehearse-runtime-asset-matrix"
+      "rehearse-runtime-asset-matrix",
+      "persist-flow-run-close",
+      "settle-server-credential-writes-on-exit"
     ],
     "queue": [
-      "schedule-release-rehearsal",
-      "stabilize-blocking-test-lanes",
-      "update-pi-core-1-6-adopt-apis",
-      "rich-chat-links",
-      "add-windows-process-identity"
+      "add-plugin-spawn-worktree",
+      "serve-live-previews-on-capability-origin",
+      "add-google-connect",
+      "add-agent-teams-core",
+      "add-agent-teams-ui",
+      "add-agent-teams-templates-hooks",
+      "add-file-download",
+      "add-agent-teams-openspec",
+      "add-agent-teams-in-process"
     ],
     "ui": [
       "add-google-docs-pane",
@@ -482,6 +504,17 @@
       "add-drive-office-craft-handoff",
       "bump-runtime-security-advisories"
     ],
-    "security": []
+    "security": [],
+    "customer-web-chat": [
+      "add-plugin-capability-routes",
+      "add-plugin-isolation-and-public-routes"
+    ],
+    "agent-teams": [
+      "add-agent-teams-core",
+      "add-agent-teams-ui",
+      "add-agent-teams-templates-hooks",
+      "add-agent-teams-openspec",
+      "add-agent-teams-in-process"
+    ]
   }
 }
