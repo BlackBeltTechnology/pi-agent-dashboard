@@ -1060,6 +1060,8 @@ See change: add-lan-knock-pairing.
 
 Preview frame is sandboxed (opaque origin). Its images, `fetch` and HMR socket send no cookie. Viewer mints per-preview capability: `POST /api/live-server/:id/capability` (tier `control`) → `/live/<id>/~c/<token>/`.
 
+Legacy path. Returned when no/invalid `accept` or `liveServer.previewOrigins.enabled: false`. Otherwise origin tiers apply: see next FAQ.
+
 - Scope: one preview. Idle 30 min, absolute 12 h.
 - Dies with target removal, device revoke, session end, server restart.
 - Never valid for `/api`. Stripped before forwarding. Server logs redact token.
@@ -1071,6 +1073,58 @@ Preview frame is sandboxed (opaque origin). Its images, `fetch` and HMR socket s
 Previewed app sees token in its URL. Sharing preview URL shares access until idle expiry.
 
 See change: retire-trusted-networks-bypass.
+
+## Which live preview tier do I get?
+
+Chosen from raw `Host` header + socket peer. First match wins.
+
+- Tier 1 `http://<label>.localhost:<port>`: Host `localhost`/`127.0.0.1`, local peer, no forwarding header, no TLS.
+- Tier 2 `<scheme>://<label>.<suffix>`: Host in `wildcard.forHosts`.
+- Tier 3 `http://<ip>:<poolPort>`: login session, IPv4 Host, `portPool` set, pool port free.
+- Tier 4 `http://<label>.<a-b-c-d>.<ipDnsSuffix>`: IPv4 Host, `ipDnsSuffix` set.
+- Tier 5 `/preview/<pid>/` on dashboard origin: no earlier match. Covers IPv6 and remote Hosts.
+- Legacy `/live/<id>/~c/<token>/`: see previous FAQ.
+
+Details: `docs/architecture.md` § Capability origins and tiers.
+
+## How do I view a live preview over `ssh -L`?
+
+- `ssh -L 9000:127.0.0.1:8000 host`.
+- Browser opens `localhost:9000` → Host `localhost:9000` → tier 1.
+- Preview renders at `<label>.localhost:9000`.
+- Tier 1 interim path. Tunnel-only.
+
+## Why does a live preview fail behind a same-host reverse proxy?
+
+- Proxy on same host, adding no forwarding header, looks like local browser.
+- Browser behind proxy gets tier 1 origin `<label>.localhost`. Pinned limitation.
+- Fix: proxy sends `X-Forwarded-For`.
+- Or set `liveServer.previewOrigins.enabled: false` (legacy path).
+
+## How do I run a dev server under a tier-5 live preview base?
+
+1. Open site in tier-5 browser (remote Host).
+2. Run dev server with base = reserved path: `vite --base /preview/<pid>/`.
+3. View in live viewer. Viewer shows base path with Copy button.
+4. `restartRequired` = base changed. Restart server.
+
+Reservation: `POST /api/live-server/preview-path {port}` (control). Agent: bridge `preview_path_request`.
+- No tier-5-capable browser ⇒ `{path:null, tier5Viewers:false}`. Nothing reserved.
+- Release unbound reservation: `DELETE /api/live-server/preview-path/:pid`.
+- Unadopted reservation expires: 10 min from creation, 12 h while port target exists.
+
+## Does live preview work over IPv6?
+
+- IPv6 Host skips tiers 1-4. CSP has no IPv6 host-source form.
+- IPv6 Host ⇒ tier 5.
+
+## How do live previews work in Docker?
+
+- Container users reach dashboard through published port.
+- Result: tier 5, no setup.
+- Tier 3 (port pool) opt-in. See `docker/README.md` § Live previews.
+
+See change: serve-live-previews-on-capability-origin.
 
 ## Why do all my PWA installs of the dashboard have the same name on the launcher?
 

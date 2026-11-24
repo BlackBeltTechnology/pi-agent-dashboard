@@ -43,6 +43,39 @@ Per-route `preHandler`s run after #15 (route-level after root preHandler): `netw
 
 Hook-order source comment at `packages/server/src/server.ts:3613-3620` lists stale line numbers and omits #1, #10, #12, #13, #17 → see HTTP-13.
 
+### A2. Preview dispatch, duplicate-cookie gate, pool admission (change: serve-live-previews-on-capability-origin)
+
+**Preview dispatch** (before root chain; `packages/server/src/server.ts:2112-2120`, `:3665`).
+- Preview-shaped Host (`label.localhost`, wildcard suffix, IP-DNS suffix) ⇒ route-less `previewApp` (`packages/server/src/live-server/preview-dispatch.ts:172` `createPreviewDispatch`; `previewServerFactory :110`).
+- `previewApp` never reaches: host gate (#4), CORS (#6), mutation-origin gate (#7), cookie auth, `/api`, `/ws`, SPA, plugin routes.
+- Refusal: identical `403 {"error":"host_not_allowed"}`.
+- Dead upstream: `502`. Dispatcher failure: `503`. Never falls through to dashboard app.
+- Preview WS upgrades: `routePreviewUpgrade` (`preview-dispatch.ts:92`) at `packages/server/src/server.ts:4998`, before host gate.
+
+**Duplicate-cookie gate** (`packages/server/src/auth/duplicate-cookie-gate.ts`: `findDuplicateDashboardCookie :50`, `createDuplicateCookieGate :198`, `refuseDuplicateCookieUpgrade :217`; registered `packages/server/src/server.ts:2435`, before observer and `@fastify/cors`).
+- Repeated `pi_dash_*` cookie name ⇒ `400` (JSON or static HTML by `Accept`).
+- Response expires the name at every path (self-heal; `expiryPaths :79`, `buildExpiryLines :121`).
+- Applies to WS upgrades.
+- Repeated `pi_dash_token` or `pi_dash_pool_*` ⇒ counts as missing credential.
+- `previewApp` exempt.
+
+**Tier-5 preflight.** `OPTIONS` for valid `/preview/<pid>/` with `Origin: null` answered before `@fastify/cors` (`packages/server/src/server.ts:2438`).
+
+**Pool admission** (tier 3; `packages/server/src/live-server/preview-pool.ts`: `POOL_PRINCIPAL_CAP = 8 :32`, `safeTo :112`, `createPreviewPool :126`).
+- Eligible principal: login session only (cookie `pi_dash_token`, `Path=/`). Others not eligible.
+- Host: IPv4 only, and must be an address the bind answers.
+- One plain-HTTP listener per live capability. `EADDRINUSE` ⇒ skip port. ≤8 per principal. Pool full ⇒ tier 4/5, log `pool exhausted`.
+- Per pool-port request, ordered, first failure stops:
+  1. Fixed Host binding. Else `403`.
+  2. Minting session cookie matches. Else `404`.
+  3. One-shot `?k=` hop: sets host-only `pi_dash_pool_<port>` (`HttpOnly; SameSite=Strict; Path=/`), redirects to clean URL. `to` via `safeTo`: single-slash root-relative, no `\` or control chars, ≤2048, else `/`.
+  4. Later requests: cookie `pi_dash_pool_<port>` required. Else `404`.
+  5. `Origin` present ⇒ must equal entry origin. Else `404` (upgrades `403`).
+- Pool ports in `ownPorts`. No target may point at them. Forbidden to mock site.
+- Listener released on every capability deletion: expiry, revoke, eviction, config change, shutdown.
+
+**Tier 5 admit.** `/preview/<pid>/...` admitted by valid pid. Never dashboard auth. Full path forwarded upstream.
+
 ### B. Bypass / public lists
 
 | List | Defined | Match rule | Consumers | Entries |
@@ -54,6 +87,7 @@ Hook-order source comment at `packages/server/src/server.ts:3613-3620` lists sta
 | Identity floor pre-auth | `packages/server/src/identity/identity-floor.ts:19,26` | exact, both views | floor #13 | GET `/api/health`, `/api/identity/login-config`; POST `/api/identity/local-exchange` |
 | Auth plugin skip `/auth/*` | `packages/server/src/auth/auth-plugin.ts:539` | raw prefix | auth plugin | all `/auth/*` |
 | Serve-app mounts | `packages/server/src/auth/auth-plugin.ts:570` (`getAppMountRegistry().isMountPath`) | exact registered ids | auth plugin | trusted plugin app shells (`packages/server/src/auth/serve-app-host.ts`) |
+| Preview-shaped Host | `packages/server/src/live-server/preview-dispatch.ts:92`, `:172` | Host shape: `label.localhost`, wildcard suffix, IP-DNS suffix | host gate, CORS, cookie auth, `/api`, `/ws`, SPA, plugin routes (not reached) | `previewApp` only (route-less) |
 
 ### C. Identity & authentication methods
 
