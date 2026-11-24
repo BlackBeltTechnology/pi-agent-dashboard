@@ -293,7 +293,7 @@ export function ConnectDialog({ intent, state, audience = null, onClose, onRefre
       </ul>
       <span className={muted}>
         {t("privacyPre", undefined, "By continuing you agree to the")}{" "}
-        <SafeLink href={PRIVACY_URL} data-testid="google-privacy-link">
+        <SafeLink href={PRIVACY_URL} target="_blank" data-testid="google-privacy-link">
           {t("privacyLink", undefined, "privacy policy")}
         </SafeLink>
         .

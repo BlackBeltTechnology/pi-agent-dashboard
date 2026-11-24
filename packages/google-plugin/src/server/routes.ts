@@ -62,7 +62,9 @@ function sendStoreError(reply: FastifyReply, err: unknown) {
 
 const DONE_PAGE =
   '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">' +
-  "<title>Google sign-in</title></head><body><p>Google sign-in complete. You can close this window and return to the dashboard.</p></body></html>";
+  "<title>Google sign-in</title></head><body><p>Google sign-in complete. You can close this window and return to the dashboard.</p>" +
+  // The window the dialog opened closes itself (#B21); a window that cannot be script-closed keeps the sentence above.
+  "<script>window.close()</script></body></html>";
 function browserOf(request: FastifyRequest): Browser {
   return isLocal(request) ? "local" : "remote";
 }

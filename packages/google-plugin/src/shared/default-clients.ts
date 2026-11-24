@@ -18,6 +18,18 @@ export interface BuiltInClients {
 
 export const BUILT_IN: BuiltInClients = { local: null, remote: null };
 
+/**
+ * Test-only built-in apps for the L3 harness: `PI_E2E_GOOGLE_BUILTIN=1` AND the loopback fake-Google override
+ * (`overridden`) active — so the placeholder ids can only ever reach a local fake, never real Google.
+ */
+export function builtInFor(env: Record<string, string | undefined>, overridden: boolean): BuiltInClients {
+  if (!overridden || env.PI_E2E_GOOGLE_BUILTIN !== "1") return BUILT_IN;
+  return {
+    local: { clientId: "e2e-builtin-local.apps.googleusercontent.com", clientSecret: "e2e-builtin-local-secret" },
+    remote: { clientId: "e2e-builtin-remote.apps.googleusercontent.com", clientSecret: "e2e-builtin-remote-secret" },
+  };
+}
+
 /** Bump to show the data-use disclosure again (design D8). */
 export const DISCLOSURE_VERSION = 1;
 

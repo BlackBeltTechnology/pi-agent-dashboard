@@ -113,7 +113,7 @@ describe("gdocs_get — Markdown read (#C71, #C72)", () => {
               columns: 2,
               tableRows: [
                 { tableCells: [{ content: [para("A1")] }, { content: [para("B|1")] }] },
-                { tableCells: [{ content: [para("A2")] }, { content: [para("B2")] }] },
+                { tableCells: [{ content: [para("A\\2")] }, { content: [para("B2")] }] },
               ],
             },
           },
@@ -124,7 +124,7 @@ describe("gdocs_get — Markdown read (#C71, #C72)", () => {
     expect(r.documentId).toBe("DOC1");
     expect(r.title).toBe("Spec");
     expect(r.revisionId).toBe("r3");
-    expect(r.text.split("\n")).toEqual(["# Overview", "## Details", "plain text", "- first", "  - nested", "1. step", "| A1 | B\\|1 |", "| --- | --- |", "| A2 | B2 |"]);
+    expect(r.text.split("\n")).toEqual(["# Overview", "## Details", "plain text", "- first", "  - nested", "1. step", "| A1 | B\\|1 |", "| --- | --- |", "| A\\\\2 | B2 |"]);
     expect(h.google.to("GET")[0]?.path).toBe("/documents/DOC1");
   });
 

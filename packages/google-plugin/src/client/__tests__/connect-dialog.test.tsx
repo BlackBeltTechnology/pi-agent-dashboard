@@ -54,6 +54,10 @@ describe("#A49 connect dialog", () => {
     expect(boxes.map((b) => (b.closest("label") as HTMLElement).textContent?.trim())).toEqual(["Gmail", "Calendar", "Drive", "Docs", "Sheets", "Slides", "Tasks", "Contacts"]);
     expect(within(dlg).getAllByTestId(/^google-disclosure-line-/)).toHaveLength(3);
     expect((within(dlg).getByTestId("google-privacy-link") as HTMLAnchorElement).getAttribute("href")).toBe(PRIVACY_URL);
+    // #B52: leaving the dashboard tab would lose the dialog — the link opens a new tab, noopener.
+    const privacy = within(dlg).getByTestId("google-privacy-link");
+    expect(privacy.getAttribute("target")).toBe("_blank");
+    expect(privacy.getAttribute("rel")).toMatch(/noopener/);
     expect(within(dlg).getByRole("button", { name: "Continue with Google" })).toBeTruthy();
     expect(within(dlg).queryByTestId("google-work-email")).toBeNull();
     expect(within(dlg).queryByTestId("google-signin-with")).toBeNull();
@@ -73,6 +77,31 @@ describe("#A49 connect dialog", () => {
         },
       },
     ]);
+  });
+});
+
+describe("#A50 connect another account", () => {
+  it("two accounts connected, built-in available in a local browser: Gmail + Drive ticked, Continue sends them with no email or client field ever rendered", async () => {
+    const { api } = await page(state({ accounts: [acct({ email: "one@x.com" }), acct({ email: "two@x.com" })] }));
+    expect(screen.getByTestId("google-connect").textContent).toBe("Connect another Google account");
+    const dlg = await openConnect();
+    const noIdentityField = () => {
+      expect(within(dlg).queryByTestId("google-work-email")).toBeNull();
+      expect(within(dlg).queryByTestId("google-signin-with")).toBeNull();
+      expect(within(dlg).queryByRole("combobox")).toBeNull();
+      expect(within(dlg).queryByRole("textbox")).toBeNull();
+      expect(dlg.querySelector('input[type="email"], select')).toBeNull();
+    };
+    noIdentityField();
+    // Gmail, Calendar and Drive are preselected: end with exactly Gmail + Drive ticked.
+    const check = (p: string) => within(dlg).getByTestId(`google-product-check-${p}`) as HTMLInputElement;
+    for (const p of ["gmail", "drive"]) if (!check(p).checked) fireEvent.click(check(p));
+    if (check("calendar").checked) fireEvent.click(check("calendar"));
+    expect(["gmail", "calendar", "drive"].map((p) => check(p).checked)).toEqual([true, false, true]);
+    noIdentityField();
+    await waitingUp();
+    noIdentityField();
+    expect(api.calls(POST_ACCOUNTS)).toEqual([{ products: { gmail: { level: "readonly" }, drive: { level: "files" } } }]);
   });
 });
 

@@ -1183,6 +1183,17 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "gmail_search" },
   },
+  // google-plugin: `gcal_calendars` leases a Google token over the private lane and lists the in-container fake's
+  // calendars. Drives the "built-in account still leases" check. See change: add-google-connect (test-plan #A13).
+  "google-calendars": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("gcal_calendars", { account: "builtin@fake.test" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("google calendars done")]),
+    ],
+    expect: { toolName: "gcal_calendars" },
+  },
   // Reads a file that REALLY exists in the sample-git fixture, so the
   // OpenFileButton → internal Monaco editor pane opens a path the server can
   // serve. Used by tests/e2e/editor-pane.spec.ts.

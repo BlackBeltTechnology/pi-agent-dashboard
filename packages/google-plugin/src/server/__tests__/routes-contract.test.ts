@@ -234,6 +234,9 @@ describe("B34 — a returned code is accepted only for a state the dashboard iss
     // and the waiting flow can still complete with its own state
     const ok = await app.inject({ method: "GET", url: `${P}/oauth/callback?code=C&state=${encodeURIComponent(f.state)}` });
     expect(ok.statusCode).toBe(200);
+    // #B21: the window the dialog opened closes itself; the text stays for a window the browser will not close.
+    expect(ok.body).toContain("window.close()");
+    expect(ok.body).toContain("You can close this window");
   });
 });
 

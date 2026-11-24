@@ -122,6 +122,8 @@ function abortable<T>(p: T | Promise<T>, signal: AbortSignal | null | undefined)
 export function fakeGoogleFetch(opts: FakeTokenOptions) {
   const calls: TokenCall[] = [];
   const revokes: string[] = [];
+  /** Every URL requested through this fetch, answered or not (the outbound-HTTP recorder, test-plan B14). */
+  const urls: string[] = [];
   const json = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   const revoke = async (body: URLSearchParams) => {
@@ -138,12 +140,13 @@ export function fakeGoogleFetch(opts: FakeTokenOptions) {
   };
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
+    urls.push(url);
     const body = new URLSearchParams(init?.body instanceof URLSearchParams ? init.body.toString() : String(init?.body ?? ""));
     if (url === TEST_ENDPOINTS.revoke) return revoke(body);
     if (url === TEST_ENDPOINTS.token) return token(body, init?.signal);
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
-  return { fetchImpl, calls, revokes };
+  return { fetchImpl, calls, revokes, urls };
 }
 
 export function capturingLogger() {

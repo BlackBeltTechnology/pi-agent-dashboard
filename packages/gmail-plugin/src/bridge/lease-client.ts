@@ -77,6 +77,9 @@ function gmailAccounts(list: readonly GoogleAccount[]): AccountInfo[] {
   return out;
 }
 
+/** Refusal codes whose Gmail wording names the account's email (so `google/accounts` is consulted). */
+const NEEDS_ACCOUNTS = new Set(["product_disabled", "level_insufficient", "reauth_required", "scope_missing", "not_found", "ambiguous"]);
+
 export class LeaseClient {
   private readonly request: LaneRequest;
 
@@ -146,17 +149,26 @@ export class LeaseClient {
   /** Map a `google/lease` refusal onto the existing Gmail codes and messages (D7). Anything else passes through. */
   private async googleRefusal(error: string, account: string, op: Op): Promise<GmailToolError> {
     const code = /^([a-z_]{1,64}): /.exec(error)?.[1];
-    if (!code) return laneError(error);
+    if (!code || !NEEDS_ACCOUNTS.has(code)) {
+      return code === "default_client_unavailable" || code === "no_client"
+        ? new GmailToolError("no_client", "no_client: the Gmail OAuth client is not configured")
+        : laneError(error);
+    }
     const key = account.trim().toLowerCase();
     const all = await this.googleAccounts().catch(() => [] as GoogleAccount[]);
     const found = all.filter((a) => a.sub === account || a.email.toLowerCase() === key || a.alias?.toLowerCase() === key);
     const email = found.length === 1 ? (found[0] as GoogleAccount).email : account;
     switch (code) {
+      case "level_insufficient": {
+        const level = /"([a-z]+)"/.exec(error)?.[1];
+        return isTier(level)
+          ? new GmailToolError("tier_denied", `tier_denied: ${email} is at level "${level}", which does not allow "${op}"`)
+          : laneError(error);
+      }
+      case "ambiguous":
+        return new GmailToolError("ambiguous", `ambiguous: Several connected accounts share ${account}; set an alias on each in the Gmail panel and use the alias.`);
       case "product_disabled":
         return new GmailToolError("not_found", `not_found: Gmail is off for ${email} in Settings → Google accounts`);
-      case "default_client_unavailable":
-      case "no_client":
-        return new GmailToolError("no_client", "no_client: the Gmail OAuth client is not configured");
       case "reauth_required":
         return new GmailToolError("reauth_required", `reauth_required: ${email} needs re-authentication in the Gmail panel`);
       case "scope_missing":

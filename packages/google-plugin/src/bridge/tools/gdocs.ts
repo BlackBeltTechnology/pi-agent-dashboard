@@ -84,7 +84,7 @@ function paragraphs(content: Element[] | undefined): string[] {
 }
 
 const oneLine = (s: string) => s.replace(/\u000b|\n/g, " ").trim();
-const cell = (c: { content?: Element[] }) => paragraphs(c.content).map(oneLine).filter(Boolean).join(" ").replace(/\|/g, "\\|");
+const cell = (c: { content?: Element[] }) => paragraphs(c.content).map(oneLine).filter(Boolean).join(" ").replace(/[\\|]/g, "\\$&");
 
 function markdown(doc: GDoc): string {
   const lines: string[] = [];

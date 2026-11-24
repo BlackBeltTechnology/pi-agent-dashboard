@@ -236,6 +236,10 @@ export PI_CHAT_GATEWAY_FAKE_DIR="${PI_CHAT_GATEWAY_FAKE_DIR:-}"
 # ONLY for a loopback URL, and tests/e2e/gmail-plugin.spec.ts starts the fake on
 # that in-container port. Defaulted so the spec needs no extra flag.
 export PI_E2E_GOOGLE_BASE_URL="${PI_E2E_GOOGLE_BASE_URL:-http://127.0.0.1:18090}"
+# add-google-connect: placeholder built-in Google apps (honoured only with the loopback override above)
+# and the PI_GOOGLE_REMOTE_RETURN operator switch (empty/unset = on; `off` = the A13 spec's second pass).
+export PI_E2E_GOOGLE_BUILTIN="${PI_E2E_GOOGLE_BUILTIN:-1}"
+export PI_GOOGLE_REMOTE_RETURN="${PI_GOOGLE_REMOTE_RETURN:-}"
 
 # Runtime-delivery canary (change: decouple-plugins-from-core, tasks 7.5 / 8.2 / 8.3).
 # Under PI_E2E_SEED=1 the harness stages the prebuilt runtime canary

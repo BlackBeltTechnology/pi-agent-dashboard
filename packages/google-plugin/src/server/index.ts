@@ -5,7 +5,7 @@
  * lacks the credential seam. See change: add-google-connect.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { BUILT_IN, createSwitchReader } from "../shared/default-clients.js";
+import { builtInFor, createSwitchReader } from "../shared/default-clients.js";
 import { resolveGoogleEndpoints } from "../shared/endpoints.js";
 import { ACCOUNTS_TYPE, CONNECT_SERVICE, LEASE_TYPE } from "../shared/protocol.js";
 import type { ClientDeps } from "./clients.js";
@@ -26,7 +26,7 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
   const store = new GoogleStore(ctx.credentials);
   const clients: ClientDeps = {
     store,
-    builtIn: BUILT_IN,
+    builtIn: builtInFor(process.env, endpoints.overridden),
     switches: createSwitchReader(process.env, (m) => ctx.logger.warn(m)),
   };
   const pending = new PendingFlows();

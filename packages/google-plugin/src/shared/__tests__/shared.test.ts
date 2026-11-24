@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { normalizeDomain, slugify, validateClientJson } from "../client-json.js";
-import { BUILT_IN, createSwitchReader } from "../default-clients.js";
+import { BUILT_IN, builtInFor, createSwitchReader } from "../default-clients.js";
 import { GOOGLE_DEFAULTS, resolveGoogleEndpoints } from "../endpoints.js";
 import { knownFlowCode } from "../flow-codes.js";
 import { isGenuinelyLocal } from "../local.js";
@@ -12,6 +12,19 @@ import { allowedReturnOrigin } from "../return-origin.js";
 
 describe("BUILT_IN ships empty (until verification)", () => {
   it("local and remote are null", () => expect(BUILT_IN).toEqual({ local: null, remote: null }));
+});
+
+describe("builtInFor — L3 test seam", () => {
+  it("stays the empty shipped constant unless the flag AND the loopback fake override are both on", () => {
+    expect(builtInFor({}, true)).toBe(BUILT_IN);
+    expect(builtInFor({ PI_E2E_GOOGLE_BUILTIN: "1" }, false)).toBe(BUILT_IN);
+    expect(builtInFor({ PI_E2E_GOOGLE_BUILTIN: "0" }, true)).toBe(BUILT_IN);
+  });
+  it("supplies placeholder local + remote apps under the fake override", () => {
+    const b = builtInFor({ PI_E2E_GOOGLE_BUILTIN: "1" }, true);
+    expect(b.local?.clientId).toMatch(/^e2e-builtin-local/);
+    expect(b.remote?.clientId).toMatch(/^e2e-builtin-remote/);
+  });
 });
 
 describe("operator switches (A1, 10.6)", () => {

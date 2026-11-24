@@ -146,6 +146,10 @@ services:
       # (tests/e2e/helpers/fake-google.ts) is started INSIDE the container by
       # the spec. Inert until a spec starts it — nothing else calls Google here.
       PI_E2E_GOOGLE_BASE_URL: "${PI_E2E_GOOGLE_BASE_URL:-}"
+      # add-google-connect: placeholder built-in apps (loopback fake override only) and the
+      # return-page operator switch ("off" = no return-page sign-in; empty = on).
+      PI_E2E_GOOGLE_BUILTIN: "${PI_E2E_GOOGLE_BUILTIN:-}"
+      PI_GOOGLE_REMOTE_RETURN: "${PI_GOOGLE_REMOTE_RETURN:-}"
       # PI_E2E_OAUTH=1 seeds a resolvable `github` OAuth provider plus
       # `bypassUrls:["/"]` BEFORE the server boots, so `/auth/*` routes exist
       # for oauth-redirect-base.spec.ts. A spec cannot arrange this itself:
