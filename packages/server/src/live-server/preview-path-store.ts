@@ -94,7 +94,12 @@ export type PreviewPathMint =
     }
   | { ok: false; reason: "principal-cap" | "total-cap" | "adoption-refused" };
 
+/** Why a pid (or an unbound reservation) went away: the `pid dropped reason=…` log field (D13). */
+export type PidDropReason = "holder-revoked" | "expired" | "target-removed" | "adoption-refused";
+
 export interface PreviewPathStoreOptions {
+  /** Observability hook: one call per dropped pid / reservation (`pid` is the secret: the caller hashes it, never logs it). */
+  onDrop?: (reason: PidDropReason, pid: string) => void;
   /** The registered port target's id for a loopback port, or `undefined` (reserve returns its live pid; lifetime). */
   targetIdForPort?: (port: number) => string | undefined;
   /** The SSRF gate (loopback port target, never an `ownPorts` port): re-run at adoption (TOCTOU). */
@@ -133,6 +138,7 @@ export class PreviewPathStore {
   private readonly sweepIntervalMs: number;
   private readonly targetIdForPort: (port: number) => string | undefined;
   private readonly isPortAllowed: (port: number) => boolean;
+  private readonly onDrop: (reason: PidDropReason, pid: string) => void;
   /** `hash(pid)` → unbound reservation. Insertion order = age (newest last). */
   private readonly reservations = new Map<string, Reservation>();
   private sweeper: ReturnType<typeof setInterval> | undefined;
@@ -145,6 +151,7 @@ export class PreviewPathStore {
     this.sweepIntervalMs = opts.sweepIntervalMs ?? SWEEP_INTERVAL_MS;
     this.targetIdForPort = opts.targetIdForPort ?? (() => undefined);
     this.isPortAllowed = opts.isPortAllowed ?? (() => true);
+    this.onDrop = opts.onDrop ?? (() => {});
   }
 
   /** Unbound reservations currently held (introspection / bounds tests). */
@@ -197,6 +204,7 @@ export class PreviewPathStore {
     // (2) else adopt the newest reservation for the port (older ones are dropped); (3) else a new pid.
     const adopted = !cur && opts.port !== undefined ? this.newestReservation(opts.port) : undefined;
     if (adopted && !this.isPortAllowed(adopted.port)) {
+      this.onDrop("adoption-refused", adopted.pid);
       this.dropReservationsForPort(adopted.port); // the port can never adopt validly (Q35)
       return { ok: false, reason: "adoption-refused" };
     }
@@ -282,6 +290,7 @@ export class PreviewPathStore {
   private reservationAlive(key: string, r: Reservation): boolean {
     const live = r.reserver.principal ? this.isPrincipalLive(r.reserver.principal) : (r.reserver.isLive?.() ?? true);
     if (!this.isEnabled() || !live || this.now() >= this.reservationDeadline(r)) {
+      this.onDrop(live ? "expired" : "holder-revoked", r.pid);
       this.reservations.delete(key);
       return false;
     }
@@ -357,7 +366,7 @@ export class PreviewPathStore {
 
   /** Drop every pid of a target (target removed / evicted). */
   revokeByTarget(targetId: string): void {
-    for (const [key, e] of this.entries) if (e.targetId === targetId) this.remove(key, e);
+    for (const [key, e] of this.entries) if (e.targetId === targetId) this.remove(key, e, "target-removed");
   }
 
   /** Drop every pid (`previewOrigins.enabled` turned off, shutdown). */
@@ -396,13 +405,14 @@ export class PreviewPathStore {
       this.revokeAll();
       return false;
     }
-    if (now - e.mintedAt >= CAPABILITY_MAX_MS || now - e.lastUsedAt >= CAPABILITY_IDLE_MS) return this.remove(key, e);
-    if (!this.isTargetLive(e.targetId)) return this.remove(key, e);
-    for (const h of e.holders.values()) if (!(h.isLive ? h.isLive() : this.isPrincipalLive(h.principal))) return this.remove(key, e);
+    if (now - e.mintedAt >= CAPABILITY_MAX_MS || now - e.lastUsedAt >= CAPABILITY_IDLE_MS) return this.remove(key, e, "expired");
+    if (!this.isTargetLive(e.targetId)) return this.remove(key, e, "target-removed");
+    for (const h of e.holders.values()) if (!(h.isLive ? h.isLive() : this.isPrincipalLive(h.principal))) return this.remove(key, e, "holder-revoked");
     return true;
   }
 
-  private remove(key: string, e: PathEntry): false {
+  private remove(key: string, e: PathEntry, reason: PidDropReason): false {
+    this.onDrop(reason, e.pid);
     this.entries.delete(key);
     if (this.current.get(e.targetId) === key) this.current.delete(e.targetId);
     return false;

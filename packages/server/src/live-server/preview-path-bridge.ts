@@ -50,7 +50,7 @@ export function handlePreviewPathRequest(
   const out = reservePreviewPath(deps.reserve, msg.port, {
     key: bridgeReserverKey(connectionSessionId),
     isLive: () => deps.isSessionLive(connectionSessionId),
-  }, requestId);
+  }, requestId, connectionSessionId);
   switch (out.kind) {
     case "invalid-port":
       return none(requestId, "invalid_port");

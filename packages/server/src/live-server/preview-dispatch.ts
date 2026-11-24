@@ -28,6 +28,7 @@ import { createLiveForwarder, type LiveProxyDeps, pipeUpgradeToTarget } from "./
 import {
   canonicalHostOf,
   hashPreviewKey,
+  previewLogHash,
   isPreviewShapedOrigin,
   PREVIEW_LABEL_SHAPE,
   type PreviewShapeDeps,
@@ -57,8 +58,10 @@ export interface PreviewDispatchDeps {
   shape?: PreviewShapeDeps;
   /** Are previews on? Defaults to the resolved config. A disabled config still answers shaped Hosts with 403. */
   enabled?: () => boolean;
-  /** Observability hook: one call per refusal (no label, only the closed reason). */
-  onRefused?: (reason: PreviewRefusalReason) => void;
+  /** Observability hook: one call per refusal (no label: only the closed reason and, when a label-shaped host was seen, `previewLogHash` of it). */
+  onRefused?: (reason: PreviewRefusalReason, h?: string) => void;
+  /** Observability hook: one call per ADMITTED request (`h` = hash8 of the label; the observer logs the first per entry). */
+  onAdmitted?: (h: string, tier: number | string) => void;
 }
 
 /** The options Fastify hands a `serverFactory` (the subset the default HTTP/1 server honours). */
@@ -173,7 +176,7 @@ export function createPreviewDispatch(deps: PreviewDispatchDeps): PreviewDispatc
 
   const isPreviewRequest = (request: http.IncomingMessage): boolean => isPreviewShapedRequest(request, deps.shape);
 
-  type Resolution = { ok: true; grant: LiveCapabilityGrant } | { ok: false; reason: PreviewRefusalReason };
+  type Resolution = { ok: true; grant: LiveCapabilityGrant; h: string } | { ok: false; reason: PreviewRefusalReason; h?: string };
 
   /** Label + canonical Host (+ peer locality) → grant. Every refusal is the same on the wire. */
   const resolveGrant = (request: http.IncomingMessage): Resolution => {
@@ -187,12 +190,17 @@ export function createPreviewDispatch(deps: PreviewDispatchDeps): PreviewDispatc
     if (isIP(parsed.hostname) !== 0) return { ok: false, reason: "not-a-label" };
     const label = parsed.hostname.slice(0, parsed.hostname.indexOf("."));
     if (!PREVIEW_LABEL_SHAPE.test(label)) return { ok: false, reason: "not-a-label" };
+    const h = previewLogHash(label);
     const found = deps.store.lookupByHost(hashPreviewKey(label), canonical, deps.isPeerLocal(request));
-    return found.ok ? { ok: true, grant: found.grant } : { ok: false, reason: found.reason };
+    if (found.ok) {
+      deps.onAdmitted?.(h, found.grant.tier ?? "legacy");
+      return { ok: true, grant: found.grant, h };
+    }
+    return { ok: false, reason: found.reason, h };
   };
 
-  const refuse = (reply: FastifyReply, reason: PreviewRefusalReason): FastifyReply => {
-    deps.onRefused?.(reason);
+  const refuse = (reply: FastifyReply, reason: PreviewRefusalReason, h?: string): FastifyReply => {
+    deps.onRefused?.(reason, h);
     return reply.code(403).header("cache-control", "no-store").type("application/json").send({ error: "host_not_allowed" });
   };
 
@@ -212,7 +220,7 @@ export function createPreviewDispatch(deps: PreviewDispatchDeps): PreviewDispatc
   // Route-less: every method and path lands here, so nothing of the dashboard's route table can be reached.
   previewApp.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {
     const resolved = resolveGrant(request.raw);
-    if (!resolved.ok) return refuse(reply, resolved.reason);
+    if (!resolved.ok) return refuse(reply, resolved.reason, resolved.h);
     const { grant } = resolved;
     const subPath = request.raw.url ?? "/";
     if (!subPath.startsWith("/")) return refuse(reply, "malformed-host");
@@ -242,7 +250,7 @@ export function createPreviewDispatch(deps: PreviewDispatchDeps): PreviewDispatc
     const subPath = request.url ?? "/";
     const target = resolved.ok && resolved.grant.kind === "port" ? deps.manager.get(resolved.grant.targetId) : undefined;
     if (!resolved.ok || !target || !subPath.startsWith("/")) {
-      deps.onRefused?.(resolved.ok ? "no-target" : resolved.reason);
+      deps.onRefused?.(resolved.ok ? "no-target" : resolved.reason, resolved.h);
       socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
       socket.destroy();
       return;

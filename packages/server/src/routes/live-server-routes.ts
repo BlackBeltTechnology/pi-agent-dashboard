@@ -47,6 +47,7 @@ import { type LiveLogSink, liveLog } from "../live-server/live-log.js";
 import type { LiveServerManager } from "../live-server/live-server-manager.js";
 import { safeSegments } from "../live-server/live-static.js";
 import type { PreviewPathStore } from "../live-server/preview-path-store.js";
+import { previewLogHash } from "../live-server/preview-origin.js";
 import { reservePreviewPath } from "../live-server/preview-reserve.js";
 import { selectMintTier } from "../live-server/preview-tier.js";
 import type { NetworkGuard } from "./route-deps.js";
@@ -169,6 +170,16 @@ export function registerLiveServerRoutes(
 ) {
   const { networkGuard, capabilities } = deps;
   const log = (event: string, fields?: Record<string, unknown>) => liveLog(deps.log, event, fields);
+  /** D13 mint line: tier, target, h (hash8 of label|pid, never the secret), via (the request's Host), peerLocal, reason. */
+  const mintLog = (request: FastifyRequest, tier: number | string, target: string, secret: string | undefined, reason: string): void =>
+    log("mint", {
+      tier,
+      target,
+      ...(secret ? { h: previewLogHash(secret) } : {}),
+      via: String(request.headers.host ?? "").slice(0, 64),
+      peerLocal: isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }),
+      reason,
+    });
 
   // Port-target mints need `control`. The route itself sits at the raw-read
   // (`observe`) tier so an observe-tier viewer can mint a STATIC target; the
@@ -353,7 +364,7 @@ export function registerLiveServerRoutes(
           });
           if (m.ok) {
             liveServerManager.use(id);
-            log("mint", { tier: 5, reused: m.reused });
+            mintLog(request, 5, id, m.pid, "first-match");
             return {
               success: true,
               ok: true,
@@ -365,7 +376,7 @@ export function registerLiveServerRoutes(
               ...(m.restartRequired ? { restartRequired: true } : {}),
             } satisfies LiveCapabilityMintResponse;
           }
-          log("mint", { tier: "legacy", reason: m.reason }); // at a cap: fall back to the legacy path below
+          mintLog(request, "legacy", id, undefined, m.reason === "adoption-refused" ? "adoption-refused" : "pid-cap"); // at a cap: fall back to the legacy path below
         }
         const minted = capabilities.mint(id, principal, {
           kind,
@@ -378,7 +389,7 @@ export function registerLiveServerRoutes(
         liveServerManager.use(id);
         const { token, tokenId, expiresAt, policy } = minted;
         if (binding && minted.origin) {
-          log("mint", { tier: minted.tier, reused: minted.reused });
+          mintLog(request, minted.tier, id, minted.token, "first-match");
           // A site started under a tier-5 base: the frame must load THAT base on the capability origin (D7/D9). The minter
           // learns the pid, so it becomes a revocation-only holder (D-U7).
           const livePid = kind === "port" ? (deps.previewPaths?.currentPid(id) ?? null) : null;
@@ -395,7 +406,7 @@ export function registerLiveServerRoutes(
             ...(livePid ? { base: `/preview/${livePid}/` } : {}),
           } satisfies LiveCapabilityMintResponse;
         }
-        log("mint", { tier: "legacy", reason: decision.reason ?? "no-match" });
+        mintLog(request, "legacy", id, undefined, decision.reason ?? "no-match");
         return {
           success: true,
           ok: true,

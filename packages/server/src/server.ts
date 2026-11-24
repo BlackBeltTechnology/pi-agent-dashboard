@@ -251,6 +251,9 @@ import { handleLiveServerUpgrade, type LiveProxyDeps, registerLiveServerProxy } 
 import { createPreviewDispatch, type PreviewDispatch, previewServerFactory, routePreviewUpgrade } from "./live-server/preview-dispatch.js";
 import { parsePreviewPath } from "./live-server/preview-path.js";
 import { PreviewPathStore } from "./live-server/preview-path-store.js";
+import { liveLog } from "./live-server/live-log.js";
+import { createPreviewObserver } from "./live-server/preview-observe.js";
+import { previewLogHash } from "./live-server/preview-origin.js";
 import { hasTier5Viewer, stampPreviewViewer } from "./live-server/preview-viewers.js";
 import { createPreviewPreflight } from "./live-server/preview-preflight.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
@@ -2531,6 +2534,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Tier 5 (`/preview/<pid>/`, D8): one current pid per port target; liveness is re-checked at every use, so a revoked
   // holder / removed target / disabled previews drops the pid on its next request or sweep.
   previewPaths = new PreviewPathStore({
+    onDrop: (reason, pid) => liveLog(undefined, "pid dropped", { reason, h: previewLogHash(pid) }),
     targetIdForPort: (port) => liveServerManager.getByPort(port)?.id,
     isPortAllowed: (port) => liveServerManager.portRefusal(port) === null,
     isTargetLive: (id) => liveServerManager.has(id),
@@ -3634,7 +3638,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       !("code" in (await gateFilePath(cwd, absPath, fileRouteAdmission, { allowGrant: true, quiet: true }))),
   };
   registerLiveServerProxy(fastify, liveServerManager, liveProxyDeps);
+  const previewObserver = createPreviewObserver();
   previewDispatch = createPreviewDispatch({
+    onRefused: (reason, h) => previewObserver.refused(reason, h),
+    onAdmitted: (h, tier) => previewObserver.admitted(h, tier),
     store: liveCapabilities,
     manager: liveServerManager,
     proxyDeps: liveProxyDeps,

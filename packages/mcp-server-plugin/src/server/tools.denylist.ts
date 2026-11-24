@@ -191,6 +191,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/session/:id/extension-ui-response", reason: "agent prompt answers stay human-in-the-loop; inert (the bridge drops the legacy message)" },
   { pattern: "kill_process", reason: "duplicate-of:kill_process" },
   { pattern: "kill_terminal", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "live_preview_accept", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "list_files", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "list_sessions", reason: "duplicate-of:list_sessions" },
   { pattern: "move_folder_to_workspace", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
