@@ -11,6 +11,14 @@ export function rawUrl(target: { kind: "file"; cwd: string; path: string }): str
   return `${base}/api/file/raw?cwd=${cwd}&path=${p}`;
 }
 
+/**
+ * `/api/file/raw` URL in attachment mode (`download=1`): the server answers with
+ * `Content-Disposition: attachment`. See change: add-file-download.
+ */
+export function downloadUrl(target: { cwd: string; path: string }): string {
+  return `${rawUrl({ kind: "file", cwd: target.cwd, path: target.path })}&download=1`;
+}
+
 export function renderUrl(target: { kind: "file"; cwd: string; path: string }): string {
   const base = getApiBase();
   const cwd = encodeURIComponent(target.cwd);

@@ -60,6 +60,11 @@ const EXEMPT_ROUTES = [
   // TabActions' open-in-system / reveal POSTs: `allowGrant:false` routes that
   // mint no remedy and so can never raise the dialog.
   /fetch\(`\$\{getApiBase\(\)\}\$\{endpoint\}`/,
+  // preview/download.ts: an explicit user-initiated Download (More menu / tree row).
+  // It deliberately uses the global wrapper so an outside-cwd file may raise the
+  // grant prompt and a cross-origin base carries its bearer
+  // (add-file-download, design D3). Not a preview read.
+  /fetch\(url\)/,
 ];
 
 /**

@@ -157,7 +157,13 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // the link-resolution provider/store and the web-page card ride the ChatView and preview shells that live in the
 // index chunk. +~9 KB gz measured locally (628,405 B -> 637,599 B). 624 KiB (638,976 B) leaves ~1.4 KB for CI's
 // compressor variance. Smallest KiB step with CI headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 624 * 1024;
+//
+// add-file-download (2026-11-24): 624 -> 626 KiB. Unavoidably eager: the row actions menu (EditorFileTree),
+// the Download item + hint (DocumentBar/MenuPopover) and the download helper ride the editor-pane shell that
+// lives in the index chunk. +~1.6 KB gz (CI: 637,599 B -> 639,186 B). 625 KiB (640,000 B) would leave only
+// ~800 B for CI's compressor variance, so 626 KiB (641,024 B, ~1.8 KB headroom). Smallest KiB step with CI
+// headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 626 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

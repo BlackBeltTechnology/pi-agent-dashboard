@@ -13,6 +13,8 @@ import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
+// Download delivery is covered in preview/__tests__/download.test.ts.
+vi.mock("../../preview/download.js", () => ({ startDownload: vi.fn(() => Promise.resolve()) }));
 
 // Controllable shared-diff data for the changed-file-marker tests. Inert for
 // the pre-existing tests (they render EditorFileTree without a provider, so
@@ -29,6 +31,7 @@ import type {
   SessionDiffResponse,
 } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { SessionDiffProvider } from "../../diff/SessionDiffContext.js";
+import { startDownload } from "../../preview/download.js";
 import { EditorFileTree } from "../EditorFileTree.js";
 
 type Entry = { name: string; isDir: boolean };
@@ -94,11 +97,12 @@ describe("EditorFileTree — active row reveal (#5)", () => {
   });
 });
 
-describe("EditorFileTree — copy-path popup (copy-file-path)", () => {
+describe("EditorFileTree — row actions menu (copy-file-path, add-file-download)", () => {
   const CWD = "/Users/u/proj";
   let writeText: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    vi.mocked(startDownload).mockClear();
     writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
@@ -135,7 +139,7 @@ describe("EditorFileTree — copy-path popup (copy-file-path)", () => {
     const label = await screen.findByText(name);
     const row = label.closest("[data-row]") as HTMLElement;
     expect(row).toBeTruthy();
-    return { row, glyph: within(row).getByLabelText("Copy path") };
+    return { row, glyph: within(row).getByLabelText("Row actions") };
   };
 
   it("(a) reveals a copy glyph on each file/directory row", async () => {
@@ -227,43 +231,122 @@ describe("EditorFileTree — copy-path popup (copy-file-path)", () => {
 
   // #728: the rail (`overflow-auto`) + EditorPane (`overflow-hidden`) clipped an
   // inline `absolute` popup. It must portal out of the rail, `fixed`-positioned.
-  it("(i) popup is portaled outside [data-file-rail] with clickable items", async () => {
+  it("(i) menu is portaled outside [data-file-rail] with clickable items", async () => {
     const { container } = renderTree();
     const { glyph } = await glyphOf("foo.ts");
     fireEvent.click(glyph);
     const menu = screen.getByRole("menu");
     expect(container.querySelector("[data-file-rail]")?.contains(menu)).toBe(false);
-    expect(menu.className).toContain("fixed");
-    expect(menu.className).not.toMatch(/(?<![\w-])z-\d/);
+    expect((menu.closest("[data-testid='ui-popover']") as HTMLElement).style.position).toBe("fixed");
     fireEvent.click(screen.getByRole("menuitem", { name: /Copy relative path/ }));
     expect(writeText).toHaveBeenCalledWith("src/foo.ts");
   });
 
-  it("(j) glyph at the far right of a narrow rail right-anchors within the viewport", async () => {
+  it("(F5) file row: three copy items then Download; directory row: copy only", async () => {
     renderTree();
-    const { glyph } = await glyphOf("foo.ts");
-    vi.spyOn(glyph, "getBoundingClientRect").mockReturnValue({
-      top: 100, bottom: 116, left: 440, right: 456, width: 16, height: 16, x: 440, y: 100,
-      toJSON: () => ({}),
-    } as DOMRect);
-    fireEvent.click(glyph);
-    const menu = screen.getByRole("menu");
-    expect(menu.style.right).toBe(`${window.innerWidth - 456}px`);
-    expect(menu.style.top).toBe("120px");
-    expect(menu.style.visibility).toBe("visible");
+    fireEvent.click((await glyphOf("foo.ts")).glyph);
+    expect(screen.getAllByRole("menuitem").map((e) => e.textContent)).toEqual([
+      "Copy full path",
+      "Copy relative path",
+      "Copy file name",
+      "Download",
+    ]);
+    expect(screen.getByTestId("tree-row-download")).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    fireEvent.click((await glyphOf(".git")).glyph);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    expect(screen.queryByTestId("tree-row-download")).toBeNull();
   });
 
-  it("(k) glyph near the left viewport edge flips to left-anchored (never off-screen)", async () => {
+  it("(F6) right-click opens the menu without opening the file / toggling the directory", async () => {
+    const onOpenFile = vi.fn();
+    const onToggleRoot = vi.fn();
+    renderTree({ onOpenFile, onToggleRoot });
+    for (const name of ["foo.ts", "src"]) {
+      const { row } = await glyphOf(name);
+      const notPrevented = fireEvent.contextMenu(row);
+      expect(notPrevented).toBe(false); // preventDefault was called
+      expect(screen.getByRole("menu")).toBeTruthy();
+      fireEvent.mouseDown(document.body);
+    }
+    expect(onOpenFile).not.toHaveBeenCalled();
+    expect(onToggleRoot).not.toHaveBeenCalled();
+  });
+
+  it("(F7) Shift+F10 and the ContextMenu key open the menu; focus starts on Copy full path", async () => {
+    renderTree();
+    const { row } = await glyphOf("foo.ts");
+    const rowButton = within(row).getByText("foo.ts").closest("button") as HTMLElement;
+    rowButton.focus();
+    fireEvent.keyDown(rowButton, { key: "F10", shiftKey: true });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: /Copy full path/ })),
+    );
+    const menu = screen.getByRole("menu");
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: /Copy relative path/ }));
+    fireEvent.click(document.activeElement as HTMLElement);
+    expect(writeText).toHaveBeenCalledWith("src/foo.ts");
+    fireEvent.mouseDown(document.body);
+
+    fireEvent.keyDown(rowButton, { key: "ContextMenu" });
+    expect(screen.getByRole("menu")).toBeTruthy();
+  });
+
+  it("(F8) Escape returns focus to the glyph (glyph-opened) or the row button (keyboard-opened)", async () => {
+    renderTree();
+    const { row, glyph } = await glyphOf("foo.ts");
+    fireEvent.click(glyph);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(glyph);
+
+    const rowButton = within(row).getByText("foo.ts").closest("button") as HTMLElement;
+    rowButton.focus();
+    fireEvent.keyDown(rowButton, { key: "F10", shiftKey: true });
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(rowButton);
+  });
+
+  it("(F9) Download starts the download, closes the menu and does not open the file", async () => {
+    const onOpenFile = vi.fn();
+    renderTree({ onOpenFile });
+    fireEvent.click((await glyphOf("foo.ts")).glyph);
+    fireEvent.click(screen.getByTestId("tree-row-download"));
+    expect(startDownload).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(startDownload).mock.calls[0]?.[0]).toEqual({ cwd: CWD, path: "src/foo.ts" });
+    expect(vi.mocked(startDownload).mock.calls[0]?.[1]).toMatchObject({ outsideCwd: false });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("(F10) glyph a11y attributes and the touch-visibility class", async () => {
     renderTree();
     const { glyph } = await glyphOf("foo.ts");
-    vi.spyOn(glyph, "getBoundingClientRect").mockReturnValue({
-      top: 100, bottom: 116, left: 40, right: 56, width: 16, height: 16, x: 40, y: 100,
-      toJSON: () => ({}),
-    } as DOMRect);
+    expect(glyph.getAttribute("aria-label")).toBe("Row actions");
+    expect(glyph.getAttribute("aria-haspopup")).toBe("menu");
+    expect(glyph.getAttribute("aria-expanded")).toBe("false");
+    expect(glyph.className).toContain("[@media(hover:none)]:opacity-100");
     fireEvent.click(glyph);
-    const menu = screen.getByRole("menu");
-    expect(menu.style.left).toBe("40px");
-    expect(menu.style.right).toBe("");
+    expect(glyph.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("(F11) dismissal (outside click / rail scroll / Escape) copies and downloads nothing", async () => {
+    const { container } = renderTree();
+    const { glyph } = await glyphOf("foo.ts");
+    for (const dismiss of [
+      () => fireEvent.mouseDown(document.body),
+      () => fireEvent.scroll(container.querySelector("[data-file-rail]") as HTMLElement),
+      () => fireEvent.keyDown(document, { key: "Escape" }),
+    ]) {
+      fireEvent.click(glyph);
+      expect(screen.getByRole("menu")).toBeTruthy();
+      dismiss();
+      expect(screen.queryByRole("menu")).toBeNull();
+    }
+    expect(writeText).not.toHaveBeenCalled();
+    expect(startDownload).not.toHaveBeenCalled();
   });
 });
 
