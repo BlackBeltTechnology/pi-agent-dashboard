@@ -67,8 +67,8 @@
 
 ## 10. Tests — end-to-end (L3, Playwright)
 
-- [ ] 10.1 Viewer download e2e, see `tests/e2e/editor-pane-chrome.spec.ts` for harness glue: harness file `notes/summary.md` with known content · open it, More → Download, `page.waitForEvent('download')` · `suggestedFilename() === "summary.md"` and saved bytes equal the content (test-plan #F12)
-- [ ] 10.2 Tree right-click download e2e (exemplar `tests/e2e/editor-pane-chrome.spec.ts`): same file in rail · right-click row → Download · download event `suggestedFilename() === "summary.md"`; open tabs unchanged (test-plan #F13)
+- [x] 10.1 Viewer download e2e, see `tests/e2e/editor-pane-chrome.spec.ts` for harness glue: harness file `notes/summary.md` with known content · open it, More → Download, `page.waitForEvent('download')` · `suggestedFilename() === "summary.md"` and saved bytes equal the content (test-plan #F12)
+- [x] 10.2 Tree right-click download e2e (exemplar `tests/e2e/editor-pane-chrome.spec.ts`): same file in rail · right-click row → Download · download event `suggestedFilename() === "summary.md"`; open tabs unchanged (test-plan #F13)
 
 ## 11. Manual verification
 

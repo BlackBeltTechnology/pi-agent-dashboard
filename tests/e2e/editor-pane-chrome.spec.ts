@@ -365,10 +365,23 @@ test.describe("file download", () => {
     return readFileSync(path, "utf8").trim();
   }
 
-  test("F12: viewer More → Download saves hello.txt with its exact content", async ({ page }) => {
-    const sid = await sessionWithPane(page);
-    await openFile(page, sid, "hello.txt");
+  /** Fresh session, split layout, file rail open — rows are opened by click (the `?file=` deep link is not needed here). */
+  async function sessionWithRail(page: Page): Promise<Locator> {
+    await sessionWithPane(page);
+    await chooseLayoutMode(page, "split");
     const p = pane(page);
+    await expect(p).toBeVisible({ timeout: 20_000 });
+    await p.getByTestId("tree-toggle").click();
+    const row = p.locator('[data-row="hello.txt"]');
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    return row;
+  }
+
+  test("F12: viewer More → Download saves hello.txt with its exact content", async ({ page }) => {
+    const row = await sessionWithRail(page);
+    const p = pane(page);
+    await row.getByText("hello.txt").click();
+    await expect(p.locator('[data-testid="editor-tab"][data-tab-path="hello.txt"]')).toBeVisible({ timeout: 20_000 });
     await p.getByTestId("doc-more-menu").click();
     const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("doc-download").click()]);
     expect(download.suggestedFilename()).toBe("hello.txt");
@@ -376,13 +389,9 @@ test.describe("file download", () => {
   });
 
   test("F13: tree row right-click → Download saves the file and leaves the tabs unchanged", async ({ page }) => {
-    const sid = await sessionWithPane(page);
-    await openFile(page, sid, "README.md");
+    const row = await sessionWithRail(page);
     const p = pane(page);
     const tabsBefore = await p.getByTestId("editor-tab").count();
-    await p.getByTestId("tree-toggle").click();
-    const row = p.locator('[data-row="hello.txt"]');
-    await expect(row).toBeVisible({ timeout: 20_000 });
     await row.click({ button: "right" });
     const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("tree-row-download").click()]);
     expect(download.suggestedFilename()).toBe("hello.txt");
