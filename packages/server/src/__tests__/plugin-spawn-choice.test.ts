@@ -298,11 +298,11 @@ describe("plugin spawn hook — worktree block", () => {
       verdict = o.checkTarget?.(WT);
       return okEnsure();
     });
-    void setup({ ensureWorktree, resolveCwdPolicy: (c) => floors[c] }).hook(spawnOpts());
-    await vi.waitFor(() => expect(verdict).toBe(true));
+    await setup({ ensureWorktree, resolveCwdPolicy: (c) => floors[c] }).hook(spawnOpts());
+    expect(verdict).toBe(true);
     floors[WT] = { tools: ["a"] };
     verdict = undefined;
-    void setup({ ensureWorktree, resolveCwdPolicy: (c) => floors[c] }).hook(spawnOpts());
-    await vi.waitFor(() => expect(verdict).toBe(false));
+    await setup({ ensureWorktree, resolveCwdPolicy: (c) => floors[c] }).hook(spawnOpts());
+    expect(verdict).toBe(false);
   });
 });
