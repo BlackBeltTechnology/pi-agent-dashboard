@@ -1,16 +1,18 @@
 /**
  * L1 (test-plan F6): a locked host credential store surfaces through the
  * plugin's EXISTING error paths — the account list rejects with the typed
- * error, the REST routes answer an error (not a crash), the store is called
- * once per user action (no retry loop) and nothing is left unhandled.
- * See change: encrypt-credentials-at-rest (tasks 5.3, 19).
+ * error, the legacy lease lane rejects with it, the Google hand-off (add-google-connect
+ * D1/D10) fails soft to legacy leasing, the store is called once per action (no retry
+ * loop) and nothing is left unhandled. The moved account routes no longer touch the
+ * store (D10), so they are not part of this test any more.
+ * See change: encrypt-credentials-at-rest (tasks 5.3, 19); add-google-connect.
  */
 import type { PluginCredentials } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { capturingLogger, TEST_ENDPOINTS } from "../../__tests__/fakes.js";
+import { capturingLogger } from "../../__tests__/fakes.js";
 import { AccountStore } from "../accounts.js";
-import { mountGmailRoutes } from "../routes.js";
+import registerPlugin from "../index.js";
 
 class StoreLocked extends Error {
   readonly code = "store_locked";
@@ -48,36 +50,44 @@ afterEach(() => {
 });
 
 describe("F6 — plugin surfaces store_locked", () => {
-  it("F6: accounts list and account add return the error once per action; no retry loop, no unhandled rejection", async () => {
+  it("F6: account list, legacy lease and the first-request hand-off fail once per action; no retry loop, no unhandled rejection", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "clearTimeout", "clearInterval", "Date"] });
     process.on("unhandledRejection", onUnhandled);
     const { creds, calls } = lockedCredentials();
-    const store = new AccountStore(creds);
 
     // Store level: the typed rejection reaches the caller untouched.
-    await expect(store.list()).rejects.toMatchObject({ code: "store_locked", reason: "key_mismatch" });
+    await expect(new AccountStore(creds).list()).rejects.toMatchObject({ code: "store_locked", reason: "key_mismatch" });
     expect(calls.n).toBe(1);
 
-    // REST level: the existing error path answers an error response, one store call per request.
+    // Plugin level, Google Connect present: the hand-off reads the locked store once, fails soft, and is not retried.
+    const importLegacyGmail = vi.fn(async () => ({ ok: true as const, imported: 0, skipped: 0 }));
+    const handlers = new Map<string, (p: unknown, m: unknown) => Promise<unknown>>();
+    const logger = capturingLogger();
     const app = Fastify();
-    await mountGmailRoutes(app, {
-      store,
-      oauth: { startFlow: vi.fn(async () => ({ flowId: "f" })) },
-      endpoints: TEST_ENDPOINTS,
+    await registerPlugin({
+      credentials: creds,
+      logger,
+      fastify: app,
       networkGuard: async () => {},
-      logger: capturingLogger(),
-    });
+      consumeAll: () => [{ provider: "google", value: { importLegacyGmail } }],
+      getPluginConfig: () => ({}),
+      updatePluginConfig: async () => {},
+      registerPiRequestHandler: (type: string, h: (p: unknown, m: unknown) => Promise<unknown>) => handlers.set(type, h),
+    } as never);
     try {
       calls.n = 0;
-      const list = await app.inject({ method: "GET", url: "/api/plugins/gmail/state" });
-      expect(list.statusCode).toBeGreaterThanOrEqual(400);
-      expect(list.body).toContain("key_mismatch");
+      const state = await app.inject({ method: "GET", url: "/api/plugins/gmail/state" });
+      expect(state.statusCode).toBe(200); // a locked store must not crash the settings notice
+      expect(importLegacyGmail).not.toHaveBeenCalled();
+      expect(logger.warns.some((w) => w.includes("legacy import"))).toBe(true);
       expect(calls.n).toBe(1);
 
+      // The lease lane now leases from the (locked) legacy store: the typed error surfaces, once per request.
       calls.n = 0;
-      const add = await app.inject({ method: "POST", url: "/api/plugins/gmail/accounts", payload: { tier: "readonly" } });
-      expect(add.statusCode).toBeGreaterThanOrEqual(400);
-      expect(add.body).toContain("key_mismatch");
+      await expect(handlers.get("gmail/lease")?.({ account: "a@x.com", op: "read" }, {})).rejects.toMatchObject({ code: "store_locked" });
+      expect(calls.n).toBe(1);
+      calls.n = 0;
+      await expect(handlers.get("gmail/accounts")?.({}, {})).rejects.toMatchObject({ code: "store_locked" });
       expect(calls.n).toBe(1);
 
       calls.n = 0;

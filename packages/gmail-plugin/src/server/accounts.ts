@@ -12,9 +12,16 @@ import type {
 import { isTier, type Tier } from "../shared/scopes.js";
 
 export const CLIENT_KEY = "client";
-/** Non-secret automatic-setup record (confirmed publishing links). See change: add-gmail-auto-setup. */
-const SETUP_KEY = "setup";
 const ACCT_PREFIX = "acct:";
+/** Hand-off marker to Google Connect (add-google-connect D10); the legacy data itself is never deleted. */
+const MIGRATED_KEY = "migrated";
+
+export interface MigratedRecord {
+  at: number;
+  version: number;
+  /** Legacy subs already handed over — later legacy accounts (added while Google Connect was off) are not in it. */
+  subs: string[];
+}
 
 type AccountStatus = "ok" | "reauth_required";
 
@@ -120,8 +127,14 @@ export class AccountStore {
     await this.creds.set(CLIENT_KEY, { ...client });
   }
 
-  async setSetupRecord(record: Record<string, unknown>): Promise<void> {
-    await this.creds.set(SETUP_KEY, record);
+  async getMigrated(): Promise<MigratedRecord | undefined> {
+    const rec = await this.creds.get(MIGRATED_KEY);
+    if (!rec || typeof rec.at !== "number" || !Array.isArray(rec.subs)) return undefined;
+    return { at: rec.at, version: typeof rec.version === "number" ? rec.version : 1, subs: rec.subs.filter((s): s is string => typeof s === "string") };
+  }
+
+  async setMigrated(record: MigratedRecord): Promise<void> {
+    await this.creds.set(MIGRATED_KEY, { ...record, subs: [...record.subs] });
   }
 
   async list(): Promise<AccountRecord[]> {

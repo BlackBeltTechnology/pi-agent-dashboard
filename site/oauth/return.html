@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Static return page for the built-in "remote" Google sign-in (change add-google-connect, D12b/D14).
+     GitHub Pages sends no headers, so the policy is a meta tag: the ONE inline script and the ONE inline
+     style are pinned by sha256. `node build.mjs` recomputes both and fails when they differ from the
+     values below — after ANY edit of the inline script or style text, paste the new hashes from the error.
+     The page must stay free of external resources (default-src 'none'), cookies and storage. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-dEgzVY5aIDPpzU/73Bz9kl928h90BgbYenU0bV43Mps='; style-src 'sha256-Au6GvQE6yze4waOJYJkGSAiUMUpmSLhYrHKtBtMW4Dc='; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Google sign-in · PI Dashboard</title>
+<style>
+:root{--bg:#0a0a0a;--panel:#141414;--fg:#e5e5e5;--muted:#b0b0b0;--border:#2a2a2a;--accent:#3b82f6;--solid:#2563eb;--on-solid:#ffffff;color-scheme:dark}
+[data-theme="light"]{--bg:#ffffff;--panel:#fafafa;--fg:#1a1a1a;--muted:#444444;--border:#e0e0e0;--accent:#2563eb;color-scheme:light}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.25rem;background:var(--bg);color:var(--fg);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{width:100%;max-width:34rem;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:1.5rem}
+h1{margin:0 0 .75rem;font-size:1.4rem;line-height:1.25}
+p{margin:.5rem 0;color:var(--muted)}
+.origin{display:block;margin:1rem 0;padding:.75rem .9rem;border:2px solid var(--accent);border-radius:8px;background:var(--bg);color:var(--fg);font:600 1.1rem/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace;overflow-wrap:anywhere;word-break:break-all}
+.actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.25rem}
+button{flex:1 1 12rem;min-width:0;padding:.7rem 1rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font:inherit;font-weight:600;cursor:pointer;overflow-wrap:anywhere}
+button.primary{background:var(--solid);border-color:var(--solid);color:var(--on-solid)}
+button:disabled{opacity:.6;cursor:default}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+#status{min-height:1.5em;margin-top:1rem;font-size:.9rem}
+</style>
+<script>
+(function () {
+  // 1. Take the code out of the address bar before anything else. `href` keeps the full original URL
+  //    in memory only (the Copy fallback); it is never rendered, stored or put in the title.
+  var href = location.href;
+  var search = new URLSearchParams(location.search);
+  var frag = new URLSearchParams(location.hash.replace(/^#/, ""));
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+
+  function get(k) { return search.get(k) || frag.get(k) || ""; }
+  var code = get("code"), state = get("state"), error = get("error");
+  var CALLBACK = "/api/plugins/google/oauth/remote-callback";
+
+  try {
+    var mode = "system";
+    try { mode = localStorage.getItem("pi-theme") || "system"; } catch (e) {}
+    if (mode === "light" || (mode === "system" && matchMedia("(prefers-color-scheme: light)").matches)) {
+      document.documentElement.setAttribute("data-theme", "light");
+    }
+  } catch (e) {}
+
+  // Scenario-gate B3: only https: origins, or http://localhost / http://127.0.0.1 (any port), no
+  // userinfo, and the state must carry exactly the origin (`<flow id>~<origin>`). Else "".
+  function targetOrigin(s) {
+    var i = s.indexOf("~");
+    if (i < 1) return "";
+    var raw = s.slice(i + 1), u;
+    try { u = new URL(raw); } catch (e) { return ""; }
+    if (u.username || u.password || raw !== u.origin) return "";
+    if (u.protocol === "https:") return u.origin;
+    return u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1") ? u.origin : "";
+  }
+
+  function render() {
+    var $ = function (id) { return document.getElementById(id); };
+    var title = $("title"), msg = $("msg"), originEl = $("origin"), go = $("go"), copy = $("copy"), close = $("close"), status = $("status");
+    var framed = true;
+    try { framed = window.top !== window; } catch (e) {}
+    var origin = framed ? "" : targetOrigin(state);
+
+    if (framed || (code && state && !error && !origin)) {
+      // Framed (frame-ancestors cannot be set by meta) or a state naming an origin we will not hand a
+      // code to: say so generically and offer nothing. Nothing from the URL is echoed.
+      title.textContent = "This sign-in link can\u2019t be used";
+      msg.textContent = "Close this window and start again from your dashboard\u2019s Google settings.";
+      return;
+    }
+
+    var cancelled = !!error || !code || !state;
+    var q = new URLSearchParams();
+    if (cancelled) q.set("error", error || "access_denied"); else q.set("code", code);
+    q.set("state", state);
+
+    if (cancelled) {
+      title.textContent = "Google sign-in was cancelled";
+      msg.textContent = origin ? "Nothing was connected. Continue to let your dashboard at this address stop waiting:" : "Nothing was connected.";
+      close.hidden = false;
+      close.addEventListener("click", function () {
+        window.close();
+        status.textContent = "If this window is still open, you can close it now.";
+      });
+    } else {
+      title.textContent = "Finish connecting Google";
+      msg.textContent = "Google sign-in is done. Only continue if this is the address of your own dashboard:";
+      copy.hidden = false;
+      copy.addEventListener("click", function () {
+        var p = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(href) : Promise.reject(new Error("no clipboard"));
+        p.then(
+          function () { status.textContent = "Copied. Paste it into the sign-in dialog of your dashboard."; },
+          function () { status.textContent = "Copying is not available in this browser."; }
+        );
+      });
+      $("help").hidden = false;
+    }
+
+    if (origin) {
+      originEl.textContent = origin;
+      originEl.hidden = false;
+      go.textContent = "Continue to " + origin;
+      go.hidden = false;
+      var went = false;
+      go.addEventListener("click", function () {
+        if (went) return;
+        went = true;
+        go.disabled = true;
+        location.assign(origin + CALLBACK + "?" + q.toString());
+      });
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    try { render(); } catch (e) {
+      document.getElementById("title").textContent = "This sign-in link can\u2019t be used";
+    }
+  });
+})();
+</script>
+</head>
+<body>
+<main>
+  <h1 id="title">Google sign-in</h1>
+  <p id="msg"></p>
+  <strong class="origin" id="origin" hidden></strong>
+  <p id="help" hidden>If that address cannot be opened from this browser, copy the sign-in link and paste it into the sign-in dialog of your dashboard.</p>
+  <noscript><p>JavaScript is required to finish this sign-in.</p></noscript>
+  <div class="actions">
+    <button type="button" class="primary" id="go" hidden></button>
+    <button type="button" id="copy" hidden>Copy sign-in link</button>
+    <button type="button" id="close" hidden>Close</button>
+  </div>
+  <p id="status" role="status" aria-live="polite"></p>
+</main>
+</body>
+</html>

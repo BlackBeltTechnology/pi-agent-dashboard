@@ -120,6 +120,8 @@ export default defineConfig({
       // web-access-plugin (change: render-unclaimed-custom-entries): pi-web-access card + parser.
       "packages/web-access-plugin",
       "packages/gmail-plugin",
+      // google-plugin (change: add-google-connect): Google Connect server, leases, return paths.
+      "packages/google-plugin",
       // obs-studio-plugin (change: add-obs-studio-plugin): pi-obs core, bridge, panel routes, client.
       "packages/obs-studio-plugin",
       // chat-gateway (change: add-chat-gateway): the inbound chat control plane.

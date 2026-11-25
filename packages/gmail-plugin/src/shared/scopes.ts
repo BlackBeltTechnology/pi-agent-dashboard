@@ -7,7 +7,7 @@
 export type Tier = "readonly" | "draft" | "send";
 export type Op = "read" | "draft" | "send" | "modify" | "trash" | "filters_read" | "filters_write";
 
-export const TIERS: readonly Tier[] = ["readonly", "draft", "send"];
+const TIERS: readonly Tier[] = ["readonly", "draft", "send"];
 
 const SCOPE_BASE = "https://www.googleapis.com/auth/";
 export const SCOPE = {
@@ -87,7 +87,7 @@ export function scopesCover(granted: readonly string[], op: Op): boolean {
 }
 
 /** True when the granted scopes cover every op of `tier` (no re-consent needed). */
-export function scopesCoverTier(granted: readonly string[], tier: Tier): boolean {
+function scopesCoverTier(granted: readonly string[], tier: Tier): boolean {
   const eff = effectiveScopes(granted);
   return TIER_SCOPES[tier].every((s) => eff.has(s));
 }

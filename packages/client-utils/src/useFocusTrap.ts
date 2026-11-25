@@ -62,6 +62,14 @@ function isRendered(el: HTMLElement, container: HTMLElement): boolean {
   return true;
 }
 
+/**
+ * Open traps, oldest first. Every trap listens on `document`, so with two open (a plugin dialog above the
+ * Settings overlay) each would drag focus into ITS container on Tab and the last listener would win — Tab then
+ * pinned focus on the top dialog's first control. Only the topmost trap acts. See change: add-google-connect
+ * (test-plan #B52, keyboard reachability of the data-use link).
+ */
+const openTraps: HTMLElement[] = [];
+
 export function useFocusTrap(
   ref: RefObject<HTMLElement | null>,
   open: boolean,
@@ -72,6 +80,7 @@ export function useFocusTrap(
     if (!container) return;
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    openTraps.push(container);
 
     const focusable = getFocusable(container);
     // When a child renders NOTHING focusable on its first paint, the container
@@ -122,6 +131,7 @@ export function useFocusTrap(
       if (e.key !== "Tab") return;
       const node = ref.current;
       if (!node) return;
+      if (openTraps[openTraps.length - 1] !== node) return;
       const items = getFocusable(node);
       if (items.length === 0) {
         e.preventDefault();
@@ -149,6 +159,8 @@ export function useFocusTrap(
     return () => {
       observer?.disconnect();
       document.removeEventListener("keydown", onKeyDown, true);
+      const at = openTraps.lastIndexOf(container);
+      if (at >= 0) openTraps.splice(at, 1);
       if (previouslyFocused && document.contains(previouslyFocused)) {
         previouslyFocused.focus();
       }

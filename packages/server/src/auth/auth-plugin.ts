@@ -39,7 +39,14 @@ import { isBypassed } from "./bypass-urls.js";
 import { CSP_REPORT_POLICIES, cspReportPath } from "./csp-report-paths.js";
 import { hasLocalCredential } from "./local-credential.js";
 import type { LocalTrustContext } from "./local-proof.js";
-import { isLocallyTrusted, isObserveApiRequest, isTrustedSource, needsLocalProof } from "./localhost-guard.js";
+import {
+  isLocallyTrusted,
+  isObserveApiRequest,
+  isTrustedSource,
+  needsLocalProof,
+  PUBLIC_PLUGIN_CALLBACK_PATHS,
+  parseGuardTarget,
+} from "./localhost-guard.js";
 import { noteNetworkOnlyAdmission } from "./network-trust-telemetry.js";
 import { renderLoginPasskeySection } from "./passkey/passkey-pages.js";
 import { registerPasskeyRoutes } from "./passkey/passkey-routes.js";
@@ -658,6 +665,14 @@ export async function registerAuthPlugin(
 
     // Skip auth routes
     if (request.url.startsWith("/auth/")) return;
+
+    // Skip plugin OAuth return endpoints (GET only, exact path, BOTH views of the target): the consenting
+    // browser may have no dashboard session; the route only accepts a pending sign-in's own `state`.
+    // See change: add-google-connect (D12b).
+    if (request.method === "GET") {
+      const t = parseGuardTarget(request.url);
+      if (t && PUBLIC_PLUGIN_CALLBACK_PATHS.has(t.raw) && PUBLIC_PLUGIN_CALLBACK_PATHS.has(t.resolved)) return;
+    }
 
     // Skip the baseline CSP report sink: signed-out pages (login, passkey) must be able to report.
     // Exactly `POST` on the three policy paths (query ignored) — no prefix match, nothing else widens.

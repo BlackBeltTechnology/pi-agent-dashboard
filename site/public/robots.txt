@@ -1,4 +1,5 @@
 User-agent: *
 Disallow: /app/
+Disallow: /oauth/
 
 Sitemap: https://pi-dashboard.dev/sitemap.xml

@@ -308,3 +308,46 @@ describe("useFocusTrap — data-autofocus", () => {
     await waitFor(() => expect(document.activeElement).toBe(getByTestId("one")));
   });
 });
+
+/** Two traps that do NOT contain each other (a portaled plugin dialog over the Settings overlay). */
+function Stacked() {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  useFocusTrap(outer, true);
+  useFocusTrap(inner, true);
+  return (
+    <>
+      <div ref={outer} tabIndex={-1} data-testid="outer">
+        <button data-testid="outer-first">Outer</button>
+      </div>
+      <div ref={inner} tabIndex={-1} data-testid="inner">
+        <button data-testid="inner-a">A</button>
+        <button data-testid="inner-b">B</button>
+        <button data-testid="inner-c">C</button>
+      </div>
+    </>
+  );
+}
+
+describe("useFocusTrap — stacked dialogs", () => {
+  it("only the topmost trap acts: Tab from the middle of the top dialog is left to the browser, not pinned to its first control", () => {
+    const { getByTestId } = render(<Stacked />);
+    const b = getByTestId("inner-b");
+    b.focus();
+    expect(fireEvent.keyDown(b, { key: "Tab" })).toBe(true); // not default-prevented, no focus move
+    expect(document.activeElement).toBe(b);
+  });
+
+  it("the top trap still wraps at its own edge, and the lower trap resumes once the top one closes", () => {
+    const { getByTestId, rerender } = render(<Stacked />);
+    const c = getByTestId("inner-c");
+    c.focus();
+    fireEvent.keyDown(c, { key: "Tab" });
+    expect(document.activeElement).toBe(getByTestId("inner-a"));
+    rerender(<Harness open />); // unmount Stacked → both traps leave the stack
+    const last = getByTestId("last");
+    last.focus();
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(document.activeElement).toBe(getByTestId("first"));
+  });
+});

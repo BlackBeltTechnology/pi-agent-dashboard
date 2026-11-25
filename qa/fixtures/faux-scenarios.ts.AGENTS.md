@@ -45,3 +45,5 @@ See change: harden-agent-tool-guards — Adds `tool-read-agent-models`, `tool-re
 See change: rich-chat-links (tasks 9.1–9.9) — Adds `rich-links-web|pr|states|subdir|html|picker|flush` (`[[faux:rich-links-*]]`): web URLs (`https://example.com/docs`, `https://framed-allowed.test/page`), a bare GitHub PR URL, bash tool results with file mentions (`packages/x/src/a.ts`, a `cd packages/x && ls src/*` recovery, `sub/memo.md` ambiguity), an `.html` mention, and a 30×20-mention flush workload plus one running `sleep 90` tool. Files come from `docker/fixtures/sample-git`. NOTE the harness stages a COPY of this file under `~/.pi/agent/extensions/faux-provider/` at boot: a running harness needs `docker cp` after edits.
 
 `flow-open` scenario: `[[faux:flow-open]] <flow>` → `fauxToolCall("flow_open",{flow})`, then echoes `flow-open: <tool result>`. See change: add-flow-open-tool.
+
+Adds `google-calendars` (`gcal_calendars` builtin@fake.test → one lease against the in-container fake). See change: add-google-connect.

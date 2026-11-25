@@ -13,7 +13,8 @@
  * Control API (POST JSON unless noted):
  *   GET  /_control/health           → {ok:true}
  *   GET  /_control/state            → {sends, drafts, calls, revokes, filters, authorizeScopes}
- *   POST /_control/config {nextEmail?, invalidGrant?, revokeDown?, expiresIn?}
+ *   POST /_control/config {nextEmail?, invalidGrant?, revokeDown?, expiresIn?, dropScopes?}
+ *     dropScopes: substrings; a requested scope containing one is NOT granted (a narrower consent reply).
  *   POST /_control/reset
  */
 import { execFileSync } from "node:child_process";
@@ -31,6 +32,7 @@ interface Config {
   invalidGrant: boolean;
   revokeDown: boolean;
   expiresIn: number;
+  dropScopes: string[];
 }
 
 interface CodeGrant {
@@ -41,7 +43,7 @@ interface CodeGrant {
 }
 
 function defaultConfig(): Config {
-  return { nextEmail: "a@fake.test", invalidGrant: false, revokeDown: false, expiresIn: 3600 };
+  return { nextEmail: "a@fake.test", invalidGrant: false, revokeDown: false, expiresIn: 3600, dropScopes: [] };
 }
 
 const b64u = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -104,7 +106,9 @@ const authorize: Handler = (st, url, _body, res) => {
   st.codes.set(code, {
     email: st.config.nextEmail,
     nonce: q.get("nonce") ?? "",
-    scope: (q.get("scope") ?? "").split(" ").filter((s) => s.startsWith("https://")).join(" "),
+    scope: (q.get("scope") ?? "").split(" ")
+      .filter((s) => s.startsWith("https://") && !st.config.dropScopes.some((d) => s.includes(d)))
+      .join(" "),
     clientId: q.get("client_id") ?? "",
   });
   const to = new URL(q.get("redirect_uri") ?? "");
@@ -213,6 +217,9 @@ function runFakeGoogle(port: number): void {
     if (p === "/revoke") return revoke(st, url, body, res);
     if (p === "/token") return token(st, body, base, res);
     if (p.startsWith(GMAIL)) return gmail(st, p.slice(GMAIL.length), body, res);
+    if (p === "/calendar/v3/users/me/calendarList") {
+      return json(res, 200, { items: [{ id: "primary", summary: "Primary (fake)", accessRole: "owner", timeZone: "UTC", primary: true }] });
+    }
     json(res, 404, { error: "not_found" });
   });
   server.listen(port, "127.0.0.1");
