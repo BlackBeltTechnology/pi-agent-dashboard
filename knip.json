@@ -32,6 +32,7 @@
         "scripts/**/*.{mjs,cjs,ts}",
         "tests/e2e/**/*.spec.ts",
         "tests/e2e/*/global-{setup,teardown}.ts",
+        "tests/e2e/live-preview/*.mjs",
         "tests/e2e-electron/**/*.spec.ts",
         "qa/**/*.{ts,mjs}",
         ".pi/skills/**/scripts/*.ts",
@@ -349,6 +350,18 @@
     },
     "packages/frontend-patterns": {
       "entry": [
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/google-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "src/bridge/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

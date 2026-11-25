@@ -13,7 +13,7 @@
  * target is governed when EITHER its raw or dot-resolved form is, and public
  * only when BOTH are. Unparseable ⇒ governed (fail closed).
  */
-import { parseGuardTarget } from "../auth/localhost-guard.js";
+import { PUBLIC_PLUGIN_CALLBACK_PATHS, parseGuardTarget } from "../auth/localhost-guard.js";
 
 const FLOOR_PREFIXES = ["/api/", "/editor/", "/live/"] as const;
 const PRE_AUTH_PATHS: ReadonlySet<string> = new Set(["/api/health", "/api/identity/login-config"]);
@@ -39,6 +39,9 @@ export function identityFloorAllows(input: {
   if (!target) return false;
   if (!governed(target.raw) && !governed(target.resolved)) return true;
   const readOnly = input.method === "GET" || input.method === "HEAD";
-  if (readOnly) return PRE_AUTH_PATHS.has(target.raw) && PRE_AUTH_PATHS.has(target.resolved);
+  if (readOnly) {
+    const open = (p: string) => PRE_AUTH_PATHS.has(p) || PUBLIC_PLUGIN_CALLBACK_PATHS.has(p);
+    return open(target.raw) && open(target.resolved);
+  }
   return input.method === "POST" && PRE_AUTH_POST_PATHS.has(target.raw) && PRE_AUTH_POST_PATHS.has(target.resolved);
 }

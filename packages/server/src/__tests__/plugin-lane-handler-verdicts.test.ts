@@ -23,6 +23,10 @@ const VERDICTS: Record<string, Record<string, Verdict>> = {
     LEASE_TYPE: { kind: "hub-local-only" },
     ACCOUNTS_TYPE: { kind: "hub-local-only" },
   },
+  "google-plugin/src/server/index.ts": {
+    LEASE_TYPE: { kind: "hub-local-only" },
+    ACCOUNTS_TYPE: { kind: "hub-local-only" },
+  },
   "flows-plugin/src/server/flow-files.ts": {
     FLOW_FILES_REPORT: { kind: "hub-local-only" },
   },

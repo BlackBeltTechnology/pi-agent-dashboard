@@ -36,7 +36,7 @@ import { pipeline } from "node:stream";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { INSTALL_HINT, launchChromium } from "./mock-site/browser.mjs";
-import { DEFAULT_MOCK_SITE_PORT, children as mockSiteChildren, startMockSite, stopAllMockSites, stopMockSite } from "./mock-site-serve.js";
+import { DEFAULT_MOCK_SITE_PORT, children as mockSiteChildren, type ReservationEvents, startMockSite, stopAllMockSites, stopMockSite } from "./mock-site-serve.js";
 import { loadContract, refreshContract } from "./presets/contract.js";
 import { listPresets, resolvePreset } from "./presets/registry.js";
 import { loadRubric, validateMockup } from "./presets/validators.js";
@@ -349,14 +349,15 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
       port: Type.Optional(Type.Number({ description: `Port (default ${DEFAULT_MOCK_SITE_PORT}).` })),
       lan: Type.Optional(Type.Boolean({ description: "Also listen on the LAN for phone review (view-only)." })),
       stop: Type.Optional(Type.Boolean({ description: "Stop the mock site on `port`." })),
+      base: Type.Optional(Type.String({ description: 'Serve the site under this URL path prefix, e.g. "/some/prefix/" (letters, digits, . _ ~ - segments; starts and ends with "/"). Omit it and the host may supply one; "/" means none.' })),
     }),
-    async execute(_id: string, params: { dir?: string; port?: number; lan?: boolean; stop?: boolean }): ToolReturn {
+    async execute(_id: string, params: { dir?: string; port?: number; lan?: boolean; stop?: boolean; base?: unknown }): ToolReturn {
       if (params.stop) {
         const port = params.port ?? DEFAULT_MOCK_SITE_PORT;
         const ok = await stopMockSite(port);
         return { content: [{ type: "text", text: ok ? `Stopped mock site on port ${port}.` : `No mock site on port ${port}.` }], details: { port, stopped: ok } };
       }
-      const r = await startMockSite(params);
+      const r = await startMockSite({ ...params, events: (pi as { events?: ReservationEvents }).events });
       if (!r.ok) return { content: [{ type: "text", text: `serve_mock_site failed: ${r.error}` }], details: { error: r.error } };
       const lines = [`Mock site for ${r.root}`, `  local: ${r.local}`];
       if (params.lan) {
@@ -364,6 +365,7 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
         lines.push("LAN clients are view-only. Project sources are readable on the LAN while it runs.");
       }
       lines.push(`  launcher: ${r.launcher}`, `  app config: ${r.config}`);
+      if (r.note) lines.push(r.note);
       lines.push("", `Show the URL to the user, with #ref links for anything you ask about. Record decisions with the CLI: mock-decide accept|reject <ref> [note]. Stop: serve_mock_site{stop:true,port:${r.port}}.`);
       return { content: [{ type: "text", text: lines.join("\n") }], details: { port: r.port, local: r.local, lan: r.lan, root: r.root, launcher: r.launcher, config: r.config } };
     },

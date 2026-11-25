@@ -24,7 +24,7 @@ import type { GoogleEndpoints } from "../shared/endpoints.js";
 import { authScopeParam, type Tier } from "../shared/scopes.js";
 import type { ClientRecord } from "./accounts.js";
 
-/** Fixed, input-free error codes a flow can fail with (the wizard maps them to steps). */
+/** Fixed, input-free error codes a flow can fail with (the Google accounts wizard maps them to steps). */
 export class GmailFlowError extends Error {
   readonly code: string;
 
@@ -39,7 +39,7 @@ const SAFE_CODE = /^[a-z_]{1,64}$/;
 const safeCode = (v: unknown, fallback: string): string =>
   typeof v === "string" && SAFE_CODE.test(v) ? v : fallback;
 
-export interface GoogleSignInResult extends PluginOAuthCredential {
+interface GoogleSignInResult extends PluginOAuthCredential {
   sub: string;
   email: string;
   grantedScopes: string[];

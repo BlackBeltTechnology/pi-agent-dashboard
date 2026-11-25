@@ -60,7 +60,7 @@ When `requireLocalProof` is in effect (the default: absent or `true`), the genui
 ### Requirement: Network guard threaded to all protected routes
 The network guard SHALL be enforced as a single universal Fastify `onRequest`
 hook whose jurisdiction is the sensitive HTTP namespaces (`/api/*`, `/v1/*`,
-`/editor/*`, `/live/*`), installed once at startup and running regardless of
+`/editor/*`, `/live/*`, `/preview/*`), installed once at startup and running regardless of
 whether `config.authConfig` is present. Within jurisdiction the guard SHALL
 deny-by-default: a request is allowed only if it satisfies a pass condition or an
 in-namespace public exception. This replaces reliance on per-route
@@ -132,6 +132,11 @@ required for a route to be protected.
 - **WHEN** a plugin's route registration fails after the server has started
 - **THEN** the failure SHALL be logged and the plugin marked failed
 - **AND** the server SHALL keep serving all other routes
+
+#### Scenario: Tier-5 preview namespace is in jurisdiction
+- **WHEN** an unauthenticated request from an untrusted IP arrives at `/preview/<pid>/x` with no live `<pid>`
+- **THEN** it SHALL NOT be served or forwarded upstream (guard denial, or the capability 404 of `live-server-preview`)
+- **AND** a request carrying a live `<pid>` is authenticated by the live-preview capability hook and passes the guard
 
 ### Requirement: WebSocket upgrade respects trusted networks
 The WebSocket upgrade handler in `server.ts` SHALL check genuine-local, local-IPC token, ticket and auth, and — **only when the effective trust mode is `"legacy"`** — trusted networks. When the identity floor requires a principal-bearing ticket for the upgrade's scope, that rule SHALL take precedence over every allowance in this requirement, in both modes. In `"legacy"` mode a connection SHALL be allowed without authentication when `isTrustedSource(remoteAddress, headers, trustedNetworks)` is `true`; credential checks (ticket, cookie) SHALL be evaluated before this network match. The `validateWsUpgrade` function SHALL accept the admission list and the upgrade headers and SHALL use `isTrustedSource`.
@@ -349,7 +354,7 @@ When `requireLocalProof` is in effect (the default: absent or `true`), the genui
 
 ### Requirement: Guard jurisdiction and in-namespace public exceptions
 The guard SHALL act only on requests within its jurisdiction namespaces (`/api/*`,
-`/v1/*`, `/editor/*`, `/live/*`). Within `/api`, the guard SHALL allow these
+`/v1/*`, `/editor/*`, `/live/*`, `/preview/*`). Within `/api`, the guard SHALL allow these
 in-namespace public exceptions without a pass condition: `GET /api/health`, the
 `PUBLIC_PAIRING_PREFIXES` paths, and configured `auth.bypassUrls` prefixes. All
 other in-jurisdiction requests SHALL require a pass condition (loopback /
@@ -383,6 +388,10 @@ only — a trusted-network IP).
 #### Scenario: ws-ticket mint requires a pass condition
 - **WHEN** an unauthenticated, untrusted request arrives at the `/api` ws-ticket mint endpoint
 - **THEN** the guard SHALL deny it (the mint is not public)
+
+#### Scenario: preview namespace has no public exception
+- **WHEN** an unauthenticated, untrusted request arrives at `/preview/x/` with no live capability
+- **THEN** the guard SHALL NOT allow it as a public exception
 
 ### Requirement: Guard jurisdiction and exceptions are evaluated on BOTH views of the target
 The guard SHALL derive two views of every request target and SHALL use BOTH:
@@ -488,7 +497,7 @@ SHALL NOT be rejected with a network-policy 403.
 
 ### Requirement: No dangerous route outside the guarded namespaces
 The codebase SHALL keep every dangerous (non-public, non-static, non-auth) HTTP
-route under a guarded jurisdiction namespace (`/api`, `/v1`, `/editor`, `/live`)
+route under a guarded jurisdiction namespace (`/api`, `/v1`, `/editor`, `/live`, `/preview`)
 or inside an **explicitly enumerated independently-authenticated namespace**,
 verified by a test with plugin routes loaded, so a route added outside those
 prefixes cannot silently bypass the guard.
@@ -512,7 +521,7 @@ the SPA handler.
 
 #### Scenario: no SPA route under a guarded namespace
 - **WHEN** the client route table is enumerated
-- **THEN** no client-side route SHALL start with `/api/`, `/v1/`, `/editor/`, or `/live/`
+- **THEN** no client-side route SHALL start with `/api/`, `/v1/`, `/editor/`, `/live/`, or `/preview/`
 
 ### Requirement: Model-proxy second port stays loopback-bound or guarded
 The optional model-proxy second-port Fastify instance SHALL bind to loopback

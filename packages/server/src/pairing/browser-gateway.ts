@@ -3,12 +3,12 @@
  * Runs on the HTTP server port via upgrade handling.
  */
 
+import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import type {
   BrowserOpenSpecUpdateMessage,
   BrowserToServerMessage,
   ServerToBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
@@ -21,6 +21,7 @@ import { canAccessSession, filterSnapshotForPrincipal, isLocalOperator } from ".
 import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
 import { isSessionOwnedMessage, SESSION_LIST_MESSAGES } from "../identity/ws-message-scope.js";
 import { classifyWsRoad } from "../identity/ws-road-classification.js";
+import { markPreviewAccept } from "../live-server/preview-viewers.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
@@ -274,24 +275,24 @@ export function projectDeferredSubagentFrame(msg: ServerToBrowserMessage): Serve
 }
 
 import { randomUUID } from "node:crypto";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
 import { hasPromptChannel, issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
-import type { SudoBrowserSeam, SudoCredentialRelay } from "../sudo-credential/relay.js";
 import { guardAcpBrowserMessage } from "../browser-handlers/acp-guard.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFocusMode, handleSetFocusProfile, handleSetFolderCollapsed, handleSetFolderExpanded, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleRemoveSteeringEntry, handleClearSteeringEntries, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
+import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleClearSteeringEntries, handleEditFollowupEntry, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleRemoveSteeringEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
 import { clearGapState, handleHistoryBackfill, handleSubscribe, sendEventBatches } from "../browser-handlers/subscription-handler.js";
-import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
-import type { ReplayState } from "../session/hydration-state.js";
-import { listKnownFolderCwds } from "../lib/route-admission.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
+import { listKnownFolderCwds } from "../lib/route-admission.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { relayBrowserPromptResponse } from "../questions/question-answer.js";
 import { createQuestionBroadcaster, createQuestionVisibility, type QuestionBroadcaster } from "../questions/question-broadcast.js";
 import type { QuestionStore } from "../questions/question-store.js";
+import type { ReplayState } from "../session/hydration-state.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
+import type { SudoBrowserSeam, SudoCredentialRelay } from "../sudo-credential/relay.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
 import { isSocketLocallyTrusted } from "./socket-locality.js";
 import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
@@ -2590,6 +2591,12 @@ export function createBrowserGateway(
             break;
           }
 
+          // Tab announces it renders `/preview/<pid>/` frames: counted as a tier-5 viewer when its upgrade
+          // classified to tier 5. See change: serve-live-previews-on-capability-origin (D9).
+          case "live_preview_accept": {
+            markPreviewAccept(ws, (msg as { accept?: unknown }).accept);
+            break;
+          }
           case "architect_prompt_response": {
             // Legacy: now handled by prompt_response via PromptBus.
             // Keep case to avoid "unhandled message" warnings from old clients.

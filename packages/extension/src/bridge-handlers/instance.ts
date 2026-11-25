@@ -199,6 +199,8 @@ export interface BridgeInstance {
   uiModulesBridgeCtx: UiModulesBridgeCtx;
   pluginRequests: ReturnType<typeof createPluginRequestClient>;
   pathGate: ReturnType<typeof createPathGate>;
+  /** Reserve-path link (D9): answers the `mock-site:base-reservation` probe from the server's decision. */
+  previewPathLink: import("../preview-path-link.js").PreviewPathLink;
   /** Credential-vault env delivery (bridge half). See change: add-credential-vault. */
   vaultDelivery: VaultDelivery;
   connection: ConnectionManager;

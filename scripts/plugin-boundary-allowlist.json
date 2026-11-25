@@ -162,7 +162,7 @@
     },
     {
       "from": "packages/kb-plugin/src/__tests__/i18n.test.ts",
-      "to": "gmail-plugin",
+      "to": "google-plugin",
       "kind": "test",
       "reason": "i18n catalog parity test spans several plugin catalogs by design.",
       "disposition": "integration-keep",

@@ -580,6 +580,11 @@ footer{border-top:1px solid var(--border);padding-block:30px}
 
 .filters{position:absolute;width:0;height:0;overflow:hidden}
 
+.limited-use{padding-block:28px 8px}
+.limited-use p{margin:0;max-width:72ch;font-size:13px;line-height:1.6;color:var(--text-secondary)}
+.limited-use strong{color:var(--text-primary)}
+.limited-use a{color:var(--accent-text)}
+
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -1119,13 +1124,19 @@ pi-dashboard start --dev</pre>
   </div>
 </section>
 
+<section class="wrap limited-use" id="google-limited-use" aria-label="Google account connection">
+  <p><strong>Google account connection.</strong> pi-dashboard can connect to your Google account so your AI agent can work with the Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks and Contacts data you ask it to. Sign-in happens between your browser, Google and the pi-dashboard you run — pi-dashboard.dev never receives your tokens or data. pi-dashboard's use and transfer of information received from Google APIs to any other app will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. <a href="/privacy.html">Privacy policy</a></p>
+</section>
+
 <footer>
   <div class="wrap foot">
     <a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard">GitHub</a
     ><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard#readme">Docs</a
     ><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/blob/develop/CHANGELOG.md">Changelog</a
     ><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/blob/develop/LICENSE">Licence</a
-    ><a href="https://discord.gg/DrNebZ3pF5">Discord</a>
+    ><a href="https://discord.gg/DrNebZ3pF5">Discord</a
+    ><a href="/privacy.html">Privacy</a
+    ><a href="/terms.html">Terms</a>
     <!-- Name and link taken from the old site's Footer.astro, which is also how
          packages/electron/package.json spells the author. Note the LICENSE file
          still names an individual holder — see the commit message. -->

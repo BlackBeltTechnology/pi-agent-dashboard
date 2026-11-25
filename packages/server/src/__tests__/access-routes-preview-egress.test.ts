@@ -54,7 +54,7 @@ function cspFor(cwd: string): string {
     projectGrants: projectEgressGrants,
     allowOnce: () => [],
   });
-  const grant = { targetId: "st-1", tokenId: "t", kind: "static", policy: { egress: "restricted", scripts: false }, minterKey: "local", principal: { kind: "local" } } as const;
+  const grant = { targetId: "st-1", tokenId: "t", kind: "static", policy: { egress: "restricted", scripts: false }, minterKey: "local", principal: { kind: "local" }, tier: "legacy", ancestors: [] as string[] } as const;
   const built = buildLiveCsp({ policy: grant.policy, host: "dash:8000", scheme: "http", prefix: "/live/st-1/~c/T", granted: egress.grantedFor(grant) });
   return built?.csp ?? "";
 }

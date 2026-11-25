@@ -1634,3 +1634,61 @@ describe("knownServers fingerprint (#E11 #E12 #X7)", () => {
     expect(out.every((e) => !("fingerprint" in e))).toBe(true);
   });
 });
+
+describe("loadConfig liveServer.previewOrigins (test-plan #E12)", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-preview-origins-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  const valid = { wildcard: { suffix: "preview.example.com", forHosts: ["dash.example.com"] }, portPool: "8100-8199" };
+
+  for (const exposure of [undefined, "exposed", "private", "bogus"] as const) {
+    it(`keeps previewOrigins with previewExposure=${String(exposure)}`, () => {
+      fs.writeFileSync(
+        configFile,
+        JSON.stringify({ liveServer: { ...(exposure ? { previewExposure: exposure } : {}), previewOrigins: valid } }),
+      );
+      const ls = loadConfig().liveServer;
+      expect(ls?.previewOrigins?.portPool).toBe("8100-8199");
+      expect(ls?.previewOrigins?.wildcard?.suffix).toBe("preview.example.com");
+      expect(ls?.previewExposure).toBe(exposure === "exposed" ? "exposed" : undefined);
+    });
+  }
+
+  for (const bad of ["x", [], null, 5]) {
+    it(`non-object liveServer ${JSON.stringify(bad)} → defaults, no throw`, () => {
+      fs.writeFileSync(configFile, JSON.stringify({ liveServer: bad }));
+      expect(loadConfig().liveServer).toBeUndefined();
+    });
+  }
+
+  it("previewExposure parsing is unchanged (regression)", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ liveServer: { previewExposure: "exposed" } }));
+    expect(loadConfig().liveServer).toEqual({ previewExposure: "exposed" });
+    fs.writeFileSync(configFile, JSON.stringify({ liveServer: { previewExposure: "nope" } }));
+    expect(loadConfig().liveServer).toBeUndefined();
+  });
+
+  it("an invalid tier is dropped, the block and other tiers are kept", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ liveServer: { previewOrigins: { ...valid, portPool: "8100" } } }),
+    );
+    const po = loadConfig().liveServer?.previewOrigins;
+    expect(po?.portPool).toBeUndefined();
+    expect(po?.wildcard?.suffix).toBe("preview.example.com");
+  });
+});

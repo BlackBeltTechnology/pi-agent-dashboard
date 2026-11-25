@@ -14,6 +14,7 @@ import { SkillAtlasSection, FolderAtlasMenu, ProjectAtlasClaim, GlobalAtlasClaim
 import { isAgentResultNotReceived, agentRowStatus, agentStop, agentStopLabel, catalog as subagents_catalog, sessionEventReducer as subagents_sessionEventReducer, toolRowFinalizers as subagents_toolRowFinalizers } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technology/pi-dashboard-team-plugin";
 import { MemorySubcard, shouldRenderMemorySubcard, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
+import { GoogleSettings, catalog as google_catalog } from "@blackbelt-technology/pi-dashboard-google-plugin";
 import { catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
 import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
 import { ObsSettings, ObsAppClaim, catalog as obs_studio_catalog } from "@blackbelt-technology/pi-dashboard-obs-studio-plugin";
@@ -748,6 +749,28 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "google",
+        "displayName": "Google accounts",
+        "priority": 200,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "GoogleSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "google", priority: 200, slot: "settings-section", tab: "general", Component: GoogleSettings },
+    ],
+    catalog: google_catalog,
+  },
+  {
+    manifest: {
         "id": "system-one",
         "displayName": "Decision models",
         "priority": 200,
@@ -1304,4 +1327,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "783105df0590a2337b5423d80078231abd6e33cafa873300d2c126868b394444";
+export const PLUGIN_REGISTRY_HASH = "f002e8603365fe167eed44ae0bfe62cd16a7ad875ad4b1456df5ed224d7d0faf";

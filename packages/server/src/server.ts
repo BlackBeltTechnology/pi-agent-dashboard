@@ -103,7 +103,8 @@ import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrust
 import { registerCspReportSink } from "./auth/csp-report-sink.js";
 import { CspReportStore } from "./auth/csp-report-store.js";
 import { stateCallerFor } from "./auth/dashboard-state-caller.js";
-import { isHostAdmitted } from "./auth/host-admission.js";
+import { createDuplicateCookieGate, refuseDuplicateCookieUpgrade } from "./auth/duplicate-cookie-gate.js";
+import { classifyAdmittedHostname, isHostAdmitted } from "./auth/host-admission.js";
 import {
   createHostGate,
   evaluateHostGate,
@@ -171,6 +172,7 @@ import { buildPluginSendPrompt } from "./build-plugin-send-prompt.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { readRawConfig, seedWindowsSourceSettings, writeConfigPartial } from "./config-api.js";
 import {
+  getResolvedPreviewOrigins,
   liveAcceptLanRequests,
   liveAllowedHosts,
   liveCorsAllowedOrigins,
@@ -181,6 +183,7 @@ import {
   liveRequireLocalProof,
   liveTrustedNetworks,
   rawConfigHasHostGateMode,
+  setPreviewOriginsRuntime,
 } from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
@@ -245,8 +248,18 @@ import {
 import { createReservedHandler } from "./live-server/live-csp-report.js";
 import { createEgressGrantRequester, createPreviewEgress, requestOriginsOf } from "./live-server/live-egress.js";
 import { createPreviewExposure, wirePreviewExposure } from "./live-server/live-exposure.js";
+import { liveLog } from "./live-server/live-log.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
-import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
+import { handleLiveServerUpgrade, type LiveProxyDeps, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
+import { createPreviewDispatch, type PreviewDispatch, previewServerFactory, routePreviewUpgrade } from "./live-server/preview-dispatch.js";
+import { createPreviewObserver, type PreviewObserver } from "./live-server/preview-observe.js";
+import { isPreviewShapedOriginUrl, previewLogHash } from "./live-server/preview-origin.js";
+import { parsePreviewPath } from "./live-server/preview-path.js";
+import { PreviewPathStore } from "./live-server/preview-path-store.js";
+import { createPreviewPool, type PreviewPool } from "./live-server/preview-pool.js";
+import { createPreviewPreflight } from "./live-server/preview-preflight.js";
+import { hasTier5Viewer, stampPreviewViewer } from "./live-server/preview-viewers.js";
+import { createPreviewWsRegistry } from "./live-server/preview-ws-registry.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
@@ -1482,10 +1495,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   // Ports the dashboard itself listens on are never previewable (a loopback origin is trusted
   // by its CORS / mutation gates). See change: improve-canvas-html-and-url-ux (D1).
+  // Tier 3 pool (D5) + the proxy deps it forwards through: both late-bound (the manager's `ownPorts` reads the pool at seed time).
+  let previewPool: PreviewPool | undefined;
+  // Late-bound like `previewPool`: the observer is built with the dispatcher, after the store whose `onDelete` feeds it.
+  let previewObserver: PreviewObserver | undefined;
+  let liveProxyDepsRef: LiveProxyDeps | undefined;
   const liveServerManager = createLiveServerManager(preferencesStore, {
     ownPorts: () => {
       const tls = loadConfig().tls;
-      return [config.port, config.piPort, ...(tls?.enabled ? [tls.port] : [])];
+      // Pool ports (tier 3) are the dashboard's own: no target may point at one (D5).
+      return [config.port, config.piPort, ...(tls?.enabled ? [tls.port] : []), ...(previewPool?.poolPorts() ?? [])];
     },
   });
 
@@ -2053,6 +2072,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingPromptAcks,
     dispatchPluginPiMessage,
     dispatchPluginRequest,
+    // D9: the bridge reserve-path pair; late-bound (the stores are built after `wireEvents`).
+    previewPathBridge: () =>
+      previewPaths
+        ? {
+            reserve: {
+              store: previewPaths,
+              hasTier5Viewer: () => hasTier5Viewer(browserGateway.wss.clients),
+              portRefusal: (port) => liveServerManager.portRefusal(port),
+            },
+            deviceTier: (deviceId) => pairedDeviceRegistry.list().find((d) => d.id === deviceId)?.tier,
+            isSessionLive: (id) => piGateway.getConnectedSessionIds().includes(id),
+          }
+        : undefined,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
     dispatchSessionRegisteredCwd,
@@ -2085,8 +2117,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     onParentDead: () => server.stop({ exitIntent: "ephemeral" }),
   });
 
+  // Preview-shaped Hosts are answered by the route-less `previewApp` and never enter the dashboard app (D3).
+  // Late-bound: the capability store the dispatch needs is built further down, before `listen`.
+  // See change: serve-live-previews-on-capability-origin.
+  let previewDispatch: PreviewDispatch | undefined;
+  // Tier-5 pid store; late-bound like `previewDispatch` (the preflight hook is registered before the store exists).
+  let previewPaths: PreviewPathStore | undefined;
   const fastify = Fastify({
     logger: false,
+    serverFactory: previewServerFactory(() => previewDispatch) as never,
     keepAliveTimeout: MAIN_KEEP_ALIVE_TIMEOUT_MS,
     connectionTimeout: MAIN_CONNECTION_TIMEOUT_MS,
     // Add-ons feature ids embed a local package's absolute path (`pkg:local:/…`), which exceeds
@@ -2224,8 +2263,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       bindHost: config.host,
       // Exact certificate names of the TLS listener (empty unless enabled + bound).
       tlsListenerNames: () => tlsListener.tlsListenerNames(),
+      // The `live preview capability hosts` pattern row (D3): present whenever previews are on.
+      livePreviewEnabled: () => getResolvedPreviewOrigins().enabled,
     },
     ...resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()),
+  });
+  // Inputs of the preview-origin overlap checks (D12): live tunnels, TLS names and the static
+  // admission classifier, so a label-shaped host that is already admitted is never shaped as a preview.
+  setPreviewOriginsRuntime({
+    tunnelOrigins: liveTunnelOrigins,
+    tlsNames: () => tlsListener.tlsListenerNames(),
+    classifyAdmittedHostname: (hostname) => classifyAdmittedHostname(hostname, getHostGateCtx().admission),
   });
   /**
    * The ONE origin-policy input, shared by the CORS plugin, the WS upgrade gate
@@ -2391,6 +2439,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Origin at all). Report-only default; `PI_DASHBOARD_HOST_GATE=enforce`
   // or `hostGate.mode` flips it. See change: add-host-allowlist-admission (D1).
   fastify.addHook("onRequest", createHostGate(getHostGateCtx, hostGateState, () => config.port));
+  // Duplicate `pi_dash_*` cookie names → self-healing 400, directly after the host gate and before the CORS
+  // observer / `@fastify/cors`, so the refusal carries no ACAO and precedes every origin gate. previewApp is exempt
+  // by construction (own Fastify instance). See change: serve-live-previews-on-capability-origin (D10).
+  fastify.addHook("onRequest", createDuplicateCookieGate());
+  // Tier-5 opaque-origin preflight: answered for a VALID `/preview/<pid>/` before `@fastify/cors` denies `null` (D8, P6).
+  fastify.addHook("onRequest", createPreviewPreflight(() => previewPaths));
   // A denied cross-origin Origin may raise a DEFERRED cors-plane prompt; after
   // the host gate so a host-refused request never prompts. Never alters the
   // response. See change: add-access-grant-dialog.
@@ -2478,19 +2532,58 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // removed / refused-public-IdP provider is not live. See change: close-security-map-high-findings (D3).
   let sessionProviderRejectedAccessor: ((provider: unknown) => boolean) | null = null;
   const sessionProviderRejected = (provider: unknown): boolean => sessionProviderRejectedAccessor?.(provider) ?? false;
+  const capabilityPrincipalLive = (p: import("./live-server/live-capability.js").CapabilityPrincipal): boolean => {
+    if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
+    // Minted on network trust alone: only valid while network trust still authenticates.
+    if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
+    if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
+    if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService, sessionProviderRejected) !== null;
+    return true;
+  };
+  // Tier 3 pool (D5): the store's `onDelete` closes the listener of a deleted entry on EVERY deletion path.
+  // Late-bound (`previewPool` is built just below the store it reads).
   const liveCapabilities = new LiveCapabilityStore({
     isTargetLive: (id) => liveServerManager.has(id),
-    isPrincipalLive: (p) => {
-      if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
-      // Minted on network trust alone: only valid while network trust still authenticates.
-      if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
-      if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
-      if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService, sessionProviderRejected) !== null;
-      return true;
+    isPrincipalLive: capabilityPrincipalLive,
+    onDelete: (entry, reason) => {
+      previewPool?.onDelete(entry, reason);
+      // The entry is gone: drop its "first admit" bookkeeping so observer state tracks live entries (D13, no leak across churn).
+      if (entry.label) previewObserver?.forget(previewLogHash(entry.label));
     },
+    getPreviewConfig: () => getResolvedPreviewOrigins(),
   });
+  previewPool = createPreviewPool({
+    range: () => {
+      const r = getResolvedPreviewOrigins();
+      return r.enabled ? r.pool : undefined;
+    },
+    bindHost: () => config.host,
+    findByPoolPort: (port) => liveCapabilities.findByPoolPort(port),
+    revokeByPoolPort: (port, reason) => liveCapabilities.revokeByPoolPort(port, reason),
+    touch: (grant) => void liveCapabilities.touch(grant.tokenId, grant.minterKey),
+    manager: liveServerManager,
+    proxyDeps: () => liveProxyDepsRef,
+  });
+  // Tier 5 (`/preview/<pid>/`, D8): one current pid per port target; liveness is re-checked at every use, so a revoked
+  // holder / removed target / disabled previews drops the pid on its next request or sweep.
+  const previewWs = createPreviewWsRegistry();
+  previewPaths = new PreviewPathStore({
+    onDrop: (reason, pid) => {
+      liveLog(undefined, "pid dropped", { reason, h: previewLogHash(pid) });
+      previewWs.closePid(pid); // in-flight HMR sockets die with the pid
+    },
+    targetIdForPort: (port) => liveServerManager.getByPort(port)?.id,
+    isPortAllowed: (port) => liveServerManager.portRefusal(port) === null,
+    isTargetLive: (id) => liveServerManager.has(id),
+    isPrincipalLive: capabilityPrincipalLive,
+    isEnabled: () => getResolvedPreviewOrigins().enabled,
+  });
+  previewPaths.start();
   // An evicted preset / static target takes its tokens with it.
-  liveServerManager.setEvictionListener((id) => liveCapabilities.revokeByTarget(id));
+  liveServerManager.setEvictionListener((id) => {
+    liveCapabilities.revokeByTarget(id);
+    previewPaths?.revokeByTarget(id);
+  });
   // Per-token egress state (markup scan, CSP reports, allow-once, project grants). Project grants are read
   // from their store on every CSP build, so a grant or revoke applies on the next response with no restart.
   const previewEgress = createPreviewEgress({
@@ -2542,7 +2635,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   fastify.addHook("onRequest", async (request) => {
     previewExposure.noteRequest(request.headers as Record<string, unknown>);
   });
-  fastify.addHook("onRequest", createLiveCapabilityHook(liveCapabilities));
+  fastify.addHook("onRequest", createLiveCapabilityHook(liveCapabilities, previewPaths));
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
   registerDeviceSessionRoutes(fastify, {
     registry: pairedDeviceRegistry,
@@ -3543,6 +3636,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerLiveServerRoutes(fastify, liveServerManager, {
     networkGuard,
     capabilities: liveCapabilities,
+    pool: previewPool,
+    previewPaths,
+    hasTier5Viewer: () => hasTier5Viewer(browserGateway.wss.clients),
     exposure: previewExposure,
     promptingEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
     getTrustedNetworks: admissionList,
@@ -3565,11 +3661,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       return { ok: true, resolved: gate.resolved };
     },
   });
-  registerLiveServerProxy(fastify, liveServerManager, {
+  const liveProxyDeps: LiveProxyDeps = {
     isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
     isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
     grantedOrigins: (grant) => previewEgress.grantedFor(grant),
+    // D3(c): a tier 1-4 upstream `Location` / `Refresh` aimed at the dashboard app is contained (dropped / rewritten onto the preview).
+    isDashboardUrl: (url) => {
+      const tls = loadConfig().tls;
+      const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+      return (
+        (port === config.port || (tls?.enabled === true && port === tls.port)) &&
+        !isPreviewShapedOriginUrl(url.origin) &&
+        isHostAdmitted(url.host, getHostGateCtx().admission)
+      );
+    },
     onStaticHtmlServed: (grant, real) => previewEgress.noteServed(grant, real),
+    trackPreviewResponse: (pid, res) => previewWs.track(pid, res),
     reservedHandler: createReservedHandler({
       egress: previewEgress,
       ownOriginsOf: (request) => requestOriginsOf(request),
@@ -3578,6 +3685,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // a refusal here records no denial and raises no prompt.
     staticGate: async (cwd, absPath) =>
       !("code" in (await gateFilePath(cwd, absPath, fileRouteAdmission, { allowGrant: true, quiet: true }))),
+  };
+  liveProxyDepsRef = liveProxyDeps;
+  registerLiveServerProxy(fastify, liveServerManager, liveProxyDeps);
+  previewObserver = createPreviewObserver();
+  previewDispatch = createPreviewDispatch({
+    onRefused: (reason, h) => previewObserver?.refused(reason, h),
+    onAdmitted: (h, tier) => previewObserver?.admitted(h, tier),
+    store: liveCapabilities,
+    manager: liveServerManager,
+    proxyDeps: liveProxyDeps,
+    isPeerLocal: (request) =>
+      isLocallyTrusted({ ip: request.socket.remoteAddress ?? "", headers: request.headers as Record<string, unknown> }),
   });
 
   // ONE model runtime for the provider-auth flow listing AND the model proxy,
@@ -4083,6 +4202,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             secondFastify = null;
           }
           try { await tlsListener.stop(); } catch { /* ignore */ }
+          try { await previewDispatch?.close(); } catch { /* ignore */ }
+          try { liveCapabilities.close(); } catch { /* ignore */ }
+          try { await previewPool?.close(); } catch { /* ignore */ }
           try { await fastify.close(); } catch { /* ignore */ }
         },
       });
@@ -4480,6 +4602,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // `onRequest` scope) or the opened handle. Not trust-gated (it only narrows).
               // See change: close-security-map-high-findings (D1, H1).
               readFileGuarded: guardedReadFile,
+              // Public base for plugin OAuth return URLs: same resolution as the dashboard login redirect.
+              // See change: add-google-connect.
+              getDashboardBaseUrl: () => resolveRedirectBase(config.port, config.authConfig?.redirectBaseUrl).base,
               // Rename a live session: in-memory + `session_updated` broadcast
               // + `rename_session` to pi — the host's own rename block, lifted
               // verbatim (the broadcast carries `{ name: name || undefined }`).
@@ -4810,6 +4935,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // path, two transports). See change: add-tailscale-cert-tls (D1).
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
       const onUpgrade = (request: import("node:http").IncomingMessage, socket: import("node:stream").Duplex, head: Buffer): void => {
+        // FIRST branch (D3): a preview-shaped Host is served — or refused — by the preview dispatcher, ahead of
+        // the dashboard host gate, Origin gate and ticket. It never reaches the switch below.
+        if (routePreviewUpgrade(previewDispatch, request, socket, head)) return;
         // Stamp the local-credential verdict FIRST (before the Host/Origin gates):
         // everything below reads it via `hasLocalCredential(request.headers)`.
         // The proof floor is per transport: a TLS socket is stamped against the
@@ -4841,6 +4969,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           socket.destroy();
           return;
         }
+
+        // Duplicate `pi_dash_*` cookie names: 400 + expiry lines before any Origin gate or ticket (D10).
+        if (refuseDuplicateCookieUpgrade(request, socket)) return;
 
         // Access check for WebSocket upgrades
         const remoteAddress = request.socket.remoteAddress || "";
@@ -4881,7 +5012,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             })
           ) {
             console.error(
-              `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+              redactCapability(
+                `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+              ),
             );
             socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
             socket.destroy();
@@ -4926,14 +5059,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // only WITH a valid capability. See change: retire-trusted-networks-bypass (D5),
         // improve-canvas-html-and-url-ux (D10).
         const liveCap = scope === "live" ? parseCapabilityPath(request.url) : null;
-        const liveCapPrincipal = liveCap
-          ? liveCapabilities.validate(liveCap.targetId, liveCap.token, {
-              genuinelyLocal: isLocallyTrusted({ ip: remoteAddress, headers: request.headers as Record<string, unknown> }),
-            })
-          : null;
+        const wsLocal = isLocallyTrusted({ ip: remoteAddress, headers: request.headers as Record<string, unknown> });
+        // Tier 5: the same `live` scope, admitted by a valid `/preview/<pid>/` (full path forwarded). D8.
+        const previewWsPath = scope === "live" ? parsePreviewPath(request.url) : null;
+        const previewWsGrant = previewWsPath ? (previewPaths?.validate(previewWsPath.pid, { genuinelyLocal: wsLocal }) ?? null) : null;
+        const liveCapPrincipal = previewWsGrant
+          ? previewWsGrant.principal
+          : liveCap
+            ? liveCapabilities.validate(liveCap.targetId, liveCap.token, { genuinelyLocal: wsLocal })
+            : null;
         if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts(), liveCapPrincipal !== null)) {
           console.error(
-            `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+            redactCapability(
+              `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+            ),
           );
           socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
           socket.destroy();
@@ -5090,7 +5229,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               }
               // Locality is decided ONCE here, from the upgrade request; handlers read the bit.
               // See change: harden-server-capability-bounds (D1b).
-              stampSocketLocality(ws, request, localTrust);
+              const socketLocal = stampSocketLocality(ws, request, localTrust);
+              // D9: does this socket classify to tier 5? (counted only after the tab's `live_preview_accept`)
+              stampPreviewViewer(ws, request, { genuinelyLocal: socketLocal, resolved: getResolvedPreviewOrigins() });
               if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               if (sessionTierOf) (ws as TieredSocket).sessionTier = sessionTierOf;
               // Tag with the minting device so `closeDeviceSockets` can find it on revoke (D7).
@@ -5141,10 +5282,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Chunked past the 32-bit timer cap (`scheduleAtExpiry`), released on close.
               const cancelExpiry = scheduleAtExpiry(upgradeAuth.principalExpiresAt, () => socket.destroy());
               socket.once("close", cancelExpiry);
+              if (previewWsGrant && previewWsPath) previewWs.track(previewWsPath.pid, socket);
               handleLiveServerUpgrade(liveServerManager, request, socket, head, {
                 isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
                 isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
                 capabilityPrefix: liveCapPrincipal && liveCap ? liveCap.prefix : undefined,
+                ...(previewWsGrant ? { previewTargetId: previewWsGrant.targetId } : {}),
               });
             });
             break;
@@ -5182,6 +5325,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       // The proof floor is taken after readiness, immediately before the bind.
+      await previewDispatch?.ready();
       await listenWithProofFloor(fastify, (at) => (httpBoundAt = at), { port: config.port, host: config.host });
       const bound = fastify.server.address();
       if (bound && typeof bound === "object") httpListenPort = bound.port;
@@ -5688,6 +5832,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       // The TLS listener (and its open connections) closes with the server.
       try { await tlsListener.stop(); } catch { /* ignore */ }
+      try { await previewDispatch?.close(); } catch { /* ignore */ }
+          try { liveCapabilities.close(); } catch { /* ignore */ }
+          try { await previewPool?.close(); } catch { /* ignore */ }
       await fastify.close();
     },
   };

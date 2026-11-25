@@ -1,4 +1,4 @@
-# HTTP route inventory — core server (365 routes)
+# HTTP route inventory — core server (370 routes)
 > Evidence base: HEAD e54074304 · Parent chapter: [http-gates-and-routes.md](http-gates-and-routes.md) · Map index: [security-map.md](../security-map.md) · Register: [residual-risks.md](residual-risks.md)
 
 | Method | Path | Handler path:line | Required tier / per-route guard | Mutating | Danger class |
@@ -255,6 +255,8 @@
 | GET | `/api/live-server/:id/egress` | `packages/server/src/routes/live-server-routes.ts:390` | control + `networkGuard` | N | info |
 | POST | `/api/live-server/:id/allow-once` | `packages/server/src/routes/live-server-routes.ts:415` | control + `networkGuard` | Y | state |
 | POST | `/api/live-server/:id/egress-grant-request` | `packages/server/src/routes/live-server-routes.ts:467` | control + `networkGuard` | Y | state |
+| POST | `/api/live-server/preview-path` | `packages/server/src/routes/live-server-routes.ts:515` | control + `networkGuard` | Y | state |
+| DELETE | `/api/live-server/preview-path/:pid` | `packages/server/src/routes/live-server-routes.ts:537` | control + `networkGuard` | Y | state |
 | GET | `/api/preferences/display` | `packages/server/src/routes/preferences-display-routes.ts:31` | observe + `networkGuard` | N | info |
 | PATCH | `/api/preferences/display` | `packages/server/src/routes/preferences-display-routes.ts:39` | control + `networkGuard` | Y | state |
 | GET | `/api/acp/agents` | `packages/server/src/routes/acp-routes.ts:15` | control | N | info |
@@ -309,6 +311,10 @@
 | POST | `/api/pi/runtime` | `packages/server/src/routes/pi-runtime-routes.ts:112` | operate + `networkGuard` | Y | exec/spawn |
 | ALL | `/live/:id/*` | `packages/server/src/live-server/live-server-proxy.ts:304` | n/a | Y | proxy (live preview) |
 | ALL | `/live/:id` | `packages/server/src/live-server/live-server-proxy.ts:305` | n/a | Y | proxy (live preview) |
+| OPTIONS | `/preview/:pid/*` | `packages/server/src/server.ts:2438` | n/a (valid pid + `Origin: null` only) | N | info |
+| ALL | `/preview/:pid/*` | `packages/server/src/live-server/live-server-proxy.ts:417` | n/a (capability = pid) | Y | proxy (tier 5 preview) |
+| ALL | `/preview/:pid` | `packages/server/src/live-server/live-server-proxy.ts:418` | n/a (capability = pid) | Y | proxy (tier 5 preview) |
+| WS | `live_preview_accept` (message) | `packages/server/src/pairing/browser-gateway.ts:2588` | observe (`packages/shared/src/ws-message-tiers.ts:25`) | Y | state |
 | GET | `/api/services` | `packages/server/src/services/routes.ts:84` | observe + `read`=[networkGuard] | N | info |
 | GET | `/api/services/offers` | `packages/server/src/services/routes.ts:85` | observe + `read`=[networkGuard] | N | info |
 | GET | `/api/services/runtimes` | `packages/server/src/services/routes.ts:86` | observe + `read`=[networkGuard] | N | info |

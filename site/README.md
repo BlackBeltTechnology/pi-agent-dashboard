@@ -11,6 +11,10 @@ recorded below, because both matter when deciding whether to add anything back.
 site/
 ├── index.html        the page: markup, all CSS, ~150 lines of vanilla JS
 ├── 404.html          same tokens, same theme script
+├── privacy.html      privacy policy (Google verification; [[placeholders]] until legal review)
+├── terms.html        terms of service (same)
+├── oauth/return.html static Google sign-in return page; meta-CSP pinned by sha256 (see below)
+├── csp.mjs           inline-hash check used by build.mjs and the return-page check (not shipped)
 ├── field.js          the 3D slab field behind the page (three.js)
 ├── vendor/           three.module.min.js, vendored so the page needs no install
 ├── media/            hero film (dark + light) and posters
@@ -31,6 +35,7 @@ npm run build          # -> site/dist (what GitHub Pages uploads)
 npm run preview        # serve the built dist/
 npm run audit          # layout/regression gate, exit 1 on a defect
 npm run audit -- --links   # ...and every external link resolves
+npm run check:return   # Chromium check of oauth/return.html (needs a prior build); -- --links adds the audit link check
 npm run shots          # screenshot matrix -> /tmp/mockup-shots
 npm run sync-release   # rewrite the download block from the latest GH release
 npm run check-release  # exit 1 if that block is stale
@@ -38,6 +43,16 @@ npm run check-release  # exit 1 if that block is stale
 
 There is nothing to install first — `site/package.json` has no dependencies.
 The audit/shot scripts borrow Playwright from the repo root.
+
+## Return page (`oauth/return.html`)
+
+Google redirects here for dashboards on another computer; the page clears the code from the
+address bar, shows the target dashboard origin and navigates the same window to its remote callback
+only after a click. GitHub Pages sends no headers, so its CSP is a `<meta>` pinning the one inline
+script and style by sha256. After **any** edit of that script or style, `npm run build` fails with
+the new hashes — paste them into the meta tag. `build.mjs` also fails on a missing local reference in
+any shipped page and warns while a page still contains `[[placeholders]]`. `robots.txt` disallows
+`/oauth/`; the sitemap stays canonical-page-only.
 
 ## Release data is inline — and that is the one real cost
 

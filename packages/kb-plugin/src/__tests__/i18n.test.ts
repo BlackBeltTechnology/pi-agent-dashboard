@@ -35,18 +35,18 @@ describe("kb catalog", () => {
 // test-plan #E23 — the plugins this change touched carry every new key in zh-CN and hu.
 // See change: retro-ux-plugin-settings-forms.
 import { catalog as contextMode } from "../../../context-mode-settings-plugin/src/i18n.js";
-import { catalog as gmail } from "../../../gmail-plugin/src/i18n.js";
+import { catalog as google } from "../../../google-plugin/src/i18n.js";
 import { catalog as hermes } from "../../../hermes-memory-plugin/src/i18n.js";
 
-const NEW_KEYS: Record<string, { catalog: typeof gmail; keys: string[] }> = {
+const NEW_KEYS: Record<string, { catalog: typeof google; keys: string[] }> = {
   "context-mode": { catalog: contextMode as never, keys: ["unsavedOne", "unsavedMany", "on", "off"] },
   hermes: {
     catalog: hermes as never,
     keys: ["errEnterNumber", "errMin", "errWhole", "errRegex", "noModels", "openProviders", "on", "off", "inheritUnset", "groupChanged", "rawTitle"],
   },
-  gmail: {
-    catalog: gmail as never,
-    keys: ["stepDone", "aliasFor", "levelFor", "revokeFor", "reauthFor", "addAccountDisabled", "statusOk", "statusReauth"],
+  google: {
+    catalog: google as never,
+    keys: ["stepDone", "aliasFor", "levelFor", "reauthFor", "statusOk", "statusReauth"],
   },
 };
 

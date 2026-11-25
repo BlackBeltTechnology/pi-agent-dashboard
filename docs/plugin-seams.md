@@ -472,6 +472,14 @@ Rule: contract used by host + plugin, or plugin + plugin → non-plugin package.
 - Core needing MCP config (server Radius MCP) imports `mcp-core` directly. Works with mcp-client plugin disabled. No new refusal code.
 - mcp-server + apple-tools import `mcp-core` directly. Drop `mcp-client-plugin` dep.
 - Plugin reaches another plugin's running service only via `consume` + `dependsOn`. No new `ServerPluginContext` member for this.
+- Soft consumer (no `dependsOn`): hard dep breaks load when provider disabled. Pattern:
+  - Provider: `ctx.provide?.(<key>, value)`.
+  - Consumer: `ctx.consumeAll<T>(<key>)` → `{ provider, value }[]`. Use entry only when `provider === <expected plugin id>`.
+  - Look up at first request after start, memoise per process. Missing provider → degrade, no load failure.
+  - Enable/disable of provider takes effect after restart.
+  - Per-request variant: `ctx.consume<T>(<key>)` inside handler (`google` routes → `browser.dedicated`).
+  - Reference: `packages/gmail-plugin/src/server/google-link.ts` (`consumeAll("google.connect")`), `packages/google-plugin/src/server/index.ts` (`provide` + lazy `consume`).
+  - See [`google-plugin.md`](google-plugin.md#service-googleconnect). See change: add-google-connect (D1).
 - `mcp-core` in release set + `BUNDLED_WORKSPACE_PKGS` (`packages/electron/scripts/bundle-server.mjs`).
 - Once published, contract stays. Deprecate, never withdraw.
 - Client CSS scan comes from generated tracked `packages/client/src/generated/plugin-sources.css`. No hand-written plugin `@source`.

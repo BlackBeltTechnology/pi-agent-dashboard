@@ -24,7 +24,7 @@ export function useOpenExternal(targetId: string, policy: PreviewPolicy, runScri
       setError(res.error);
       return;
     }
-    const url = frameSrc(getApiBase(), res.path, deep);
+    const url = frameSrc(getApiBase(), res, deep);
     if (classifyUrl(url, window.location.origin) === "blocked") {
       win?.close();
       return;

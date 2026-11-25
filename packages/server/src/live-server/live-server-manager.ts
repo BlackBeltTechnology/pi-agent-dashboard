@@ -57,6 +57,10 @@ export interface LiveServerManager {
   presetSessionOf(id: string): string | undefined;
   /** Is `id` a live target of either kind? */
   has(id: string): boolean;
+  /** The registered loopback PORT target for `port`, if any (reservation lifetime / live-pid lookup, D9). */
+  getByPort(port: number): LiveServerTarget | undefined;
+  /** Why `127.0.0.1:port` may not be a preview target (the SSRF gate + never an `ownPorts` port), or `null`. */
+  portRefusal(port: number): string | null;
   /** Every port target (persisted and preset), each with `addedBy`. Static targets are not listed. */
   list(): LiveServerTarget[];
   remove(id: string): void;
@@ -234,6 +238,13 @@ export function createLiveServerManager(
     },
     getStatic(id) {
       return statics.get(id)?.target;
+    },
+    getByPort(port) {
+      return [...persisted.values(), ...[...presets.values()].map((p) => p.target)].find((t) => t.port === port);
+    },
+    portRefusal(port) {
+      const v = validateLiveTarget({ host: "127.0.0.1", port });
+      return v.ok ? refusesOwnPort(v.port) : v.error;
     },
     has(id) {
       return persisted.has(id) || presets.has(id) || statics.has(id);

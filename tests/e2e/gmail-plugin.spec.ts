@@ -1,361 +1,25 @@
-import { execFileSync } from "node:child_process";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
+import { FAKE_GOOGLE_BASE, fakeGoogleConsent, fakeGoogleControl, fakeGoogleState } from "./helpers/fake-google.js";
 import {
-  FAKE_GOOGLE_BASE,
-  fakeGoogleConsent,
-  fakeGoogleControl,
-  fakeGoogleState,
-  startFakeGoogle,
-} from "./helpers/fake-google.js";
+  accountRow,
+  addOwnClient,
+  cancelFlows,
+  containerId as googleContainerId,
+  googleState,
+  openGoogleSettings,
+  resetGoogle,
+  seedAccount,
+  trackFlows,
+} from "./helpers/google-connect.js";
 import { gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
-import { BASE_URL, harnessProject } from "./lifecycle.js";
+import { BASE_URL } from "./lifecycle.js";
 
-/**
- * L3 — gmail-plugin end to end against an in-container fake Google
- * (change: add-gmail-plugin, test-plan F1–F6; F7/F8 are manual-only).
- *
- * Nothing in the dashboard is mocked: the REAL wizard uploads the client JSON,
- * the REAL server runs the Google sign-in flow (`ctx.oauth.startFlow` →
- * `ui:oauth-flow`) against `PI_E2E_GOOGLE_BASE_URL` (docker/test-up.sh →
- * 127.0.0.1:18090 inside the container), and the REAL bridge tools lease
- * tokens over the private request lane. The browser cannot reach the
- * container's loopback, so consent is completed through the paste fallback:
- * the spec follows the auth URL inside the container and pastes the redirect.
+/*
+ * gmail-plugin L3 (changes: add-gmail-plugin, add-google-connect D10). Account, client and setup management moved to
+ * the Google plugin: the Gmail wizard/REST of the old F1–F6, setup-ux F2 (project id/owner) and auto-setup F5
+ * were removed with it. What survives lives below against Settings → Google accounts; the Gmail tools lease through it.
  */
-
-function containerId(): string {
-  return execFileSync("docker", ["ps", "-q", "--filter", `label=com.docker.compose.project=${harnessProject()}`], {
-    encoding: "utf8",
-    timeout: 30_000,
-  })
-    .trim()
-    .split("\n")[0] as string;
-}
-
-const CLIENT_JSON = JSON.stringify({
-  installed: { client_id: "e2e.apps.googleusercontent.com", client_secret: "e2e-secret", project_id: "e2e-proj-1" },
-});
-
-interface Summary {
-  sub: string;
-  email: string;
-  tier: string;
-  status: string;
-}
-
-async function clearAccounts(page: Page): Promise<void> {
-  const res = await page.request.get("/api/plugins/gmail/state");
-  const state = (await res.json()) as { accounts: Summary[] };
-  for (const a of state.accounts) await page.request.delete(`/api/plugins/gmail/accounts/${encodeURIComponent(a.sub)}`);
-}
-
-async function openGmailSettings(page: Page): Promise<Locator> {
-  await page.goto("/settings/plugins/gmail");
-  const section = page.getByTestId("gmail-settings");
-  await section.waitFor({ state: "visible", timeout: 20_000 });
-  return section;
-}
-
-async function uploadClient(section: Locator): Promise<void> {
-  await section.getByTestId("gmail-client-upload").setInputFiles({
-    name: "client_secret_e2e.json",
-    mimeType: "application/json",
-    buffer: Buffer.from(CLIENT_JSON),
-  });
-  await expect(section.getByTestId("gmail-client-ok")).toBeVisible({ timeout: 15_000 });
-}
-
-/** Complete the flow currently shown in `section` via the paste fallback. */
-async function consentViaPaste(section: Locator, cid: string): Promise<void> {
-  const waiting = section.getByTestId("dialog-flow-waiting");
-  await expect(waiting).toBeVisible({ timeout: 20_000 });
-  const link = waiting.locator(`a[href^="${FAKE_GOOGLE_BASE}/o/oauth2/v2/auth"]`);
-  await expect(link).toBeVisible();
-  const redirect = fakeGoogleConsent(cid, (await link.getAttribute("href")) as string);
-  expect(redirect).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?code=/);
-  await section.getByTestId("dialog-input-field").fill(redirect);
-  await section.getByTestId("dialog-input-submit").click();
-  await expect(waiting).toHaveCount(0, { timeout: 20_000 });
-}
-
-async function addAccount(section: Locator, cid: string, email: string, tier: string): Promise<void> {
-  fakeGoogleControl(cid, "config", { nextEmail: email });
-  await section.getByTestId("gmail-new-level").selectOption(tier);
-  await section.getByTestId("gmail-add-account").click();
-  await consentViaPaste(section, cid);
-  await expect(row(section, email)).toBeVisible({ timeout: 15_000 });
-}
-
-/** Click Revoke on the row and confirm in the host `ui:confirm-dialog`. */
-async function revokeConfirmed(page: Page, section: Locator, email: string): Promise<void> {
-  await row(section, email).getByTestId("gmail-account-revoke").click();
-  const dialog = page.getByTestId("confirm-dialog");
-  await expect(dialog).toBeVisible();
-  await page.getByTestId("confirm-dialog-action").click();
-  await expect(dialog).toHaveCount(0);
-}
-
-const row = (section: Locator, email: string) => section.locator(`[data-testid="gmail-account-row"][data-email="${email}"]`);
-
-test.describe("gmail plugin", () => {
-  test.describe.configure({ mode: "serial" });
-  let cid = "";
-
-  test.beforeAll(async () => {
-    cid = containerId();
-    await startFakeGoogle(cid);
-  });
-
-  test.beforeEach(async ({ page }) => {
-    await gotoDashboard(page);
-    await clearAccounts(page);
-    // Reset AFTER clearing: the cleanup's own revokes must not count.
-    fakeGoogleControl(cid, "reset");
-  });
-
-  test("F1: wizard upload → add account → converges to one readonly/ok row", async ({ page }) => {
-    const section = await openGmailSettings(page);
-    await uploadClient(section);
-    await addAccount(section, cid, "a@fake.test", "readonly");
-    const rows = section.getByTestId("gmail-account-row");
-    await expect(rows).toHaveCount(1);
-    const r = row(section, "a@fake.test");
-    await expect(r.getByTestId("gmail-account-level")).toHaveValue("readonly");
-    await expect(r.getByTestId("gmail-account-status")).toHaveAttribute("data-status", "ok");
-  });
-
-  test("F2: a second account keeps its own level", async ({ page }) => {
-    const section = await openGmailSettings(page);
-    await uploadClient(section);
-    await addAccount(section, cid, "a@fake.test", "readonly");
-    await addAccount(section, cid, "b@fake.test", "send");
-    await expect(section.getByTestId("gmail-account-row")).toHaveCount(2);
-    await expect(row(section, "a@fake.test").getByTestId("gmail-account-level")).toHaveValue("readonly");
-    await expect(row(section, "b@fake.test").getByTestId("gmail-account-level")).toHaveValue("send");
-  });
-
-  test("F3: raise re-consents; lower applies immediately with no flow", async ({ page }) => {
-    const section = await openGmailSettings(page);
-    await uploadClient(section);
-    await addAccount(section, cid, "a@fake.test", "readonly");
-    fakeGoogleControl(cid, "config", { nextEmail: "a@fake.test" });
-    await row(section, "a@fake.test").getByTestId("gmail-account-level").selectOption("send");
-    await consentViaPaste(section, cid);
-    await expect(row(section, "a@fake.test").getByTestId("gmail-account-level")).toHaveValue("send", { timeout: 15_000 });
-
-    await row(section, "a@fake.test").getByTestId("gmail-account-level").selectOption("draft");
-    await expect(row(section, "a@fake.test").getByTestId("gmail-account-level")).toHaveValue("draft");
-    await expect(section.getByTestId("dialog-flow-waiting")).toHaveCount(0);
-  });
-
-  test("F4: revoke removes the row; Google down → must revoke manually", async ({ page }) => {
-    const section = await openGmailSettings(page);
-    await uploadClient(section);
-    await addAccount(section, cid, "a@fake.test", "readonly");
-    await addAccount(section, cid, "b@fake.test", "readonly");
-
-    // test-plan #F8 (improve-gmail-settings-ux): dismissing the confirm sends nothing.
-    const dialog = page.getByTestId("confirm-dialog");
-    await row(section, "b@fake.test").getByTestId("gmail-account-revoke").click();
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("b@fake.test");
-    await page.keyboard.press("Escape");
-    await expect(dialog).toHaveCount(0);
-    await expect(row(section, "b@fake.test")).toHaveCount(1);
-    expect(fakeGoogleState(cid).revokes).toBe(0);
-
-    await revokeConfirmed(page, section, "b@fake.test");
-    await expect(row(section, "b@fake.test")).toHaveCount(0, { timeout: 15_000 });
-    await expect(section.getByTestId("gmail-revoke-result")).toContainText("revoked at Google");
-    expect(fakeGoogleState(cid).revokes).toBe(1);
-
-    fakeGoogleControl(cid, "config", { revokeDown: true });
-    await revokeConfirmed(page, section, "a@fake.test");
-    await expect(row(section, "a@fake.test")).toHaveCount(0, { timeout: 15_000 });
-    await expect(section.getByTestId("gmail-revoke-result")).toContainText("myaccount.google.com/permissions");
-  });
-
-  test("F5: gmail_send raises its confirm card; approving sends once", async ({ page }) => {
-    const section = await openGmailSettings(page);
-    await uploadClient(section);
-    await addAccount(section, cid, "a@fake.test", "send");
-
-    const card = await spawnFreshGitSession(page);
-    await card.click();
-    await sendPrompt(page, "[[faux:gmail-send]] go");
-
-    await expect(page.getByText("Gmail: send from a@fake.test").first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/To: x@dest\.test, y@dest\.test/).first()).toBeVisible();
-    expect(fakeGoogleState(cid).sends).toHaveLength(0);
-
-    await page.getByRole("button", { name: /^yes$/i }).first().click();
-    await expect(page.getByText("gmail send done").first()).toBeVisible({ timeout: 30_000 });
-    const sends = fakeGoogleState(cid).sends;
-    expect(sends).toHaveLength(1);
-    expect(sends[0]?.to).toEqual(["x@dest.test", "y@dest.test"]);
-  });
-
-  test("F6: a dead grant surfaces reauth_required in the tool and the panel badge", async ({ page }) => {
-    // Short-lived access tokens force a refresh on the first lease.
-    fakeGoogleControl(cid, "config", { expiresIn: 30 });
-    const section = await openGmailSettings(page);
-    await uploadClient(section);
-    await addAccount(section, cid, "a@fake.test", "readonly");
-    fakeGoogleControl(cid, "config", { invalidGrant: true });
-
-    const prefs = await page.request.patch("/api/preferences/display", {
-      data: { toolResults: true, toolCalls: { generic: true } },
-    });
-    expect(prefs.ok()).toBeTruthy();
-    const card = await spawnFreshGitSession(page);
-    await card.click();
-    await sendPrompt(page, "[[faux:gmail-search]] go");
-    await expect(page.getByText("gmail search done").first()).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("tool-burst-header").first().click();
-    const step = page.getByTestId("tool-burst-body").first().getByRole("button", { name: /^gmail_search/ }).first();
-    await step.click();
-    await expect(page.getByText(/reauth_required/).first()).toBeVisible({ timeout: 15_000 });
-
-    const again = await openGmailSettings(page);
-    await expect(row(again, "a@fake.test").getByTestId("gmail-account-status")).toHaveAttribute("data-status", "reauth_required");
-    await expect(row(again, "a@fake.test").getByTestId("gmail-account-status")).toHaveText("Re-auth needed");
-  });
-
-  test("improve-gmail-plugin-setup-ux F2: a display name is explained; the saved id and owner survive a reload and tint the links", async ({
-    page,
-  }) => {
-    const section = await openGmailSettings(page);
-    const project = section.getByTestId("gmail-project-id");
-    const owner = section.getByTestId("gmail-owner-account");
-    try {
-      await project.fill("PiDashboard");
-      await expect(section.getByTestId("gmail-project-error")).toHaveCount(0); // not while typing
-      await expect(section.getByTestId("gmail-need-project-id")).toBeVisible();
-      await project.blur();
-      await expect(section.getByTestId("gmail-project-error")).toBeVisible();
-      await expect(section.getByTestId("gmail-project-error")).toContainText(/project name/i);
-
-      await project.fill("pidashboard-510015");
-      await expect(section.getByTestId("gmail-project-error")).toHaveCount(0);
-      await project.blur();
-      await owner.fill("csakany.robert@gmail.com");
-      await owner.blur();
-      await expect.poll(async () => (await (await page.request.get("/api/plugins/gmail/state")).json()).setup).toEqual({
-        projectId: "pidashboard-510015",
-        ownerAccount: "csakany.robert@gmail.com",
-      });
-
-      await page.reload();
-      const again = page.getByTestId("gmail-settings");
-      await again.waitFor({ state: "visible", timeout: 20_000 });
-      await expect(again.getByTestId("gmail-project-id")).toHaveValue("pidashboard-510015");
-      await expect(again.getByTestId("gmail-owner-account")).toHaveValue("csakany.robert@gmail.com");
-      await expect(again.locator('a[href*="gmail.googleapis.com"]').first()).toHaveAttribute(
-        "href",
-        /authuser=csakany\.robert%40gmail\.com/,
-      );
-    } finally {
-      await page.request.put("/api/plugins/gmail/setup", { data: { projectId: "", ownerAccount: "" } });
-    }
-  });
-
-  test("improve-gmail-plugin-setup-ux F3: turning filters on re-consents with settings.basic; an agent archive rule becomes one filter", async ({
-    page,
-  }) => {
-    const section = await openGmailSettings(page);
-    await uploadClient(section);
-    await addAccount(section, cid, "a@fake.test", "send");
-    const toggle = row(section, "a@fake.test").getByRole("switch", { name: "Filters for a@fake.test" });
-    await expect(toggle).not.toBeChecked();
-
-    fakeGoogleControl(cid, "config", { nextEmail: "a@fake.test" });
-    // Off → on needs the extra scope, so the box stays unchecked until the grant lands (check() would assert it flips).
-    await toggle.click();
-    await consentViaPaste(section, cid);
-    await expect(toggle).toBeChecked({ timeout: 15_000 });
-    const scopes = fakeGoogleState(cid).authorizeScopes;
-    expect(scopes.at(-1)).toContain("https://www.googleapis.com/auth/gmail.settings.basic");
-    expect(scopes.at(-1)).not.toContain("gmail.settings.sharing");
-
-    const card = await spawnFreshGitSession(page);
-    await card.click();
-    await sendPrompt(page, "[[faux:gmail-filter-create]] go");
-    await expect(page.getByText("Gmail: create filter in a@fake.test").first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/all future matching mail/).first()).toBeVisible();
-    expect(fakeGoogleState(cid).filters).toHaveLength(0);
-
-    await page.getByRole("button", { name: /^yes$/i }).first().click();
-    await expect(page.getByText("gmail filter done").first()).toBeVisible({ timeout: 30_000 });
-    const filters = fakeGoogleState(cid).filters;
-    expect(filters).toHaveLength(1);
-    expect(filters[0]?.action?.removeLabelIds).toEqual(["INBOX"]);
-    expect(filters[0]?.criteria).toEqual({ from: "newsletter@dest.test" });
-  });
-  // add-gmail-auto-setup (test-plan F5): the real settings page with the automatic-setup endpoints
-  // answered by route stubs (the dedicated Chrome is not part of the harness). The computed
-  // contrast/size/focus probes for every state run in retro-ux-plugin-settings-forms.spec.ts via
-  // `fixtures/retro-ux/gmail.ts`; this spec proves the states render, follow the 1 s poll, and that
-  // every pre-existing `gmail-*` test id still renders beside them.
-  test("add-gmail-auto-setup F5: entry → run states follow the poll; existing test ids still render", async ({ page }) => {
-    const real = (await (await page.request.get("/api/plugins/gmail/state")).json()) as Record<string, unknown>;
-    const steps = (step: string) =>
-      ["project", "api", "branding", "publish", "client", "capture"].map((id, i, all) => ({
-        id,
-        status: i < all.indexOf(step) ? "done" : i === all.indexOf(step) ? "running" : "pending",
-      }));
-    const base = { runId: "r1", created: { clients: [] }, ownerEmail: "owner@gmail.com" };
-    let view: Record<string, unknown> = { ...base, state: "running", step: "project", steps: steps("project") };
-    await page.route("**/api/plugins/gmail/state", (route) =>
-      route.fulfill({ json: { ...real, autoSetup: { available: true, local: true } } }),
-    );
-    await page.route("**/api/plugins/gmail/setup/run", (route) => route.fulfill({ json: { runId: "r1" } }));
-    await page.route("**/api/plugins/gmail/setup/run/r1", (route) => route.fulfill({ json: view }));
-
-    const section = await openGmailSettings(page);
-    for (const id of ["gmail-wizard", "gmail-accounts", "gmail-add-account", "gmail-new-level", "gmail-cross-org-hint", "gmail-level-help"]) {
-      await expect(section.getByTestId(id), id).toBeVisible();
-    }
-    await expect(section.locator('button[class*="bg-[var(--accent-solid)]"]:not([role="switch"])')).toHaveCount(1); // Add account stays the one primary
-
-    await section.getByTestId("gmail-setup-entry").click();
-    await section.getByTestId("gmail-setup-owner").fill("owner@gmail.com");
-    await section.getByTestId("gmail-setup-start").click();
-    await expect(section.getByTestId("gmail-setup-working")).toBeVisible();
-    await expect(section.getByTestId("gmail-setup-step-project")).toHaveAttribute("aria-current", "step");
-
-    view = { ...base, state: "waiting_user", step: "branding", steps: steps("branding"), checkpoint: { kind: "policy" } };
-    await expect(section.getByTestId("gmail-setup-checkpoint")).toContainText("User Data Policy", { timeout: 10_000 });
-    await expect(section.getByTestId("gmail-setup-step-branding")).toHaveAttribute("aria-current", "step");
-
-    view = {
-      ...base,
-      state: "waiting_decision",
-      step: "branding",
-      steps: steps("branding"),
-      decision: { kind: "audience", detected: "external" },
-    };
-    await expect(section.getByTestId("gmail-setup-audience-external")).toBeVisible({ timeout: 10_000 });
-    await expect(section.getByTestId("gmail-setup-audience-internal")).toHaveCount(0);
-
-    view = { ...base, state: "busy", step: "project", steps: steps("project"), busy: { holder: "agent session 7" } };
-    await expect(section.getByTestId("gmail-setup-busy-holder")).toContainText("agent session 7", { timeout: 10_000 });
-
-    view = {
-      ...base,
-      state: "handoff",
-      step: "capture",
-      steps: steps("capture").map((s) => (s.id === "capture" ? { ...s, status: "handoff" } : s)),
-      handoff: { step: "capture", wizardStep: 4, reason: "secret_capture_failed" },
-      projectId: "e2e-proj-1",
-      created: { projectId: "e2e-proj-1", clients: ["pi-dashboard-2"] },
-    };
-    await expect(section.getByTestId("gmail-setup-handoff")).toBeVisible({ timeout: 10_000 });
-    await expect(section.getByTestId("gmail-step-4")).toHaveAttribute("aria-current", "step");
-    await expect(section.getByTestId("gmail-project-id")).toHaveValue("e2e-proj-1");
-    await expect(section.getByTestId("gmail-setup-secret-help")).toContainText("pi-dashboard-2");
-  });
-});
 
 /**
  * harden-bridge-session-claim BE106 (L3): the REAL host lane refuses a session admitted as a paired device
@@ -390,3 +54,311 @@ test("harden-bridge-session-claim BE106: a paired-device session gets origin_den
   ws.close();
 });
 
+
+/**
+ * L3 — product changes on a connected Google account, and the Gmail settings pointer (change: add-google-connect;
+ * test-plan #A100, #A111, #B140). The account lives in the Google plugin (own installed client, paste consent
+ * through the in-container fake Google); Gmail's own settings page is only a pointer to it.
+ */
+test.describe("google accounts: product changes and the Gmail pointer (L3)", () => {
+  let cid = "";
+  test.beforeAll(() => {
+    cid = googleContainerId(); // lazily: `playwright test --list` loads this file without a harness
+  });
+
+  let flows: string[] = [];
+  test.beforeEach(async ({ page }) => {
+    await gotoDashboard(page);
+    await resetGoogle(page.request, cid);
+    flows = trackFlows(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await cancelFlows(page.request, flows);
+    await resetGoogle(page.request, cid);
+  });
+
+  /** Expand the account row and return it. */
+  async function expandRow(page: Page, email: string): Promise<Locator> {
+    const r = accountRow(page, email);
+    await expect(r).toBeVisible({ timeout: 20_000 });
+    await r.getByTestId("google-account-toggle").click();
+    return r;
+  }
+
+  /** Complete the flow the open dialog is waiting on through its paste fallback. */
+  async function pasteConsent(page: Page): Promise<Locator> {
+    const dialog = page.getByTestId("google-connect-dialog");
+    await dialog.getByTestId("google-continue").click();
+    await expect(dialog.getByTestId("google-waiting")).toBeVisible({ timeout: 20_000 });
+    await dialog.getByTestId("google-fallback-toggle").click();
+    const auth = (await dialog.locator(`a[href^="${FAKE_GOOGLE_BASE}/o/oauth2/v2/auth"]`).getAttribute("href")) as string;
+    await dialog.getByTestId("dialog-input-field").fill(fakeGoogleConsent(cid, auth));
+    await dialog.getByTestId("dialog-input-submit").click();
+    return dialog;
+  }
+
+  // (test-plan #A100) — Google's reply lacks what the account already uses → nothing changes.
+  test("A100: a narrower consent reply changes nothing", async ({ page, context }) => {
+    await context.route(`${FAKE_GOOGLE_BASE}/**`, (r) => r.abort());
+    const narrowEmail = `narrow-${Date.now()}@fake.test`;
+    const client = await addOwnClient(page.request);
+    await seedAccount(page.request, cid, narrowEmail, client, { gmail: { level: "readonly" } });
+    const before = await googleState(page.request);
+
+    await openGoogleSettings(page);
+    const row = await expandRow(page, narrowEmail);
+    // The consent page "unticks Gmail": the reply no longer carries the Gmail scope.
+    fakeGoogleControl(cid, "config", { dropScopes: ["gmail"] });
+    await row.getByTestId("google-level-calendar").selectOption("read");
+    const dialog = await pasteConsent(page);
+    await expect(dialog.getByTestId("google-connect-error")).toContainText(`Nothing was changed for ${narrowEmail}`, { timeout: 20_000 });
+    await dialog.getByTestId("google-cancel").click();
+    await expect(dialog).toHaveCount(0);
+
+    const again = accountRow(page, narrowEmail);
+    await expect(again.getByTestId("google-level-gmail")).toHaveValue("readonly");
+    await expect(again.getByTestId("google-level-calendar")).toHaveValue("off");
+    await expect(again.getByTestId("google-account-status")).toHaveAttribute("data-status", "ok");
+    // Server side: the same products, status and grant time; no token material in what the page reads.
+    const after = await googleState(page.request);
+    expect(after.accounts.map((a) => [a.email, a.status, a.products])).toEqual(before.accounts.map((a) => [a.email, a.status, a.products]));
+    expect(JSON.stringify(after)).not.toMatch(/refresh|access_token|client_secret/i);
+  });
+
+  // (test-plan #A111) — a product change reuses the connect dialog.
+  test("A111: setting Slides to Read reuses the dialog and leaves Gmail untouched", async ({ page, context }) => {
+    await context.route(`${FAKE_GOOGLE_BASE}/**`, (r) => r.abort());
+    const client = await addOwnClient(page.request, "Semmi", ["semmi.se"]);
+    await seedAccount(page.request, cid, "robson@semmi.se", client, { gmail: { level: "readonly" }, calendar: { level: "read" } });
+
+    await openGoogleSettings(page);
+    const row = await expandRow(page, "robson@semmi.se");
+    await row.getByTestId("google-level-slides").selectOption("read");
+    const dialog = await pasteConsent(page);
+    await expect(dialog.getByTestId("google-connected-email")).toHaveText("robson@semmi.se", { timeout: 20_000 });
+    await expect(dialog.getByTestId("google-connect-result")).toContainText(/Slides/);
+    await dialog.getByTestId("google-done").click();
+    await expect(dialog).toHaveCount(0);
+
+    await expect(row.getByTestId("google-level-slides")).toHaveValue("read");
+    await expect(row.getByTestId("google-level-gmail")).toHaveValue("readonly");
+    const acct = (await googleState(page.request)).accounts.find((a) => a.email === "robson@semmi.se");
+    expect(acct?.products.slides?.level).toBe("read");
+    expect(acct?.products.gmail?.level).toBe("readonly");
+  });
+
+  /** Seed one connected account on `client` with a Gmail level (REST start → fake consent → paste input). */
+  const connect = (page: Page, client: string, email: string, level: string) =>
+    seedAccount(page.request, cid, email, client, { gmail: { level } });
+
+  /** Open Settings → Google accounts and expand `email`'s row. */
+  async function openRow(page: Page, email: string): Promise<Locator> {
+    await openGoogleSettings(page);
+    return expandRow(page, email);
+  }
+
+  /** Click Disconnect on the expanded row and confirm (optionally also revoking at Google). */
+  async function disconnect(page: Page, row: Locator, opts: { revoke: boolean }): Promise<void> {
+    await row.getByTestId("google-account-disconnect").click();
+    if (opts.revoke) await page.getByLabel("Also remove access at Google").check();
+    await page.getByTestId("google-disconnect-confirm").click();
+  }
+
+  // (test-plan #B137) — what the removed Gmail wizard/REST used to do now answers 410 `moved`; the state stays readable.
+  test("B137: the removed Gmail management routes answer 410 moved and nothing is stored", async ({ page }) => {
+    const client = await addOwnClient(page.request);
+    await connect(page, client, "moved@fake.test", "readonly");
+    const routes: Array<[string, string]> = [
+      ["PUT", "/client"],
+      ["PUT", "/setup"],
+      ["GET", "/accounts"],
+      ["POST", "/accounts"],
+      ["PATCH", "/accounts/x"],
+      ["DELETE", "/accounts/x"],
+      ["POST", "/accounts/x/level"],
+      ["POST", "/accounts/x/reauth"],
+      ["POST", "/accounts/x/filters"],
+      ["POST", "/setup/run"],
+      ["GET", "/setup/run/r1"],
+    ];
+    for (const [method, path] of routes) {
+      const res = await page.request.fetch(`/api/plugins/gmail${path}`, { method, data: method === "GET" ? undefined : {} });
+      expect(res.status(), `${method} ${path}`).toBe(410);
+      expect(await res.json(), `${method} ${path}`).toEqual({ error: "moved" });
+    }
+    const state = await page.request.get("/api/plugins/gmail/state");
+    expect(state.status()).toBe(200);
+    expect(await state.json()).toEqual({ moved: true });
+    // Nothing the refused calls could have touched changed: the Google account is still there.
+    expect((await googleState(page.request)).accounts.map((a) => a.email)).toEqual(["moved@fake.test"]);
+  });
+
+  // Replaces the removed Gmail wizard F1: a Gmail account now lives in Settings → Google accounts.
+  test("F1: a Gmail account connected through Google converges to one readonly/ok row", async ({ page }) => {
+    const client = await addOwnClient(page.request);
+    await connect(page, client, "a@fake.test", "readonly");
+    const row = await openRow(page, "a@fake.test");
+    await expect(page.getByTestId("google-account-row")).toHaveCount(1);
+    await expect(row.getByTestId("google-level-gmail")).toHaveValue("readonly");
+    await expect(row.getByTestId("google-account-status")).toHaveAttribute("data-status", "ok");
+  });
+
+  test("F2: a second account keeps its own Gmail level", async ({ page }) => {
+    const client = await addOwnClient(page.request);
+    await connect(page, client, "a@fake.test", "readonly");
+    await connect(page, client, "b@fake.test", "send");
+    await openGoogleSettings(page);
+    await expect(page.getByTestId("google-account-row")).toHaveCount(2);
+    const a = await expandRow(page, "a@fake.test");
+    const b = await expandRow(page, "b@fake.test");
+    await expect(a.getByTestId("google-level-gmail")).toHaveValue("readonly");
+    await expect(b.getByTestId("google-level-gmail")).toHaveValue("send");
+  });
+
+  test("F3: raising Gmail re-consents; lowering applies immediately with no flow", async ({ page, context }) => {
+    await context.route(`${FAKE_GOOGLE_BASE}/**`, (r) => r.abort());
+    const client = await addOwnClient(page.request);
+    await connect(page, client, "a@fake.test", "readonly");
+    const row = await openRow(page, "a@fake.test");
+
+    await row.getByTestId("google-level-gmail").selectOption("send");
+    const dialog = await pasteConsent(page);
+    await expect(dialog.getByTestId("google-connected-email")).toHaveText("a@fake.test", { timeout: 20_000 });
+    await dialog.getByTestId("google-done").click();
+    await expect(row.getByTestId("google-level-gmail")).toHaveValue("send", { timeout: 15_000 });
+
+    await row.getByTestId("google-level-gmail").selectOption("draft");
+    await expect(row.getByTestId("google-level-gmail")).toHaveValue("draft");
+    await expect(page.getByTestId("google-connect-dialog")).toHaveCount(0);
+    await expect.poll(async () => (await googleState(page.request)).accounts[0]?.products.gmail?.level).toBe("draft");
+  });
+
+  test("F4: disconnect removes the row; Google down → must remove access manually", async ({ page }) => {
+    const client = await addOwnClient(page.request);
+    await connect(page, client, "a@fake.test", "readonly");
+    await connect(page, client, "b@fake.test", "readonly");
+    await openGoogleSettings(page);
+    const b = await expandRow(page, "b@fake.test");
+
+    // Dismissing the confirmation sends nothing.
+    await b.getByTestId("google-account-disconnect").click();
+    const dialog = page.getByTestId("google-disconnect-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("b@fake.test");
+    await page.getByTestId("google-disconnect-cancel").click();
+    await expect(dialog).toHaveCount(0);
+    await expect(accountRow(page, "b@fake.test")).toHaveCount(1);
+    expect(fakeGoogleState(cid).revokes).toBe(0);
+
+    await disconnect(page, b, { revoke: true });
+    await expect(accountRow(page, "b@fake.test")).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.getByTestId("google-disconnect-result")).toHaveCount(0);
+    expect(fakeGoogleState(cid).revokes).toBe(1);
+
+    fakeGoogleControl(cid, "config", { revokeDown: true });
+    const a = await expandRow(page, "a@fake.test");
+    await disconnect(page, a, { revoke: true });
+    await expect(accountRow(page, "a@fake.test")).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.getByTestId("google-disconnect-result")).toContainText("myaccount.google.com/connections");
+  });
+
+  test("F5: gmail_send raises its confirm card; approving sends once", async ({ page }) => {
+    const client = await addOwnClient(page.request);
+    await connect(page, client, "a@fake.test", "send");
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:gmail-send]] go");
+
+    await expect(page.getByText("Gmail: send from a@fake.test").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/To: x@dest\.test, y@dest\.test/).first()).toBeVisible();
+    expect(fakeGoogleState(cid).sends).toHaveLength(0);
+
+    await page.getByRole("button", { name: /^yes$/i }).first().click();
+    await expect(page.getByText("gmail send done").first()).toBeVisible({ timeout: 30_000 });
+    const sends = fakeGoogleState(cid).sends;
+    expect(sends).toHaveLength(1);
+    expect(sends[0]?.to).toEqual(["x@dest.test", "y@dest.test"]);
+  });
+
+  test("F6: a dead grant surfaces reauth_required in the tool and the Google accounts badge", async ({ page }) => {
+    // Short-lived access tokens force a refresh on the first lease.
+    fakeGoogleControl(cid, "config", { expiresIn: 30 });
+    const client = await addOwnClient(page.request);
+    await connect(page, client, "a@fake.test", "readonly");
+    fakeGoogleControl(cid, "config", { invalidGrant: true });
+
+    const prefs = await page.request.patch("/api/preferences/display", {
+      data: { toolResults: true, toolCalls: { generic: true } },
+    });
+    expect(prefs.ok()).toBeTruthy();
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:gmail-search]] go");
+    await expect(page.getByText("gmail search done").first()).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("tool-burst-header").first().click();
+    const step = page.getByTestId("tool-burst-body").first().getByRole("button", { name: /^gmail_search/ }).first();
+    await step.click();
+    await expect(page.getByText(/reauth_required/).first()).toBeVisible({ timeout: 15_000 });
+
+    await openGoogleSettings(page);
+    const status = accountRow(page, "a@fake.test").getByTestId("google-account-status");
+    await expect(status).toHaveAttribute("data-status", "reauth_required");
+    await expect(status).toHaveText("Sign in again");
+  });
+
+  test("F3 (filters): turning Gmail filters on re-consents with settings.basic; an agent archive rule becomes one filter", async ({
+    page,
+    context,
+  }) => {
+    await context.route(`${FAKE_GOOGLE_BASE}/**`, (r) => r.abort());
+    const client = await addOwnClient(page.request);
+    await connect(page, client, "a@fake.test", "send");
+    const row = await openRow(page, "a@fake.test");
+    const toggle = row.getByRole("checkbox", { name: "Gmail filters for a@fake.test" });
+    await expect(toggle).not.toBeChecked();
+
+    // Off → on needs the extra scope, so the box stays unchecked until the grant lands.
+    await toggle.click();
+    const dialog = await pasteConsent(page);
+    await expect(dialog.getByTestId("google-connected-email")).toHaveText("a@fake.test", { timeout: 20_000 });
+    await dialog.getByTestId("google-done").click();
+    await expect(toggle).toBeChecked({ timeout: 15_000 });
+    const scopes = fakeGoogleState(cid).authorizeScopes;
+    expect(scopes.at(-1)).toContain("https://www.googleapis.com/auth/gmail.settings.basic");
+    expect(scopes.at(-1)).not.toContain("gmail.settings.sharing");
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:gmail-filter-create]] go");
+    await expect(page.getByText("Gmail: create filter in a@fake.test").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/all future matching mail/).first()).toBeVisible();
+    expect(fakeGoogleState(cid).filters).toHaveLength(0);
+
+    await page.getByRole("button", { name: /^yes$/i }).first().click();
+    await expect(page.getByText("gmail filter done").first()).toBeVisible({ timeout: 30_000 });
+    const filters = fakeGoogleState(cid).filters;
+    expect(filters).toHaveLength(1);
+    expect(filters[0]?.action?.removeLabelIds).toEqual(["INBOX"]);
+    expect(filters[0]?.criteria).toEqual({ from: "newsletter@dest.test" });
+  });
+
+  // (test-plan #B140) — Gmail's settings only point to Google accounts.
+  test("B140: the Gmail settings notice links to Settings → Google accounts", async ({ page }) => {
+    const client = await addOwnClient(page.request);
+    await seedAccount(page.request, cid, "pointer@fake.test", client, { gmail: { level: "readonly" } });
+    await page.goto("/settings/plugins/gmail");
+    const section = page.getByTestId("gmail-settings");
+    await expect(section).toBeVisible({ timeout: 20_000 });
+    await expect(section.getByTestId("gmail-moved")).toBeVisible();
+    // No account / client controls remain on the Gmail page.
+    await expect(section.getByTestId("gmail-add-account")).toHaveCount(0);
+    await section.getByTestId("gmail-open-google").click();
+    await expect(page).toHaveURL(/\/settings\/plugins\/google$/);
+    const google = page.getByTestId("google-settings");
+    await expect(google).toBeVisible({ timeout: 20_000 });
+    await expect(google.getByRole("heading", { name: "Google accounts" })).toBeVisible();
+    await expect(accountRow(page, "pointer@fake.test")).toBeVisible();
+  });
+});

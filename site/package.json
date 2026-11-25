@@ -9,6 +9,7 @@
     "build": "node build.mjs",
     "preview": "node design-scratch/scripts/serve.mjs --root dist",
     "audit": "node design-scratch/scripts/shoot.mjs --audit",
+    "check:return": "node design-scratch/scripts/return-check.mjs",
     "shots": "node design-scratch/scripts/shoot.mjs",
     "sync-release": "node design-scratch/scripts/sync-release.mjs",
     "check-release": "node design-scratch/scripts/sync-release.mjs --check"

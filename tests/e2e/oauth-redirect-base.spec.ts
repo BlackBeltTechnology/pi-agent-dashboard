@@ -1,5 +1,14 @@
+import { execFileSync } from "node:child_process";
 import { type APIRequestContext, expect, test } from "./fixtures.js";
-import { gotoDashboard } from "./helpers/index.js";
+import {
+  accountRow,
+  containerId as googleContainerId,
+  googleState,
+  openGoogleSettings,
+  resetGoogle,
+  seedLocalBuiltinAccount,
+} from "./helpers/google-connect.js";
+import { gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser/container E2E for change `config-override-oauth-redirect-base`
@@ -271,5 +280,58 @@ test.describe.serial("config-override-oauth-redirect-base", () => {
     const after = await serverIdentity(request);
     expect(after?.pid).toBe(before?.pid);
     expect(after?.startedAt).toBe(before?.startedAt);
+  });
+});
+
+/**
+ * L3 — change `add-google-connect`, test-plan #A13. The operator switch `PI_GOOGLE_REMOTE_RETURN=off` is
+ * read from the SERVER PROCESS environment, which docker/test-up.sh fixes at container start (empty = on).
+ * This scenario therefore only means something on a harness started with
+ * `PI_GOOGLE_REMOTE_RETURN=off docker/test-up.sh -d`; on the default harness it reports as skipped with that
+ * reason instead of asserting the wrong behaviour. The page is opened from the harness host, a NON-loopback
+ * peer — the same "forwarded / non-local origin" the plugin classifies as a remote browser.
+ */
+test.describe("google built-in app with PI_GOOGLE_REMOTE_RETURN=off", () => {
+  test("A13: not offered to a remote browser; a pre-seeded built-in account stays listed and still leases", async ({
+    page,
+  }) => {
+    const cid = googleContainerId();
+    const sw = execFileSync("docker", ["exec", cid, "sh", "-c", 'printf %s "${PI_GOOGLE_REMOTE_RETURN:-}"'], {
+      encoding: "utf8",
+      timeout: 30_000,
+    }).trim();
+    test.skip(sw !== "off", "needs a harness started with PI_GOOGLE_REMOTE_RETURN=off (see the header comment)");
+
+    await gotoDashboard(page);
+    await resetGoogle(page.request, cid);
+    // A built-in account made earlier (on the dashboard host): it must survive the switch.
+    await seedLocalBuiltinAccount(page.request, cid, "builtin@fake.test");
+
+    // The remote browser is not offered the built-in app any more.
+    const state = await googleState(page.request);
+    expect(state.browser).toBe("remote");
+    expect(state.builtin.available).toBe(false);
+    await openGoogleSettings(page);
+    await expect(accountRow(page, "builtin@fake.test")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("google-connect").click();
+    const dialog = page.getByTestId("google-connect-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("google-disclosure")).toHaveCount(0);
+    await expect(dialog.getByTestId("google-continue")).toHaveCount(0);
+    await expect(dialog).toContainText(/pi-dashboard\.dev is not available on this dashboard/);
+    await expect(dialog.getByTestId("google-setup-org")).toBeVisible();
+    await dialog.getByTestId("google-cancel").click();
+
+    // Its lease still succeeds: an agent tool call refreshes through the built-in client and reaches Google.
+    const prefs = await page.request.patch("/api/preferences/display", { data: { toolResults: true, toolCalls: { generic: true } } });
+    expect(prefs.ok()).toBeTruthy();
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:google-calendars]] go");
+    await expect(page.getByText("google calendars done").first()).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("tool-burst-header").first().click();
+    await page.getByTestId("tool-burst-body").first().getByRole("button", { name: /^gcal_calendars/ }).first().click();
+    await expect(page.getByText(/Primary \(fake\)/).first()).toBeVisible({ timeout: 15_000 });
+    await resetGoogle(page.request, cid);
   });
 });

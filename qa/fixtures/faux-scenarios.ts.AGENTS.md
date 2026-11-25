@@ -46,5 +46,6 @@ See change: rich-chat-links (tasks 9.1–9.9) — Adds `rich-links-web|pr|states
 
 `flow-open` scenario: `[[faux:flow-open]] <flow>` → `fauxToolCall("flow_open",{flow})`, then echoes `flow-open: <tool result>`. See change: add-flow-open-tool.
 
+Adds `google-calendars` (`gcal_calendars` builtin@fake.test → one lease against the in-container fake). See change: add-google-connect.
 See change: add-agent-teams-core — Adds `agent-teams-lead-spawn` (TeamCreate `e2e-team` → TeammateSpawn `alice` on `faux/faux-1` with a `plain-text` sentinel prompt → text `AGENT_TEAMS_LEAD_READY`) and `agent-teams-lead-task` (one TaskCreate → `AGENT_TEAMS_TASK_CREATED`); exports both marker constants. Drives `qa/tests/60-agent-teams-core.sh` and `tests/e2e/agent-teams-core.spec.ts`.
 See change: add-agent-teams-core — Adds `agent-teams-teammate-sleep` (bash `sleep 30; echo slept` → text `AGENT_TEAMS_TEAMMATE_ACK`; not bare `sleep`, the sleep-poll guard refuses that) for the L1 real-pi urgent test (`messaging.test.ts` S14), and `agent-teams-guard-probe` (bash `git commit --allow-empty` → ack text) for the L1 session-replaced test (`session-replaced.test.ts` S87).

@@ -17,3 +17,7 @@ Public IdP in open enrolment ⇒ login REFUSED: `/auth/login` (single refused pr
 ## device-key-mutual-check (D7)
 
 `authorizeWsUpgrade` gains `isDeviceActive?(deviceId)`: a consumed ticket that names a device no longer active is refused (ticket spent either way); a usable ticket's `deviceId` is returned on `WsUpgradeAuthResult.deviceId` so the browser socket is tagged and a revoke can close it. See change: device-key-mutual-check.
+
+## plugin-oauth-return (add-google-connect)
+
+onRequest skips GET requests whose target (raw AND dot-resolved) is in `PUBLIC_PLUGIN_CALLBACK_PATHS` — the consenting browser may have no dashboard session. Every other method/path stays gated.

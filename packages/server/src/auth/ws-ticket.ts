@@ -122,7 +122,7 @@ export function routeScopeForUrl(url: string | undefined): WsRouteScope | null {
   const pathOnly = url.split("?")[0];
   if (pathOnly === "/ws") return "browser";
   if (pathOnly.startsWith("/ws/terminal/")) return "terminal";
-  if (pathOnly.startsWith("/live/")) return "live";
+  if (pathOnly.startsWith("/live/") || pathOnly.startsWith("/preview/")) return "live";
   if (pathOnly === "/ws/bridge") return "bridge";
   // Plugin-registered scopes resolve LAST, so the core prefixes above always
   // win (plugin prefixes are validated to never overlap them).

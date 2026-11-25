@@ -26,6 +26,11 @@ services:
       #   0.0.0.0   -> reachable from other machines (default)
       #   127.0.0.1 -> reachable only from the Docker host
       - "${PI_GATEWAY_BIND:-0.0.0.0}:${PI_GATEWAY_PORT:-9999}:${PI_GATEWAY_PORT:-9999}"
+      # Live-preview tier 3 (port pool) is OPT-IN: the default publishes NO pool range and sets no `portPool`, so
+      # tier 3 is off and previews use tier 5 (`/preview/<pid>/`) on the published dashboard port. To enable it, set
+      # `liveServer.previewOrigins.portPool` (e.g. "8100-8199") in the dashboard config AND publish the SAME range
+      # here (uncomment); an unpublished range would hand out unreachable origins. See docker/README.md.
+      # - "${PREVIEW_POOL:-8100-8199}:${PREVIEW_POOL:-8100-8199}"
 
     environment:
       # Ports (entrypoint maps these to pi-dashboard flags).

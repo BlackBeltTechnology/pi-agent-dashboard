@@ -150,6 +150,8 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
   if (inst.vaultDelivery.onServerMessage(msg)) return;
   // Agent path gate: grant-store identity + grant results (never re-emitted).
   if (inst.pathGate.onServerMessage(msg as { type?: string })) return;
+  // Reserve-path answer (never re-emitted). See change: serve-live-previews-on-capability-origin (D9).
+  if (inst.previewPathLink?.handleResult(msg as { type?: string; requestId?: unknown; path?: unknown; error?: unknown })) return;
   if (msg.type === "mcp_token_minted") {
     // The minted MCP bearer (+ /mcp url) arrives on the session-private
     // lane and is registered with pi's built-in MCP — never placed in

@@ -104,6 +104,8 @@ function managerFor(port: () => number): LiveServerManager {
     getStatic: () => undefined,
     presetSessionOf: () => undefined,
     has: (id) => id === "vite-5173",
+    getByPort: () => undefined,
+    portRefusal: () => null,
     list: () => [],
     remove: () => {},
     use: () => {},

@@ -15,6 +15,7 @@
 @source "../../../flows-plugin/src/client";
 @source "../../../gmail-plugin/src/client";
 @source "../../../goal-plugin/src/client";
+@source "../../../google-plugin/src/client";
 @source "../../../grammar-plugin/src";
 @source "../../../hermes-memory-plugin/src/client";
 @source "../../../kb-plugin/src/client";

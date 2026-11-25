@@ -841,6 +841,32 @@ export interface PathGrantRequestMessage {
   subject: string;
 }
 
+/**
+ * Bridge → server: ask for a stable preview base path for a loopback `port` (D9). The bridge's authenticated
+ * socket is the principal; the server decides (`control` tier, a connected tier-5 viewer, bounds) and the bridge
+ * only forwards the answer. See change: serve-live-previews-on-capability-origin.
+ */
+export interface PreviewPathRequestMessage {
+  type: "preview_path_request";
+  requestId: string;
+  sessionId: string;
+  port: number;
+}
+/** Server → bridge: answer to a {@link PreviewPathRequestMessage}. `path: null` ⇒ no reservation was made. */
+export interface PreviewPathResultMessage {
+  type: "preview_path_result";
+  requestId: string;
+  path: string | null;
+  expiresAt?: number;
+  tier5Viewers: boolean;
+  error?: "insufficient_scope" | "reservation_limit" | "invalid_port" | "session_mismatch";
+}
+/** Bridge → server: drop the unbound reservation made for `requestId` (the tool aborted / started at root). */
+export interface PreviewPathReleaseMessage {
+  type: "preview_path_release";
+  requestId: string;
+  sessionId: string;
+}
 /** Server → bridge: outcome of a {@link PathGrantRequestMessage}. */
 export interface PathGrantResultMessage {
   type: "path_grant_result";
@@ -1175,6 +1201,8 @@ export type ExtensionToServerMessage =
   | SudoCredentialCacheMessage
   | SudoCredentialDismissMessage
   | PathGrantRequestMessage
+  | PreviewPathRequestMessage
+  | PreviewPathReleaseMessage
   | PathYoloRequestMessage
   | VaultSyncRequestMessage
   | VaultReportMessage
@@ -1776,6 +1804,7 @@ export type ServerToExtensionMessage =
   | HeartbeatAckMessage
   | RegisterRejectedExtensionMessage
   | PathGrantResultMessage
+  | PreviewPathResultMessage
   | PathYoloResultMessage
   | VaultSnapshotMessage
   | DashboardIdentityMessage

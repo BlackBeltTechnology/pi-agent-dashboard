@@ -10,6 +10,7 @@
  */
 import { setLinkBlockedNoticeText } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { detectInitialLanguage, t as i18nT, loadCatalog } from "../i18n/i18n.js";
+import { isDashboardBootBlocked } from "../live-preview/frame-guard.js";
 import { installTrustedTypes, startViolationReporter, trustedWorkerUrl } from "../security/trusted-types.js";
 
 function registerServiceWorker(): void {
@@ -23,7 +24,9 @@ function registerServiceWorker(): void {
 }
 
 /** Register policies + reporter + service worker, load the catalog, then `mount`. */
-export async function bootClient(mount: () => void): Promise<void> {
+export async function bootClient(mount: () => void, win: Window = window): Promise<void> {
+  // D6(b): a dashboard document framed by a live frame / cross-origin parent renders nothing.
+  if (isDashboardBootBlocked(win)) return;
   installTrustedTypes();
   startViolationReporter();
   setLinkBlockedNoticeText(() => i18nT("nav.linkBlocked", undefined, "Link blocked: this address is not allowed to open."));

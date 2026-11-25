@@ -10,6 +10,7 @@
  * See change: fix-remote-connect-cors-gates.
  */
 
+import { isPreviewShapedOriginUrl } from "../live-server/preview-origin.js";
 import { isHostAdmitted } from "./host-admission.js";
 import { isBypassedHost } from "./localhost-guard.js";
 import type { WsRouteScope } from "./ws-ticket.js";
@@ -128,6 +129,7 @@ export type CorsAllowanceKind =
   | "pwa-shell"
   | "trusted-network"
   | "configured"
+  | "preview"
   | "denied";
 
 export interface CorsAllowance {
@@ -170,6 +172,12 @@ export function classifyCorsOrigin(
   // Padding / control characters are never sent by a browser; `new URL()`
   // silently strips them, so do not normalize them into a trusted value.
   if (origin !== origin.trim() || HAS_CONTROL.test(origin)) return { allowed: false, revocable: false, kind: "denied" };
+  // 2b. A live-preview origin (`<label>.localhost`, a configured suffix, `<ip>:<pool port>`) is another
+  //     app's origin: it never gains dashboard trust — not through loopback, a trusted network, a live
+  //     tunnel nor an explicit `cors.allowedOrigins` entry. Evaluated BEFORE all of them, so the
+  //     static `ip-address` admission of an IP-literal pool origin can never exempt it.
+  //     See change: serve-live-previews-on-capability-origin (D4).
+  if (isPreviewShapedOriginUrl(origin)) return { allowed: false, revocable: false, kind: "preview" };
   try {
     const u = new URL(origin);
     const host = u.hostname;
@@ -300,6 +308,8 @@ export function isOriginAdmitted(
   // would normalize into a loopback match. No browser sends padding — deny it
   // rather than normalize an attacker-shaped value into a trusted one.
   if (origin !== origin.trim()) return false;
+  // A preview origin never acts on the dashboard: not via the same-origin-by-Host rule, nor any list (D4).
+  if (isPreviewShapedOriginUrl(origin)) return false;
   if (isSameOriginByHost(origin, hostHeader, opts)) return true;
   return isCorsOriginAllowed(origin, { ...opts, allowZrokWildcard: false });
 }
@@ -342,7 +352,10 @@ export function isPluginWsOriginAdmitted(
   admitOrigins: readonly string[],
   opts: CorsOriginOptions,
 ): boolean {
-  if (admitOrigins.length > 0) return origin !== undefined && admitOrigins.includes(origin);
+  if (admitOrigins.length > 0) {
+    // A plugin's own allow-list cannot re-admit a preview origin either (D4).
+    return origin !== undefined && !isPreviewShapedOriginUrl(origin) && admitOrigins.includes(origin);
+  }
   return isWsOriginTrusted(origin, hostHeader, null, opts);
 }
 

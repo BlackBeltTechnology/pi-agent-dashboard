@@ -327,6 +327,14 @@ Added by change `harden-agent-tool-guards` (design D1–D8). Not in the 121 coun
 
 **D7 BREAKING side effects (TOOL-05, closed).** Non-local file browse of `~/.aws`, `~/.config/gh`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.netrc` and the browser profile roots is refused (`lib/browse-roots.ts:81-125`). A non-home shared root that equals, contains or lies under one is dropped while pinned or granted: `~/.config`, `~/Library`, `~/Library/Application Support`, `%LOCALAPPDATA%`, `%APPDATA%`. `$HOME` stays a browse root (`browse-roots.ts:83`). Persisted grants that now match are not admitted and not deleted — raw rows are carried through every write verbatim (`access-grants.ts:159,236-250,299-302`), so a rollback restores them. A store that is invalid JSON or `version !== 1` moves aside to `<file>.corrupt-<UTC ts>` (`access-grants.ts:306-325`). A store over `GRANT_STORE_MAX_BYTES` (1 MiB) is neither loaded nor rewritten (`access-grants.ts:131,195-202,265`).
 
+### Residuals added by serve-live-previews-on-capability-origin
+
+Added by change `serve-live-previews-on-capability-origin`. Not in the 121 count. Owner none. ID continues `NET` prefix.
+
+| ID | Sev | Residual | Evidence | Note |
+|---|---|---|---|---|
+| NET-25 | Low | Client abort does not destroy upstream HTTP request on preview / live proxy | `packages/server/src/live-server/live-server-proxy.ts` `forwardPort` via `@fastify/reply-from`; no HTTP abort hook (WS pipe only, `:613-616`) | Same on `/live/`. Upstream timeout bounds it. |
+
 ### Plugin file-route audit (D1)
 
 Scan: `rg "readFile|readFileSync|createReadStream|fs\.open|readSync" packages/*-plugin/src/server`.

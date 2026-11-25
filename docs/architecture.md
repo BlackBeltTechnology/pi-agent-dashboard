@@ -3793,6 +3793,140 @@ flowchart TD
 - Store: `~/.pi/dashboard/preview-egress.json` `{[projectKey]: string[]}` via `auth/locked-json-file.ts`. Override `PI_PREVIEW_EGRESS_STORE`.
 - `projectKey` = canonical subject of git common root, else cwd.
 
+#### Capability origins and tiers (change: serve-live-previews-on-capability-origin)
+
+Source: `packages/server/src/live-server/` (`preview-origin.ts`, `preview-dispatch.ts`, `preview-pool.ts`, `preview-preflight.ts`, `preview-path-store.ts`, `preview-reserve.ts`, `preview-viewers.ts`, `preview-path-bridge.ts`, `live-server-proxy.ts`, `live-capability.ts`), `packages/server/src/auth/duplicate-cookie-gate.ts`, `packages/shared/src/preview-origins.ts`, `packages/server/src/routes/live-server-routes.ts`.
+
+Config: `liveServer.previewOrigins` = `{ enabled, wildcard: {suffix, forHosts[], scheme?}, portPool: "a-b", ipDnsSuffix }`.
+
+##### Mint negotiation
+- Client `POST /api/live-server/:id/capability` with `accept: ["origin","preview"]`.
+- No or invalid `accept` ⇒ legacy path.
+- Response: `{tier, origin?, path, base?, expiresAt, tokenId, policy}`.
+- Client validates shape. Refuses `origin` equal to dashboard origin.
+
+##### Tier table
+First match wins. Tier input = RAW `Host` header + socket peer. Never `request.protocol`.
+
+| Tier | Match | Origin | Path |
+|---|---|---|---|
+| 1 | Host `localhost` / `127.0.0.1`; peer loopback; no forwarding header; no TLS | `http://<label>.localhost:<port>` | `/` |
+| 2 | Host ∈ `wildcard.forHosts` | `<scheme>://<label>.<suffix>[:port]` | `/` |
+| 3 | login session principal; IPv4 Host the bind answers; pool port free | `http://<ip>:<poolPort>` | `/?k=<one-shot secret>` |
+| 4 | IPv4 Host; `ipDnsSuffix` set | `http://<label>.<a-b-c-d>.<suffix>[:port]` | `/` |
+| 5 | no earlier tier matches (incl. IPv6 Host, pool full) | dashboard origin | `/preview/<pid>/` |
+| legacy | no/invalid `accept`; or `enabled:false` | dashboard origin | `/live/<id>/~c/<token>/` |
+
+##### Tier 1
+- Same-host reverse proxy adding no forwarding header looks like local browser. Pinned limitation.
+- Fix: proxy sends `X-Forwarded-For`, or set `enabled:false`.
+
+##### Tier 2
+- Warns when `suffix` shares parent domain with a `forHosts` entry (cookie tossing).
+
+##### Tier 3 (port pool)
+- `portPool` `"a-b"`: ≤100 ports, all ≥1024. Excludes dashboard, gateway, TLS, model-proxy ports.
+- Invalid value ⇒ tier 3 off. Logged once.
+- Eligible principal: login session cookie `pi_dash_token` (`Path=/`) only.
+- One plain-HTTP listener per live capability, lowest free pool port. `EADDRINUSE` ⇒ skip next port.
+- ≤8 listeners per principal. Pool full ⇒ tier 4/5 with log `pool exhausted`. Never an error.
+- Listener released on every capability deletion: expiry, revoke, eviction, config change, shutdown.
+- Pool ports in `ownPorts`. No target may point at them. Forbidden to mock site.
+- Opt-in in Docker: see `docker/README.md` § Live previews.
+
+Pool-port request pipeline (in order, first failure stops):
+1. Fixed Host binding. Else `403`.
+2. Minting session cookie matches. Else `404`.
+3. One-shot `?k=` hop: sets host-only `pi_dash_pool_<port>` (`HttpOnly; SameSite=Strict; Path=/`), then redirects to clean URL. `to` must be single-slash root-relative, no `\` or control chars, ≤2048; else `/`.
+4. Later requests: cookie `pi_dash_pool_<port>` required. Else `404`.
+5. `Origin` present ⇒ must equal entry origin. Else `404` (upgrades `403`).
+
+##### Tier 4
+- `ipDnsSuffix` (e.g. `sslip.io`). IPv4 Host only.
+
+##### Tier 5 (`/preview/<pid>/`)
+- `pid` = 22 chars. One current pid per port target. Shared by all holders. Policy = narrowest holder.
+- Mint within last 20 min of lifetime ⇒ new pid, `restartRequired`.
+- Bounds: 32 pids per principal, 256 total.
+- Opaque origin: sandbox without `allow-same-origin`.
+- Full path forwarded upstream.
+- CORS: `Access-Control-Allow-Origin: null` for opaque origin. `OPTIONS` preflight answered for valid pid.
+- Authorised by pid, not dashboard auth.
+- WS upgrades on `/preview/<pid>/...` supported.
+- Pid drop (revoke, expiry, target removed, disabled) closes its tracked WS and in-flight responses (`preview-ws-registry.ts`; `server.ts` `previewWs.closePid`).
+- Tiers 1-5: `Referrer-Policy: no-referrer` replaces any upstream value. Legacy: only when app set none.
+- Tier 5 root-absolute `Location` rewritten into `/preview/<pid>/…`.
+- Dead or reset upstream on `/preview/` ⇒ `502 {"error":"bad_gateway"}`. Timeout ⇒ `504 {"error":"gateway_timeout"}`.
+- Residual: client abort does not destroy upstream HTTP request (`@fastify/reply-from`; same on `/live/`). Proxy timeout bounds it.
+
+##### Tier-5 base reservation
+- `POST /api/live-server/preview-path {port}|{targetId}` (control) ⇒ `{path:"/preview/<pid>/", expiresAt, tier5Viewers:true}`.
+- No tier-5-capable browser ⇒ `{path:null, tier5Viewers:false}`. Nothing reserved.
+- Browser announces `live_preview_accept`. Counted only if its upgrade Host classifies to tier 5.
+- `DELETE /api/live-server/preview-path/:pid` releases UNBOUND reservation. Reserver only.
+- Limits: 8 per principal, 64 total.
+- TTL: 10 min from creation; 12 h while port target exists.
+- Adopted by next control-tier tier-5 mint for that port. Unadopted pid unknown to everyone.
+- Agent path: bridge `preview_path_request` / `preview_path_result` / `preview_path_release`.
+- Tier 1-4 mint of port with live pid ⇒ `base:"/preview/<pid>/"`.
+- `serve_mock_site{base?}`: explicit base allowlist `^/([A-Za-z0-9._~-]+/)+$`, ≤256. Else neutral event `mock-site:base-reservation` (2 s wait, then root).
+
+##### Dispatch
+- Preview-shaped Host (`label.localhost`, wildcard suffix, IP-DNS suffix) ⇒ route-less `previewApp` (second Fastify instance).
+- `previewApp` never reaches host gate, CORS, cookie auth, `/api`, `/ws`, SPA, plugin routes.
+- Refusal: identical `403 {"error":"host_not_allowed"}`.
+- Dead upstream: `502`. Dispatcher failure: `503`. Never falls through to dashboard.
+- Preview WS upgrades handled before host gate.
+
+##### Duplicate-cookie gate
+- Repeated `pi_dash_*` cookie name ⇒ `400` (JSON or static HTML by `Accept`).
+- Response expires the name at every path (self-heal).
+- Set-Cookie expiry lines capped at 8 KiB total (`EXPIRY_MAX_BYTES`, `fitExpiryBudget`). `/`, `/api/`, `/auth/` kept first. Keeps 400 head under Node 16 KiB header limit.
+- Applies to WS upgrades.
+- Repeated `pi_dash_token` / `pi_dash_pool_*` ⇒ counts as missing credential.
+- `previewApp` exempt.
+
+##### CSP
+- Capability responses: CSP built from entry, never request.
+- Tiers 1-4: `allow-same-origin` + exact `frame-ancestors`.
+- Tier 5: path-scoped `frame-src`. No `frame-ancestors` (T11 fallback: Chromium blocks same-pid nested panes under `'self'`; sandboxed parent is opaque).
+- Tier 5 sandbox CSP still forces opaque origin. Pid is the capability.
+- Legacy: `frame-ancestors 'self'`.
+- Dashboard `frame-src` built per request from Host: `http://*.localhost`, wildcard suffix, `http://<host>:*` for pool.
+- `/preview/` skips dashboard baseline CSP (same as `/live/`).
+
+##### Rollback
+- `liveServer.previewOrigins.enabled: false` ⇒ every mint returns legacy path.
+- Existing origin-bound capabilities revoked at next sweep, reason `disabled`.
+- Boot log: `[live-preview] tiers: 1, 3(8100-8199), 5`.
+
+##### Client guards (D6(b), cookie reset)
+- Dashboard doc framed by live frame (`data-pi-live-frame`) or cross-origin parent (`frameElement === null`): no boot, no render, no boot-time API calls.
+- Source: `lib/live-preview/frame-guard.ts` `isDashboardBootBlocked`; `main.tsx`; `lib/boot/client-boot.ts`.
+- After each live-frame `load`: readable `contentWindow.location.href` ⇒ frame `about:blank` + "Preview navigated to the dashboard; blocked." until Reload.
+- Source: `components/editor-pane/live/LiveFrame.tsx`, `LiveFrameParts.tsx`.
+- Same-origin `/api/*` 400 `duplicate_dashboard_cookie` ⇒ tier 2/3 frames blank to `about:blank` + "A preview reset dashboard cookies; reopen it to continue."
+- Tier 1 untouched. Nothing auto-reopens. Reload / Reopen re-mints.
+- Source: `lib/live-preview/cookie-reset.ts`.
+
+##### Browser tests (live preview)
+- `npm run test:e2e:live-preview` ⇒ `playwright.live-preview.config.ts`. Specs: `tests/e2e/live-preview/`. Guide: `tests/e2e/live-preview/README.md`.
+- Host-run isolated dashboard (global-setup, `HOME=<tmp>`, tiers 1/2/3/5). Not docker harness.
+- Projects: `chromium`, `firefox`, `chromium-resolver`.
+- `chromium-resolver`: `*.resolver.spec.ts` only. `--host-resolver-rules` maps `*.preview.test`, `dash.test`, `dash5.test` → `127.0.0.1`.
+- Docker-harness tier-5 / legacy spec: `tests/e2e/live-preview-harness-tiers.spec.ts`.
+
+##### Observability (redacted)
+- `[live-preview] mint tier= target= h= via= peerLocal= reason=`
+- `[live-preview] pool bind|release|exhausted`
+- `[live-preview] reserve port= session= h=`
+- `[live-preview] pid dropped reason=holder-revoked|expired|target-removed|adoption-refused`
+- `[live-preview] refuse h= reason=` (one per `h` per 60 s)
+- `[live-preview] admit h= tier=` (first per entry)
+- `h` = first 8 hex of `sha256(secret)`. Never label, pid, token.
+
+See change: serve-live-previews-on-capability-origin.
+
 ### Network Access Control
 
 One universal network guard plus the auth plugin. Universal guard runs whether or not auth is configured.

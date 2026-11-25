@@ -13,6 +13,7 @@
  * See change: fix-ws-origin-cswsh.
  */
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { redactCapability } from "../live-server/capability-redact.js";
 import {
   type CorsOriginOptions,
   isMutationOriginTrusted,
@@ -47,8 +48,10 @@ export function createMutationOriginGate(getOpts: () => CorsOriginOptions) {
     if (isMutationOriginTrusted(req.headers.origin, req.headers.host, getOpts())) return done();
 
     console.error(
-      `[csrf-gate] rejected ${sanitizeHeaderForLog(req.method)} ${sanitizeHeaderForLog(req.url)} ` +
-        `origin=${sanitizeHeaderForLog(req.headers.origin)}`,
+      redactCapability(
+        `[csrf-gate] rejected ${sanitizeHeaderForLog(req.method)} ${sanitizeHeaderForLog(req.url)} ` +
+          `origin=${sanitizeHeaderForLog(req.headers.origin)}`,
+      ),
     );
     reply.code(403).send({ error: "untrusted origin" });
   };

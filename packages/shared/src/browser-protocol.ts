@@ -1286,6 +1286,15 @@ export interface SudoCredentialShownBrowserMessage {
   callId: string;
 }
 
+/**
+ * Browser → server: this tab can render the negotiated preview tiers (the same token set it sends on a mint).
+ * The server counts it as a tier-5 viewer only when the socket also classified to tier 5 at upgrade (D9).
+ * Old clients never send it. See change: serve-live-previews-on-capability-origin.
+ */
+export interface LivePreviewAcceptBrowserMessage {
+  type: "live_preview_accept";
+  accept: string[];
+}
 export type ServerToBrowserMessage =
   | SudoCredentialRequestBrowserMessage
   | SudoCredentialDismissBrowserMessage
@@ -2284,6 +2293,7 @@ export interface UiManagementBrowserMessage {
 }
 
 export type BrowserToServerMessage =
+  | LivePreviewAcceptBrowserMessage
   | SudoCredentialResponseBrowserMessage
   | SudoCredentialCancelBrowserMessage
   | SudoCredentialForgetBrowserMessage

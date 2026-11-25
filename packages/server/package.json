@@ -35,6 +35,7 @@
       "blackhole-plugin",
       "web-access-plugin",
       "gmail-plugin",
+      "google-plugin",
       "obs-studio-plugin",
       "mcp-server-plugin",
       "apple-tools",
