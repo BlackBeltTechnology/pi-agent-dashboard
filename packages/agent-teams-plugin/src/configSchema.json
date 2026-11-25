@@ -87,7 +87,7 @@
     "spawnTimeoutMs": {
       "type": "integer",
       "default": 30000,
-      "description": "Bind + guarded hello + spawn_prompt ack deadline for a spawned member.",
+      "description": "Bind + guarded hello + start-prompt ack deadline for a newly started member.",
       "minimum": 1000
     },
     "shutdownGraceMs": {

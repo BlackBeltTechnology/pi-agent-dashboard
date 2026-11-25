@@ -61,8 +61,9 @@ describe("emitEventToSession caller inventory (task 6.22)", () => {
       }
     }
     // Recorded inventory (design.md D16): automation (dynamic, via accepted actions) + flows,
-    // + subagents (`subagents:stop`, change: subagent-queue-visibility D3).
-    expect(emitters.sort()).toEqual(["automation", "flows", "subagents"]);
+    // + subagents (`subagents:stop`, change: subagent-queue-visibility D3)
+    // + agent-teams (`agent-teams:mail` / `agent-teams:team_closed`, change: add-agent-teams-core D5).
+    expect(emitters.sort()).toEqual(["agent-teams", "automation", "flows", "subagents"]);
   });
 
   it("flows declares exactly the event types it emits; automation declares none of its own", () => {

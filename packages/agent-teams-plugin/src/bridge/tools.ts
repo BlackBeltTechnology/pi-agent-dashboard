@@ -61,7 +61,7 @@ const SPECS: readonly ToolSpec[] = [
   },
   {
     op: "TeammateSpawn",
-    label: "Spawn teammate",
+    label: "Start teammate",
     description:
       `Start a teammate as its own visible session. It sees ONLY the prompt you give here (not your conversation), so make the prompt self-contained. It returns at once with status "spawning"; the teammate begins when its session is ready and tells you when it is idle. Prefer 3-5 teammates in total: each costs roughly one extra full context per call. Do not spawn more than the work needs. The lead is the only git committer. ${PEER_TRUST} ${ADVISORY_NOTE}`,
     parameters: obj({

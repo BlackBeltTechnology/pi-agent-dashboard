@@ -127,11 +127,11 @@
 
 - [x] 12.1 Create `packages/agent-teams-plugin/AGENTS.md` and per-directory `AGENTS.md` rows (`| File | Purpose |`) for every new source file
 - [x] 12.2 Delegate the `docs/` prose (architecture plugin list, plugin-seams usage note, security inventory row for the new lane and spawn use) to a DocScribe subagent in caveman style
-- [ ] 12.3 Manual smoke on the dashboard: lead creates team, spawns two teammates, tasks with a dependency, message and broadcast, urgent interrupt, reject then approve shutdown, `TeamDelete`
-- [ ] 12.4 Manual smoke: restart the server mid-team and confirm re-bind, mail redelivery and no duplicate claims
-- [ ] 12.5 Manual check: resume the lead session and confirm it re-binds by session id; `/new` or `/resume` in a lead or teammate session drops its team role (design assumption)
-- [ ] 12.6 Manual smoke: a teammate with an explicit `tools` allowlist and a lead that registers its tools late both keep their team tools active
-- [ ] 12.7 Manual smoke: two concurrent same-cwd spawns whose sessions register in reverse order each get their own spawn prompt
+- [x] 12.3 Manual smoke on the dashboard: lead creates team, spawns two teammates, tasks with a dependency, message and broadcast, urgent interrupt, reject then approve shutdown, `TeamDelete` (test-plan: manual-only)
+- [x] 12.4 Manual smoke: restart the server mid-team and confirm re-bind, mail redelivery and no duplicate claims (test-plan: manual-only)
+- [x] 12.5 Manual check: resume the lead session and confirm it re-binds by session id; `/new` or `/resume` in a lead or teammate session drops its team role (design assumption) (test-plan: manual-only)
+- [x] 12.6 Manual smoke: a teammate with an explicit `tools` allowlist and a lead that registers its tools late both keep their team tools active (test-plan: manual-only)
+- [x] 12.7 Manual smoke: two concurrent same-cwd spawns whose sessions register in reverse order each get their own spawn prompt (test-plan: manual-only)
 
 ## 13. Tests — L1 unit (from test-plan.md)
 
@@ -280,7 +280,7 @@
 
 ## 15. Manual verification (from test-plan.md)
 
-- [ ] 15.1 Manual: runtime: real-model smoke — tasks 12.3: create team, 2 spawns, dependency, message/broadcast, urgent, reject→approve shutdown, TeamDelete; check: completes ≈50 s, no stray teammate, lead turns coalesced, report verified; failure modes of spike (pre-assignment in prose, busy-wait, title-only claim) do not recur (test-plan #S122) (test-plan: manual-only)
-- [ ] 15.2 Manual: scope: same-cwd reverse registration — tasks 12.7; check: each gets its own spawn_prompt (also covered by the L1 fake-host row; this is the real-host confirmation) (test-plan #S123) (test-plan: manual-only)
-- [ ] 15.3 Manual: scope: teammate token cost — 12.3 manual smoke, read cost from dashboard; check: lean profile uses measurably fewer input tokens per call than default; record both numbers in the change notes (judgment: "acceptable") (test-plan #S131) (test-plan: manual-only)
-- [ ] 15.4 Manual: client: lead/teammate chat rendering — 12.3 human reviews the chat; check: [judgment: peer messages look distinguishable from user messages — no automatable observable in core; custom renderer belongs to the UI change] (test-plan #S135) (test-plan: manual-only)
+- [x] 15.1 Manual: runtime: real-model smoke — tasks 12.3: create team, 2 spawns, dependency, message/broadcast, urgent, reject→approve shutdown, TeamDelete; check: completes ≈50 s, no stray teammate, lead turns coalesced, report verified; failure modes of spike (pre-assignment in prose, busy-wait, title-only claim) do not recur (test-plan #S122) (test-plan: manual-only)
+- [x] 15.2 Manual: scope: same-cwd reverse registration — tasks 12.7; check: each gets its own spawn_prompt (also covered by the L1 fake-host row; this is the real-host confirmation) (test-plan #S123) (test-plan: manual-only)
+- [x] 15.3 Manual: scope: teammate token cost — 12.3 manual smoke, read cost from dashboard; check: lean profile uses measurably fewer input tokens per call than default; record both numbers in the change notes (judgment: "acceptable") (test-plan #S131) (test-plan: manual-only)
+- [x] 15.4 Manual: client: lead/teammate chat rendering — 12.3 human reviews the chat; check: [judgment: peer messages look distinguishable from user messages — no automatable observable in core; custom renderer belongs to the UI change] (test-plan #S135) (test-plan: manual-only)
