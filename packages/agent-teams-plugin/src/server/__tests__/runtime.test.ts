@@ -7,6 +7,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { createFakeRuntimeHost, createTeamsEnv, FakeClock, loadConfigDefaults, memberFixture } from "../../__tests__/harness/index.js";
+import { ownerKeyOf } from "../../shared/owner-key.js";
 import { TEAM_TOOLS_BY_ROLE } from "../../shared/protocol.js";
 import { createSessionDriver } from "../driver.js";
 import { applySpawnContributors, createExtensionPoints, runOpGates } from "../extension-points.js";
@@ -40,7 +41,7 @@ function setup(over: SetupOptions = {}) {
     starter,
     mailer,
   });
-  const lead = fake.addSession("S-lead", { cwd: "/work", principalOwner: "owner-1" });
+  const lead = fake.addSession("S-lead", { cwd: "/work", principalOwner: { iss: "idp", sub: "u1" } as never });
   /** Make `name` a live teammate of `teamId` with its own host session. */
   const addMember = (teamId: string, name: string, status: "idle" | "busy" = "idle") => {
     const sessionId = fake.addSession(`S-${name}`, { cwd: "/work" });
@@ -178,7 +179,7 @@ describe("lead role (S36)", () => {
     const res = await s.fake.call(s.lead, "TeamCreate", { name: "alpha", description: "d" });
     expect(res).toMatchObject({ ok: true, data: { name: "alpha", role: "lead", limits: { maxTeammates: 5, maxTasks: 50 } } });
     const team = s.rt.store.get(res.data.teamId);
-    expect(team).toMatchObject({ leadSessionId: s.lead, leadCwd: "/work", status: "active", mode: "session", owner: "owner-1", committer: "lead", schemaVersion: 1 });
+    expect(team).toMatchObject({ leadSessionId: s.lead, leadCwd: "/work", status: "active", mode: "session", owner: ownerKeyOf({ iss: "idp", sub: "u1" }), committer: "lead", schemaVersion: 1 });
     expect(s.rt.store.findBySession(s.lead)).toEqual({ teamId: team?.id, who: "lead" });
   });
 
@@ -699,6 +700,31 @@ describe("TeamDelete and actor operations (S141, S142, 3.3)", () => {
     expect(s.rt.ops.isDispatchEligible(team, s.rt.store.member(team, "alice") as never)).toBe(true);
   });
 
+  it("abortMember with notify:false aborts but queues no lead notice (caller owns the notice)", async () => {
+    const s = setup();
+    const team = await s.createTeam();
+    const alice = s.addMember(team.id, "alice", "busy");
+    const res = s.rt.ops.abortMember(team, "alice", { actor: "user", notify: false });
+    expect(res).toEqual({ ok: true, data: { member: "alice", aborted: true } });
+    expect(s.fake.base.aborts).toEqual([alice]);
+    expect(s.rt.store.mailLog(team.id).filter((m) => m.to === "lead")).toEqual([]);
+  });
+
+  it("enqueueLeadNotice with coalesce:true joins the lead-notice coalescer (several calls, ONE mail); default stays direct", async () => {
+    const s = setup();
+    const team = await s.createTeam();
+    s.rt.ops.enqueueLeadNotice(team, { text: "one", wake: true, coalesce: true });
+    s.rt.ops.enqueueLeadNotice(team, { text: "two", wake: false, coalesce: true });
+    expect(s.rt.store.mailLog(team.id).filter((m) => m.to === "lead")).toEqual([]); // buffered, nothing sent yet
+    s.clock.advance(2000);
+    const mails = s.rt.store.mailLog(team.id).filter((m) => m.to === "lead");
+    expect(mails).toHaveLength(1);
+    expect(mails[0]).toMatchObject({ kind: "notice", wake: true });
+    expect(((mails[0]?.details as { items?: Array<{ text: string }> } | undefined)?.items ?? []).map((i) => i.text)).toEqual(["• one", "• two"]);
+    s.rt.ops.enqueueLeadNotice(team, { text: "direct", wake: false });
+    expect(s.rt.store.mailLog(team.id).filter((m) => m.to === "lead")).toHaveLength(2);
+  });
+
   it("abortMember reports interrupt_unavailable when the driver cannot abort", async () => {
     const s = setup();
     const team = await s.createTeam();
@@ -879,9 +905,9 @@ describe("session driver contract (2.9)", () => {
     expect(await driver.shutdown({ teamId: "t", member: "alice", sessionId: alice })).toBe(true);
     expect(await driver.shutdown({ teamId: "t", member: "alice" })).toBe(false);
     const team = await s.createTeam();
-    const lead = await driver.spawnLead?.(team, { principalOwner: "P" });
+    const lead = await driver.spawnLead?.(team, { principalOwner: ownerKeyOf({ iss: "idp", sub: "P" }) });
     expect(lead?.ok).toBe(true);
-    expect(s.fake.base.spawns.at(-1)?.pluginRef).toEqual({ "agent-teams": { teamId: team.id, role: "lead" }, principalOwner: "P" });
+    expect(s.fake.base.spawns.at(-1)?.pluginRef).toEqual({ "agent-teams": { teamId: team.id, role: "lead" }, principalOwner: { iss: "idp", sub: "P" } });
     expect(s.fake.base.spawns.at(-1)?.scope).toBeUndefined();
     s.fake.base.onSpawn(() => ({ success: false, message: "no" }));
     expect(await driver.spawnLead?.(team, {})).toEqual({ ok: false, message: "no" });

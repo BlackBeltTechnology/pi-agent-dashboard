@@ -3,7 +3,9 @@
  * the caller context every op receives.
  * See change: add-agent-teams-core.
  */
+
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { ownerKeyFrom } from "../shared/owner-key.js";
 
 export type Logger = ServerPluginContext["logger"];
 
@@ -21,6 +23,7 @@ export const silentLogger: Logger = {
 export interface HostSession {
   cwd?: string;
   sessionFile?: string;
+  /** Owner KEY (`ownerKeyOf`) of the host record's `{iss, sub}` principal owner. */
   principalOwner?: string;
   /** Plugin refs the host resolved for this session (key = plugin id). */
   pluginRefs?: Record<string, unknown>;
@@ -37,7 +40,8 @@ export function narrowHostSession(raw: unknown): HostSession | undefined {
   const out: HostSession = {};
   if (typeof r.cwd === "string") out.cwd = r.cwd;
   if (typeof r.sessionFile === "string") out.sessionFile = r.sessionFile;
-  if (typeof r.principalOwner === "string") out.principalOwner = r.principalOwner;
+  const owner = ownerKeyFrom(r.principalOwner); // the host record holds an `{iss, sub}` object
+  if (owner !== undefined) out.principalOwner = owner;
   if (typeof r.name === "string") out.name = r.name;
   if (typeof r.status === "string") out.status = r.status;
   if (r.pluginRefs !== null && typeof r.pluginRefs === "object") out.pluginRefs = r.pluginRefs as Record<string, unknown>;

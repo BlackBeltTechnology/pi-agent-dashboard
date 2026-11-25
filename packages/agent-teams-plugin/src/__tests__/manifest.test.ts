@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { createSessionDriver } from "../server/driver.js";
 import { createExtensionPoints } from "../server/extension-points.js";
 import { createTeamsRuntime } from "../server/runtime.js";
-import { AGENT_TEAMS_PLUGIN_ID } from "../shared/plugin-id.js";
+import { AGENT_TEAMS_EVENT_CHANGED, AGENT_TEAMS_PLUGIN_ID } from "../shared/plugin-id.js";
 import { LANE_TYPES } from "../shared/protocol.js";
 import { createFakeHostCtx, createFakeRuntimeHost, FakeClock } from "./harness/index.js";
 
@@ -39,7 +39,8 @@ describe("manifest contract (S102)", () => {
     driver.deliver({ teamId: "t", member: "a", sessionId: "S1" }, [{ id: 1, from: "lead", to: "a", kind: "message", text: "x", priority: "normal", wake: true, createdAt: 1 }], { wake: true });
     driver.notifyTeamClosed?.("S1", { teamId: "t" });
     const types = base.emits.map((e) => e.eventType);
-    expect(new Set(types)).toEqual(new Set(manifest.emits));
+    // `agent-teams:changed` is the UI bridge's frame (broadcast, see server/__tests__/ui-bridge.test.ts), not a driver emit.
+    expect(new Set(types)).toEqual(new Set((manifest.emits ?? []).filter((t) => t !== AGENT_TEAMS_EVENT_CHANGED)));
     expectListed(types, manifest.emits ?? []);
   });
 
@@ -68,7 +69,7 @@ describe("manifest contract (S102)", () => {
 
   it("the manifest id equals the shared constant and lists exactly the emitted event types", () => {
     expect(manifest.id).toBe(AGENT_TEAMS_PLUGIN_ID);
-    expect([...(manifest.emits ?? [])].sort()).toEqual(["agent-teams:mail", "agent-teams:team_closed"]);
+    expect([...(manifest.emits ?? [])].sort()).toEqual(["agent-teams:changed", "agent-teams:mail", "agent-teams:team_closed"]);
   });
 });
 

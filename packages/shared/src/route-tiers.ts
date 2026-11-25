@@ -447,6 +447,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // Runtime overlay mutations: stage / activate / roll back the dashboard
   // runtime (Electron-only). See change: electron-runtime-overlay-updates.
   { method: "POST", path: "/api/plugins/blackhole/bindings/reattach", tier: "operate" },
+  // Agent teams user controls: supervision of running work is `control` (see change: add-agent-teams-ui).
+  { method: "POST", path: "/api/plugins/agent-teams/teams/:id/members/:name/stop", tier: "control" },
+  { method: "POST", path: "/api/plugins/agent-teams/teams/:id/shutdown", tier: "control" },
   // edit-office-in-pane-with-craft-web: prepare downloads a build (control, like spawning); csp-report only bumps a counter.
   { method: "POST", path: "/api/plugins/craft-web/csp-report", tier: "control" },
   // extend-craft-web-to-all-apps: open-outcome / validator-reject counters (log only, like csp-report).

@@ -18,7 +18,7 @@ const tmp = (label: string): string => fs.realpathSync(fs.mkdtempSync(path.join(
 function setup(over: TeamsEnvOptions = {}) {
   const leadDir = tmp("lead");
   const env = createTeamsEnv(over);
-  env.fake.sessions.set(env.lead, { cwd: leadDir, principalOwner: "owner-1" });
+  env.fake.sessions.set(env.lead, { cwd: leadDir, principalOwner: { iss: "idp", sub: "u1" } as never });
   return { env, leadDir };
 }
 
@@ -137,7 +137,7 @@ describe("spawn scope, env and policy (S48, S50)", () => {
     const o = env.fake.base.spawns[0] as unknown as Record<string, unknown> & { scope: { appendSystemPrompt: string[] } };
     expect(o).toMatchObject({
       name: "alpha/alice",
-      pluginRef: { "agent-teams": { teamId: team.id, member: "alice", role: "member" }, principalOwner: "owner-1" },
+      pluginRef: { "agent-teams": { teamId: team.id, member: "alice", role: "member" }, principalOwner: { iss: "idp", sub: "u1" } },
       lifecycle: { recover: false },
       spawnToken: env.member(team, "alice").spawnToken,
     });
