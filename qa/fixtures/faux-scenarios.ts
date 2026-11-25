@@ -695,6 +695,8 @@ const CHAT_MOTION_GLIDE_PRELUDE = Array.from(
 /** Closing texts of the agent-teams lead scenarios (asserted by qa/tests/60 and the L3 spec). */
 export const AGENT_TEAMS_LEAD_READY = "AGENT_TEAMS_LEAD_READY";
 export const AGENT_TEAMS_TASK_CREATED = "AGENT_TEAMS_TASK_CREATED";
+/** Closing text of the agent-teams teammate scenarios (mirrored as `TEAMMATE_ACK` in the plugin harness). */
+const AGENT_TEAMS_TEAMMATE_ACK = "AGENT_TEAMS_TEAMMATE_ACK";
 
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
@@ -735,6 +737,27 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText(AGENT_TEAMS_TASK_CREATED)]),
     ],
     expect: { text: AGENT_TEAMS_TASK_CREATED },
+  },
+
+  // Teammate long tool run (L1 real-pi tests: urgent end-to-end S14). A `sleep 30` the
+  // urgent abort must cut short, then the wake turn's closing text. Not a bare `sleep`:
+  // the teammate sleep-poll guard would refuse that.
+  "agent-teams-teammate-sleep": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 30; echo slept" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_TEAMMATE_ACK)]),
+    ],
+    expect: { text: AGENT_TEAMS_TEAMMATE_ACK },
+  },
+
+  // Teammate guard probe (L1 real-pi test: session replaced S87): one `git commit` the
+  // teammate git-write guard refuses; once the guard is dropped it only fails as "not a repository".
+  "agent-teams-guard-probe": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "git commit --allow-empty -m guard-probe" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_TEAMMATE_ACK)]),
+    ],
+    expect: { text: AGENT_TEAMS_TEAMMATE_ACK },
   },
 
   // Bridge-coalescing streaming fixtures (change:

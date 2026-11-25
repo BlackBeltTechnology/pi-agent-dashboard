@@ -6,12 +6,10 @@
  *
  * REAL here: process spawn with a hermetic HOME, strict-LF JSONL framing,
  * command send, event capture, `waitFor`, `stop`.
- * STUB (filled by later sections of add-agent-teams-core, do not rely on yet):
- *   - loading the REAL plugin bridge entry (`extensions`): the option is wired
- *     through to `-e`, but the bridge only has a no-op body until section 6;
- *   - the in-process server store / lane stub the bridge talks to (section 3);
- *   - scripted per-test policies beyond the existing fixture scenarios — add a
- *     scenario to `qa/fixtures/faux-scenarios.ts` or use the prompt sentinel.
+ * `extensions` loads extra `-e` paths: the REAL plugin bridge entry plus the
+ * lane shim of `real-pi-link.ts`, which connects it to an in-process server runtime.
+ * Scripted per-test policies beyond the fixture scenarios: add a scenario to
+ * `qa/fixtures/faux-scenarios.ts` or use the prompt sentinel.
  *
  * Opt-in: constructing a process needs `pi` on PATH; use `fauxPiAvailable()`
  * with `describe.skipIf(!fauxPiAvailable())`.
@@ -41,7 +39,7 @@ interface FauxPiOptions {
   fauxScript?: string;
   /** Tokens/second of the faux stream (`FAUX_TPS`); set low for abort scenarios. */
   tps?: number;
-  /** Extra `-e` extension paths (e.g. the plugin bridge entry; see STUB note). */
+  /** Extra `-e` extension paths (e.g. the plugin bridge entry + the `real-pi-link` shim). */
   extensions?: readonly string[];
   /** Extra environment for the process. */
   env?: Record<string, string>;
@@ -61,6 +59,8 @@ export function fauxPiAvailable(): boolean {
 
 export class FauxPiProcess {
   readonly records: PiRpcRecord[] = [];
+  /** Tail (last ~8 KB) of the process stderr, for failure diagnostics. */
+  stderrTail = "";
   readonly home: string;
   readonly cwd: string;
   private child: ChildProcess | undefined;
@@ -90,9 +90,13 @@ export class FauxPiProcess {
         ...(this.opts.tps ? { FAUX_TPS: String(this.opts.tps) } : {}),
         ...this.opts.env,
       },
-      stdio: ["pipe", "pipe", "ignore"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      this.stderrTail = (this.stderrTail + chunk).slice(-8192);
+    });
     child.stdout?.setEncoding("utf8");
     child.stdout?.on("data", (chunk: string) => this.onData(chunk));
     await new Promise<void>((resolve, reject) => {

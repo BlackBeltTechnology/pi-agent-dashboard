@@ -11,9 +11,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
-import { describe, expect, it } from "vitest";
-import { createTeamsEnv, type TeamsEnv } from "../../__tests__/harness/index.js";
+import { describe, expect, it, vi } from "vitest";
+import { createTeamsEnv, fauxPiAvailable, startRealPiLink, TEAMMATE_ACK, type TeamsEnv } from "../../__tests__/harness/index.js";
 import { createTeamTools } from "../../bridge/tools.js";
+import { systemClock } from "../../shared/clock.js";
 import { TRUNCATION_MARKER } from "../../shared/constants.js";
 import { ENVELOPE_PEER_NOTE, formatMail, parseEnvelope } from "../../shared/mail-format.js";
 import type { TeamSnapshot } from "../../shared/snapshot.js";
@@ -291,6 +292,61 @@ describe("urgent end-to-end (S14, server half)", () => {
     e.flushNotices();
     expect(noticesOf(e, team)).toEqual([]);
   });
+});
+
+// S14, real half: a REAL faux `pi --mode rpc` teammate (real bridge entry) against the REAL
+// in-process runtime on the system clock (see `harness/real-pi-link.ts`). Lives here, in the
+// S14 block, as the test-plan row says; the harness hides the process plumbing.
+describe.skipIf(!fauxPiAvailable())("urgent end-to-end (S14, real faux pi)", () => {
+  it("teammate inside `sleep 30`: the urgent message aborts the tool run, the member reads the mail within urgentSettleWaitMs + 2 s, the wake turn is not re-aborted, the task stays in_progress, no lead idle notice for the aborted settle", async () => {
+    const e = createTeamsEnv({ runtime: { clock: systemClock } });
+    const link = await startRealPiLink(e);
+    try {
+      const team = await e.createTeam();
+      const spawned = await e.call("lead", "TeammateSpawn", { name: "bob", prompt: "[[faux:agent-teams-teammate-sleep]] run the long job" });
+      expect(spawned).toMatchObject({ ok: true });
+      const [bob] = await link.started();
+      if (!bob) throw new Error("no teammate process was started");
+      await bob.proc.waitFor((r) => r.type === "tool_execution_start" && r.toolName === "bash", 40_000);
+      const task = e.rt.store.addTask(team.id, { title: "sleep 30", description: "d", createdBy: "lead" });
+      e.rt.store.patchTask(team.id, task?.id as string, { status: "in_progress", owner: "bob" });
+      expect(e.member(team, "bob")).toMatchObject({ status: "busy", guardActive: true });
+
+      const recs = bob.proc.records;
+      const before = recs.length;
+      const t0 = Date.now();
+      expect(await send(e, "lead", { to: "bob", message: "change of plan", priority: "urgent" })).toMatchObject({ ok: true });
+      // The mail reaches the member's session (a user-visible message) within the settle wait + the 2 s abort window.
+      const mail = await bob.proc.waitFor((r) => recs.indexOf(r) >= before && r.type === "message_start" && JSON.stringify(r).includes("change of plan"), 15_000);
+      expect(Date.now() - t0).toBeLessThan(2500 + 2000);
+      // The tool run was aborted (not allowed to run its 30 s) and its turn ended `aborted`.
+      const toolEnd = recs.find((r, i) => i >= before && r.type === "tool_execution_end" && r.toolName === "bash");
+      expect(toolEnd?.isError).toBe(true);
+      const stopReasonOf = (end: Record<string, unknown> | undefined): unknown => {
+        const msgs = (end?.messages ?? []) as Array<{ role?: string; stopReason?: string }>;
+        return [...msgs].reverse().find((m) => m.role === "assistant")?.stopReason;
+      };
+      expect(stopReasonOf(recs.find((r, i) => i >= before && r.type === "agent_end"))).toBe("aborted");
+      // The wake turn runs to its end: it is not re-aborted by the host's persistent abort.
+      const wakeEnd = await bob.proc.waitFor((r) => recs.indexOf(r) > recs.indexOf(mail) && r.type === "agent_end", 15_000);
+      expect(stopReasonOf(wakeEnd)).toBe("stop");
+      expect(JSON.stringify(wakeEnd)).toContain(TEAMMATE_ACK);
+      expect(Date.now() - t0).toBeLessThan(2500 + 2000);
+      expect(bob.aborts).toBe(1);
+      expect(e.fake.base.aborts).toEqual([bob.currentSessionId()]);
+      // Server state: both settles arrived (aborted + wake), the task is untouched.
+      await vi.waitFor(() => expect(e.member(team, "bob")).toMatchObject({ lastSettleId: 2, status: "idle" }), { timeout: 5_000 });
+      expect(team.tasks[0]).toMatchObject({ status: "in_progress", owner: "bob" });
+      // One coalesced lead notice, for the wake settle only: the aborted settle produced none.
+      await vi.waitFor(() => expect(noticesOf(e, team)).toHaveLength(1), { timeout: 6_000 });
+      const items = itemsOf(noticesOf(e, team)[0] as never);
+      expect(items).toHaveLength(1);
+      expect(items[0]).toContain("bob is idle");
+      expect(items[0]).toContain(TEAMMATE_ACK);
+    } finally {
+      await link.close();
+    }
+  }, 60_000);
 });
 
 describe("coalescing wake rules (S15)", () => {
