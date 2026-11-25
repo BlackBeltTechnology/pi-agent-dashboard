@@ -68,6 +68,7 @@ All below: npm scope `@blackbelt-technology/` (first-party for `providerAuth`), 
 | `system-one` (200) | server+client | `/api/system-one/*`; model backend API keys; supervises local Von/Laya processes. |
 | `automation` (100) | server+bridge+client | Cron scheduler spawning headless pi sessions (`spawnSession`, `abortSpawnedRun`); reads `.pi/automation/*.yaml`. |
 | `goal` (100) | server+bridge+client | Session supervisor: spawns/resumes/kills driver sessions; `mintSpawnToken`. |
+| `agent-teams` (100) | server+bridge+client | Spawns teammate pi sessions (`spawnSession`, `pluginRef` `agent-teams`, scope `tools`/`skills`+`noSkills`/`noMcp`/`noContextFiles`, `lifecycle.recover:false`). Lane `agent-teams/{call,hello,busy,idle,ack}` `hubLocalOnly`. Mail via `emitEventToSession`. Read REST `GET /api/plugins/agent-teams/teams[/:id]` observe tier (`route-tiers.ts:200-201`). Teammate guards: see `tool-call-guards.md`. |
 | `flows` (100) | server+bridge+client | Reacts to `flow_*` events; flow architect UI; trusted seams. |
 | `team` (100) | server+client | Persistent per-user AI agents; spawns sessions; same-origin app `/apps/team/`; operate-tier `/api/plugins/team/*` (`route-tiers.ts:87-90,195-203`). |
 | `keycloak-resolver` (100) | server | Validates Keycloak JWTs → `(iss,sub)` principal; active only if listed in `identity.trustedResolverPlugins`. |
@@ -285,7 +286,7 @@ flowchart LR
 - `first-party.ts:16-18` prefix `@blackbelt-technology/`; `:25-38` returns `undefined` otherwise. `packageName` read from plugin `package.json` (self-declared). Policy only.
 
 ### PLUG-C7 Private request lane
-- Caps 256 KiB (`plugin-request-lane.ts:21`, `:80`); sessionId from socket key `:30`; `no_handler` `:61`. Not authenticated — handler must authorize payload (arch doc "Private request/reply lane").
+- Caps 256 KiB (`plugin-request-lane.ts:21`, `:80`); sessionId from socket key `:30`; `no_handler` `:61`. Not authenticated — handler must authorize payload (arch doc "Private request/reply lane"). Consumer `agent-teams`: caller from `meta.sessionId` only (`ops.ts:280`); `hubLocalOnly` refuses non-local origin.
 
 ### CLI-C1 Markdown sanitization
 - `MarkdownContent.tsx:630-631`, `:656-658`, `:737`; schema `markdown-sanitize.ts`. Error → plain-text fallback (sidecar). Test `components/preview/__tests__/markdown-sanitize.test.ts`. Fail mode: sanitizer throw → text, fail-closed.

@@ -100,6 +100,37 @@ importers:
         specifier: ^0.6.6
         version: 0.6.6
 
+  packages/agent-teams-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.11.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.11.0
+        version: link:../shared
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
+      fastify:
+        specifier: ^5.0.0
+        version: 5.12.1
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.5(@types/react@19.2.18)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+      wouter:
+        specifier: ^3.9.0
+        version: 3.10.0(react@19.2.8)
+
   packages/anti-slop: {}
 
   packages/app-kit:
@@ -345,6 +376,9 @@ importers:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.11.0
         version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-agent-teams-plugin':
+        specifier: ^0.11.0
+        version: link:../agent-teams-plugin
       '@blackbelt-technology/pi-dashboard-apple-tools':
         specifier: ^0.11.0
         version: link:../apple-tools

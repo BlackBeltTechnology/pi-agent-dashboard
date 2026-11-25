@@ -2,6 +2,7 @@
    Do not edit: one Tailwind @source line per client-bearing plugin dir, derived from
    plugin manifests. Imported by packages/client/src/index.css.
    See change: decouple-plugins-from-core. */
+@source "../../../agent-teams-plugin/src/client";
 @source "../../../apple-tools/src/client";
 @source "../../../automation-plugin/src/client";
 @source "../../../blackhole-plugin/src/client";

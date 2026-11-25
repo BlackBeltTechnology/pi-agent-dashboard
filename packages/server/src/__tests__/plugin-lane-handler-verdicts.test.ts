@@ -42,6 +42,11 @@ const VERDICTS: Record<string, Record<string, Verdict>> = {
   "craft-web-plugin/src/server/index.ts": {
     CONTROL_REQUEST: { kind: "deferred", reason: "WS-05b: drives a Craft editor by hub path; no stored secret" },
   },
+  // Teammate/lead lane: caller identity is the lane socket session id, every handler is hub-local.
+  // See change: add-agent-teams-core (D3).
+  "agent-teams-plugin/src/server/lane.ts": {
+    type: { kind: "hub-local-only" },
+  },
   "demo-plugin/src/server/index.ts": {
     DEMO_ECHO_TYPE: { kind: "none", reason: "echo" },
   },

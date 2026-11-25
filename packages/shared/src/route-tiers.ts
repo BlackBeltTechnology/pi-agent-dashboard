@@ -201,6 +201,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/paired-devices/revoked", tier: "operate" },
   { method: "GET", path: "/api/pi-core/changelog", tier: "observe" },
   { method: "GET", path: "/api/pi-core/versions", tier: "observe" },
+  // Agent teams read snapshots (see change: add-agent-teams-core).
+  { method: "GET", path: "/api/plugins/agent-teams/teams", tier: "observe" },
+  { method: "GET", path: "/api/plugins/agent-teams/teams/:id", tier: "observe" },
   // Runtime overlay (see change: electron-runtime-overlay-updates).
   { method: "GET", path: "/api/plugins/skill-atlas/graph", tier: "observe" },
   { method: "GET", path: "/api/plugins/team/agents", tier: "operate" },

@@ -7,7 +7,7 @@ exposed on `ServerPluginContext` from
 `@blackbelt-technology/dashboard-plugin-runtime/server`. Worked example:
 `packages/demo-plugin` (fixture).
 First production consumer: `packages/gmail-plugin` → see [`gmail-plugin.md`](gmail-plugin.md).
-Consumers: `packages/craft-web-plugin` (`ctx.serveApp`, `editor-pane-file-handler`, `ctx.dataDir`) → see [`craft-web-plugin.md`](craft-web-plugin.md).
+Consumers: `packages/craft-web-plugin` (`ctx.serveApp`, `editor-pane-file-handler`, `ctx.dataDir`) → see [`craft-web-plugin.md`](craft-web-plugin.md). `packages/agent-teams-plugin` (lane, `emitEventToSession`, `spawnSession`, session hooks, `shutdownSession`) → see § Consumer: agent-teams.
 
 See change: `expose-plugin-credential-and-oauth-seams`.
 
@@ -572,6 +572,40 @@ Replace hard-coded per-tool logic in `ToolCallStep.tsx`.
 - No claim for `Agent` → `GenericToolRenderer`.
 
 See change: decouple-plugins-from-core.
+
+## Consumer: agent-teams (`packages/agent-teams-plugin`)
+
+Seams used (`RuntimeHost` in `src/server/runtime.ts`). Change: `add-agent-teams-core`.
+
+- Request lane: `registerPiRequestHandler(type, h, {hubLocalOnly:true})` for `agent-teams/call|hello|busy|idle|ack` (`src/server/lane.ts`). Optional seam: absent → team tools disabled, warn once.
+- Caller identity: `meta.sessionId` only (`ops.resolveCaller`). Payload never names identity.
+- Mail: `emitEventToSession(sessionId, "agent-teams:mail", payload)` → bridge `pi.events` → `pi.sendMessage` (custom, not user role).
+- Close notice: `emitEventToSession(sessionId, "agent-teams:team_closed", payload)`.
+- Spawn: `spawnSession({cwd, name, pluginRef, scope, lifecycle, spawnToken})` (`src/server/driver.ts`).
+  - `pluginRef`: `{"agent-teams": {teamId, member, role}, principalOwner?}`.
+  - `scope`: `tools`, `skills` + `noSkills`, `extensionConfig`, `appendSystemPrompt`, `noContextFiles`, `noMcp`.
+  - `lifecycle`: `{recover:false, finalizeOnSocketClose:false}`.
+  - No `initialPrompt`: host queues per cwd, not per identity.
+- Bind: `onSessionResolved(sessionId, ref)` → member `spawning` → bound. Requires `pluginRef` key `agent-teams`.
+- Unbind: `onSessionEnded(sessionId)` → membership update.
+- Teardown: `shutdownSession(sessionId)` (`driver.ts`, `TeamDelete` path).
+- Also read: `abortSession`, `abortSpawnedRun`, `getPluginConfig`, `dataDir`, `sessionManager`, `onShutdown`.
+- Optional: `getPiResources` for skill allowlist resolve. Absent → spawn refused `skill_resolution_unavailable`.
+- Manifest `priority` 100 → passes `spawnSession` gate (`priority <= 100`).
+
+Seams for later changes (inert by default), `src/server/extension-points.ts`:
+
+- `registerSpawnContributor`: adds tools/skills/promptFiles/env/cwd at spawn.
+- `registerOpGate(op, gate)`: pre-op block with feedback; budget `opGateBudgetMs`.
+- `registerDispatchEligibility`: gates auto-dispatch per member.
+- `setRouteVisibility`: gates REST route visibility; timeout `ROUTE_VISIBILITY_TIMEOUT_MS`.
+- `MemberDriver` mode registry (`modes.ts`, `driver.ts`): session mode only in core.
+- `TrustedSpawnOptions` (`cwd`, `committer`): in-process server caller only. Not reachable from lane.
+
+Caveats:
+
+- Host does not authenticate lane payload. Handler authorizes by `meta.sessionId`.
+- Non-local origin → `origin_denied` (`hubLocalOnly`).
 
 ## Trust boundary
 

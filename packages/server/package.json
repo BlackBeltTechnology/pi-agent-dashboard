@@ -48,6 +48,7 @@
       "chat-gateway",
       "system-one-plugin",
       "team-plugin",
+      "agent-teams-plugin",
       "skill-atlas-plugin"
     ]
   },
