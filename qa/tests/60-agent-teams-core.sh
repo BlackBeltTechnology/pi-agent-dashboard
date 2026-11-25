@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Test: agent-teams core — restart mid-team, lead resume, `/new` replacement (L2).
-# See change: add-agent-teams-core (test-plan S76, S85, S87).
+# Test: agent-teams core — restart mid-team, lead resume (L2).
+# See change: add-agent-teams-core (test-plan S76, S85; S87 is NOT covered, see below).
 #
 #   S76  runtime: hello after restart — real server restart mid-team: the lead and
 #        the teammate bridges reconnect ⇒ member status == reported idle state, no
 #        mail duplicated (every mail id unique + acked, one `task_assigned`), 0
 #        duplicate claims, tasks unchanged.
 #   S85  runtime: lead resume — the lead pi killed and resumed from its session
-#        file (`--continue`, same id) ⇒ team orphaned → active, the lead tool set
+#        file (`--session <lead id>`, same id) ⇒ team orphaned → active, the lead tool set
 #        is back (TaskCreate works) and dispatch resumes; a DIFFERENT id (fresh pi
 #        in the same cwd) leaves the team orphaned.
-#   S87  scope: session replaced — the teammate's pi runs `/new` (id changes) ⇒
-#        the old id ends: member `gone`, its task released (pending, unowned).
+#   S87  (task 14.3, session replaced via `/new`) is not driven here: the dashboard
+#        `/new` prompt SPAWNS a separate session (command-handler `spawnNew`) and does
+#        not replace the teammate process, and a server-spawned teammate has no
+#        stdin to send the RPC `new_session` to. Needs a tmux/TUI-driven check.
 #
 # Every session is a real `pi --mode rpc` on the faux model (no API key). The lead
 # is driven over RPC (`qa/fixtures/faux-scenarios.ts`: agent-teams-lead-spawn /
@@ -81,7 +83,7 @@ if [ ! -f "$FAUX_EXT_DIR/index.ts" ]; then
   STAGED_FAUX=1
 fi
 
-echo "=== Test: agent-teams core (restart mid-team, lead resume, /new replacement) ==="
+echo "=== Test: agent-teams core (restart mid-team, lead resume) ==="
 
 # Node owns the drive + polling. Run from the repo so any `require` resolves against its node_modules.
 cd "$REPO_ROOT"
@@ -138,7 +140,13 @@ function launchPi(cwd, extraArgs = []) {
   return {
     child,
     prompt: (message) => child.stdin.write(JSON.stringify({ type: "prompt", message }) + "\n"),
-    kill: () => { try { child.kill("SIGKILL"); } catch {} },
+    // SIGTERM lets pi unregister (explicit end) so the team orphans at once; a SIGKILLed
+    // session would linger until the 180 s heartbeat timeout. SIGKILL only as the backstop.
+    kill: () => {
+      try { child.kill("SIGTERM"); } catch {}
+      const t = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 5000);
+      t.unref();
+    },
   };
 }
 
@@ -157,11 +165,11 @@ const alice = (snap) => (snap.members || []).find((m) => m.name === "alice");
 async function setupTeam(label) {
   const cwd = mkHome(label);
   const lead = launchPi(cwd);
-  await waitFor(() => sessionsIn(cwd).length > 0, "the lead session to register");
+  const leadSession = await waitFor(() => sessionsIn(cwd)[0], "the lead session to register");
   lead.prompt("[[faux:agent-teams-lead-spawn]] go");
   const team = await waitFor(() => { const t = teamOf(cwd); return t && alice(t) && alice(t).status === "idle" ? t : undefined; }, "the team with an idle teammate alice");
   if (alice(team).sessionId) sessionsToStop.add(alice(team).sessionId);
-  return { cwd, lead, teamId: team.id };
+  return { cwd, lead, leadId: leadSession.id, teamId: team.id };
 }
 
 /** A task for the dispatcher: alice claims it (owner alice, in_progress) and is idle again after her turn. */
@@ -201,10 +209,20 @@ async function s85() {
   const ctx = await setupTeam("resume");
   ctx.lead.kill();
   await waitFor(() => snapOf(ctx.teamId).status === "orphaned", "the team to be orphaned after the lead died");
-  const resumed = launchPi(ctx.cwd, ["--continue"]); // same cwd, same session file ⇒ same session id
+  const resumed = launchPi(ctx.cwd, ["--session", ctx.leadId]); // the lead session file by id (continue would pick the newest one in this cwd: alice) ⇒ same session id
   await waitFor(() => { const t = snapOf(ctx.teamId); return t.status === "active" && t.leadConnected ? t : undefined; }, "the team to be active again after the lead resumed");
-  resumed.prompt("[[faux:agent-teams-lead-task]] go"); // proves the lead tool set is back
-  await waitFor(() => snapOf(ctx.teamId).tasks.some((x) => x.owner === "alice"), "dispatch to resume (alice claims the new task)");
+  // Proves the lead tool set is back. A prompt that lands before the resumed bridge has activated the
+  // lead tools cannot create the task, so re-send it a few times (each success only adds a task).
+  let claimed = false;
+  for (let attempt = 0; attempt < 4 && !claimed; attempt++) {
+    resumed.prompt("[[faux:agent-teams-lead-task]] go");
+    const until = Date.now() + 15000;
+    while (!claimed && Date.now() < until) {
+      try { claimed = snapOf(ctx.teamId).tasks.some((x) => x.owner === "alice"); } catch {}
+      if (!claimed) await sleep(500);
+    }
+  }
+  if (!claimed) fail("timed out waiting for dispatch to resume (alice claims the new task)");
   // A different id (a fresh pi in the same cwd, no --continue) must not take the lead role.
   resumed.kill();
   await waitFor(() => snapOf(ctx.teamId).status === "orphaned", "the team to be orphaned again");
@@ -217,25 +235,11 @@ async function s85() {
   console.log("OK S85: same-id resume re-activates the team and dispatch; a different id leaves it orphaned");
 }
 
-async function s87() {
-  const ctx = await setupTeam("replaced");
-  const before = await giveAliceATask(ctx);
-  const oldId = alice(before).sessionId;
-  api("POST", "/api/session/" + oldId + "/prompt", { text: "/new" });
-  const after = await waitFor(() => { const t = snapOf(ctx.teamId); return alice(t).status === "gone" ? t : undefined; }, "the replaced teammate session to end its membership");
-  const task = after.tasks[0];
-  if (task.status !== "pending" || task.owner) fail("S87: the task of the departed member was not released: " + taskKey(task));
-  const live = sessionsIn(ctx.cwd).filter((s) => s.id !== oldId && s.id !== undefined);
-  if (live.some((s) => (after.members || []).some((m) => m.sessionId === s.id && m.status !== "gone"))) fail("S87: the replacement session was bound as a team member");
-  console.log("OK S87: /new ended the old member (gone), released its task and left the new session unbound");
-}
-
 (async () => {
   await s76();
   await s85();
-  await s87();
   finish(0, "ALL OK");
 })().catch((e) => fail(e && e.message ? e.message : String(e)));
 '
 
-echo "PASS: agent-teams core (S76, S85, S87)"
+echo "PASS: agent-teams core (S76, S85)"

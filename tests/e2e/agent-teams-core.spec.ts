@@ -12,8 +12,9 @@ import { gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index
  * (`agent-teams-lead-spawn` / `agent-teams-lead-task` in qa/fixtures/faux-scenarios.ts:
  * TeamCreate + TeammateSpawn(alice) on the faux model) and observed through the
  * read-only REST snapshot `GET /api/plugins/agent-teams/teams[/:id]`.
- * Assertions are REST invariants, never timings: a member parked on an `ask_user`
- * prompt stays `busy` until the test answers it.
+ * Assertions are REST invariants: alice is kept `busy` by the ~25 s single-turn
+ * `steer-hold-stream` run (the harness `ask_user` is shadowed by pi-flows' tool, so a
+ * parked question cannot hold a run here); the lead's task lands well inside that window.
  *
  * Port is derived (`PW_E2E_PORT` → the `page` fixture baseURL), never hardcoded.
  * Harness lifecycle:
@@ -158,9 +159,8 @@ test.describe("agent-teams core (L3)", () => {
     await dismissOverlays(page);
     await expect(page.getByPlaceholder(/message/i).first()).toBeVisible();
 
-    // The user talks to alice: her run parks on a pending question, so she stays `busy`.
-    await sendPrompt(page, "[[faux:ask-select]] hello alice");
-    await expect(page.getByRole("button", { name: /alpha/i }).first()).toBeVisible({ timeout: 60_000 });
+    // The user talks to alice: a ~25 s streamed turn keeps her `busy`.
+    await sendPrompt(page, "[[faux:steer-hold-stream]] hello alice");
     await expect
       .poll(async () => memberOf(await snapshot(page, teamId), "alice")?.status, { timeout: 60_000, intervals: [500] })
       .toBe("busy");
@@ -177,10 +177,7 @@ test.describe("agent-teams core (L3)", () => {
     expect(whileBusy.tasks[0]).toMatchObject({ status: "pending" });
     expect(whileBusy.tasks[0]?.owner).toBeUndefined();
 
-    // She answers, the run ends, and the system converges: alice idle again, holding the task.
-    await aliceCard.click();
-    await dismissOverlays(page);
-    await page.getByRole("button", { name: /alpha/i }).first().click();
+    // Her run ends and the system converges: alice idle again, holding the task.
     await expect
       .poll(
         async () => {

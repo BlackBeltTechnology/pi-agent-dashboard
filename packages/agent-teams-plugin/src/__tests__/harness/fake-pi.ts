@@ -30,6 +30,17 @@ class FakePi {
   /** What `ctx.isIdle()` answers. */
   idle = true;
   sessionFile: string | undefined = "/sessions/fake.jsonl";
+  /**
+   * Like real pi: action methods throw "Extension runtime not initialized" until the
+   * first event fires (`session_start`); only `registerTool`/`on`/`events` are load-safe.
+   */
+  private runtimeReady = false;
+
+  private requireRuntime(): void {
+    if (!this.runtimeReady) {
+      throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.");
+    }
+  }
 
   readonly events = {
     on: (name: string, handler: (payload: unknown) => void): void => {
@@ -51,14 +62,17 @@ class FakePi {
   }
 
   getActiveTools(): string[] {
+    this.requireRuntime();
     return [...this.active];
   }
 
   setActiveTools(names: string[]): void {
+    this.requireRuntime();
     this.active = [...names];
   }
 
   sendMessage(message: SentMessage["message"], options?: SentMessage["options"]): void {
+    this.requireRuntime();
     if (this.throwOnSend) throw new Error("sendMessage failed");
     this.sent.push({ message, options });
   }
@@ -69,6 +83,7 @@ class FakePi {
 
   /** Fire a pi event at every registered handler; returns the handlers' results. */
   async fire(event: string, payload: unknown = {}): Promise<unknown[]> {
+    this.runtimeReady = true;
     const out: unknown[] = [];
     for (const h of this.handlers.get(event) ?? []) out.push(await h(payload, this.ctx));
     return out;
@@ -90,6 +105,9 @@ export interface LinkOptions {
   env?: Record<string, string | undefined>;
   /** Make lane requests fail at the transport level. */
   laneDown?: () => boolean;
+  /** Reconnect watch: whether the host request lane is open, and how often to sample it. */
+  laneUp?: () => boolean;
+  laneWatchMs?: number;
 }
 
 /** Activate the real bridge for `who` against the real server handlers of `env`. */
@@ -105,6 +123,13 @@ export function linkBridge(env: TeamsEnv, who: string, opts: LinkOptions = {}) {
   env.fake.base.onEmit((e) => {
     if (e.sessionId === sid && e.delivered) pi.events.emit(e.eventType, e.data);
   });
-  const bridge = createBridge(pi, { env: opts.env ?? {}, lane, sleep: async () => undefined });
+  const bridge = createBridge(pi, {
+    env: opts.env ?? {},
+    lane,
+    sleep: async () => undefined,
+    // Default: never "up" so the watcher stays inert unless a test drives it.
+    laneUp: opts.laneUp ?? (() => false),
+    ...(opts.laneWatchMs !== undefined ? { laneWatchMs: opts.laneWatchMs } : {}),
+  });
   return { pi, bridge, sid, requests, lane };
 }

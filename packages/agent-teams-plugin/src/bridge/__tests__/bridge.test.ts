@@ -75,9 +75,17 @@ describe("role → tool table at activation (S38, S89, S91)", () => {
     }
   });
 
+  it("loading the extension touches no pi action method (pi throws 'runtime not initialized' and aborts the session)", () => {
+    const env = setup();
+    // FakePi throws from getActiveTools/setActiveTools/sendMessage until the first event fires.
+    const { pi } = linkBridge(env, "lead");
+    expect(sorted(pi.registerOrder)).toEqual(PLAIN);
+  });
+
   it("a plain session becomes lead through TeamCreate: the lead set is registered, and team_closed drops the lead-only tools", async () => {
     const env = setup();
     const { pi, bridge } = linkBridge(env, "lead");
+    await pi.fire("session_start", {}); // tools only run after the runtime is initialised
     const create = pi.tools.get("TeamCreate");
     const out = await create?.execute("c1", { name: "alpha" });
     expect(JSON.parse(out?.content[0]?.text ?? "{}")).toMatchObject({ name: "alpha", role: "lead" });
@@ -203,6 +211,30 @@ describe("hello (S44, S119, S120)", () => {
     await flushAsync();
     expect(requests.filter((r) => r.type === "agent-teams/hello")).toHaveLength(4);
     expect(env.member(team, "alice").status).toBe("busy");
+  });
+
+  it("a lane down→up transition (server restart) re-sends hello; a steady lane does not (S76)", async () => {
+    const env = setup();
+    let up = true;
+    const { pi, requests } = linkBridge(env, "lead", { laneUp: () => up, laneWatchMs: 5 });
+    await pi.fire("session_start", {});
+    await flushAsync();
+    const hellos = () => requests.filter((r) => r.type === "agent-teams/hello").length;
+    expect(hellos()).toBe(1);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(hellos()).toBe(1); // steady lane: no extra hello
+    up = false;
+    await new Promise((r) => setTimeout(r, 30));
+    up = true; // the socket re-opened on the restarted server
+    await new Promise((r) => setTimeout(r, 30));
+    await flushAsync();
+    expect(hellos()).toBe(2);
+    await pi.fire("session_shutdown", {}); // stops the watcher
+    up = false;
+    await new Promise((r) => setTimeout(r, 20));
+    up = true;
+    await new Promise((r) => setTimeout(r, 30));
+    expect(hellos()).toBe(2);
   });
 
   it("host policy hiding the team tools → toolsActive:false → degraded + waking notice (not a silent dead teammate)", async () => {

@@ -15,6 +15,7 @@
  * See change: add-agent-teams-core.
  */
 
+import { PLUGIN_REQUEST_SYMBOL } from "@blackbelt-technology/dashboard-plugin-runtime/bridge";
 import { compareMailIds } from "../shared/constants.js";
 import { customTypeForKind, formatMail } from "../shared/mail-format.js";
 import {
@@ -65,6 +66,10 @@ export interface BridgeOptions {
   /** Delay between `hello` retries while the lane is unavailable. */
   sleep?: (ms: number) => Promise<void>;
   helloRetries?: number;
+  /** Whether the dashboard request lane is currently open (default: the host's global lane symbol). */
+  laneUp?: () => boolean;
+  /** How often the lane is sampled for a reconnect (ms, default 2000). */
+  laneWatchMs?: number;
   log?: (message: string) => void;
 }
 
@@ -97,6 +102,8 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   const sleep = opts.sleep ?? defaultSleep;
   const log = opts.log ?? (() => undefined);
   const maxRetries = opts.helloRetries ?? 20;
+  const laneUp = opts.laneUp ?? (() => typeof (globalThis as Record<symbol, unknown>)[PLUGIN_REQUEST_SYMBOL] === "function");
+  const laneWatchMs = opts.laneWatchMs ?? 2000;
 
   const confined = CONFINING_ENV_KEYS.some((k) => (env[k] ?? "") !== "");
   const hintedMember = (env[ENV_MEMBER] ?? "") !== "" && (env[ENV_TEAM_ID] ?? "") !== "";
@@ -125,6 +132,14 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   };
   const defs = new Map<TeamOp, TeamToolDef>(createTeamTools(transport).map((d) => [d.name, d]));
 
+  /**
+   * pi throws "Extension runtime not initialized" for action methods
+   * (`getActiveTools`/`setActiveTools`) while the extension is still loading, which
+   * aborts the whole session. `registerTool` is load-safe; the active-set sync waits
+   * for `session_start`.
+   */
+  let started = false;
+
   /** Register (once) and activate the given tools. */
   function activateTools(names: readonly TeamOp[]): void {
     if (confined || typeof pi.registerTool !== "function") return;
@@ -135,6 +150,7 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
         registered.add(name);
       }
     }
+    if (!started) return;
     const active = pi.getActiveTools?.();
     if (active && pi.setActiveTools) {
       const missing = names.filter((n) => !active.includes(n));
@@ -143,6 +159,7 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   }
 
   function deactivateTools(names: readonly string[]): void {
+    if (!started) return;
     const active = pi.getActiveTools?.();
     if (active && pi.setActiveTools) pi.setActiveTools(active.filter((n) => !names.includes(n)));
   }
@@ -166,7 +183,7 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   // ── hello ───────────────────────────────────────────────────────────────────
 
   function helloPayload(): HelloPayload {
-    const active = pi.getActiveTools?.();
+    const active = started ? pi.getActiveTools?.() : undefined;
     const toolsActive = confined || (active ? TEAM_TOOLS_BY_ROLE[role].every((t) => active.includes(t)) : TEAM_TOOLS_BY_ROLE[role].every((t) => registered.has(t)));
     const sessionFile = lastCtx?.sessionManager?.getSessionFile?.();
     return {
@@ -263,9 +280,30 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
     if (isRecord(ctx)) lastCtx = ctx as typeof lastCtx;
   };
 
+  // The host gives a bridge no reconnect signal, but it drops the lane global while the socket is
+  // closed and re-installs it on open. A server restart leaves every member `disconnected` until its
+  // `hello`, so a down→up transition re-sends it (design D14: "hello at session_start and on reconnect").
+  let laneWatch: ReturnType<typeof setInterval> | undefined;
+  const watchLane = (): void => {
+    if (laneWatch !== undefined) return;
+    let wasUp = laneUp();
+    laneWatch = setInterval(() => {
+      const up = laneUp();
+      if (up && !wasUp) void sendHello();
+      wasUp = up;
+    }, laneWatchMs);
+    (laneWatch as { unref?: () => void }).unref?.();
+  };
+
   pi.on?.("session_start", (_event, ctx) => {
     remember(ctx);
+    started = true;
+    watchLane();
     void sendHello();
+  });
+  pi.on?.("session_shutdown", () => {
+    if (laneWatch !== undefined) clearInterval(laneWatch);
+    laneWatch = undefined;
   });
 
   // Teammate guard layers: always attached for a hinted member (inert once it left the team).
