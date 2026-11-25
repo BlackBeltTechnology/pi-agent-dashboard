@@ -56,6 +56,8 @@ const WS_ROADS: Readonly<Record<string, readonly [HostAction, string]>> = {
   // branch / worktree progress
   worktree_init_subscribe: ["branch.read", "branch"],
   worktree_init_unsubscribe: ["branch.read", "branch"],
+  // live previews: the tab announces the preview tiers it renders (D9)
+  live_preview_accept: ["live.read", "live"],
   // files
   list_files: ["files.read", "files"],
   watch_files: ["files.read", "files"],

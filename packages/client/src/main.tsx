@@ -20,6 +20,7 @@ import { deriveApiBase } from "./lib/api/api-context.js";
 import { installFetchWrappers } from "./lib/api/install-fetch-wrappers.js";
 import { getInitialWsUrl } from "./lib/api/server-switch.js";
 import { bootClient } from "./lib/boot/client-boot.js";
+import { isDashboardBootBlocked } from "./lib/live-preview/frame-guard.js";
 import { migrateLegacyDeviceBearer, startDeviceBearerRotation } from "./lib/pairing/device-auth.js";
 import { createHostPrimitiveRegistry } from "./lib/plugins/host-primitives.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
@@ -56,11 +57,16 @@ const primitiveRegistry = createHostPrimitiveRegistry();
 // `/api/` fetches follow the selected server (fix-remote-relative-api-fetch).
 // Installed before any fetch fires.
 installFetchWrappers();
+// D6(b): framed by a live frame / cross-origin parent → no boot-time API traffic and no render
+// (`bootClient` enforces the same guard before mounting). See change: serve-live-previews-on-capability-origin.
+const bootBlocked = isDashboardBootBlocked(window);
 // Discard the legacy global device bearer slot (never exchanged, sent or copied), then
 // rotate the saved cross-origin server's browser-held bearer once at startup.
 // See change: harden-auth-credentials (D5).
-void migrateLegacyDeviceBearer();
-void startDeviceBearerRotation(deriveApiBase(getInitialWsUrl()) || undefined);
+if (!bootBlocked) {
+  void migrateLegacyDeviceBearer();
+  void startDeviceBearerRotation(deriveApiBase(getInitialWsUrl()) || undefined);
+}
 
 // D22 dashboard-UI login: consume the login plugin's return (`#pi_handoff`,
 // `#pi_login_error`, `?pi_signed_out=1`) BEFORE <App/> mounts, stripping it from
@@ -68,7 +74,7 @@ void startDeviceBearerRotation(deriveApiBase(getInitialWsUrl()) || undefined);
 // (no cookies), so App's first socket already carries a ticket. Enforced + no
 // token ⇒ straight to the core login page `/login`: no dashboard ever renders
 // while signed out.
-void bootLoginSession({
+if (!bootBlocked) void bootLoginSession({
   location: window.location,
   history: window.history,
   storage: window.sessionStorage,

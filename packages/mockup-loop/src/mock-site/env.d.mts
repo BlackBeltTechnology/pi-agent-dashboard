@@ -9,7 +9,7 @@ export declare function importProjectVite(root: string): Promise<any>;
 export declare function optionsFile(root: string): string | null;
 export declare function loadOptions(root: string, vite: any): Promise<{ ok: true; options: MockSiteUserOptions; file: string | null } | { ok: false; error: string }>;
 export declare function prepareMockSite(root: string): Promise<
-  | { ok: true; launcher: string; config: string; generated: string; source: string; optionsFile: string | null }
+  | { ok: true; launcher: string; config: string; generated: string; source: string; optionsFile: string | null; adapter: "vite"; baseFlag: string | null }
   | { ok: false; error: string }
 >;
 export declare function createMockSiteConfig(p: { projectRoot: string; config: string; options: MockSiteUserOptions; optionsFile: string | null }, env: { mode?: string }, vite: any): Promise<any>;

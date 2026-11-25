@@ -9,9 +9,13 @@ import { redactCapability } from "./capability-redact.js";
 
 export type LiveLogSink = (line: string) => void;
 
+/** A plain token (ids, hashes, tiers, ports, reasons) prints bare; anything else is JSON-encoded so no field can forge a second line. */
+const BARE = /^[A-Za-z0-9._:-]{1,64}$/;
+const render = (v: unknown): string => (typeof v === "string" && BARE.test(v) ? v : (JSON.stringify(v) ?? "null"));
+
 function formatLiveLog(event: string, fields: Record<string, unknown> = {}): string {
   const kv = Object.entries(fields)
-    .map(([k, v]) => `${k}=${JSON.stringify(v) ?? "null"}`)
+    .map(([k, v]) => `${k}=${render(v)}`)
     .join(" ");
   return redactCapability(`[live-preview] ${event}${kv ? ` ${kv}` : ""}`);
 }

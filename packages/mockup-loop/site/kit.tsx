@@ -88,7 +88,7 @@ export function Tap({ children }: { children: ReactNode }): ReactElement {
 /** `<id>/<frame>/<side>` of the pane being rendered; rings derive their ref from it. */
 export const RefBase = createContext<string | null>(null);
 /** Top-level site URL of a ref (never the `?pane=` iframe URL). */
-const refUrl = (ref: string): string => `${location.origin}${location.pathname}#${ref}`;
+const refUrl = (ref: string): string => `${location.href.split("#", 1)[0]}#${ref}`; // `location.origin` is "null" in an opaque frame
 
 /** Link to a ref: navigates the TOP page (also from a phone iframe) and copies the URL. */
 export function RefLink({ to, className, children, title }: { to: string; className?: string; children: ReactNode; title?: string }): ReactElement {

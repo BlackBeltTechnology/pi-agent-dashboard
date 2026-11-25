@@ -375,6 +375,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // is the exposure posture; `touch` extends only the caller's OWN token (minting principal).
   { method: "POST", path: "/api/live-server/:id/capability", tier: "observe" },
   { method: "POST", path: "/api/live-server/:id/touch", tier: "observe" },
+  // D9: reserve / release a stable tier-5 base for a loopback port. See change: serve-live-previews-on-capability-origin.
+  { method: "POST", path: "/api/live-server/preview-path", tier: "control" },
+  { method: "DELETE", path: "/api/live-server/preview-path/:pid", tier: "control" },
   // Egress state is private to the preview's owner: control tier AND the minting principal (handler).
   { method: "GET", path: "/api/live-server/:id/egress", tier: "control" },
   { method: "POST", path: "/api/live-server/:id/allow-once", tier: "control" },

@@ -101,6 +101,7 @@ export const NON_SESSION_MESSAGES: ReadonlySet<string> = new Set([
   "grant_response",
   "kill_terminal",
   "list_files",
+  "live_preview_accept",
   "move_folder_to_workspace",
   "open_inline_terminal",
   "openspec_bulk_archive",

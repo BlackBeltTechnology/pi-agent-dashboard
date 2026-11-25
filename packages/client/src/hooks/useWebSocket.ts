@@ -191,6 +191,13 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
         backoffRef.current = 1000;
         failCountRef.current = 0;
         probeFailRef.current = 0;
+        // This tab renders the negotiated preview tiers (same token set a mint sends): the server counts it as a
+        // tier-5 viewer only with this announcement. See change: serve-live-previews-on-capability-origin (D9).
+        try {
+          ws.send(JSON.stringify({ type: "live_preview_accept", accept: ["origin", "preview"] }));
+        } catch {
+          // a socket that closed during open: the reconnect re-announces
+        }
         flushOutbox(ws);
       };
 

@@ -23,6 +23,8 @@ const OTHER_TOOLS = [
   [/^\.parcelrc$/, "parcel"], [/^angular\.json$/, "angular"], [/^rollup\.config\./, "rollup"],
 ];
 const BUILD_ADAPTERS = ["vite"];
+/** The launcher flag each adapter maps a base onto; an adapter without one cannot apply a base (D11 (8)). */
+const BASE_FLAGS = /** @type {Record<string, string>} */ ({ vite: "--base" });
 const NEXT_STEP = `declare it in package.json: "mockSite": { "launcher": "<script that starts the build tool>", "config": "<app build config>" }, or add a build-tool adapter`;
 export const GENERATED_DIR = path.join("node_modules", ".vite-mock-site");
 
@@ -120,6 +122,9 @@ export function inheritAppConfig(cfg, configFile) {
   delete out.build;
   delete out.root;
   delete out.preview;
+  // The app's own `base` never leaks in: without `--base` the site serves at `/` (the mock site's base comes ONLY from the
+  // launcher's `--base`, never from this per-project generated config). See change: serve-live-previews-on-capability-origin (D11 (7)).
+  delete out.base;
   return { config: out, appRoot };
 }
 
@@ -163,7 +168,7 @@ export async function loadOptions(root, vite) {
  * Everything a start needs: options, launcher, app config, and the generated config
  * (rewritten on every call).
  * @param {string} root
- * @returns {Promise<{ ok: true, launcher: string, config: string, generated: string, source: string, optionsFile: string|null } | { ok: false, error: string }>}
+ * @returns {Promise<{ ok: true, launcher: string, config: string, generated: string, source: string, optionsFile: string|null, adapter: "vite", baseFlag: string|null } | { ok: false, error: string }>}
  */
 export async function prepareMockSite(root) {
   /** @type {MockSiteUserOptions} */
@@ -180,7 +185,7 @@ export async function prepareMockSite(root) {
   const l = resolveLauncher(root, { options });
   if (!l.ok) return l;
   const generated = writeGeneratedConfig(root, { config: l.config, options, optionsFile: file });
-  return { ok: true, launcher: l.launcher, config: l.config, generated, source: l.source, optionsFile: file };
+  return { ok: true, launcher: l.launcher, config: l.config, generated, source: l.source, optionsFile: file, adapter: l.adapter, baseFlag: BASE_FLAGS[l.adapter] ?? null };
 }
 
 /**

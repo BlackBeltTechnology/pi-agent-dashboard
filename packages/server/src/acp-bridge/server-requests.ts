@@ -103,6 +103,7 @@ export function handleServerMessage(m: ServerToExtensionMessage, ctx: ServerRequ
     case "git_info_refresh":
     case "heartbeat_ack":
     case "path_grant_result":
+    case "preview_path_result":
     case "path_yolo_result":
     case "dashboard_identity":
     case "credentials_updated":

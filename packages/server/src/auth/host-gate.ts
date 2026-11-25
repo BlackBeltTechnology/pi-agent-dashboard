@@ -21,6 +21,7 @@ import {
   parseHostname,
 } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { redactCapability } from "../live-server/capability-redact.js";
 import { sanitizeHeaderForLog } from "./cors-origin.js";
 import {
   type AdmittedSource,
@@ -160,7 +161,8 @@ export class HostGateState {
       this.suppressed += 1;
       return;
     }
-    this.emit(`[host-gate] ${outcome} host=${sanitizeHeaderForLog(host)} ${detail}`);
+    // The line echoes the Origin and the request URL: a preview label, a tier-5 pid or a tier-3 `?k=` must not reach the log (D2).
+    this.emit(redactCapability(`[host-gate] ${outcome} host=${sanitizeHeaderForLog(host)} ${detail}`));
     this.windowCount += 1;
     this.logHosts.delete(host);
     this.logHosts.set(host, ts);
@@ -256,7 +258,7 @@ function escapeHtml(value: string): string {
 }
 
 /** The JSON 403 body (D4), same self-describing shape as `network_not_allowed`. */
-export function hostGateRefusalBody(): {
+function hostGateRefusalBody(): {
   success: false;
   error: string;
   reason: string;
@@ -351,6 +353,15 @@ export function admittedHostRows(
   for (const raw of safeLiveTunnelOrigins(opts)) add(hostnameFromUrl(raw), "live-tunnel");
   for (const name of safeTlsListenerNames(opts)) add(normalizeName(name), "tls-listener");
   for (const raw of opts.allowedHosts ?? []) add(normalizeName(raw), "allowed-host");
+  // One pattern row, never an enumeration: `admitted` is readable by every `GET /api/config` caller,
+  // and a label is a secret (D2). Present whenever previews are enabled, even with zero live entries.
+  let previewsOn = false;
+  try {
+    previewsOn = opts.livePreviewEnabled?.() === true;
+  } catch {
+    /* fail-empty, like the other dynamic sources */
+  }
+  if (previewsOn) add("live preview capability hosts", "live-preview");
   return rows;
 }
 

@@ -529,7 +529,7 @@ export function createNetworkGuard(
  * Every dangerous route in the server lives under one of these; the
  * namespace-coverage test enforces that. See change: add-universal-network-guard.
  */
-const GUARD_JURISDICTION_PREFIXES = ["/api/", "/v1/", "/editor/", "/live/"] as const;
+const GUARD_JURISDICTION_PREFIXES = ["/api/", "/v1/", "/editor/", "/live/", "/preview/"] as const;
 
 /**
  * Fixed in-namespace public endpoints, compared against the EXACT pathname.

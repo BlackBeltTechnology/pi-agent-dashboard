@@ -1,4 +1,5 @@
 import { installGrantChannelFetch } from "../access-grants/grant-channel.js";
+import { installCookieResetFetch } from "../live-preview/cookie-reset.js";
 import { installDeviceAuthFetch } from "../pairing/device-auth.js";
 import { installApiBaseFetch } from "./api-base-fetch.js";
 
@@ -12,6 +13,8 @@ import { installApiBaseFetch } from "./api-base-fetch.js";
  * See change: fix-remote-relative-api-fetch.
  */
 export function installFetchWrappers(): void {
+  // Innermost: observes the real response (any 400 `duplicate_dashboard_cookie`) after every rewrite.
+  installCookieResetFetch();
   installDeviceAuthFetch();
   installGrantChannelFetch();
   installApiBaseFetch();

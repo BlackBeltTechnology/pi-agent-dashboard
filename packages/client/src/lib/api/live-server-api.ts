@@ -10,6 +10,7 @@ import {
   type LiveTargetAddedBy,
   validateLiveTarget,
 } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
+import { type MintShape, validateMintResponse } from "../live-preview/mint-response.js";
 import { getApiBase } from "./api-context.js";
 
 export type StartResult =
@@ -70,22 +71,19 @@ export async function removeLiveServer(id: string): Promise<void> {
 }
 
 export type CapabilityResult =
+  | ({ ok: true } & MintShape)
   | {
-      ok: true;
-      path: string;
-      expiresAt: number;
-      /** Non-secret id of the token (distinct from the secret in `path`); absent on older servers. */
-      tokenId?: string;
-      /** What the server actually granted (`scripts` may be false when exposed without `runScripts`). */
-      policy?: PreviewPolicy;
-    }
-  | { ok: false; error: string; status?: number };
-
-/** `/live/<id>/~c/<token>/` — the only shape the viewer will frame (never a URL the server merely names). */
-const CAPABILITY_PATH = /^\/live\/[A-Za-z0-9_-]+\/~c\/[A-Za-z0-9_-]{22,}\/$/;
+      ok: false;
+      error: string;
+      status?: number;
+      /** The server answered 2xx but the response failed validation: terminal, never auto-retried. */
+      rejected?: true;
+    };
 
 /** What the viewer asks for on a mint. The policy is passed on EVERY mint (design D4). */
 export interface MintOptions {
+  /** `false` ⇒ send no `accept`: the server answers the legacy `/live/<id>/~c/<token>/` path (a same-origin fetch probe). */
+  negotiate?: boolean;
   policy?: PreviewPolicy;
   /** Sent only on the operator's "Run scripts" click (and its same-epoch continuation). */
   runScripts?: boolean;
@@ -93,11 +91,14 @@ export interface MintOptions {
   viewerId?: string;
 }
 
-function parsePolicy(v: unknown): PreviewPolicy | undefined {
-  if (!v || typeof v !== "object") return undefined;
-  const { egress, scripts } = v as { egress?: unknown; scripts?: unknown };
-  if ((egress !== "open" && egress !== "restricted") || typeof scripts !== "boolean") return undefined;
-  return { egress, scripts };
+/** The API base resolved to an absolute origin (`""` / relative ⇒ the page origin); `""` when unresolvable. */
+function apiBaseOrigin(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return new URL(getApiBase(), window.location.href).origin;
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -109,7 +110,8 @@ function parsePolicy(v: unknown): PreviewPolicy | undefined {
  * See change: retire-trusted-networks-bypass (D5); improve-canvas-html-and-url-ux (D4).
  */
 export async function mintLiveCapability(id: string, opts: MintOptions = {}): Promise<CapabilityResult> {
-  const body: Record<string, unknown> = {};
+  // Negotiate: this client frames a preview origin (tiers 1-4) and a stable `/preview/<pid>/` path (tier 5).
+  const body: Record<string, unknown> = opts.negotiate === false ? {} : { accept: ["origin", "preview"] };
   if (opts.policy) {
     body.egress = opts.policy.egress;
     body.scripts = opts.policy.scripts;
@@ -129,18 +131,16 @@ export async function mintLiveCapability(id: string, opts: MintOptions = {}): Pr
   const json = await res.json().catch(() => null);
   if (!res.ok || !accepted(json)) {
     const err = (json as { error?: string } | null)?.error;
+    // A preview planted a second dashboard cookie: the server refuses until it is cleared (D10). Do not auto-reopen.
+    if (err === "duplicate_dashboard_cookie") {
+      return { ok: false, error: "A preview reset dashboard cookies; reopen it to continue.", status: res.status };
+    }
     return { ok: false, error: err ?? `capability mint failed (${res.status})`, status: res.status };
   }
-  if (typeof json.path !== "string" || !CAPABILITY_PATH.test(json.path) || typeof json.expiresAt !== "number") {
-    return { ok: false, error: "capability mint returned an unexpected response" };
-  }
-  return {
-    ok: true,
-    path: json.path,
-    expiresAt: json.expiresAt,
-    tokenId: typeof json.tokenId === "string" ? json.tokenId : undefined,
-    policy: parsePolicy(json.policy),
-  };
+  const own = [typeof window !== "undefined" ? window.location.origin : "", apiBaseOrigin()].filter(Boolean);
+  const shape = validateMintResponse(json, own);
+  if (!shape) return { ok: false, error: "preview response rejected", rejected: true };
+  return { ok: true, ...shape };
 }
 
 // ─── Static targets ─────────────────────────────────────────────────────────

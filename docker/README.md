@@ -134,6 +134,19 @@ Two layers of control:
   there. `bridge ticket wrong-origin` in the pi log means the resolved origin is
   not the dashboard's HTTP listener.
 
+## Live previews
+
+Live previews are served on a capability-bound origin. In a container the page is reached through a published host
+port, so the browser Host is not loopback-from-the-server's-view: a Docker-local user gets **tier 5**
+(`/preview/<pid>/` on the published dashboard port) with no extra setup.
+
+- Tier 3 (port pool) is **opt-in**. The default compose publishes no pool range and sets no `portPool`. To enable it,
+  set `liveServer.previewOrigins.portPool` (for example `"8100-8199"`) in the dashboard config **and** publish the same
+  range: uncomment the `PREVIEW_POOL` mapping in `compose.yml` (and set `PREVIEW_POOL` in `.env`). A range that is
+  configured but not published hands out origins the browser cannot reach; leave `portPool` unset in that case.
+- `compose.test.yml` keeps every published port bound to `127.0.0.1`.
+- Rollback: `liveServer.previewOrigins.enabled: false` returns every preview to the legacy `/live/<id>/~c/<token>/` path.
+
 ## Dev mode (Vite HMR)
 
 ```bash

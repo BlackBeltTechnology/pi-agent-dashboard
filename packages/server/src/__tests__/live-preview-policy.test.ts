@@ -561,7 +561,7 @@ describe("live-server routes", () => {
       expect(h.store.validate(h.staticId, tok(off.path))).not.toBeNull();
       const line = h.logs.find((l) => l.includes("exposure changed"));
       expect(line).toContain('revoked=2');
-      expect(line).toContain('exposure="exposed"');
+      expect(line).toContain('exposure=exposed');
       expect(h.logs.join("\n")).not.toContain(tok(r1.path));
       // Tokens minted AFTER the flip under runScripts are exposed-minted and survive a later flip.
       const later = (await mint(h, h.staticId, { scripts: true, runScripts: true })).json();

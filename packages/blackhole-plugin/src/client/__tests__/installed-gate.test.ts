@@ -16,10 +16,12 @@
  *
  * See change: add-blackhole-session-pipeline, park-blackhole-session-card.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetInstalledGateForTests,
+  isDashboardFrameBlocked,
   isTestEnvironment,
   resolveInstalled,
   shouldRenderMemorySubcard,
@@ -171,5 +173,25 @@ describe("module-scope kick guard (F4)", () => {
     // Under vitest, process.env.VITEST is set — the typeof-guarded read must
     // agree rather than throw.
     expect(isTestEnvironment()).toBe(true);
+  });
+});
+
+describe("boot-time status call is skipped in blocked frames (serve-live-previews-on-capability-origin D6(b))", () => {
+  const el = (attr: boolean) => ({ hasAttribute: (n: string) => attr && n === "data-pi-live-frame" }) as unknown as Element;
+  it("top window → not blocked", () => {
+    const w = { top: null as unknown, frameElement: null as Element | null };
+    w.top = w;
+    expect(isDashboardFrameBlocked(w)).toBe(false);
+  });
+  it("framed by a live frame, or by a cross-origin parent (frameElement null) → blocked", () => {
+    expect(isDashboardFrameBlocked({ top: {}, frameElement: el(true) })).toBe(true);
+    expect(isDashboardFrameBlocked({ top: {}, frameElement: null })).toBe(true);
+  });
+  it("framed by a same-origin parent without the live-frame attribute → not blocked", () => {
+    expect(isDashboardFrameBlocked({ top: {}, frameElement: el(false) })).toBe(false);
+  });
+  it("a throwing cross-origin access → blocked", () => {
+    const w = { get top(): unknown { throw new Error("SecurityError"); }, frameElement: null };
+    expect(isDashboardFrameBlocked(w)).toBe(true);
   });
 });

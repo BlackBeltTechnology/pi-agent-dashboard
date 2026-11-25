@@ -12,5 +12,5 @@ declare module "virtual:mock-site/app" {
   export const setup: (() => void | Promise<void>) | undefined;
   export const Providers: ComponentType<{ children: ReactNode }>;
 }
-interface ImportMeta { readonly hot?: { on(event: string, cb: () => void): void } }
+interface ImportMeta { readonly hot?: { on(event: string, cb: () => void): void }; readonly env?: { readonly BASE_URL?: string } }
 declare module "*.css";

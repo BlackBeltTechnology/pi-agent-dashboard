@@ -25,6 +25,7 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   // read-only viewer is counted too. See change: add-flow-open-tool.
   flows_open_ack: "observe",
   history_backfill: "observe",
+  live_preview_accept: "observe",
   list_files: "observe",
   list_sessions: "observe",
   openspec_get: "observe",

@@ -17,6 +17,8 @@ class MockWebSocket {
 
   readyState = MockWebSocket.CONNECTING;
   sent: string[] = [];
+  /** Connection-level announcements (`live_preview_accept`), kept apart from user messages. */
+  announced: string[] = [];
   throwOnSend = false;
   url: string;
   onopen: (() => void) | null = null;
@@ -32,7 +34,8 @@ class MockWebSocket {
 
   send(data: string): void {
     if (this.throwOnSend) throw new Error("send on closing race");
-    this.sent.push(data);
+    if (data.includes('"live_preview_accept"')) this.announced.push(data);
+    else this.sent.push(data);
   }
 
   close(): void {
@@ -322,5 +325,16 @@ describe("useWebSocket — send verdict & outbox", () => {
 
     act(() => lastSocket().open());
     expect(lastSocket().sent).toHaveLength(0);
+  });
+});
+
+describe("useWebSocket — preview tier announcement (D9)", () => {
+  it("announces the accepted preview tiers once per open, before the outbox flush, and never as a user message", () => {
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    MockWebSocket.instances = [];
+    renderHook(() => useWebSocket("ws://test"));
+    act(() => lastSocket().open());
+    expect(lastSocket().announced.map((d) => JSON.parse(d))).toEqual([{ type: "live_preview_accept", accept: ["origin", "preview"] }]);
+    expect(lastSocket().sent).toEqual([]);
   });
 });
