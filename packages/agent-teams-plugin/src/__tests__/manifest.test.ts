@@ -225,6 +225,29 @@ describe("lazy modules (9.1, D9)", () => {
   });
 });
 
+const REACHED_BY_IMPORT = [
+  "src/client/TeamBadge.tsx",
+  "src/client/team-refs.ts",
+  "src/client/routes.ts",
+  // imported by the lazy Team view / card / tool modules (task 8.x)
+  "src/client/LiveRegion.tsx",
+  "src/client/MembersGrid.tsx",
+  "src/client/MessageLog.tsx",
+  "src/client/TaskBoard.tsx",
+  "src/client/TeamHeader.tsx",
+  "src/client/TeamTabs.tsx",
+  "src/client/format-cwd.ts",
+  "src/client/lazy-i18n.ts",
+  "src/client/mail-i18n.ts",
+  "src/client/pill.tsx",
+  "src/client/recipes.ts",
+  "src/client/team-controls.ts",
+  "src/client/team-view-i18n.ts",
+  "src/client/tool-details.ts",
+  "src/client/tool-i18n.ts",
+  "src/client/view-kit.tsx",
+];
+
 describe("generated registry and knip (9.2, 9.6)", () => {
   it("the committed generated registry carries all 16 claims of this plugin and the new emit", () => {
     const registry = fs.readFileSync(path.join(REPO, "packages/client/src/generated/plugin-registry.tsx"), "utf8");
@@ -239,13 +262,13 @@ describe("generated registry and knip (9.2, 9.6)", () => {
   it("knip lists every client source file of the package (main entry, lazy modules, store, parsers)", () => {
     const knip = JSON.parse(fs.readFileSync(path.join(REPO, "knip.json"), "utf8")) as { workspaces: Record<string, { entry: string[] }> };
     const entries = knip.workspaces["packages/agent-teams-plugin"]?.entry ?? [];
-    // Every client source file is an entry until a view imports it (the lazy modules are only reachable through the manifest).
+    // Every client source file is an entry until a lazy module imports it (the lazy modules are only reachable through the manifest).
     const clientFiles = fs
       .readdirSync(path.join(PKG_ROOT, "src", "client"))
       .filter((f) => /\.(ts|tsx)$/.test(f))
       .map((f) => `src/client/${f}`)
-      // reached through the entry/lazy modules or the manifest already
-      .filter((f) => !["src/client/TeamBadge.tsx", "src/client/team-refs.ts", "src/client/routes.ts"].includes(f));
+      // reached through the entry or the lazy modules (TeamView / MailEntryCard / TeamToolRenderers) already
+      .filter((f) => !REACHED_BY_IMPORT.includes(f));
     expect(clientFiles.length).toBeGreaterThanOrEqual(10);
     for (const f of clientFiles) expect(entries, f).toContain(f);
   });

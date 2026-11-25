@@ -20,13 +20,14 @@ type Status = "connecting" | "connected" | "disconnected" | "offline" | "auth_re
 
 let rev = 41;
 let epoch = "E";
+let lookupLead: string | undefined;
 const gets: Array<{ url: string; inm?: string }> = [];
 let store: TeamsStore;
 const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const url = String(input);
   const inm = new Headers(init?.headers).get("if-none-match") ?? undefined;
   gets.push({ url, inm });
-  if (url.includes("?sessionId=")) return new Response(JSON.stringify({ teams: [{ id: "t1" }] }), { status: 200 });
+  if (url.includes("?sessionId=")) return new Response(JSON.stringify({ teams: [{ id: "t1", ...(lookupLead ? { leadSessionId: lookupLead } : {}) }] }), { status: 200 });
   if (inm === snapshotEtag(epoch, rev)) return new Response(null, { status: 304 });
   return new Response(JSON.stringify(makeSnapshot({ epoch, rev })), { status: 200 });
 });
@@ -56,6 +57,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   rev = 41;
   epoch = "E";
+  lookupLead = undefined;
   gets.length = 0;
   fetchMock.mockClear();
   store = createTeamsStore({ fetch: fetchMock as unknown as typeof fetch });
@@ -113,6 +115,37 @@ describe("StrictMode (S48)", () => {
     error.mockRestore();
     add.mockRestore();
     remove.mockRestore();
+  });
+});
+
+describe("teammate view subscribes to the lead's frames (leadSessionId from the lookup)", () => {
+  it("a frame on the lead session reaches the store while the route session is a teammate; frames on the teammate session are not read", async () => {
+    lookupLead = "REAL-LEAD";
+    mount("connected", false, { sessionId: "MATE" });
+    await advance(0);
+    gets.length = 0;
+    rev = 42;
+    publishSessionEvent("MATE", frame(42) as never);
+    await advance(5000);
+    expect(snapshotGets()).toHaveLength(0);
+    publishSessionEvent("REAL-LEAD", frame(42) as never);
+    await advance(500);
+    expect(snapshotGets()).toHaveLength(1);
+    expect(store.getTeam("t1")?.snapshot?.rev).toBe(42);
+  });
+
+  it("an explicit leadSessionId prop wins; without any lead id the route session is used (lead's own view)", async () => {
+    lookupLead = "REAL-LEAD";
+    mount("connected", false, { sessionId: "MATE", leadSessionId: "PROP-LEAD" });
+    await advance(0);
+    gets.length = 0;
+    rev = 43;
+    publishSessionEvent("REAL-LEAD", frame(43) as never);
+    await advance(5000);
+    expect(snapshotGets()).toHaveLength(0);
+    publishSessionEvent("PROP-LEAD", frame(43) as never);
+    await advance(500);
+    expect(snapshotGets()).toHaveLength(1);
   });
 });
 

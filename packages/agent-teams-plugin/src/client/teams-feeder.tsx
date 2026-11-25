@@ -12,17 +12,16 @@
  * - ignores an events-array reset: shorter array = "no information", the cached
  *   snapshot stays and the next trigger refreshes it.
  *
- * Frames are scoped to the LEAD session, so pass `leadSessionId` when the viewed
- * session is a teammate; without it the viewed session's own events are read
- * (correct for the lead's view). Core's snapshot does not expose the lead's
- * session id yet — until it does, a teammate's view converges by reconnect,
- * visibility and the 60 s timer only.
+ * Frames are scoped to the LEAD session. The lead id comes from the `leadSessionId`
+ * prop, else from the session lookup / snapshot (the server serves it to viewers
+ * that may see the team), else the viewed session itself (the lead's own view).
+ * A frame lost or withheld is still covered by reconnect, visibility and the 60 s timer.
  * See change: add-agent-teams-ui.
  */
 import { useSessionEvents, useShellConnectionStatus } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useEffect, useRef } from "react";
 import { AGENT_TEAMS_EVENT_CHANGED } from "../shared/ui-protocol.js";
-import { useSessionLookup } from "./teams-hooks.js";
+import { useSessionLookup, useTeamEntry } from "./teams-hooks.js";
 import { type ChangedFrame, type TeamsStore, teamsStore } from "./teams-store.js";
 
 export interface TeamsFeederProps {
@@ -48,19 +47,23 @@ export function frameOf(event: EventLike, teamId: string): ChangedFrame | undefi
 }
 
 export function TeamsFeeder({ sessionId, leadSessionId, store = teamsStore }: TeamsFeederProps): null {
-  const events = useSessionEvents(leadSessionId ?? sessionId);
+  const lookup = useSessionLookup(sessionId, store);
+  const teamId = lookup?.teamId ?? null;
+  const snapshotLead = useTeamEntry(teamId, store)?.snapshot?.leadSessionId;
+  const frameSession = leadSessionId ?? lookup?.leadSessionId ?? snapshotLead ?? sessionId;
+  const events = useSessionEvents(frameSession);
   const connection = useShellConnectionStatus();
-  const teamId = useSessionLookup(sessionId, store)?.teamId ?? null;
 
   useEffect(() => store.watchSession(sessionId), [store, sessionId]);
 
   // Frames: only the not-yet-seen tail, newest matching frame first.
-  const seen = useRef({ teamId: null as string | null, length: 0 });
+  const seen = useRef({ teamId: null as string | null, session: frameSession, length: 0 });
   useEffect(() => {
     if (!teamId) return;
     const cursor = seen.current;
-    if (cursor.teamId !== teamId || events.length < cursor.length) {
-      cursor.teamId = teamId; // a new team, or a reset of the array: rescan, never touch the cache
+    if (cursor.teamId !== teamId || cursor.session !== frameSession || events.length < cursor.length) {
+      cursor.teamId = teamId; // a new team / frame session, or a reset of the array: rescan, never touch the cache
+      cursor.session = frameSession;
       cursor.length = 0;
     }
     for (let i = events.length - 1; i >= cursor.length; i--) {
@@ -71,7 +74,7 @@ export function TeamsFeeder({ sessionId, leadSessionId, store = teamsStore }: Te
       }
     }
     cursor.length = events.length;
-  }, [events, teamId, store]);
+  }, [events, teamId, frameSession, store]);
 
   // Reconnect: a transition into `connected` after the socket was down.
   const lastConnection = useRef(connection);

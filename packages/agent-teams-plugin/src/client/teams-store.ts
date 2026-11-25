@@ -59,6 +59,8 @@ export interface LookupEntry {
   phase: "loading" | "resolved" | "error";
   /** `null` = the session has no (visible) team — an empty lookup, no existence oracle. */
   teamId?: string | null;
+  /** The team lead's session id (frames are scoped to it); absent when the summary has none. */
+  leadSessionId?: string;
   error?: FetchFailure;
 }
 
@@ -464,15 +466,17 @@ export function createTeamsStore(options: TeamsStoreOptions = {}): TeamsStore {
     if (!res.ok) return httpFailure(res, env.now());
     const list = ((await jsonBody(res)) as { teams?: unknown } | null | undefined)?.teams;
     if (!Array.isArray(list)) return { ok: false, kind: "invalid", status: res.status };
-    const first = list[0] as { id?: unknown } | undefined;
-    applyLookup(sessionId, rec, typeof first?.id === "string" ? first.id : null);
+    const first = list[0] as { id?: unknown; leadSessionId?: unknown } | undefined;
+    applyLookup(sessionId, rec, typeof first?.id === "string" ? first.id : null, typeof first?.leadSessionId === "string" && first.leadSessionId !== "" ? first.leadSessionId : undefined);
     return { ok: true };
   }
 
   /** Record the lookup result and move the session's team watch when the team changed. */
-  function applyLookup(sessionId: string, rec: SessionRec, teamId: string | null): void {
+  function applyLookup(sessionId: string, rec: SessionRec, teamId: string | null, leadSessionId?: string): void {
     const prev = lookups.get(sessionId);
-    if (prev?.phase !== "resolved" || prev.teamId !== teamId || prev.error) setLookup(sessionId, { sessionId, phase: "resolved", teamId });
+    if (prev?.phase !== "resolved" || prev.teamId !== teamId || prev.leadSessionId !== leadSessionId || prev.error) {
+      setLookup(sessionId, { sessionId, phase: "resolved", teamId, ...(leadSessionId !== undefined ? { leadSessionId } : {}) });
+    }
     if (rec.held?.teamId === teamId) return;
     rec.held?.release();
     rec.held = teamId === null ? undefined : { teamId, release: watchTeam(teamId) };

@@ -251,3 +251,24 @@ describe("bridge isolation (S115)", () => {
     expect(host.frames.length).toBeGreaterThan(0); // frames still flow
   });
 });
+
+describe("counters (task 10.1)", () => {
+  it("counts frames sent and frames coalesced through the counter facility (names and numbers only)", () => {
+    const env = createStoreEnv();
+    const clock = new FakeClock(1_700_000_000_000);
+    const host = createFakeUiHost();
+    const { logger } = capturingLogger();
+    const counted: Array<[string, number | undefined]> = [];
+    const bridge = createUiBridge({ store: env.store, host: host.host, epoch: "E1", clock, logger, counters: { count: (name, n) => void counted.push([name, n]) } });
+    bridges.push(bridge);
+    const t = env.store.createTeam({ name: "c", leadSessionId: "S-c", leadCwd: "/w", mode: "session", maxTeammates: 4 });
+    for (let i = 0; i < 5; i++) env.store.appendMail(t.id, { from: "lead", to: "alice", kind: "message", text: "SECRET-7f3a", wake: false });
+    clock.advance(CHANGED_COALESCE_MS);
+    const sent = counted.filter(([n]) => n === "frames_sent").length;
+    const coalesced = counted.filter(([n]) => n === "frames_coalesced").length;
+    expect(sent).toBe(host.frames.length);
+    expect(sent).toBeLessThanOrEqual(2); // leading + trailing
+    expect(coalesced).toBeGreaterThanOrEqual(4); // the rest of the burst folded into the window
+    expect(JSON.stringify(counted)).not.toContain("SECRET");
+  });
+});
