@@ -58,7 +58,7 @@ describe("agent-teams manifest emits contract", () => {
       expect(rel, "manifest entry path").toBeTruthy();
       expect(fs.existsSync(path.join(PKG_ROOT, rel as string)), `${rel} exists`).toBe(true);
     }
-    expect(manifest.claims).toEqual([]);
+    expect(Array.isArray(manifest.claims), "claims are asserted in manifest.test.ts (add-agent-teams-ui)").toBe(true);
   });
 
   it("emits entries are unique, namespaced `agent-teams:` exact names", () => {

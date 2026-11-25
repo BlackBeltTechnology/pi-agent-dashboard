@@ -609,6 +609,16 @@
     "packages/agent-teams-plugin": {
       "entry": [
         "src/client/index.tsx",
+        "src/client/TeamView.tsx",
+        "src/client/MailEntryCard.tsx",
+        "src/client/TeamToolRenderers.tsx",
+        "src/client/announcements.ts",
+        "src/client/mail-parse.ts",
+        "src/client/status-map.ts",
+        "src/client/teams-feeder.tsx",
+        "src/client/teams-hooks.ts",
+        "src/client/teams-store.ts",
+        "src/client/tool-families.ts",
         "src/server/index.ts",
         "src/bridge/index.ts",
         "src/shared/index.ts",

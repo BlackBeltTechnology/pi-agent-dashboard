@@ -286,6 +286,8 @@ The owner accepted every recommended option (decisions sheet A1, A5, A6, A10, A1
 - **REST reads sit on the `observe` tier (A1/Q3):** owner filtering is the only per-user barrier; teams without an owner are hidden from non-operators.
 - **Lead is told of a user shutdown without a turn (B30):** a lead that needs to report back must be asked by the user.
 
+- **Cold-chunk cap raised 629 → 630 KiB (owner decision, 2026-11-26):** the 16 generated claim rows cost +856 B gz against 737 B of headroom; the eager catalog itself is +46 B. Consequence: the mock's "eager mail card" choice is not affordable and the card stays lazy (task 10.4 re-measures).
+
 ## Open Questions
 
 None. Core gaps G1–G5 of the first draft and every owner-level question (Q1 Stop confirmation, Q2 Shut down team strength, Q3 message-log scope, Q4 entry points) are decided above; the host lazy i18n seam is resolved by measuring first (task 9.5): if lazy modules cannot obtain the active locale, strings are budgeted into the eager catalog and a host seam for lazy catalogs is a follow-up outside this change.

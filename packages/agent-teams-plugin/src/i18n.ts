@@ -1,24 +1,27 @@
 /**
  * Agent-teams plugin i18n catalog — UNPREFIXED leaf keys, merged by the shell
- * under `plugin.agent-teams.*` and resolved by the scoped `useT()`. English
- * is also written here as the `en` source block so all three locales carry the
- * SAME key set (the call-site `t(key, vars, default)` fallback must equal it).
- * `{var}` placeholders are interpolated by `t`.
- *
- * Minimal in the core change: the plugin claims no client slots yet (the team
- * UI is a later change). The export exists so the manifest's `i18nCatalog` and
- * the generated plugin registry resolve; `scripts/i18n-parity.mjs` skips empty
- * catalogs, so one real key keeps the plugin covered by the parity gate.
- * See change: add-agent-teams-core.
+ * under `plugin.agent-teams.*` and resolved by the scoped `useT()`. It is a
+ * static export of the main client entry, so it lands in the cold index chunk:
+ * it holds the session-card BADGE labels only (design D9, budget ≤ 400 B gz).
+ * Every other string lives in the en/zh-CN/hu tables of the lazy modules
+ * (picked with `useLanguage()`), never here. `{var}` placeholders are
+ * interpolated by `t`; the call-site fallback equals the `en` block.
+ * See change: add-agent-teams-core, add-agent-teams-ui (task 9.5).
  */
 export const catalog = {
   en: {
-    title: "Agent Teams",
+    badgeLead: "Lead",
+    badgeTeam: "Team",
+    badgeOpen: "Open team view, {role}",
   },
   "zh-CN": {
-    title: "智能体团队",
+    badgeLead: "组长",
+    badgeTeam: "团队",
+    badgeOpen: "打开团队视图，{role}",
   },
   hu: {
-    title: "Ügynökcsapatok",
+    badgeLead: "Vezető",
+    badgeTeam: "Csapat",
+    badgeOpen: "Csapatnézet megnyitása, {role}",
   },
 };

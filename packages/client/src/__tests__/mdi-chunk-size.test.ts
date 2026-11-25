@@ -170,7 +170,13 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // accounts UI itself is a lazy `import()` behind a thin wrapper (lazy-plugin-claims allow-list). 642,761 B on
 // CI, 1,737 B over the old cap; 628 KiB (643,072 B) would leave only ~300 B for CI's compressor variance, so
 // 629 KiB (644,096 B, ~1.3 KB headroom). Smallest KiB step with CI headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 629 * 1024;
+//
+// add-agent-teams-ui (2026-11-25): the plugin's 16 generated claim rows (11 tool-renderer, 3 custom-entry
+// renderer, 1 overlay route, 1 badge), the `isTeamSession` predicate and the badge add +856 B gz (the eager
+// catalog is 3 badge keys, +46 B); every other string and component is a lazy module. 644,215 B locally, 119 B
+// over the old cap; owner-approved raise: 630 KiB (645,120 B, ~900 B headroom). Smallest KiB step; not a
+// general raise.
+const INDEX_GZ_CAP_BYTES = 630 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
