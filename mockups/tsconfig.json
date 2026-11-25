@@ -16,6 +16,8 @@
       "@app/*": ["../packages/client/src/*"],
       "@flows/*": ["../packages/flows-plugin/src/*"],
       "@atlas/*": ["../packages/skill-atlas-plugin/src/*"],
+      "@teams/*": ["../packages/agent-teams-plugin/src/*"],
+      "@rt/*": ["../packages/dashboard-plugin-runtime/src/*"],
       "mock-site/kit": ["../packages/mockup-loop/site/kit.tsx"],
       "@blackbelt-technology/pi-dashboard-shared": ["../packages/shared/src"],
       "@blackbelt-technology/pi-dashboard-client-utils": ["../packages/client-utils/src"]

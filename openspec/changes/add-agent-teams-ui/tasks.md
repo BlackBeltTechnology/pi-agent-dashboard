@@ -1,15 +1,15 @@
 ## 1. Mock loop first (no production component before the decided mock)
 
-- [ ] 1.1 Load the generic loop (`packages/mockup-loop/.pi/skills/frontend-mockup-loop/SKILL.md`) and the dashboard adapter (`.pi/skills/frontend-mockup-loop-dashboard/SKILL.md`); read `ui-contract.md` and the plugin-author rules `references/host-design.md` and `references/slot-taxonomy.md` of the `dashboard-plugin-scaffold` skill
-- [ ] 1.2 Write `openspec/changes/add-agent-teams-ui/mockups/ui-plan.md`: surfaces (Team view, mail cards, tool cards, badge) → theme tokens (by name) → states, with the status → glyph/text/pill-state table from design D12
-- [ ] 1.3 Build fixtures from core's data model (and `mock-capture` once core serves a real snapshot): a team with members in every status, 12 tasks with dependency chains, 40 mail rows of every kind, a 50-task / 10-member stress fixture and a long-text fixture
-- [ ] 1.4 Mock the Team view as a live component page inside its real host (content area beside the real sidebar, identical `surroundings` in both panes): variant A three regions on desktop, variant B tabs everywhere; rings on every changed div
-- [ ] 1.5 Mock the mail cards (message, broadcast, task assigned, shutdown request/response, idle, notice with multi-line items, unknown kind, header truncated, unrecognised) collapsed and expanded inside the real chat container next to a user message, including the generic fallback card shown while the lazy module loads
-- [ ] 1.6 Mock the four tool-card families (lifecycle, SendMessage, task tools, shutdown tools) for running, success, error, elided and foreign-details states
-- [ ] 1.7 Mock the session-card badge for a lead and a teammate on the real `SessionCard`, and the no-badge plain card (no empty status subcard)
-- [ ] 1.8 Mock every state from the specs: loading, no team, not found, error with stale snapshot, starting, orphaned, closing, closed, `persist_degraded`, degraded member, empty sections, inline permission error
-- [ ] 1.9 Verify dark and light plus one non-default palette, desktop and mobile widths, a keyboard-only pass and a reduced-motion pass; record the decisions with `mock-decide` (desktop layout, cards vs table, board columns vs grouped list on mobile, badge density, entry card eager vs lazy look) and the copy defaults of design D14 (empty notice, always-visible toggle, unknown error code sentence, cwd display, "unassigned", tablist wrap)
-- [ ] 1.10 Store the decided mock under `openspec/changes/add-agent-teams-ui/mockups/` and list the decisions in `mockups/ui-plan.md`; production components are promoted from it in §8
+- [x] 1.1 Load the generic loop (`packages/mockup-loop/.pi/skills/frontend-mockup-loop/SKILL.md`) and the dashboard adapter (`.pi/skills/frontend-mockup-loop-dashboard/SKILL.md`); read `ui-contract.md` and the plugin-author rules `references/host-design.md` and `references/slot-taxonomy.md` of the `dashboard-plugin-scaffold` skill
+- [x] 1.2 Write `openspec/changes/add-agent-teams-ui/mockups/ui-plan.md`: surfaces (Team view, mail cards, tool cards, badge) → theme tokens (by name) → states, with the status → glyph/text/pill-state table from design D12
+- [x] 1.3 Build fixtures from core's data model (and `mock-capture` once core serves a real snapshot): a team with members in every status, 12 tasks with dependency chains, 40 mail rows of every kind, a 50-task / 10-member stress fixture and a long-text fixture
+- [x] 1.4 Mock the Team view as a live component page inside its real host (content area beside the real sidebar, identical `surroundings` in both panes): variant A three regions on desktop, variant B tabs everywhere; rings on every changed div
+- [x] 1.5 Mock the mail cards (message, broadcast, task assigned, shutdown request/response, idle, notice with multi-line items, unknown kind, header truncated, unrecognised) collapsed and expanded inside the real chat container next to a user message, including the generic fallback card shown while the lazy module loads
+- [x] 1.6 Mock the four tool-card families (lifecycle, SendMessage, task tools, shutdown tools) for running, success, error, elided and foreign-details states
+- [x] 1.7 Mock the session-card badge for a lead and a teammate on the real `SessionCard`, and the no-badge plain card (no empty status subcard)
+- [x] 1.8 Mock every state from the specs: loading, no team, not found, error with stale snapshot, starting, orphaned, closing, closed, `persist_degraded`, degraded member, empty sections, inline permission error
+- [x] 1.9 Verify dark and light plus one non-default palette, desktop and mobile widths, a keyboard-only pass and a reduced-motion pass; record the decisions with `mock-decide` (desktop layout, cards vs table, board columns vs grouped list on mobile, badge density, entry card eager vs lazy look) and the copy defaults of design D14 (empty notice, always-visible toggle, unknown error code sentence, cwd display, "unassigned", tablist wrap)
+- [x] 1.10 Store the decided mock under `openspec/changes/add-agent-teams-ui/mockups/` and list the decisions in `mockups/ui-plan.md`; production components are promoted from it in §8
 
 ## 2. Shared contracts
 
