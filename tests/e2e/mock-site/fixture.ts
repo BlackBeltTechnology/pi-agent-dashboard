@@ -10,6 +10,12 @@ export const FIXTURE_MOCK = "2026-11-04-e2e-fixture";
 export const PILLS_MOCK = "2026-11-03-session-pills";
 export const SCRIPTED_MOCK = "2026-11-07-e2e-scripted";
 export const SOLID_MOCK = "2026-11-07-e2e-solid";
+/** mock-player-step-controls fixtures: dated older than the others, so they never become the default page. */
+export const STAGE_MOCK = "2026-10-03-e2e-stage";
+export const GUARD_MOCK = "2026-10-02-e2e-guard";
+export const STEP_MOCK = "2026-10-01-e2e-step";
+/** The F4 pane: the app module focuses an element at module top level (before setup / render). */
+export const EARLY_FOCUS_PANE = `${GUARD_MOCK}/1/proposed`;
 
 export type Marker = { root: string; port: number; pid: number; url: string };
 export const readMarker = (): Marker => JSON.parse(fs.readFileSync(MARKER, "utf8")) as Marker;
@@ -95,6 +101,159 @@ export default mock;
 `;
 
 /**
+ * Fixed stage (mock-player-step-controls test-plan P1, F6, F7, F11, F15, F17, F18, X1, X5).
+ * Frames: 1 expand / collapse a 400 px panel · 2 static (below) · 3 target never appears
+ * (30 s timeout) · 4 300-char failing step (2 s timeout) · 5 static (below) · 6 step 1 grows
+ * 300 px, step 2 misses · 7 phone counter · 8 static (below) · 9 counter inside a ring ·
+ * 10 grows 100 px then 300 px more (monotonic: reduced-motion step panes, F11).
+ */
+const STAGE_SRC = `import { useState } from "react";
+import { Fix, type Mock } from "mock-site/kit";
+function Panel() {
+  const [o, setO] = useState(false);
+  return <div><button type="button" data-testid="expand" onClick={() => setO(true)}>expand</button> <button type="button" data-testid="collapse" onClick={() => setO(false)}>collapse</button>{o ? <div data-testid="panel" style={{ height: 400 }}>panel</div> : null}</div>;
+}
+function Grow() {
+  const [o, setO] = useState(false);
+  return <div><button type="button" data-testid="grow" onClick={() => setO(true)}>grow</button>{o ? <div data-testid="block" style={{ height: 300 }}>block</div> : null}</div>;
+}
+function Counter() {
+  const [n, setN] = useState(0);
+  return <div><button type="button" data-testid="inc" onClick={() => setN((x) => x + 1)}>inc</button><span data-testid="count">count: {n}</span></div>;
+}
+function Steps() {
+  const [n, setN] = useState(0);
+  return <div><div style={{ height: 200 }}>base</div><button type="button" data-testid="add" onClick={() => setN((x) => x + 1)}>add</button>{n > 0 ? <div data-testid="b1" style={{ height: 100 }}>b1</div> : null}{n > 1 ? <div data-testid="b2" style={{ height: 300 }}>b2</div> : null}</div>;
+}
+const Box = ({ t, h = 120 }: { t: string; h?: number }) => <div style={{ height: h }}>{t}</div>;
+const LONG = "${"Long failing step ".repeat(17).trim()}";
+const mock: Mock = {
+  title: "E2E stage",
+  category: "Fixture",
+  frames: [
+    { title: "Expand collapse", proposed: <Panel />, script: [
+      { say: "Expand", target: "expand", act: "click", expect: "panel" },
+      { say: "Collapse", target: "collapse", act: "click", expect: (d) => !d.querySelector("[data-testid=panel]") },
+    ] },
+    { title: "Below one", proposed: <Box t="below one" /> },
+    { title: "Never target", loop: false, proposed: <div>none</div>, script: [{ say: "wait forever", target: "nope", act: "click", timeout: 30000 }] },
+    { title: "Long error", loop: false, proposed: <div>no target</div>, script: [{ say: LONG, target: "missing", act: "click", timeout: 2000 }] },
+    { title: "Below four", proposed: <Box t="below four" /> },
+    { title: "Missing step two", loop: false, proposed: <Grow />, script: [
+      { say: "Grow", target: "grow", act: "click", expect: "block" },
+      { say: "Missing", target: "missing", act: "click", timeout: 300 },
+    ] },
+    { title: "Phone counter", phone: true, proposed: <Counter />, script: [
+      { say: "one", target: "inc", act: "click" },
+      { say: "two", target: "inc", act: "click" },
+    ] },
+    { title: "Below phone", proposed: <Box t="below phone" /> },
+    { title: "Ring in a script", proposed: <Fix n={1} tip="ring"><Counter /></Fix>, script: [{ say: "inc", target: "inc", act: "click" }] },
+    { title: "Grow in steps", proposed: <Steps />, script: [
+      { say: "Add 100", target: "add", act: "click", expect: "b1" },
+      { say: "Add 300", target: "add", act: "click", expect: "b2" },
+    ] },
+  ],
+};
+export default mock;
+`;
+
+/**
+ * Pane scroll guard (mock-player-step-controls test-plan P2, F1-F5, F9, F10).
+ * Frames: 1 app-module focus (fixtures only, not scripted; first, so nothing above it
+ * resizes) · 2 component scrollIntoView + focus() on open, 700 px down · 3 targets at the top
+ * and 1000 px down · 4 inner lists (overflow auto / hidden) revealed by the component ·
+ * 5 typed suggestion list portaled to the body (300 px) · 6 block appearing after 1500 ms ·
+ * 7 tall static (room to scroll).
+ */
+const GUARD_SRC = `import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { Mock } from "mock-site/kit";
+function Opener() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (open && ref.current) { ref.current.scrollIntoView(); ref.current.focus(); } }, [open]);
+  return <div><button type="button" data-testid="open" onClick={() => setOpen(true)}>open</button> <button type="button" data-testid="close" onClick={() => setOpen(false)}>close</button><div style={{ height: 700 }} />{open ? <input data-testid="focused" ref={ref} /> : <div style={{ height: 24 }} />}</div>;
+}
+const Targets = () => <div><button type="button" data-testid="top">top</button><div style={{ height: 1000 }} /><button type="button" data-testid="far">far</button></div>;
+const rows = () => Array.from({ length: 50 }, (_, i) => <div key={i} tabIndex={-1} data-row={i + 1} style={{ height: 30 }}>row {i + 1}</div>);
+function Lists() {
+  const a = useRef<HTMLDivElement>(null);
+  const b = useRef<HTMLDivElement>(null);
+  const go = () => { for (const l of [a.current!, b.current!]) { (l.children[29] as HTMLElement).scrollIntoView(); (l.children[39] as HTMLElement).focus(); } };
+  return <div><button type="button" data-testid="go" onClick={go}>go</button><div style={{ display: "flex", gap: 8 }}><div ref={a} data-testid="list-auto" style={{ height: 200, width: 150, overflow: "auto" }}>{rows()}</div><div ref={b} data-testid="list-hidden" style={{ height: 200, width: 150, overflow: "hidden" }}>{rows()}</div></div></div>;
+}
+function Suggest() {
+  const [v, setV] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+  const r = ref.current?.getBoundingClientRect();
+  return <div><input data-testid="q" ref={ref} value={v} onChange={(e) => setV(e.target.value)} />{v && r ? createPortal(<ul data-testid="sugg" style={{ position: "absolute", top: r.bottom + scrollY, left: r.left, height: 300, width: 200, margin: 0 }}><li>{v}1</li><li>{v}2</li></ul>, document.body) : null}</div>;
+}
+function Delayed() {
+  const [on, setOn] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setOn(true), 1500); return () => clearTimeout(t); }, []);
+  return <div><span data-testid="base">base</span>{on ? <div data-testid="extra" style={{ height: 200 }}>extra</div> : null}</div>;
+}
+const mock: Mock = {
+  title: "E2E guard",
+  category: "Fixture",
+  frames: [
+    { title: "Early focus", fixtures: () => ({}), proposed: <div>early</div> },
+    { title: "Focus on open", proposed: <Opener />, script: [
+      { say: "Open", target: "open", act: "click", expect: "focused" },
+      { say: "Close", target: "close", act: "click" },
+    ] },
+    { title: "Top and far targets", proposed: <Targets />, script: [
+      { say: "Click top", target: "top", act: "click" },
+      { say: "Click far", target: "far", act: "click" },
+    ] },
+    { title: "Inner lists", loop: false, proposed: <Lists />, script: [{ say: "Go", target: "go", act: "click" }] },
+    { title: "Typed suggestions", proposed: <Suggest />, script: [
+      { say: "Type", target: "q", act: "type", text: "ab", expect: "sugg" },
+      { say: "See", target: "sugg", act: "wait" },
+    ] },
+    { title: "Delayed block", proposed: <Delayed />, script: [{ say: "Look", target: "base", act: "wait" }] },
+    { title: "Room", proposed: <div style={{ height: 2000 }}>room</div> },
+  ],
+};
+export default mock;
+`;
+
+/**
+ * Step controls (mock-player-step-controls test-plan F14, F16, F19, X3, X4).
+ * Frames: 1 chain of three clicks, each target appearing 500 ms after the previous click ·
+ * 2 static · 3 counter (a second scripted pane) · 4 tall static (room to scroll off).
+ */
+const STEP_SRC = `import { useEffect, useState } from "react";
+import type { Mock } from "mock-site/kit";
+function Chain() {
+  const [n, setN] = useState(0);
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setReady(false); const t = setTimeout(() => setReady(true), 500); return () => clearTimeout(t); }, [n]);
+  return <div><span data-testid="n">n: {n}</span> {ready ? <button type="button" data-testid={"c" + (n + 1)} onClick={() => setN(n + 1)}>next</button> : null}</div>;
+}
+function Counter() {
+  const [n, setN] = useState(0);
+  return <div><button type="button" data-testid="inc" onClick={() => setN((x) => x + 1)}>inc</button><span data-testid="count">count: {n}</span></div>;
+}
+const mock: Mock = {
+  title: "E2E step",
+  category: "Fixture",
+  frames: [
+    { title: "Chain", proposed: <Chain />, script: [
+      { say: "first", target: "c1", act: "click" },
+      { say: "second", target: "c2", act: "click" },
+      { say: "third", target: "c3", act: "click" },
+    ] },
+    { title: "Static", proposed: <div style={{ height: 80 }}>static</div> },
+    { title: "Counter", proposed: <Counter />, script: [{ say: "inc", target: "inc", act: "click" }] },
+    { title: "Room", proposed: <div style={{ height: 2500 }}>room</div> },
+  ],
+};
+export default mock;
+`;
+
+/**
  * Temp project for the mock-site E2E: the package example mock
  * (`packages/mockup-loop/examples/`, never a mock root) + an
  * e2e-only mock exercising ring lint, Tailwind scan, containment and a phone
@@ -113,7 +272,17 @@ export function makeE2eProject(): string {
 @source ".";
 @source "../openspec/changes";
 `);
-  w("mockups/mock-site.app.tsx", fs.readFileSync(path.join(REPO_ROOT, "mockups", "mock-site.app.tsx"), "utf8"));
+  w("mockups/mock-site.app.tsx", `${fs.readFileSync(path.join(REPO_ROOT, "mockups", "mock-site.app.tsx"), "utf8")}
+// e2e (mock-player-step-controls F4): one pane focuses an element 600 px down at module top level.
+if (new URLSearchParams(location.search).get("pane") === ${JSON.stringify(EARLY_FOCUS_PANE)}) {
+  const i = document.createElement("input");
+  i.dataset.testid = "early";
+  i.style.cssText = "position:absolute;top:600px";
+  document.body.append(i);
+  i.focus();
+  (window as unknown as { __mkEarlyFocused?: boolean }).__mkEarlyFocused = document.activeElement === i;
+}
+`);
   // App build config (inherited by the mock site) + a plain options file (never a build config).
   w("vite.config.ts", `import path from "node:path";
 import react from "@vitejs/plugin-react";
@@ -138,6 +307,9 @@ export default {
 };
 `);
   w(`mockups/${SCRIPTED_MOCK}/mock.tsx`, SCRIPTED_SRC);
+  w(`mockups/${STAGE_MOCK}/mock.tsx`, STAGE_SRC);
+  w(`mockups/${GUARD_MOCK}/mock.tsx`, GUARD_SRC);
+  w(`mockups/${STEP_MOCK}/mock.tsx`, STEP_SRC);
   w(`mockups/${SOLID_MOCK}/mock.tsx`, "export default { title: 'Solid mock', category: 'Fixture', framework: 'solid', frames: [{ title: 'x', proposed: 'solid' }] };\n");
   w(`mockups/${FIXTURE_MOCK}/mock.tsx`, `import { InlineMessage } from "@app/components/primitives/InlineMessage.tsx";
 import { Fix, Issue, type Mock } from "mock-site/kit";

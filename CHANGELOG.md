@@ -12,10 +12,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Mock site: scripted panes no longer scroll the page or grow while looping** (`@blackbelt-technology/frontend-mockup-loop`). Focus and `scrollIntoView` inside an embedded pane (the runner's clicks and the mocked components' own calls) scroll only the pane, never the reviewer's page. A scripted pane first measures one fast loop behind its loading line, then appears at its tallest height and keeps it; the health bar stays one line.
 - **CSP violation reports now reach the dashboard on plain-http installs.** Chromium and Firefox dropped every report while the policy carried `report-to` + `Reporting-Endpoints`, so the `/api/health` `cspReports` counters stayed at zero. Dashboard and live-preview policies now use `report-uri` only.
 
 ### Added
 
+- **Mock site step controls** (`@blackbelt-technology/frontend-mockup-loop`). A paused scripted pane gets ◀ / ▶ to step back and forward one step at a time; the caption names the step it rests after (`0/N start` at the beginning). Back remounts with fresh fixtures and replays the earlier steps silently.
 - **Default model can follow a role.** Settings › Sessions › Default model has Models | Roles tabs; picking a role saves `@role` and new sessions start on whatever that role resolves to in the active preset, so loading another preset changes the next new session's model with no Settings edit. The thinking level adopts the role's level until you pick one. A hint names the active preset and resolved model; an unassigned role warns and new sessions fall back to pi's own default. pi's `settings.json` default is re-mirrored when the role's resolution changes. Rollback: re-pick a concrete default model before downgrading.
 - **Mock site `Highlights` switch.** The top bar has a checkbox that hides every ring outline, badge and tip (shell and phone panes, no reload); the choice persists in `localStorage`.
 - **Queued subagents and per-subagent stop.** Subagent calls past the limit wait in a visible queued state instead of failing. Each subagent has a stop control: `POST /api/plugins/subagents/stop` (operate authority; emits `subagents:stop`). Set the limit in Settings → Plugins → Subagents → **Max parallel subagents** (default 4, `0` = unlimited, applies live).

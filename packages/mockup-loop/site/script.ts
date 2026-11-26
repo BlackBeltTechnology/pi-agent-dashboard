@@ -41,12 +41,12 @@ function findTarget(doc: Document, target: string): Element | null {
 const holds = (doc: Document, c: string | ((d: Document) => boolean)) => (typeof c === "string" ? !!findTarget(doc, c) : !!c(doc));
 const describe = (c: string | ((d: Document) => boolean)) => (typeof c === "string" ? `\`${c}\`` : "check");
 
-async function waitFor<T>(fn: () => T | null | false, timeout: number): Promise<T | null> {
+async function waitFor<T>(fn: () => T | null | false, timeout: number, signal?: AbortSignal): Promise<T | null> {
   const end = Date.now() + timeout;
   for (;;) {
     const v = fn();
     if (v) return v;
-    if (Date.now() >= end) return null;
+    if (Date.now() >= end || signal?.aborted) return null;
     await sleep(POLL_MS);
   }
 }
@@ -86,21 +86,24 @@ export function createOverlay(doc: Document): Overlay {
 export type RunResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Run steps 1..`upTo` (all when absent) on `doc`. `fast` = no pointer travel or
- * typing delay (reduced-motion step panes, headless checks).
+ * Run steps `from`+1..`upTo` (default: all) on `doc`. `fast` = no pointer travel or
+ * typing delay (reduced-motion step panes, headless checks, replay, pre-measure).
+ * `paused(k)` runs before step k+1 with the completed-step count k (an `unless`-skipped
+ * step counts). `signal` ends the run at the next wait (bounded pre-measure).
  */
 export async function runSteps(
   doc: Document,
   steps: ScriptStep[],
-  o: { upTo?: number; fast?: boolean; overlay?: Overlay | null; paused?: () => Promise<void> } = {},
+  o: { from?: number; upTo?: number; fast?: boolean; overlay?: Overlay | null; paused?: (k: number) => Promise<void>; signal?: AbortSignal } = {},
 ): Promise<RunResult> {
   const { default: userEvent } = await import("@testing-library/user-event");
   // No internal delay: each user-event call completes in microtasks, so another pane on
   // the same page cannot steal focus mid-action. Pacing is explicit sleeps between actions.
   const user = userEvent.setup({ document: doc, delay: null, pointerEventsCheck: 0 });
   const last = Math.min(o.upTo ?? steps.length, steps.length);
-  for (let i = 0; i < last; i++) {
-    await o.paused?.();
+  for (let i = o.from ?? 0; i < last; i++) {
+    await o.paused?.(i);
+    if (o.signal?.aborted) return { ok: false, error: "aborted" };
     const started = Date.now();
     const s = steps[i];
     const tag = `Step ${i + 1}/${steps.length} "${s.say}"`;
@@ -109,7 +112,8 @@ export async function runSteps(
     if (s.unless !== undefined && holds(doc, s.unless)) continue;
     let el: Element | null = null;
     if (s.target) {
-      el = await waitFor(() => findTarget(doc, s.target!), timeout);
+      el = await waitFor(() => findTarget(doc, s.target!), timeout, o.signal);
+      if (o.signal?.aborted) return { ok: false, error: "aborted" };
       if (!el) return { ok: false, error: `${tag} failed: no element matches \`${s.target}\` within ${timeout} ms` };
     } else if (s.act !== "wait" && s.act !== "press") {
       return { ok: false, error: `${tag} failed: act "${s.act}" needs a target` };
@@ -148,7 +152,7 @@ export async function runSteps(
         break;
       case "wait": break;
     }
-    if (s.expect !== undefined && !(await waitFor(() => holds(doc, s.expect!), timeout)))
+    if (s.expect !== undefined && !(await waitFor(() => holds(doc, s.expect!), timeout, o.signal)))
       return { ok: false, error: `${tag} failed: expect ${describe(s.expect)} did not hold within ${timeout} ms` };
     if (!o.fast) await sleep(MIN_STEP_MS - (Date.now() - started));
   }
