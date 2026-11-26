@@ -15,11 +15,11 @@ import type { TemplatesHooksDeps } from "./templates-hooks.js";
 export const AGENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 export const AGENT_MAX_BYTES = 64 * 1024;
 
-export type AgentErrorCode = "agent_not_found" | "agent_untrusted" | "agent_invalid";
-export type AgentSource = "project" | "user";
+type AgentErrorCode = "agent_not_found" | "agent_untrusted" | "agent_invalid";
+type AgentSource = "project" | "user";
 
 /** The spawn-ready subset (`renderAgentPrompt` input): role, model, thinking level, tool allowlist, prompt text. */
-export interface AgentSpawnData {
+interface AgentSpawnData {
   role: string;
   model?: string;
   thinking?: string;

@@ -24,7 +24,7 @@ export function planAllowedTools(planModeTools: readonly string[]): ReadonlySet<
   return new Set([...planModeTools, ...TEAM_TOOLS_BY_ROLE.member, PLAN_SUBMIT_TOOL]);
 }
 
-export const planBlockReason = (tool: string): string =>
+const planBlockReason = (tool: string): string =>
   `agent-teams: plan_mode: ${tool} is not available until your plan is approved. You may only read and explore, then call PlanSubmit. If your plan was just approved, retry in a moment.`;
 
 export function registerPlanMode(ctx: BridgeContext): void {

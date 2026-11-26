@@ -50,7 +50,7 @@ export interface TeamsConfig {
 }
 
 /** Mail text headroom kept free when a plan or playbook rides one core mail (design D3/D8). */
-export const PLAN_MAIL_HEADROOM_CHARS = 500;
+const PLAN_MAIL_HEADROOM_CHARS = 500;
 
 /** Built-in tools a plan-mode member may keep; every other entry is dropped. */
 export const PLAN_MODE_ALLOWED_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];

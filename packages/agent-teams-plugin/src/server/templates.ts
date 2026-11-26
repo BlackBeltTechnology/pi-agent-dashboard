@@ -25,7 +25,7 @@ export * from "./template-render.js";
 /** What this module needs from the dependency bag (tests pass a plain object). */
 export type TemplateDeps = Pick<TemplatesHooksDeps, "config" | "host" | "modes" | "logger">;
 
-export const MAX_LISTED_TEMPLATES = 200;
+const MAX_LISTED_TEMPLATES = 200;
 const MAX_CACHE_ENTRIES = 600;
 /** A loadable name: no separators, no leading dot; stricter validity is the template's own `name_*` errors. */
 const LOOKUP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
@@ -274,7 +274,7 @@ function firstEvaluated(deps: TemplateDeps, candidates: readonly Source[], name:
 
 // ── loading ──
 
-export type LoadTemplateCode = "template_not_found" | "template_invalid" | "project_untrusted" | "mode_unavailable";
+type LoadTemplateCode = "template_not_found" | "template_invalid" | "project_untrusted" | "mode_unavailable";
 export type LoadTemplateResult =
   | { ok: true; template: ParsedTemplate }
   | { ok: false; code: LoadTemplateCode; message: string; issues: TemplateIssue[] };

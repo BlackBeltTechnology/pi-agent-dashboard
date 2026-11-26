@@ -8,7 +8,7 @@ import type { HookEvent } from "../shared/types.js";
 import { firstChars } from "./hook-run.js";
 
 /** `idle.finalText` is cut to this many characters in the stdin payload. */
-export const HOOK_FINAL_TEXT_CHARS = 4000;
+const HOOK_FINAL_TEXT_CHARS = 4000;
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 

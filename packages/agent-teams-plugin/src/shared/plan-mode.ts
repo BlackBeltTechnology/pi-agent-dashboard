@@ -20,7 +20,7 @@ export const PLAN_SUBMIT_TOOL = "PlanSubmit";
 export const PLAN_HOLD = "plan_approval";
 
 /** Keep only read-only built-ins (deduplicated, order kept); `dropped` names every other entry. */
-export function sanitizePlanTools(raw: readonly unknown[]): { tools: string[]; dropped: string[] } {
+function sanitizePlanTools(raw: readonly unknown[]): { tools: string[]; dropped: string[] } {
   const tools: string[] = [];
   const dropped: string[] = [];
   for (const entry of raw) {

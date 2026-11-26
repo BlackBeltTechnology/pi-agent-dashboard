@@ -24,7 +24,7 @@ export { buildPlanMemberToolList, isPendingPlan, planPolicyFor, planSpawnContrib
 export type PlansDeps = Pick<TemplatesHooksDeps, "ops" | "store" | "config" | "logger" | "clock" | "counters">;
 
 /** Who decides: the lead's tool call or the user's REST post (`principal` = the verified request principal, when known). */
-export type PlanActor = { kind: "lead" } | { kind: "user"; principal?: string };
+type PlanActor = { kind: "lead" } | { kind: "user"; principal?: string };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 const header = (planId: string, teamId: string, member: string): string => `plan ${planId} · team ${teamId} · member ${member}`;
@@ -44,7 +44,7 @@ function savePlans(deps: PlansDeps, team: Team, plans: PlanRequest[]): void {
 }
 
 /** `PlanSubmit {plan}`: store a pending plan, supersede the member's previous pending one, wake the lead. */
-export function submitPlan(deps: PlansDeps, caller: Caller, args: unknown): OpResult<PlanSubmitResult> {
+function submitPlan(deps: PlansDeps, caller: Caller, args: unknown): OpResult<PlanSubmitResult> {
   const team = caller.team;
   const member = team && caller.role === "member" ? deps.store.member(team, caller.name) : undefined;
   if (!team || !member || member.planApproval === undefined || member.planApproval === "approved") return fail("plan_not_required", "plan approval is not in play for you");
@@ -127,7 +127,7 @@ export function decidePlan(deps: PlansDeps, input: PlanDecisionInput): OpResult<
 }
 
 /** Mark a member's pending plans `cancelled` (its session ended or it never re-registered). */
-export function cancelPendingPlans(deps: PlansDeps, team: Team, memberName: string, reason: string): number {
+function cancelPendingPlans(deps: PlansDeps, team: Team, memberName: string, reason: string): number {
   const pending = (team.plans ?? []).filter((p) => p.member === memberName && p.status === "pending");
   if (pending.length === 0) return 0;
   const now = deps.clock.now();

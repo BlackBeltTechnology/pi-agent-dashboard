@@ -27,7 +27,7 @@ class FakeStream extends EventEmitter {
   }
 }
 
-export class FakeChild extends EventEmitter {
+class FakeChild extends EventEmitter {
   readonly stdin = new FakeStream();
   readonly stdout = new FakeStream();
   readonly stderr = new FakeStream();
@@ -158,7 +158,7 @@ export function task(over: Partial<Task> & { id: string }): Task {
   return { title: "t", description: "d", status: "in_progress", owner: "alice", blockedBy: [], createdBy: "lead", createdAt: 0, ...over };
 }
 
-export function member(name: string, over: Partial<Member> = {}): Member {
+function member(name: string, over: Partial<Member> = {}): Member {
   return { name, spawnToken: `tok-${name}`, cwd: "/work", status: "busy", guardActive: true, noMcp: true, noContextFiles: true, lastSettleId: 0, ...over };
 }
 
@@ -233,12 +233,12 @@ export function createHarness(opts: { io: HookIo; clock?: FakeClock; config?: Re
 }
 
 /** Let promise continuations (several turns) run. */
-export async function flush(turns = 12): Promise<void> {
+async function flush(turns = 12): Promise<void> {
   for (let i = 0; i < turns; i++) await Promise.resolve();
 }
 
 /** Real wait (real bash children report on real time). */
-export const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const realSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** An io that forwards to `get()` lazily (the runtime is created before the procs need its clock). */
 export function lazyIo(get: () => FakeProcs): HookIo {

@@ -12,12 +12,12 @@ import type { Clock } from "../shared/clock.js";
 /** Both output streams are capped at this many bytes; one byte more is an overflow. */
 export const HOOK_STREAM_CAP_BYTES = 65_536;
 /** SIGTERM → SIGKILL grace of the tree kill. */
-export const HOOK_KILL_GRACE_MS = 2000;
+const HOOK_KILL_GRACE_MS = 2000;
 /** After `exit`, wait this long (real time) for the pipes to drain before giving up on a descendant holding them. */
 const PIPE_DRAIN_GRACE_MS = 200;
 
-export type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
-export type KillTreeFn = (pid: number) => Promise<unknown>;
+type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
+type KillTreeFn = (pid: number) => Promise<unknown>;
 
 /** Injectable process boundary. */
 export interface HookIo {
@@ -45,7 +45,7 @@ export interface HookRunSpec {
   timeoutMs: number;
 }
 
-export type HookRunOutcome = "exit" | "timeout" | "spawn_error" | "aborted";
+type HookRunOutcome = "exit" | "timeout" | "spawn_error" | "aborted";
 
 export interface HookRunResult {
   outcome: HookRunOutcome;

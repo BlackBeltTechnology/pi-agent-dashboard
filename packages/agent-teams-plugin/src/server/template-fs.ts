@@ -8,11 +8,11 @@ import fs from "node:fs";
 import path from "node:path";
 import type { TemplatesHooksDeps } from "./templates-hooks.js";
 
-export type FsFailCode = "not_found" | "outside_source_dir" | "too_large" | "not_regular" | "unreadable";
+type FsFailCode = "not_found" | "outside_source_dir" | "too_large" | "not_regular" | "unreadable";
 
 export type SourceDirResult = { ok: true; dir: string } | { ok: false; code: "not_found" | "outside_source_dir" };
 
-export interface SourceFile {
+interface SourceFile {
   /** File text; empty (and `cached` true) when the caller's `peek` already knows this `key`. */
   text: string;
   /** Cache identity: realpath + stat signature. */

@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from "./fixtures.js";
+import { listTeamIds, shutdownTeamsCreatedSince } from "./helpers/agent-teams.js";
 import { ensureGitSession, expandFolder, FIXTURE_GIT, folderCard, gotoDashboard } from "./helpers/index.js";
 
 /**
@@ -14,7 +15,7 @@ import { ensureGitSession, expandFolder, FIXTURE_GIT, folderCard, gotoDashboard 
  * the dialog against a scriptable in-page stand-in for the start route (`page.route`), the
  * same pattern as `helpers/agent-teams.ts`, because the harness has no template with hooks.
  * The server-side start/trust contract is covered by the plugin's L1/L2 suites.
- * STATUS: written, not yet run (needs the docker harness).
+ * STATUS: run green against the docker harness. #F1 uses the fixture project template `docker/fixtures/sample-git/.pi/teams/e2e-plain.md` (valid, no hooks, trusted via the seeded pi trust.json).
  */
 test.setTimeout(150_000);
 
@@ -102,6 +103,15 @@ async function chooseAndStart(dialog: Locator, template: string, goal = "review 
 }
 
 test.describe("Start team dialog", () => {
+  // #F1 starts a REAL team; close it so a re-run on the same harness stays under the team cap.
+  let teamsBefore: string[] = [];
+  test.beforeEach(async ({ page }) => {
+    teamsBefore = await listTeamIds(page);
+  });
+  test.afterEach(async ({ page }) => {
+    await shutdownTeamsCreatedSince(page, teamsBefore);
+  });
+
   test("#F1 folder entry → start: cwd is the folder, invalid / untrusted are disabled, the lead session appears", async ({ page }) => {
     const probe = await page.request.get(`${TEAMS}/templates?cwd=${encodeURIComponent(CWD)}`);
     test.skip(probe.status() === 404, "agent-teams templates route is not served by this harness");
@@ -115,9 +125,10 @@ test.describe("Start team dialog", () => {
     page.on("request", (req) => {
       if (req.method() === "POST" && /\/api\/plugins\/agent-teams\/teams\/start$/.test(req.url())) startBodies.push(req.postDataJSON() as Record<string, unknown>);
     });
-    const sessionsBefore = await page.evaluate(async () => ((await (await fetch("/api/sessions")).json()) as { data?: Array<{ id: string }> }).data?.map((s) => s.id) ?? []);
 
     const dialog = await openStartDialog(page);
+    // Snapshot AFTER the page is loaded (and `ensureGitSession` ran): `page.evaluate(fetch)` needs an origin.
+    const sessionsBefore = await page.evaluate(async () => ((await (await fetch("/api/sessions")).json()) as { data?: Array<{ id: string }> }).data?.map((s) => s.id) ?? []);
     expect(stub.listings).toContain(CWD);
 
     // Invalid / untrusted: disabled, with an accessible reason.

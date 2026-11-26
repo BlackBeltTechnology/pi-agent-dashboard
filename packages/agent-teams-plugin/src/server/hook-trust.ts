@@ -18,7 +18,7 @@ import type { Logger } from "./types.js";
 
 export const HOOK_TRUST_FILE = "hook-trust.json";
 
-export interface HookTrustEntry {
+interface HookTrustEntry {
   /** `realpath(cwd)`. */
   cwd: string;
   hash: string;

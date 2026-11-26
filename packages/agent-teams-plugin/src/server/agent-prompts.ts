@@ -21,7 +21,7 @@ export class PromptWriteError extends Error {
   }
 }
 
-export const promptsRoot = (dataDir: string): string => path.join(dataDir, "prompts");
+const promptsRoot = (dataDir: string): string => path.join(dataDir, "prompts");
 
 /** `<dataDir>/prompts/<teamId>`. */
 export function promptDirFor(dataDir: string, teamId: string): string {
@@ -30,7 +30,7 @@ export function promptDirFor(dataDir: string, teamId: string): string {
 }
 
 /** `<dataDir>/prompts/<teamId>/<member>.<kind>.md`. */
-export function promptPathFor(dataDir: string, teamId: string, member: string, kind: PromptKind): string {
+function promptPathFor(dataDir: string, teamId: string, member: string, kind: PromptKind): string {
   if (!SAFE_SEGMENT.test(member)) throw new PromptWriteError("member name is not a safe path segment");
   return path.join(promptDirFor(dataDir, teamId), `${member}.${kind}.md`);
 }

@@ -17,7 +17,6 @@ import { fail, isLive } from "./op-util.js";
 import { resolveSpawnFields, templateMemberOf } from "./spawn-precedence.js";
 import type { TemplatesHooksDeps } from "./templates-hooks.js";
 
-export { resolveSpawnFields, templateMemberOf } from "./spawn-precedence.js";
 
 export function registerSpawnResolve(deps: TemplatesHooksDeps): void {
   const { ext, store, logger, dataDir } = deps;

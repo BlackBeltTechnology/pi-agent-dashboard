@@ -14,7 +14,7 @@ import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
  * in-page plan store (`page.route`): it holds each plan's state, answers `already_decided`
  * for a decided plan and records every POST, so "API truth" is the store the route keeps.
  * The server-side decision contract is covered by the plugin's L1/L2 suites.
- * STATUS: written, not yet run (needs the docker harness).
+ * STATUS: run green against the docker harness (#F4, #F5).
  */
 test.setTimeout(180_000);
 
@@ -48,6 +48,18 @@ async function routePlans(page: Page, initial: Record<string, PlanState>): Promi
 
 const cardOf = (page: Page, text: string): Locator => page.getByTestId("team-approval-card").filter({ hasText: text });
 
+/**
+ * The approval rows are CLAIMED custom rows, which are transparent to burst formation: they
+ * arrive after the scenario's tool calls and live INSIDE the collapsed "5 tool calls" burst,
+ * so the burst is expanded (once, only if collapsed) before the cards are addressed.
+ */
+async function expandBurst(page: Page): Promise<void> {
+  const burst = page.getByTestId("tool-burst-group");
+  await expect(burst).toHaveCount(1, { timeout: 30_000 });
+  if ((await burst.getByTestId("tool-burst-body").count()) === 0) await burst.getByTestId("tool-burst-header").first().click();
+  await expect(burst.getByTestId("tool-burst-body")).toBeVisible();
+}
+
 async function openCards(page: Page): Promise<string> {
   const card = await spawnFreshGitSession(page);
   const sessionId = await card.getAttribute("data-session-id");
@@ -55,6 +67,7 @@ async function openCards(page: Page): Promise<string> {
   await card.click();
   await sendPrompt(page, "[[faux:agent-teams-approval-cards]] go");
   await expect(page.getByText(AGENT_TEAMS_APPROVAL_TAIL).first()).toBeVisible({ timeout: 90_000 });
+  await expandBurst(page);
   return sessionId as string;
 }
 
@@ -63,6 +76,7 @@ async function reopen(page: Page, sessionId: string): Promise<void> {
   await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
   await page.locator(`[data-testid="session-card-desktop"][data-session-id="${sessionId}"]`).click();
   await expect(page.getByText(AGENT_TEAMS_APPROVAL_TAIL).first()).toBeVisible({ timeout: 30_000 });
+  await expandBurst(page);
 }
 
 test.describe("agent-teams approval card", () => {

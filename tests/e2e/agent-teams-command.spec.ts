@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "./fixtures.js";
+import { listTeamIds, shutdownTeamsCreatedSince } from "./helpers/agent-teams.js";
 import { FIXTURE_GIT, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
@@ -12,8 +13,8 @@ import { FIXTURE_GIT, sendPrompt, spawnFreshGitSession } from "./helpers/index.j
  * dropdown. `templates` and `start <template> "<goal>"` run in-process; their outcome is a
  * UI notify (a chat notice), never a failed-command pill. A start turns the session into a
  * lead: the lead badge appears and the playbook card renders in the chat.
- * The template is discovered from the harness's real listing (a bundled one), so no fixture
- * file is needed. STATUS: written, not yet run (needs the docker harness).
+ * The template is discovered from the harness's real listing: the fixture project template
+ * `docker/fixtures/sample-git/.pi/teams/e2e-plain.md` (valid, no hooks, trusted). STATUS: run green against the docker harness.
  */
 test.setTimeout(180_000);
 
@@ -45,6 +46,15 @@ async function pillLabels(page: Page, command: string): Promise<string[]> {
 }
 
 test.describe("/agent-team command", () => {
+  // #F9 starts a REAL team; close it so a re-run on the same harness stays under the team cap.
+  let teamsBefore: string[] = [];
+  test.beforeEach(async ({ page }) => {
+    teamsBefore = await listTeamIds(page);
+  });
+  test.afterEach(async ({ page }) => {
+    await shutdownTeamsCreatedSince(page, teamsBefore);
+  });
+
   test("#F9 the command is listed; `templates` and `start` surface their outcome as notices; the start makes a lead with a playbook card", async ({ page }) => {
     const templates = await listedTemplates(page);
     test.skip(templates === undefined, "agent-teams plugin routes are not served by this harness");

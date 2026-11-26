@@ -28,7 +28,7 @@ function tooDeep(yamlText: string): boolean {
 }
 
 /** Parse the YAML mapping text alone (no fences). */
-export function parseYamlMapping(yamlText: string): { ok: true; data: Record<string, unknown> } | { ok: false; message: string } {
+function parseYamlMapping(yamlText: string): { ok: true; data: Record<string, unknown> } | { ok: false; message: string } {
   if (tooDeep(yamlText)) return { ok: false, message: "frontmatter nesting is too deep" };
   try {
     const doc = YAML.parseDocument(yamlText, { uniqueKeys: true, strict: true, merge: false, schema: "core", version: "1.2" });

@@ -9,12 +9,12 @@ import type { TemplateIssue, TemplateSource } from "../shared/protocol.js";
 import { codePointLength } from "../shared/text.js";
 import type { PlanApprovalPolicy, TeamHooks, TemplateMember } from "../shared/types.js";
 
-export const GOAL_MAX_CODEPOINTS = 4000;
+const GOAL_MAX_CODEPOINTS = 4000;
 /** Header of the playbook mail's first body lines (the chat card reads template and goal from them). */
-export const PLAYBOOK_TEMPLATE_PREFIX = "Template: ";
-export const PLAYBOOK_GOAL_PREFIX = "Goal: ";
+const PLAYBOOK_TEMPLATE_PREFIX = "Template: ";
+const PLAYBOOK_GOAL_PREFIX = "Goal: ";
 /** Mail text headroom a playbook leaves for the envelope header (`maxMessageChars − 500`). */
-export const PLAYBOOK_HEADROOM_CHARS = 500;
+const PLAYBOOK_HEADROOM_CHARS = 500;
 
 /** A loaded, validated template (config-dependent limits applied, mode resolved). */
 export interface ParsedTemplate {

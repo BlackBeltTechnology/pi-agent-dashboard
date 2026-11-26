@@ -14,9 +14,9 @@ import { buildHookEnv, firstChars, type HookIo, type HookRunHandle, type HookRun
 import type { TemplatesHooksDeps } from "./templates-hooks.js";
 
 /** Feedback of a block is cut to this many characters. */
-export const HOOK_FEEDBACK_MAX_CHARS = 2000;
+const HOOK_FEEDBACK_MAX_CHARS = 2000;
 /** Feedback when a hook exits 2 without any stderr. */
-export const HOOK_NO_OUTPUT_FEEDBACK = "hook blocked (no output)";
+const HOOK_NO_OUTPUT_FEEDBACK = "hook blocked (no output)";
 /**
  * The gate must answer BEFORE core's own race timer (same budget, started one tick earlier) fires,
  * otherwise a hook that uses the whole budget would be reported as `op_blocked`/fail-open instead
@@ -24,7 +24,7 @@ export const HOOK_NO_OUTPUT_FEEDBACK = "hook blocked (no output)";
  */
 export const HOOK_DEADLINE_MARGIN_MS = 50;
 /** Consecutive non-blocking errors of one event that produce one lead notice. */
-export const HOOK_ERROR_STREAK_NOTICE = 3;
+const HOOK_ERROR_STREAK_NOTICE = 3;
 /** Commands per event (validated at template load; defended here too). */
 const MAX_COMMANDS_PER_EVENT = 3;
 
@@ -51,7 +51,7 @@ export interface HookEngine {
 }
 
 /** Control characters stripped, trimmed, at most 2000 characters; empty → the no-output feedback. */
-export function hookFeedback(stderr: string): string {
+function hookFeedback(stderr: string): string {
   const text = firstChars(sanitizeText(stderr, { keepNewlines: true }).trim(), HOOK_FEEDBACK_MAX_CHARS).trim();
   return text === "" ? HOOK_NO_OUTPUT_FEEDBACK : text;
 }

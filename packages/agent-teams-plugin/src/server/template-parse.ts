@@ -10,11 +10,11 @@ import type { PlanApprovalPolicy, TeamHooks, TemplateMember } from "../shared/ty
 import { AGENT_NAME_RE } from "./agents.js";
 import { splitFrontmatter } from "./template-yaml.js";
 
-export const TEMPLATE_NAME_RE = /^[a-z][a-z0-9-]{0,39}$/;
-export const HOOK_EVENT_NAMES = ["TeammateIdle", "TaskCreated", "TaskCompleted"] as const;
-export const MAX_HOOKS_PER_EVENT = 3;
-export const MAX_HOOK_COMMAND_CHARS = 2000;
-export const NOTIFY_COALESCE_MAX_MS = 10_000;
+const TEMPLATE_NAME_RE = /^[a-z][a-z0-9-]{0,39}$/;
+const HOOK_EVENT_NAMES = ["TeammateIdle", "TaskCreated", "TaskCompleted"] as const;
+const MAX_HOOKS_PER_EVENT = 3;
+const MAX_HOOK_COMMAND_CHARS = 2000;
+const NOTIFY_COALESCE_MAX_MS = 10_000;
 
 /** Parse result before any live-config check. */
 export interface TemplateCore {

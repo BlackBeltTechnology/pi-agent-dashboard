@@ -17,10 +17,9 @@ import type { Member, PlanApprovalPolicy, Team } from "../shared/types.js";
 import type { TeamsConfig } from "./config.js";
 import type { MemberSpawnExtras } from "./extension-points.js";
 
-export { PLAN_HOLD };
 
 /** Env name of the plan-mode hint a spawn contributor sets (`PI_EXT_AGENT_TEAMS_PLAN_MODE=1`). */
-export const PLAN_MODE_ENV_KEY = EXT_KEY_PLAN_MODE;
+const PLAN_MODE_ENV_KEY = EXT_KEY_PLAN_MODE;
 
 const RANK = (p: PlanApprovalPolicy | undefined): number => (p === "user" ? 2 : p === true ? 1 : 0);
 
@@ -31,7 +30,7 @@ export function strongerPolicy(a: PlanApprovalPolicy | undefined, b: PlanApprova
 }
 
 /** Whether a policy puts the member in plan mode. */
-export const isPlanPolicy = (p: PlanApprovalPolicy | undefined): p is true | "user" => p === true || p === "user";
+const isPlanPolicy = (p: PlanApprovalPolicy | undefined): p is true | "user" => p === true || p === "user";
 
 /** The member's resolved policy (`false` when none was recorded). */
 export const planPolicyFor = (member: Pick<Member, "requirePlanApproval"> | undefined): PlanApprovalPolicy => member?.requirePlanApproval ?? false;

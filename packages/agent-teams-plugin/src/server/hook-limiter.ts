@@ -7,8 +7,8 @@
  */
 import type { Clock } from "../shared/clock.js";
 
-export const HOOK_TEAM_CONCURRENCY = 2;
-export const HOOK_GLOBAL_CONCURRENCY = 4;
+const HOOK_TEAM_CONCURRENCY = 2;
+const HOOK_GLOBAL_CONCURRENCY = 4;
 
 export type HookAcquire = { kind: "slot"; release: () => void } | { kind: "timeout" } | { kind: "shutdown" };
 
