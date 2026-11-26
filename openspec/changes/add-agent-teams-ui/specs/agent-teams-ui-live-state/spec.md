@@ -2,7 +2,7 @@
 
 ### Requirement: Snapshots carry a revision, an epoch and an ETag
 
-Snapshots SHALL include core's per-team `rev` and a random `epoch` minted at server start, and SHALL be served with `ETag: "<epoch>:<rev>"`. A request whose `If-None-Match` equals the current ETag exactly SHALL be answered 304 without a body; any other value (weak, list, `*`, stale, garbage) SHALL be answered 200 with the full snapshot.
+Snapshots SHALL include core's per-team `rev` and a random `epoch` minted at server start, and SHALL be served with `ETag: "<epoch>:<rev>"` (`"<epoch>:<rev>:ro"` for a viewer who cannot control the team, because the body carries the per-viewer `viewerCanControl`). A request whose `If-None-Match` equals the current ETag exactly SHALL be answered 304 without a body; any other value (weak, list, `*`, stale, garbage) SHALL be answered 200 with the full snapshot.
 
 #### Scenario: Restart changes epoch
 - **WHEN** the server restarts

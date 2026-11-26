@@ -11,6 +11,8 @@ describe("ui-protocol", () => {
   it("snapshotEtag is a strong, quoted `<epoch>:<rev>`", () => {
     expect(snapshotEtag("abc", 41)).toBe('"abc:41"');
     expect(snapshotEtag("abc", 41)).not.toMatch(/^W\//);
+    expect(snapshotEtag("abc", 41, true)).toBe('"abc:41"');
+    expect(snapshotEtag("abc", 41, false)).toBe('"abc:41:ro"');
   });
 
   it("error codes are exactly the four this change adds", () => {

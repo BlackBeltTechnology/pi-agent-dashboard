@@ -1851,7 +1851,7 @@ Live-state protocol:
 
 - Snapshot `GET /api/plugins/agent-teams/teams/:id` → `TeamUiSnapshot` = core `TeamSnapshot` + `epoch` + `viewerCanControl`.
 - `epoch`: `randomBytes(8)` hex, minted per server start (`server/epoch.ts`). Epoch change ⇒ refetch.
-- ETag strong `"<epoch>:<rev>"`; `Cache-Control: private, no-cache`. `If-None-Match` exact match ⇒ `304`, no body.
+- ETag strong `"<epoch>:<rev>"` (`:ro` suffix for a viewer without control); `Cache-Control: private, no-cache`, `Vary: authorization, cookie`. `If-None-Match` exact match ⇒ `304`, no body.
 - Frame `plugin_event`: `pluginId: agent-teams`, `sessionId: <lead>`, `eventType: agent-teams:changed`, `data: {teamId, epoch, rev, closed?}`. Content-free: ids + rev only.
 - Server coalesce (`server/ui-bridge.ts`): ≤1 frame per team per `CHANGED_COALESCE_MS` (1000), leading + trailing. Close = last frame, `closed: true`.
 - Client refetch (`client/teams-store.ts`): single-flight, conditional (`If-None-Match`).

@@ -110,7 +110,10 @@ export function createUserActions(deps: UserActionsDeps): UserActions {
     if (inflightShutdowns.has(team.id)) return repeat();
     // Check-and-set: nothing awaits between the checks above and the registration below.
     const run = (async (): Promise<ActionResult<ShutdownTeamResponse, ShutdownOutcome>> => {
-      // Before the delete: a team without live members closes at once and refuses mail afterwards.
+      // Before the delete, on purpose: with no live member the team closes synchronously and refuses mail afterwards
+      // (S82/S123 fail when this moves after). `teamDelete` for the user actor (always forced) is refused only for a
+      // `closed` team, which the synchronous checks above exclude (nothing awaits in between), so the refusal branch
+      // below is a defensive guard for a changed core contract, not a reachable path today.
       deps.ops.enqueueLeadNotice(team, { text: SHUTDOWN_NOTICE_TEXT, wake: false });
       const res = await deps.ops.teamDelete(team, { actor: "user", force: true });
       if (!res.ok) return fail(409, "team_closed", "team_closed");

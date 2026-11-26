@@ -193,8 +193,8 @@ export async function mountTeamsRoutes(fastify: FastifyInstance, deps: RouteDeps
       }
       // No await from here to the body: ETag and snapshot describe the same revision.
       const viewerCanControl = controllable(team, req);
-      const etag = snapshotEtag(epoch, store.rev(team.id));
-      // `viewerCanControl` is per viewer while the ETag is not: Vary keeps a shared browser cache per identity.
+      const etag = snapshotEtag(epoch, store.rev(team.id), viewerCanControl);
+      // The ETag carries `viewerCanControl`; Vary keeps a shared browser cache per identity.
       reply.header("etag", etag).header("cache-control", "private, no-cache").header("vary", "authorization, cookie");
       if (req.headers["if-none-match"] === etag) {
         counters?.count("snapshot_304");

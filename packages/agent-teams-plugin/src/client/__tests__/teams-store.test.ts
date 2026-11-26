@@ -156,6 +156,16 @@ describe("refetch trigger (S31)", () => {
     expect(store.getTeam("t1")).toBe(ref);
   });
 
+  it("a read-only viewer's validator carries the capability, so its 304 still matches (review round 1, B2)", async () => {
+    srv.overrides.push(() => srv.json({ ...makeSnapshot({ epoch: "E", rev: 41 }), viewerCanControl: false }, 200));
+    await open();
+    srv.overrides.push((call) => (call.inm === snapshotEtag("E", 41, false) ? new Response(null, { status: 304 }) : srv.json(makeSnapshot({ epoch: "E", rev: 41 }))));
+    store.ingestFrame("t1", { epoch: "E", rev: 42 });
+    await advance(500);
+    expect(srv.snapshotGets().at(-1)?.inm).toBe('"E:41:ro"');
+    expect(store.getTeam("t1")?.snapshot?.viewerCanControl).toBe(false);
+  });
+
   it("a frame for an unwatched team is ignored", async () => {
     store.ingestFrame("tx", { epoch: "E", rev: 1 });
     await advance(5000);

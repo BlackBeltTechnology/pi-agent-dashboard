@@ -24,6 +24,8 @@ export interface UiEnvOptions extends TeamsEnvOptions {
   visibilityTimeoutMs?: number;
   /** Replace the registered visibility hook (default: `access.canViewTeam`). */
   hook?: (team: Team, req: unknown) => boolean | Promise<boolean>;
+  /** Replace the control predicate only (default: `access.canControlTeam`), to model a read-only role. */
+  control?: (team: Team, req: unknown) => boolean;
   /** Extra `onRequest` hook (host tier gate simulation); registered before the routes. */
   onRequest?: (req: FastifyRequest, reply: import("fastify").FastifyReply) => Promise<void> | void;
   /** Override the write/read limiter (default: effectively unlimited; `null` = core's real constants). */
@@ -62,7 +64,7 @@ export interface UiEnv extends TeamsEnv {
 const UNLIMITED = { read: { perSecond: 100_000, burst: 100_000 }, write: { perSecond: 100_000, burst: 100_000 } };
 
 export async function createUiEnv(over: UiEnvOptions = {}): Promise<UiEnv> {
-  const { enforced = false, epoch = "E", visibilityTimeoutMs, hook, onRequest, rateLimits = UNLIMITED, principalThrows = false, ...envOpts } = over;
+  const { enforced = false, epoch = "E", visibilityTimeoutMs, hook, control, onRequest, rateLimits = UNLIMITED, principalThrows = false, ...envOpts } = over;
   const ext = envOpts.ext ?? createExtensionPoints();
   const e = createTeamsEnv({ ...envOpts, ext });
   const identity: FakeIdentity = {
@@ -74,7 +76,8 @@ export async function createUiEnv(over: UiEnvOptions = {}): Promise<UiEnv> {
       return principalFromHeader((req as { headers?: Record<string, unknown> }).headers?.["x-principal"]);
     },
   };
-  const access = createAccess(identity);
+  const baseAccess = createAccess(identity);
+  const access = control ? { ...baseAccess, canControlTeam: control } : baseAccess;
   ext.setRouteVisibility(hook ?? ((team, req) => access.canViewTeam(team, req)));
   const counters = createUiCounters({ logger: e.fake.host.logger, clock: e.clock });
   const actions = createUserActions({ store: e.rt.store, ops: e.rt.ops, clock: e.clock });

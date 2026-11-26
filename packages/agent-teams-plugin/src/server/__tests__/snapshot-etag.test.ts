@@ -13,6 +13,25 @@ afterEach(async () => {
   await Promise.all(envs.splice(0).map((e) => e.close()));
 });
 
+describe("ETag follows the viewer's capability (review round 1, B2)", () => {
+  it("a validator minted for a controller never answers 304 for a read-only viewer of the same rev", async () => {
+    let canControl = true;
+    const e = await createUiEnv({ epoch: "E", control: () => canControl });
+    envs.push(e);
+    const team = await e.createTeam();
+    const url = `/teams/${team.id}`;
+    const first = await e.get<TeamUiSnapshot>(url);
+    expect(first.body.viewerCanControl).toBe(true);
+    canControl = false; // same epoch and rev: only the capability flipped
+    const flipped = await e.get<TeamUiSnapshot>(url, { "if-none-match": first.headers.etag as string });
+    expect(flipped.status).toBe(200);
+    expect(flipped.body.viewerCanControl).toBe(false);
+    expect(flipped.headers.etag).not.toBe(first.headers.etag);
+    // and the read-only validator itself still answers 304 while nothing changes
+    expect((await e.get(url, { "if-none-match": flipped.headers.etag as string })).status).toBe(304);
+  });
+});
+
 describe("If-None-Match (S22)", () => {
   async function setup() {
     const e = await createUiEnv({ epoch: "E" });

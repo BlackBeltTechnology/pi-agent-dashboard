@@ -386,7 +386,7 @@ export function createTeamsStore(options: TeamsStoreOptions = {}): TeamsStore {
 
   async function runTeam(teamId: string): Promise<RunResult> {
     const cached = teams.get(teamId)?.snapshot;
-    const res = await attempt(`${TEAMS_API}/teams/${encodeURIComponent(teamId)}`, cached ? { headers: { "If-None-Match": snapshotEtag(cached.epoch, cached.rev) } } : undefined);
+    const res = await attempt(`${TEAMS_API}/teams/${encodeURIComponent(teamId)}`, cached ? { headers: { "If-None-Match": snapshotEtag(cached.epoch, cached.rev, cached.viewerCanControl) } } : undefined);
     return res ? onTeamResponse(teamId, cached, res) : FAIL_NETWORK;
   }
 

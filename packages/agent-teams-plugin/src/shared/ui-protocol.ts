@@ -47,7 +47,11 @@ export interface ShutdownTeamResponse {
   closing: true;
 }
 
-/** Strong ETag of a snapshot: `"<epoch>:<rev>"` (compared by exact string equality only). */
-export function snapshotEtag(epoch: string, rev: number): string {
-  return `"${epoch}:${rev}"`;
+/**
+ * Strong ETag of a snapshot: `"<epoch>:<rev>"` for a viewer who can control the team, `"<epoch>:<rev>:ro"`
+ * for one who cannot (the body carries the per-viewer `viewerCanControl`, so the validator must too);
+ * compared by exact string equality only.
+ */
+export function snapshotEtag(epoch: string, rev: number, viewerCanControl = true): string {
+  return `"${epoch}:${rev}${viewerCanControl ? "" : ":ro"}"`;
 }
