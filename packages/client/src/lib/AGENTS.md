@@ -4,6 +4,7 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/capture-pi-output-hint.test.ts` | F1: `settings.capturePiOutputHint` copy updated in en inline default (`SettingsPanel.tsx`), hu, zh-CN; en says new sessions write no keeper log when off. See change: keeper-log-toggle-gates-all-output. |
 | `__tests__/editor-pane-state.handler-mode.test.ts` | E11 `handlerMode` hydration (non-string dropped per tab, unknown claim kept) + `setHandlerMode` reducer. Per-file in-memory `localStorage`. See change: add-editor-pane-file-handlers. |
 | `__tests__/sha1.test.ts` | Fallback + subtle parity vs node sha1 (block boundaries, binary). See change: add-editor-pane-file-handlers. |
 | `__tests__/theme-body-text-contrast.test.ts` | Contrast floor over all 18 palettes: `--text-secondary`/`--text-tertiary` AA, hierarchy, Base `index.css` parity, hue/sat preservation, ring 3:1, card-fill AA. Accent-text ramp: 108 `--accent-<hue>-text` AA on surface/tertiary/primary/card fill, fidelity vs live `--accent-<hue>`, passing source adopted unchanged (28), Base parity via no-fallback `tokenIn`, CIE76 ΔE ≥ 8 with `KNOWN_INDISTINGUISHABLE = ["solarized:dark"]`; helper fixtures prove each check rejects. See changes: stop-discarding-known-session-state, remediate-accent-text-contrast. |

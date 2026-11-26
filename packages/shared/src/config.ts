@@ -480,11 +480,15 @@ export const SESSION_LIST_LIMITS = {
 
 export interface KeeperLogConfig {
   /**
-   * When `true`, per-session keepers archive pi's stdout/stderr (including full
-   * model API frames) into `keeper-<sessionId>.log`. When `false` (the default),
-   * pi's stdout/stderr are discarded; the keeper still writes its own lifecycle
-   * log lines. Debug-only — capture grows unbounded on disk.
-   * See change: add-keeper-output-capture-toggle.
+   * Gates ALL keeper log output. When `true`, per-session keepers write
+   * `keeper-<sessionId>.log` (lifecycle lines plus pi's stdout/stderr,
+   * including full model API frames, size-bounded by `maxBytes`) and the
+   * server captures keeper startup stderr into `keeper-launch-<sessionId>.log`.
+   * When `false` (the default), a new headless session creates no keeper log
+   * file of any kind. The server derives `PI_KEEPER_CAPTURE_PI_OUTPUT` from
+   * this value alone (an inherited env value cannot override it). Debug-only.
+   * See changes: add-keeper-output-capture-toggle,
+   * keeper-log-toggle-gates-all-output.
    */
   capturePiOutput: boolean;
   /**
