@@ -22,6 +22,8 @@ export interface TeamSummary {
   name: string;
   status: TeamStatus;
   leadConnected: boolean;
+  /** The lead's session id (viewers that may see the team only); frames are scoped to it. */
+  leadSessionId?: string;
   members: number;
   tasks: number;
   rev: number;
@@ -93,6 +95,8 @@ export interface TeamSnapshot {
   mode: string;
   committer: Committer;
   leadConnected: boolean;
+  /** The lead's session id (viewers that may see the team only); frames are scoped to it. */
+  leadSessionId?: string;
   leadCwd: string;
   rev: number;
   createdAt: number;

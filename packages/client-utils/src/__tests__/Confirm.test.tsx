@@ -23,6 +23,22 @@ describe("Confirm", () => {
     expect(container.getAttribute("aria-labelledby")).toBeTruthy();
   });
 
+  it("names an untitled dialog by its message; a titled one stays labelled by the title", () => {
+    const untitled = render(
+      <Confirm open onClose={() => {}} onConfirm={() => {}} title="" message="Shut down the team?" testId="u" />,
+    );
+    const u = untitled.baseElement.querySelector("[data-testid='u']")!;
+    expect(u.getAttribute("aria-label")).toBe("Shut down the team?");
+    expect(u.getAttribute("aria-labelledby")).toBeNull();
+    cleanup();
+    const titled = render(
+      <Confirm open onClose={() => {}} onConfirm={() => {}} title="Forget?" message="m" testId="t" />,
+    );
+    const t = titled.baseElement.querySelector("[data-testid='t']")!;
+    expect(t.getAttribute("aria-label")).toBeNull();
+    expect(t.getAttribute("aria-labelledby")).toBeTruthy();
+  });
+
   it("renders optional body node", () => {
     const { getByTestId } = render(
       <Confirm

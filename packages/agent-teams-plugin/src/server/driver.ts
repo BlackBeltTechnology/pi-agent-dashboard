@@ -15,6 +15,7 @@ import type {
   PluginSpawnResult,
   ServerPluginContext,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { ownerFromKey } from "../shared/owner-key.js";
 import {
   AGENT_TEAMS_EVENT_MAIL,
   AGENT_TEAMS_EVENT_TEAM_CLOSED,
@@ -93,9 +94,11 @@ export const SESSION_MODE = "session";
 
 function pluginRefFor(req: { teamId: string; member?: string; role: string; principalOwner?: string }): Record<string, unknown> {
   const { principalOwner, ...ref } = req;
+  // `principalOwner` arrives as the stored owner key; the host wants the `{iss, sub}` object (a non-key string is dropped).
+  const owner = principalOwner ? ownerFromKey(principalOwner) : undefined;
   return {
     [AGENT_TEAMS_PLUGIN_ID]: ref,
-    ...(principalOwner ? { principalOwner } : {}),
+    ...(owner ? { principalOwner: owner } : {}),
   };
 }
 

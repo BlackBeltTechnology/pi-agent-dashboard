@@ -592,13 +592,20 @@ Seams used (`RuntimeHost` in `src/server/runtime.ts`). Change: `add-agent-teams-
 - Also read: `abortSession`, `abortSpawnedRun`, `getPluginConfig`, `dataDir`, `sessionManager`, `onShutdown`.
 - Optional: `getPiResources` for skill allowlist resolve. Absent → spawn refused `skill_resolution_unavailable`.
 - Manifest `priority` 100 → passes `spawnSession` gate (`priority <= 100`).
+- UI seams (`add-agent-teams-ui`):
+  - `setRouteVisibility(canViewTeam)`: owner filter on list, snapshot, POST routes (`src/server/index.ts`, `access.ts`). Registration throw ⇒ plugin refuses start.
+  - `identity.isEnforced()`, `identity.principalOf(req)`: owner rule input (`access.ts`). `ctx.fastify` scope `/api/plugins/agent-teams` (`routes.ts`).
+  - `broadcastToSubscribers({type:"plugin_event", pluginId, sessionId, event})`: content-free `agent-teams:changed` to lead session (`ui-bridge.ts`).
+  - `assignSessionRef(sessionId, {"agent-teams-lead": {teamId}}, {persist:true})`: lead stamp, diff-only (`ui-bridge.ts`).
+  - Routes tier `control` (`packages/shared/src/route-tiers.ts:451-452`).
+  - See change: add-agent-teams-ui.
 
 Seams for later changes (inert by default), `src/server/extension-points.ts`:
 
 - `registerSpawnContributor`: adds tools/skills/promptFiles/env/cwd at spawn.
 - `registerOpGate(op, gate)`: pre-op block with feedback; budget `opGateBudgetMs`.
 - `registerDispatchEligibility`: gates auto-dispatch per member.
-- `setRouteVisibility`: gates REST route visibility; timeout `ROUTE_VISIBILITY_TIMEOUT_MS`.
+- `setRouteVisibility`: gates REST route visibility; timeout `ROUTE_VISIBILITY_TIMEOUT_MS`. Used by `add-agent-teams-ui`.
 - `MemberDriver` mode registry (`modes.ts`, `driver.ts`): session mode only in core.
 - `TrustedSpawnOptions` (`cwd`, `committer`): in-process server caller only. Not reachable from lane.
 

@@ -489,6 +489,11 @@ jobs:
   blender-real:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    # `pnpm install` runs the `packages/client` prepare vite build, which
+    # outgrew the default heap: OOM (exit 134) on macos-latest, run
+    # 45771270289. Same ceiling as ci-gateway-platform.yml / _electron-build.yml.
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     permissions:
       contents: read
     defaults:

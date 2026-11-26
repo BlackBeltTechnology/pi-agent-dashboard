@@ -1,8 +1,10 @@
 /**
- * Catalog key parity (test-plan S132): `en`, `zh-CN` and `hu` carry identical
- * key sets with no empty strings, and the client entry barrel exports the
- * catalog and nothing else (the change claims no UI slot).
- * See change: add-agent-teams-core.
+ * Catalog key parity (test-plan S132) and the eager-catalog budget (S101, D9):
+ * `en`, `zh-CN` and `hu` carry identical key sets with no empty strings; the
+ * catalog holds BADGE labels only (every other string lives in the lazy modules'
+ * own tables); the client entry barrel exports exactly the catalog, the badge
+ * component and its predicate — never a lazy claim component.
+ * See change: add-agent-teams-core, add-agent-teams-ui.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -45,16 +47,33 @@ describe("i18n catalog parity (S132)", () => {
   });
 });
 
+describe("eager catalog is badge labels only (S101, D9)", () => {
+  const BADGE_KEYS = ["badgeLead", "badgeOpen", "badgeTeam"];
+
+  it("holds exactly the badge label keys in every locale", () => {
+    for (const locale of LOCALES) expect(keysOf(locale), locale).toEqual(BADGE_KEYS);
+  });
+
+  it("carries the `{role}` placeholder where the accessible name needs it", () => {
+    for (const locale of LOCALES) expect((catalog[locale] as Record<string, string>).badgeOpen, locale).toContain("{role}");
+  });
+});
+
 describe("client entry barrel (S132)", () => {
-  it("exports the catalog and nothing else", () => {
-    expect(Object.keys(entry)).toEqual(["catalog"]);
+  it("exports the catalog, the badge component and its predicate — nothing else (lazy claims stay out)", () => {
+    expect(Object.keys(entry).sort()).toEqual(["TeamBadge", "catalog", "isTeamSession"]);
     expect(entry.catalog).toBe(catalog);
   });
 
-  it("the manifest names that export and claims no slot", () => {
-    const manifest = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8"))["pi-dashboard-plugin"] as { i18nCatalog: string; claims: unknown[]; client: string };
-    expect(manifest.claims).toEqual([]);
+  it("the manifest names those exports", () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8"))["pi-dashboard-plugin"] as {
+      i18nCatalog: string;
+      client: string;
+      claims: Array<{ slot: string; component: string; module?: string; predicate?: string }>;
+    };
     expect(manifest.i18nCatalog).toBe("catalog");
     expect(Object.keys(entry)).toContain(manifest.i18nCatalog);
+    for (const claim of manifest.claims.filter((c) => !c.module)) expect(Object.keys(entry), `${claim.slot}:${claim.component}`).toContain(claim.component);
+    for (const claim of manifest.claims.filter((c) => c.predicate)) expect(Object.keys(entry)).toContain(claim.predicate);
   });
 });

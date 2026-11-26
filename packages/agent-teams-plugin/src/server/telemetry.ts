@@ -25,7 +25,9 @@ type LogEvent =
   | "ack"
   | "idle"
   | "shutdown"
-  | "orphan";
+  | "orphan"
+  | "user_stop"
+  | "user_shutdown";
 
 /** Field values are identifiers, enums and sizes: a free-text field cannot be expressed. */
 type LogFields = Readonly<Record<string, string | number | boolean | undefined>>;

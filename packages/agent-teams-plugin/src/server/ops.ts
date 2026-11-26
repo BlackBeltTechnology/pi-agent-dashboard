@@ -23,6 +23,7 @@ import {
   TRUNCATION_MARKER,
 } from "../shared/constants.js";
 import { isRegisteredMailKind } from "../shared/mail-format.js";
+import { ownerKeyFrom } from "../shared/owner-key.js";
 import { AGENT_TEAMS_PLUGIN_ID } from "../shared/plugin-id.js";
 import {
   type AckPayload,
@@ -323,9 +324,16 @@ export function createOps(deps: OpsDeps) {
    * Server-authored notice for the lead, appended at once (a direct, already
    * composed notice: later changes use it for their own events); queues while the
    * team has no bound lead. The coalesced lifecycle buffer is flushed first so
-   * mail ids keep the order the events happened in.
+   * mail ids keep the order the events happened in. `coalesce: true` instead adds
+   * the text (one line) as an item of the lead-notice coalescer, so several
+   * notices inside `notifyCoalesceMs` travel as ONE mail (and one wake); nothing is
+   * returned then. Default `false`: behaviour unchanged.
    */
-  function enqueueLeadNotice(team: Team, input: { text: string; wake: boolean }): Mail | undefined {
+  function enqueueLeadNotice(team: Team, input: { text: string; wake: boolean; coalesce?: boolean }): Mail | undefined {
+    if (input.coalesce === true) {
+      notices.add(team, { head: input.text, wake: input.wake });
+      return undefined;
+    }
     notices.drain(team);
     return mailTo(team, LEAD_ADDRESS, { from: "server", kind: "notice", text: input.text, wake: input.wake });
   }
@@ -696,15 +704,17 @@ export function createOps(deps: OpsDeps) {
   /**
    * Stop a member's in-flight run and nothing else: no confirmation step, its
    * tasks stay `in_progress`, it is not woken, and the lead gets ONE waking notice.
+   * `notify: false` suppresses that notice for a caller that queues its own (the
+   * dashboard Stop action names owned task ids); default `true`.
    */
-  function abortMember(team: Team, name: string, opts: { actor: Actor }): OpResult<{ member: string; aborted: true }> {
+  function abortMember(team: Team, name: string, opts: { actor: Actor; notify?: boolean }): OpResult<{ member: string; aborted: true }> {
     const member = store.member(team, name);
     if (!member) return fail("unknown_recipient", name);
     if (!isLive(member)) return fail("member_gone", name);
     const driver = driverFor(team);
     const res = driver?.abort(refOf(team, member)) ?? { ok: false, reason: "no_driver" };
     if (!res.ok) return fail("interrupt_unavailable", res.reason);
-    enqueueLeadNotice(team, { text: `${name}'s current run was stopped by ${opts.actor}; its tasks stay in_progress`, wake: true });
+    if (opts.notify !== false) enqueueLeadNotice(team, { text: `${name}'s current run was stopped by ${opts.actor}; its tasks stay in_progress`, wake: true });
     return { ok: true, data: { member: name, aborted: true } };
   }
 
@@ -948,7 +958,7 @@ export function createOps(deps: OpsDeps) {
     if (!isRecord(ref) || ref.role !== "lead" || typeof ref.teamId !== "string") return;
     const team = store.get(ref.teamId);
     if (team?.status !== "starting") return;
-    const principalOwner = typeof pluginRef.principalOwner === "string" ? pluginRef.principalOwner : deps.hostSession(sessionId)?.principalOwner;
+    const principalOwner = ownerKeyFrom(pluginRef.principalOwner) ?? deps.hostSession(sessionId)?.principalOwner;
     bindLead(team.id, sessionId, principalOwner ? { principalOwner } : {});
   }
 

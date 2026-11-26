@@ -20,7 +20,8 @@ interface ConfirmProps {
 /**
  * Thin preset over `Dialog` for the common title-message-confirm-cancel
  * shape. Delegates all chrome (portal, overlay, focus, ARIA, dismissal) to
- * `Dialog`. `onConfirm` does NOT auto-close — the caller controls dismissal.
+ * `Dialog`. An untitled confirm (title "") is named by its message (`aria-label`);
+ * `Dialog` ignores it when a title exists. `onConfirm` does NOT auto-close — the caller controls dismissal.
  *
  * See change: unify-dialog-system (design.md D7).
  */
@@ -38,7 +39,7 @@ export function Confirm({
   testId,
 }: ConfirmProps) {
   return (
-    <Dialog open={open} onClose={onClose} title={title} size="sm" testId={testId}>
+    <Dialog open={open} onClose={onClose} title={title} ariaLabel={message} size="sm" testId={testId}>
       <p className="text-sm text-[var(--text-secondary)]">{message}</p>
       {body}
       <Dialog.Footer>

@@ -27,5 +27,10 @@ export default defineMockSite({
     "@automation": pkg("automation-plugin/src"),
     "@atlas": pkg("skill-atlas-plugin/src"),
     "@gmail": pkg("gmail-plugin/src"),
+    // Agent-teams shared contracts (types, snapshot, mail envelope) for typed fixtures; no production client code.
+    "@teams": pkg("agent-teams-plugin/src"),
+    // The plugin runtime from THIS checkout. A mock outside packages/ resolves the bare specifier to a different
+    // copy in a git worktree (node_modules lookup), which splits React contexts (slot registry, primitives).
+    "@rt": pkg("dashboard-plugin-runtime/src"),
   },
 });

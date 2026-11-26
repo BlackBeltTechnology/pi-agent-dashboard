@@ -51,10 +51,111 @@
     "server": "./src/server/index.ts",
     "bridge": "./src/bridge/index.ts",
     "configSchema": "./src/configSchema.json",
-    "claims": [],
+    "claims": [
+      {
+        "slot": "session-card-badge",
+        "component": "TeamBadge",
+        "predicate": "isTeamSession"
+      },
+      {
+        "slot": "shell-overlay-route",
+        "component": "TeamViewClaim",
+        "module": "./src/client/TeamView.tsx",
+        "path": "/session/:sessionId/team",
+        "sessionParam": "sessionId",
+        "depth": 2,
+        "parentPath": "/session/:sessionId",
+        "presentation": "content"
+      },
+      {
+        "slot": "custom-entry-renderer",
+        "customType": "agent-teams-mail",
+        "component": "MailEntryCard",
+        "module": "./src/client/MailEntryCard.tsx"
+      },
+      {
+        "slot": "custom-entry-renderer",
+        "customType": "agent-teams-idle",
+        "component": "MailEntryCard",
+        "module": "./src/client/MailEntryCard.tsx"
+      },
+      {
+        "slot": "custom-entry-renderer",
+        "customType": "agent-teams-notice",
+        "component": "MailEntryCard",
+        "module": "./src/client/MailEntryCard.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "TeamCreate",
+        "component": "TeamLifecycleToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "TeammateSpawn",
+        "component": "TeamLifecycleToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "TeamStatus",
+        "component": "TeamLifecycleToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "TeamDelete",
+        "component": "TeamLifecycleToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "SendMessage",
+        "component": "TeamMessageToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "TaskCreate",
+        "component": "TeamTaskToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "TaskList",
+        "component": "TeamTaskToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "TaskGet",
+        "component": "TeamTaskToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "TaskUpdate",
+        "component": "TeamTaskToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "ShutdownRequest",
+        "component": "TeamShutdownToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "ShutdownResponse",
+        "component": "TeamShutdownToolRenderer",
+        "module": "./src/client/TeamToolRenderers.tsx"
+      }
+    ],
     "emits": [
       "agent-teams:mail",
-      "agent-teams:team_closed"
+      "agent-teams:team_closed",
+      "agent-teams:changed"
     ]
   },
   "peerDependencies": {
