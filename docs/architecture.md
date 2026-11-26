@@ -2716,7 +2716,7 @@ Run-configuring surfaces, all five now paired:
 - Settings → Sessions → Default Model — `packages/client/src/components/settings/SettingsPanel.tsx`, persists `config.defaultThinkingLevel`
 - OpenSpec run-config row — `packages/client/src/components/openspec/useOpenSpecRunConfigRow.tsx`
 - Roles → assign model to `@role` — `packages/roles-plugin/src/RolesSettingsSection.tsx`
-- Automation → Create, direct-model branch — `packages/automation-plugin/src/client/CreateAutomationDialog.tsx`
+- Automation → Create/edit, direct-model branch ("Runs as" group) — `packages/automation-plugin/src/client/AutomationEditor.tsx`, rendered inline by `AutomationBoard.tsx` (editing card or `automation-draft` card)
 
 Reference-listing surfaces, deliberately excluded: Model Proxy preferred-models list and Model Proxy alias→model table, both in `packages/client/src/components/settings/ModelProxySection.tsx`.
 

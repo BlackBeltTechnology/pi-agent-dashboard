@@ -1,9 +1,9 @@
 /**
- * Group 5 (wire-flow-inputs-in-automation) — dialog hosts the
+ * Group 5 (wire-flow-inputs-in-automation) — the editor hosts the
  * `automation-action-editor` slot additively below ActionPayloadForm, and the
  * file-trigger config field round-trips to `on:`.
  *
- * api + ui-primitive mocked (mirrors CreateAutomationDialog.test.tsx).
+ * api + ui-primitive mocked (mirrors AutomationEditor.test.tsx).
  */
 
 import { applyPluginConfigUpdate, CurrentPluginLayer, createSlotRegistry, PluginContextProvider, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
@@ -23,7 +23,11 @@ const { createAutomation, updateAutomation, listTriggerKinds, isGitCapable, list
 }));
 vi.mock("../client/api.js", () => ({ createAutomation, updateAutomation, listTriggerKinds, isGitCapable, listActions }));
 
-import { CreateAutomationDialog } from "../client/CreateAutomationDialog.js";
+import { AutomationEditor } from "../client/AutomationEditor.js";
+
+/** The form is disabled until the git probe settles and the baseline freezes. */
+const editorReady = () =>
+  waitFor(() => expect(document.querySelector('[data-testid="editor-loading"]')).toBeNull());
 
 const FLOWS_ACTION = {
   id: "flows.run",
@@ -134,7 +138,7 @@ beforeEach(() => {
   seedRoles();
 });
 
-describe("CreateAutomationDialog — automation-action-editor slot (group 5)", () => {
+describe("AutomationEditor — automation-action-editor slot (group 5)", () => {
   async function selectFlowsRun(getByTestId: (id: string) => HTMLElement) {
     await waitFor(() => expect(getByTestId("action-group-flows")).toBeTruthy());
     fireEvent.click(getByTestId("action-group-flows"));
@@ -143,7 +147,8 @@ describe("CreateAutomationDialog — automation-action-editor slot (group 5)", (
   }
 
   it("renders a contributed editor for a matching action id (additive with ActionPayloadForm)", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />, registryWithEditor()));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />, registryWithEditor()));
+    await editorReady();
     await selectFlowsRun(getByTestId);
     // Both the generic form (flow/task) AND the contributed editor render.
     expect(getByTestId("action-payload-flow")).toBeTruthy();
@@ -153,15 +158,17 @@ describe("CreateAutomationDialog — automation-action-editor slot (group 5)", (
   it("falls back to ActionPayloadForm only when no editor is contributed", async () => {
     // Registry has no automation-action-editor claim.
     const { getByTestId, queryByTestId } = render(
-      wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />, createSlotRegistry()),
+      wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />, createSlotRegistry()),
     );
+    await editorReady();
     await selectFlowsRun(getByTestId);
     expect(getByTestId("action-payload-flow")).toBeTruthy();
     expect(queryByTestId("stub-editor")).toBeNull();
   });
 
   it("persists payload.inputs written by the contributed editor (coexists with flow/task)", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />, registryWithEditor()));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />, registryWithEditor()));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "inv" } });
     await selectFlowsRun(getByTestId);
     fireEvent.change(getByTestId("action-payload-flow"), { target: { value: "invoicebot:process" } });
@@ -176,9 +183,10 @@ describe("CreateAutomationDialog — automation-action-editor slot (group 5)", (
 });
 
 // F4 — see change: add-automation-concurrent-spawn.
-describe("CreateAutomationDialog — multi-action fan-out editor", () => {
+describe("AutomationEditor — multi-action fan-out editor", () => {
   it("a single entry submits `action:` (no `actions:`)", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "solo" } });
     fireEvent.click(getByTestId("create-submit"));
     await waitFor(() => expect(createAutomation).toHaveBeenCalled());
@@ -188,7 +196,8 @@ describe("CreateAutomationDialog — multi-action fan-out editor", () => {
   });
 
   it("adding an entry with a count submits `actions:` with 2 entries", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "fan" } });
     // Add a second action entry, point it at flows.run, set count 3.
     fireEvent.click(getByTestId("add-action-entry"));
@@ -206,10 +215,11 @@ describe("CreateAutomationDialog — multi-action fan-out editor", () => {
   });
 });
 
-describe("CreateAutomationDialog — file trigger config (group 5.3)", () => {
+describe("AutomationEditor — file trigger config (group 5.3)", () => {
   it("renders the folder field and round-trips to on: { kind: file, path, events, settle }", async () => {
     listTriggerKinds.mockResolvedValue(CATEGORIES_WITH_FILE);
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    await editorReady();
     await waitFor(() => expect(getByTestId("trigger-cat-file")).toBeTruthy());
     fireEvent.click(getByTestId("trigger-cat-file"));
     fireEvent.change(getByTestId("create-name"), { target: { value: "watch-spool" } });
@@ -227,7 +237,8 @@ describe("CreateAutomationDialog — file trigger config (group 5.3)", () => {
 
   it("blocks submission when the folder path is empty", async () => {
     listTriggerKinds.mockResolvedValue(CATEGORIES_WITH_FILE);
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    await editorReady();
     await waitFor(() => expect(getByTestId("trigger-cat-file")).toBeTruthy());
     fireEvent.click(getByTestId("trigger-cat-file"));
     fireEvent.change(getByTestId("create-name"), { target: { value: "watch-spool" } });

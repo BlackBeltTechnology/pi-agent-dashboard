@@ -12,6 +12,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Saving an automation keeps it disabled.** The editor now carries keys it does not show (`disabled`, `maxConcurrentSpawns`) through Save instead of silently re-arming a disabled automation.
 - **CSP violation reports now reach the dashboard on plain-http installs.** Chromium and Firefox dropped every report while the policy carried `report-to` + `Reporting-Endpoints`, so the `/api/health` `cspReports` counters stayed at zero. Dashboard and live-preview policies now use `report-uri` only.
 
 ### Added
@@ -33,6 +34,9 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (automation plugin client):** `CreateAutomationDialog` is no longer exported from the automation plugin client barrel; the editor is the inline `AutomationEditor`. No in-repo consumer.
+- **Automations are edited inline on the board.** Edit, the name or the trigger summary expand that card into the editor (Edit becomes "Close editor"); + Create Automation adds a draft card at the top of the list; the folder menu "New automation" item opens the board with the draft open. One editor at a time: switching or closing with unsaved changes shows Discard / Save & switch (Save & close). A sticky save bar shows the write path, the unsaved count and Cancel / Save (or Create with the next run). On phones, planned trigger kinds fold into one "+N coming soon" chip.
+- **Text fields render with a visible border.** The dashboard now defines the `.input` class (theme tokens) used by the automation editor and the flows input wiring.
 - **BREAKING: pi 1.6.0 is the new floor and lockstep pin** (`piCompatibility.minimum` = `recommended` = `1.6.0`; every `@earendil-works` pi peer `>=1.6.0`, optional; devDeps `^1.6.0`). A session on pi below 1.6.0 shows the below-floor warning: update with `npm install -g @earendil-works/pi-coding-agent@1.6.0`. The Docker image installs pi 1.6.0.
 - **`cacheWarming` defaults to `"idle"`.** Unset dashboard setting now means `"idle"` (pi 1.5.1 default). Stored `"streaming"` stays valid.
 - **`!` command killed on timeout reports exit code 143.** pi 1.6.0 `pi.exec` returns 128+signal; was 0. Killed `!` commands now show as failed.

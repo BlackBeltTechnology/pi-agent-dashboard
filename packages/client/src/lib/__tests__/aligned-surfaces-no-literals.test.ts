@@ -41,7 +41,7 @@ const SURFACES: readonly string[] = [
   join(CLIENT, "interactive-renderers", "ConfirmRenderer.tsx"),
   join(CLIENT, "interactive-renderers", "SelectRenderer.tsx"),
   join(PACKAGES, "goal-plugin", "src", "client", "GoalDetailClaim.tsx"),
-  join(PACKAGES, "automation-plugin", "src", "client", "CreateAutomationDialog.tsx"),
+  join(PACKAGES, "automation-plugin", "src", "client", "AutomationEditor.tsx"),
   // The shared recipes and the surfaces migrated onto them (align-ui-contract-recipes D8).
   join(CLIENT_UTILS, "StatusPill.tsx"),
   join(CLIENT_UTILS, "Dialog.tsx"),
@@ -244,5 +244,29 @@ describe("flow agent card — retired token and shape gate (E11)", () => {
 
   it("no chevron-pair path literal", () => {
     expect(src).not.toContain("‹›");
+  });
+});
+
+// test-plan #E11 (inline-automation-editor): the host defines the `.input`
+// class the automation editor and the flows input-wiring rows use, from theme
+// tokens only, at zero specificity so an app's own `.input` wins.
+describe("host .input control class (E11)", () => {
+  const css = readFileSync(join(PACKAGES, "client", "src", "index.css"), "utf8");
+  const start = css.indexOf(":where(.input)");
+  const layerStart = css.lastIndexOf("@layer components", start);
+  const block = start < 0 ? "" : css.slice(layerStart, css.indexOf("\n}", start) + 2);
+
+  it("defines .input under @layer components with :where()", () => {
+    expect(start, ":where(.input) rule in index.css").toBeGreaterThan(0);
+    expect(layerStart).toBeGreaterThan(0);
+  });
+
+  it("uses only var(--…) colour values (border, fill, text, invalid border)", () => {
+    for (const token of ["--border-secondary", "--bg-tertiary", "--text-primary", "--severity-error-border", "--focus-ring"]) {
+      expect(block, `.input uses ${token}`).toContain(`var(${token})`);
+    }
+    expect(block).not.toMatch(HEX);
+    expect(block).not.toMatch(/\b(rgba?|hsla?|oklch)\(/);
+    expect(block).not.toMatch(PALETTE);
   });
 });

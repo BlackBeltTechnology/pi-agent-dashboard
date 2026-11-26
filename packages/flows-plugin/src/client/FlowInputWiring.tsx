@@ -2,7 +2,7 @@
  * Input-wiring editor for the `flows.run` automation action.
  *
  * Claimed into the automation-plugin's `automation-action-editor` slot
- * (keyed by `config.actionId: "flows.run"`). The create-automation dialog
+ * (keyed by `config.actionId: "flows.run"`). The inline automation editor
  * renders it additively below the generic flow + task form.
  *
  * Reads the selected flow's declared `inputs:` schema read-only from
