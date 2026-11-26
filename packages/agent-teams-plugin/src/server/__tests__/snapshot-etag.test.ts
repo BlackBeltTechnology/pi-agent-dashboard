@@ -33,6 +33,8 @@ describe("If-None-Match (S22)", () => {
     expect(res.body.rev).toBe(rev);
     expect(res.body.viewerCanControl).toBe(true);
     expect(res.headers["cache-control"]).toContain("private");
+    // viewerCanControl is per viewer, the ETag is not: the answer must vary on the identity carriers
+    expect(String(res.headers.vary).toLowerCase()).toMatch(/authorization.*cookie/);
   });
 
   it("exact match → 304 with no body", async () => {

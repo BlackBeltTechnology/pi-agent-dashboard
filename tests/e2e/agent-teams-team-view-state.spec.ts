@@ -39,7 +39,7 @@ test("S92: disclosure, filter and focus survive a refresh; vanished member reset
   await page.getByRole("tab", { name: /Tasks/ }).click();
   await page.locator('[data-task="3"] [data-testid="team-task-toggle"]').click();
   await page.getByRole("tab", { name: /Messages/ }).click();
-  await page.getByLabel("Member").selectOption("bob");
+  await page.getByRole("combobox", { name: "Member", exact: true }).selectOption("bob");
   await page.getByRole("tab", { name: /Members/ }).click();
   const link = page.locator('[data-member="alice"] [data-testid="team-member-open-subagent"]');
   await link.focus();
@@ -57,12 +57,12 @@ test("S92: disclosure, filter and focus survive a refresh; vanished member reset
   await page.getByRole("tab", { name: /Tasks/ }).click();
   await expect(page.locator('[data-testid="team-board-section-in_progress"] [data-task="3"] [data-testid="team-task-details"]')).toContainText("details of three");
   await page.getByRole("tab", { name: /Messages/ }).click();
-  await expect(page.getByLabel("Member")).toHaveValue("bob");
+  await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveValue("bob");
 
   // bob leaves: the filter resets to "all" with an inline note.
   state.rev = 3;
   state.members = [{ name: "alice", status: "busy", sessionId: "S-alice" }];
   injector.send(changedFrame(sid, state.id, 3));
   await expect(page.getByTestId("team-log-vanished")).toContainText("bob left the team", { timeout: 15_000 });
-  await expect(page.getByLabel("Member")).toHaveValue("all");
+  await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveValue("all");
 });

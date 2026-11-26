@@ -21,16 +21,16 @@ import type { Ops } from "./ops.js";
 import type { TeamStore } from "./store.js";
 
 /** At most this many task ids are named in the stop notice, then "+N more". */
-export const STOP_NOTICE_MAX_IDS = 10;
+const STOP_NOTICE_MAX_IDS = 10;
 /** A busy member whose abort has not led to a settle after this long can be stopped again. */
-export const STOP_PENDING_MS = 15_000;
+const STOP_PENDING_MS = 15_000;
 /** The lead notice after a user shutdown (non-waking, no member names). */
-export const SHUTDOWN_NOTICE_TEXT = "team shut down by the user";
+const SHUTDOWN_NOTICE_TEXT = "team shut down by the user";
 
-export type StopOutcome = "ok" | "repeat" | "not_busy" | "not_connected" | "team_closed" | "not_found";
-export type ShutdownOutcome = "ok" | "repeat" | "team_closed";
+type StopOutcome = "ok" | "repeat" | "not_busy" | "not_connected" | "team_closed" | "not_found";
+type ShutdownOutcome = "ok" | "repeat" | "team_closed";
 
-export type ActionResult<T, O extends string> = { status: 200 | 202; body: T; outcome: O } | { status: 404 | 409; body: UiErrorBody; outcome: O };
+type ActionResult<T, O extends string> = { status: 200 | 202; body: T; outcome: O } | { status: 404 | 409; body: UiErrorBody; outcome: O };
 
 export interface UserActions {
   stopMember(team: Team, name: string): ActionResult<StopMemberResponse, StopOutcome>;

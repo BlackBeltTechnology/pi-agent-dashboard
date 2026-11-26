@@ -30,6 +30,7 @@ Files in this directory. One row per source file.
 | `team-header.test.tsx` | S37, S118, S121: control matrix (status × control × persist_degraded), notices, mode/parallel ids, Back. See change: add-agent-teams-ui. |
 | `team-view-harness.tsx` | Helper: scriptable fake server behind `fetch` (lookup, ETag/304, 404, POSTs), `mountView`, `flush`. See change: add-agent-teams-ui. |
 | `team-view-state.test.tsx` | S92: disclosure / filter / focus / tab survive a refetch; moved task keeps disclosure; vanished member resets the filter; cross-links. See change: add-agent-teams-ui. |
+| `team-view-remount.test.tsx` | S97: selected tab restored when the claim remounts under a different parent (shell layout swap). See change: add-agent-teams-ui. |
 | `team-view-states.test.tsx` | S38: loading (`aria-busy`), no team, not found, error ± cache, empty sections. See change: add-agent-teams-ui. |
 | `team-view-tabs.test.tsx` | S36: APG tablist keys, wrap, roving tabindex, panel wiring. See change: add-agent-teams-ui. |
 | `team-view-testids.test.tsx` | S121: change-5 `data-testid` contract, independent of language. See change: add-agent-teams-ui. |

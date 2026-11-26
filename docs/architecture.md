@@ -1817,7 +1817,7 @@ Package `packages/agent-teams-plugin/` (`@blackbelt-technology/pi-dashboard-agen
 - Entries:
   - bridge (`src/bridge/index.ts`): pi extension per session. CC-named tools. Mail → `pi.sendMessage` custom message (`customType` from `customTypeForKind`: `agent-teams-mail` default, `-idle`, `-notice`). Idle report on `agent_settled`. Teammate guards (`guard.ts`, `shell-guard.ts`).
   - server (`src/server/index.ts`): server-owned team store, `<dataDir>/teams/<id>.json` (`persistence.ts`). Request lane (`lane.ts`). Teammate spawn (`driver.ts`). Read REST routes (`routes.ts`).
-  - client (`src/client/index.tsx`): manifest registration + i18n only. No UI (change `add-agent-teams-ui`).
+  - client (`src/client/index.tsx`): eager exports only (`catalog`, `TeamBadge`, `isTeamSession`). UI claims lazy; see Team view below.
 - Lead + teammates = pi sessions. One team per lead session. No nested teams.
 - Server store = single source of truth: members, task list, mail log.
 - Lead-only tools: `TeamCreate`, `TeammateSpawn`, `TeamDelete`, `ShutdownRequest`, broadcast, urgent mail.
@@ -1829,6 +1829,52 @@ Package `packages/agent-teams-plugin/` (`@blackbelt-technology/pi-dashboard-agen
 - Security inventory: `docs/security/plugins-client-electron.md` (A2 + bundled table), `tool-call-guards.md`, `websocket-and-bridge.md`.
 - Seams used: `docs/plugin-seams.md` § Consumer: agent-teams.
 - See change: add-agent-teams-core
+
+### Agent Teams Team view (`add-agent-teams-ui`)
+
+Team view, mail cards, tool renderers, session badge: same plugin `agent-teams`. Owner rule + control tiers: [`security/plugins-client-electron.md`](security/plugins-client-electron.md) row A2.
+
+- Claims (`package.json` `pluginMeta.claims`):
+  - `session-card-badge` → `TeamBadge` (eager, predicate `isTeamSession`).
+  - `shell-overlay-route` → `TeamViewClaim` (lazy `src/client/TeamView.tsx`), path `/session/:sessionId/team`, `parentPath` `/session/:sessionId`, `presentation: content`.
+  - `custom-entry-renderer` → `MailEntryCard` for `agent-teams-mail`, `-idle`, `-notice`.
+  - `tool-renderer` ×11 → `TeamLifecycleToolRenderer` (TeamCreate, TeammateSpawn, TeamStatus, TeamDelete), `TeamMessageToolRenderer` (SendMessage), `TeamTaskToolRenderer` (TaskCreate/List/Get/Update), `TeamShutdownToolRenderer` (ShutdownRequest, ShutdownResponse).
+- Route `/session/:sessionId/team`: lead or teammate session id. Resolves via `GET /api/plugins/agent-teams/teams?sessionId=<id>`. Pick order: live over closed, then latest change, then smaller id.
+- Layout: header, then `Members · Tasks · Messages` tabs on every width (APG roving tabindex; ←/→ wrap; Home/End).
+  - Members: table ≥ `sm` (640 px), stacked cards below. Stop button: busy ∧ `viewerCanControl` ∧ team not `closing`/`closed`.
+  - Tasks: Pending · In progress · Completed sections ≥ `lg` (1024 px); grouped collapsible list below. Completed folded by default. Read-only.
+  - Messages: mail log (`MessageLog`).
+- Header: `Shut down team` iff `viewerCanControl` ∧ status ∈ {`starting`, `active`, `orphaned`}. Confirm via `ui:confirm-dialog`.
+- States: loading skeleton (`aria-busy`); `team-none` (unknown and invisible share copy); `team-not-found` (only after resolved 404); `team-error` + retry; stale notice over kept snapshot; closed banner.
+
+Live-state protocol:
+
+- Snapshot `GET /api/plugins/agent-teams/teams/:id` → `TeamUiSnapshot` = core `TeamSnapshot` + `epoch` + `viewerCanControl`.
+- `epoch`: `randomBytes(8)` hex, minted per server start (`server/epoch.ts`). Epoch change ⇒ refetch.
+- ETag strong `"<epoch>:<rev>"`; `Cache-Control: private, no-cache`. `If-None-Match` exact match ⇒ `304`, no body.
+- Frame `plugin_event`: `pluginId: agent-teams`, `sessionId: <lead>`, `eventType: agent-teams:changed`, `data: {teamId, epoch, rev, closed?}`. Content-free: ids + rev only.
+- Server coalesce (`server/ui-bridge.ts`): ≤1 frame per team per `CHANGED_COALESCE_MS` (1000), leading + trailing. Close = last frame, `closed: true`.
+- Client refetch (`client/teams-store.ts`): single-flight, conditional (`If-None-Match`).
+  - First use: immediate. Other triggers (frame, reconnect, tab visible): 500 ms debounce, 2000 ms max-wait.
+  - 60 s safety timer while visible. Hidden tab defers fetch.
+  - Frame stale iff epoch differs or `rev` greater. Frame during in-flight request ⇒ one follow-up.
+  - Failure keeps snapshot + stale flag. Retry 1 s, 2 s, 4 s, then 30 s.
+  - 429 honours `Retry-After` (delta-seconds or HTTP-date), clamped 1–120 s. No trigger shortens a wait.
+- Control POST (`stopMember`, `shutdownTeam`): client timeout 15 s, then refetch truth. Never auto-retried.
+- Lead stamp (`server/ui-bridge.ts`): `assignSessionRef(lead, {"agent-teams-lead": {teamId}})`; clear `{teamId: null}`. Written on diff only. Teammates keep core pluginRef key `agent-teams`.
+
+Access + controls:
+
+- `Team.owner` = `ownerKeyOf({iss, sub})` = `JSON.stringify([iss, sub])`. Set at create from host `principalOwner`; set at bind if unset.
+- `setRouteVisibility(canViewTeam)` at start. Registration failure ⇒ plugin refuses to start.
+- Invisible or unknown ⇒ `404 {"error":"not_found"}`, never 403. Hook throw or >1000 ms (`ROUTE_VISIBILITY_TIMEOUT_MS`) ⇒ fail closed.
+- Owner rule (`server/access.ts`): enforcement off ⇒ allow; no principal ⇒ deny; `urn:pi-dashboard:local-operator` ⇒ allow; else `team.owner === ownerKeyOf(principal)`; no owner ⇒ operator only.
+- `viewerCanControl` = owner rule only. Credential tier enforced by host gate (403).
+- `POST /api/plugins/agent-teams/teams/:id/members/:name/stop` (tier `control`, `route-tiers.ts:451`): 200 `{aborted:true}`; 409 `not_busy` / `not_connected`.
+- `POST /api/plugins/agent-teams/teams/:id/shutdown` (tier `control`, `route-tiers.ts:452`): 202 `{closing:true}`; 409 `team_closed`.
+- `?sessionId=`: 400 `bad_session_id` when repeated, `sessionId[]`, empty, NUL, or >128 chars.
+- Limits: read 8/s burst 16; POST writes 2/s burst 5. 429 ⇒ `rate_limited`.
+- See change: add-agent-teams-ui.
 
 ### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
 

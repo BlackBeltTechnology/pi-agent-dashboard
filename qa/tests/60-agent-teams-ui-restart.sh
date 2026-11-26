@@ -3,6 +3,8 @@
 # See change: add-agent-teams-ui (test-plan S53, L2 half; the L1 half is
 # packages/agent-teams-plugin/src/server/__tests__/epoch.test.ts).
 #
+#   S59  clean install, no team: `GET /teams?sessionId=` answers 200 with no team summary and
+#        the two user-action POSTs answer a JSON 404 for an unknown team (not HTML, not 500).
 #   S53  the snapshot `epoch` is constant within one server start and changes
 #        across a real restart; an ETag minted before the restart no longer
 #        answers 304 afterwards (200 with the full body), while the new ETag does.
@@ -16,7 +18,7 @@ set -euo pipefail
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-BASE="http://localhost:8000"
+BASE="${PI_QA_BASE:-http://localhost:8000}"
 API="$BASE/api/plugins/agent-teams"
 
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/health" 2>/dev/null || echo "000")
@@ -30,6 +32,26 @@ if ! echo "$LIST" | grep -q '"teams"'; then
   echo "SKIP: agent-teams plugin routes not available on this dashboard server"
   exit 0
 fi
+
+echo "=== Test: agent-teams UI (clean-install routes, S59) ==="
+S59=$(curl -s -w '\n%{http_code}' "$API/teams?sessionId=qa-no-such-session")
+S59_CODE=$(echo "$S59" | tail -1)
+S59_BODY=$(echo "$S59" | sed '$d')
+if [ "$S59_CODE" != "200" ] || ! echo "$S59_BODY" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const t=JSON.parse(s).teams;process.exit(Array.isArray(t)&&t.length===0?0:1)})'; then
+  echo "FAIL (S59): GET /teams?sessionId= for an unknown session did not answer 200 with an empty teams list (code $S59_CODE)"
+  exit 1
+fi
+for P in "teams/qa-no-such-team/shutdown" "teams/qa-no-such-team/members/nobody/stop"; do
+  OUT=$(curl -s -D - -o /tmp/s59-body.$$ -X POST -H 'content-type: application/json' -d '{}' "$API/$P" | tr -d '\r')
+  CODE=$(echo "$OUT" | sed -n '1s/^HTTP[^ ]* \([0-9]*\).*/\1/p')
+  if [ "$CODE" != "404" ] || ! echo "$OUT" | grep -qi '^content-type: application/json' || ! node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' /tmp/s59-body.$$; then
+    echo "FAIL (S59): POST $P answered $CODE (expected a JSON 404)"
+    rm -f /tmp/s59-body.$$
+    exit 1
+  fi
+done
+rm -f /tmp/s59-body.$$
+echo "PASS (S59): empty lookup, unknown-team POSTs answer a JSON 404"
 
 TEAM_ID=$(echo "$LIST" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const t=JSON.parse(s).teams;process.stdout.write(t&&t[0]?t[0].id:"")}catch{}})')
 if [ -z "$TEAM_ID" ]; then

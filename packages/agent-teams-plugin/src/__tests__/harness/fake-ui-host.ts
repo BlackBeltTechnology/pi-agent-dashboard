@@ -10,7 +10,7 @@
  * See change: add-agent-teams-ui.
  */
 
-export interface RecordedAssign {
+interface RecordedAssign {
   sessionId: string;
   ref: Record<string, unknown>;
   opts: { persist?: boolean } | undefined;

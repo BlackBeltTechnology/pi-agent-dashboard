@@ -8,7 +8,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `acme-dns01-certs.md` | ACME DNS-01 domain cert guide. See change: add-acme-dns01-certs. |
 | `acp-sessions.md` | ACP agent sessions: `acpAgents`/`acp.*` config, pi-vs-ACP matrix, hosts A/B, replay. → see `acp-sessions.md.AGENTS.md` |
 | `architecture-notes/worker-offload-roadmap.md` | Worker offload roadmap. Main-loop CPU + sync-fs work → worker_threads. → see `architecture-notes/worker-offload-roadmap.md.AGENTS.md` |
-| `architecture.md` | Full architecture reference (bridge + server + client, data flow, protocols). → see `architecture.md.AGENTS.md`. See change: harden-agent-tool-guards (Pi trust mirror section: no activation auto-trust outside dashboard trust, `not-covered` reason code). |
+| `architecture.md` | Full architecture reference (bridge + server + client, data flow, protocols). → see `architecture.md.AGENTS.md`. See change: harden-agent-tool-guards (Pi trust mirror section: no activation auto-trust outside dashboard trust, `not-covered` reason code). See change: add-agent-teams-ui (Team view + live-state section). |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. → see `biome.json.AGENTS.md` |
 | `blender-wasm.md` | Headless Blender via WASM. `packages/blender`, bin `pi-blender`, MCP `blender-wasm`. Node 24 JSPI. 5 tools. MEMFS sandbox. sha512 pin. See change: add-blender-wasm-mcp. |
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
@@ -63,7 +63,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `plugin-apps.md` | Plugin React apps embedded + standalone. `<EmbeddedApp>` (`./embedded-app`), `EmbeddedAppShellProvider`,… → see `plugin-apps.md.AGENTS.md` |
 | `plugin-claim-gates.md` | `predicate` vs `shouldRender` contract for plugin claims; slot-claims invalidation store; badge-gate rule; `shell-headless` slot. See change: auto-hide-empty-session-subcards, add-blackhole-session-pipeline, fix-empty-status-subcard. |
 | `plugin-intent-protocol.md` | Server-driven plugin UI. Plugins emit JSON intent trees; clients render via local primitive registry. → see `plugin-intent-protocol.md.AGENTS.md` |
-| `plugin-seams.md` | Plugin authoring guide. 3 seams (credentials store (encrypted at rest), ctx.oauth flow, bridge→server request lane), editor-pane-tab slot, pluginMeta, lazy claim `module`. → see `plugin-seams.md.AGENTS.md` |
+| `plugin-seams.md` | Plugin authoring guide. 3 seams (credentials store (encrypted at rest), ctx.oauth flow, bridge→server request lane), editor-pane-tab slot, pluginMeta, lazy claim `module`. → see `plugin-seams.md.AGENTS.md`. See change: add-agent-teams-ui (agent-teams UI seams). |
 | `plugin-ui-primitives.md` | Plugins access dashboard React primitives via runtime registry. `useUiPrimitive(key)` lookup. → see `plugin-ui-primitives.md.AGENTS.md` |
 | `pnpm-workspace.yaml` | (repo root) pnpm workspace + config source of truth (package.json `pnpm.*` ignored when this exists). → see `pnpm-workspace.yaml.AGENTS.md` |
 | `team-plugin.md` | Phase 1 AI Team. `packages/team-plugin` + `packages/team-app`. → see `team-plugin.md.AGENTS.md` |

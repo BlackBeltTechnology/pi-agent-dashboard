@@ -8,10 +8,10 @@
  */
 import type { Locator, Page } from "@playwright/test";
 
-export const TEAMS_API = "/api/plugins/agent-teams";
-export const EPOCH = "e2e-epoch";
+const TEAMS_API = "/api/plugins/agent-teams";
+const EPOCH = "e2e-epoch";
 
-export interface FixtureMember {
+interface FixtureMember {
   name: string;
   status: string;
   cwd?: string;
@@ -53,7 +53,7 @@ export interface TeamState {
 }
 
 /** The server's snapshot JSON for a fixture state (every optional field filled in). */
-export function snapshotJson(s: TeamState): Record<string, unknown> {
+function snapshotJson(s: TeamState): Record<string, unknown> {
   return {
     id: s.id,
     name: s.name,

@@ -10,7 +10,8 @@
  * - no `@mdi` import anywhere in the eager closure (entry + badge + routes + refs);
  * - the lazy modules are not imported from the eager closure.
  * `packages/client/src/__tests__/mdi-chunk-size.test.ts` keeps guarding the real
- * built chunk WITHOUT a raised cap (build-conditional, runs in CI).
+ * built chunk (cap raised once to 630 KiB by owner decision; build-conditional, runs in CI).
+ * @structural-pin reads the eager entry/badge/routes sources: the absence of `@mdi` and lazy-module imports is the contract under test
  * See change: add-agent-teams-ui.
  */
 import fs from "node:fs";

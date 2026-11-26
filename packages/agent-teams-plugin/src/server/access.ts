@@ -53,4 +53,5 @@ export function activateAccess(access: TeamAccess): void {
 
 /** Shared by every team-scoped route; registered with core's `setRouteVisibility`. */
 export const canViewTeam = (team: Team, request: unknown): boolean => active.canViewTeam(team, request);
+/** @public exported for later team routes (design D7) */
 export const canControlTeam = (team: Team, request: unknown): boolean => active.canControlTeam(team, request);

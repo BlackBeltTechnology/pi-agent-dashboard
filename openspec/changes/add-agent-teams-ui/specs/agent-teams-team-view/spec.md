@@ -166,7 +166,7 @@ Open disclosures, filters, scroll position and focus SHALL be keyed by stable id
 
 ### Requirement: Layout adapts and stays reachable
 
-On narrow viewports the sections SHALL be a tablist (Members, Tasks, Messages) with roving tabindex and arrow, Home and End keys; on wide viewports the sections SHALL be visible together. The route SHALL bound its height with an inner scroller and SHALL NOT occlude any interactive element with its close or back control.
+The sections SHALL be a tablist (Members, Tasks, Messages) on every viewport width (owner decision of the mock loop, tabs-everywhere), with roving tabindex and arrow, Home and End keys; exactly one panel is visible at a time and the selected tab SHALL survive a resize. The route SHALL bound its height with an inner scroller and SHALL NOT occlude any interactive element with its close or back control.
 
 #### Scenario: Keyboard tabs
 - **WHEN** focus is on the Tasks tab on a narrow viewport and the user presses ArrowRight

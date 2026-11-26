@@ -32,13 +32,13 @@ export interface UiEnvOptions extends TeamsEnvOptions {
   principalThrows?: boolean;
 }
 
-export interface FakeIdentity extends AccessIdentity {
+interface FakeIdentity extends AccessIdentity {
   enforced: boolean;
   principalThrows: boolean;
 }
 
 /** `x-principal` → principal (`local` = the reserved break-glass operator). */
-export function principalFromHeader(value: unknown): { iss: string; sub: string } | null {
+function principalFromHeader(value: unknown): { iss: string; sub: string } | null {
   if (typeof value !== "string" || value === "") return null;
   if (value === "local") return { iss: LOCAL_OPERATOR_ISSUER, sub: "local-operator" };
   const at = value.indexOf("|");

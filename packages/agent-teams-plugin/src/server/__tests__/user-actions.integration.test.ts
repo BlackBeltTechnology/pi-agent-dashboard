@@ -3,12 +3,14 @@
  * engine + notice coalescer, injected clock, fake host): the lead notices, the
  * settle race, restart, orphaned teams and the lead-wake cost (test-plan S24,
  * S26, S41, S43, S56, S70, S82, S116, S117, S123).
- * The faux-pi half of S116 (a real 10 s `bash` tool) is not asserted here: the
- * handler contract it checks (answers without waiting, abort at dispatch) is.
+ * S116 has both halves: the handler contract on the fake host, and a REAL faux
+ * `pi --mode rpc` teammate inside a long `bash` tool run (`harness/real-pi-link.ts`).
  * See change: add-agent-teams-ui.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fauxPiAvailable, startRealPiLink } from "../../__tests__/harness/index.js";
 import { createUiEnv, type UiEnv, type UiEnvOptions } from "../../__tests__/harness/ui-env.js";
+import { systemClock } from "../../shared/clock.js";
 import type { Mail, Team } from "../../shared/types.js";
 
 /** The `details.items` of a coalesced notice mail (empty when absent). */
@@ -310,6 +312,63 @@ describe("stop abort failure (S116, handler half)", () => {
     e.fake.base.onAbort(() => true);
     expect((await e.post(stopUrl(team, "alice"))).status).toBe(200);
   });
+});
+
+// Real faux pi: the teammate is inside `sleep 30` (`agent-teams-teammate-sleep`, the S14 scenario; a
+// bare `sleep` would trip the sleep-poll guard). Real clock: the process and the notice coalescer run
+// on wall time. Nothing here waits on the 30 s: the Stop must answer while the tool still runs.
+describe.skipIf(!fauxPiAvailable())("stop abort failure (S116, real faux pi)", () => {
+  it("Stop answers while the real bash tool runs and aborts it at dispatch; a refused dispatch is 409 not_connected and leaves the tool running", async () => {
+    const e = await mk({ runtime: { clock: systemClock } });
+    const link = await startRealPiLink(e);
+    try {
+      const team = await e.createTeam();
+      expect(await e.call("lead", "TeammateSpawn", { name: "bob", prompt: "[[faux:agent-teams-teammate-sleep]] run the long job" })).toMatchObject({ ok: true });
+      const [bob] = await link.started();
+      if (!bob) throw new Error("no teammate process was started");
+      await bob.proc.waitFor((r) => r.type === "tool_execution_start" && r.toolName === "bash", 40_000);
+      const task = e.rt.store.addTask(team.id, { title: "sleep 30", description: "d", createdBy: "lead", owner: "bob" });
+      e.rt.store.patchTask(team.id, task?.id as string, { status: "in_progress" });
+      expect(e.member(team, "bob")).toMatchObject({ status: "busy" });
+      const recs = bob.proc.records;
+      const toolEnded = (): boolean => recs.some((r) => r.type === "tool_execution_end" && r.toolName === "bash");
+
+      // Abort never dispatched → 409 not_connected; the real tool is untouched, no notice, task kept.
+      e.fake.base.onAbort(() => false);
+      const refused = await e.post(stopUrl(team, "bob"));
+      expect(refused.status).toBe(409);
+      expect(refused.body).toEqual({ error: "not_connected" });
+      expect(bob.aborts).toBe(0); // nothing reached the process
+      expect(toolEnded()).toBe(false);
+      expect(stopNotices(e, team)).toEqual([]);
+
+      // Abort dispatched: the answer is immediate (the tool has 30 s to go and is still running at that moment).
+      e.fake.base.onAbort(link.hostAbort);
+      const t0 = Date.now();
+      const res = await e.post(stopUrl(team, "bob"));
+      const answeredAfter = Date.now() - t0;
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ aborted: true });
+      expect(answeredAfter).toBeLessThan(1000); // the handler budget: it never waits for the tool
+      expect(bob.aborts).toBe(1); // dispatched with the request
+      expect(e.fake.base.aborts).toEqual([bob.currentSessionId(), bob.currentSessionId()]);
+
+      // The member's tool run really is aborted, the run ends `aborted`, and nothing is claimed or released.
+      const toolEnd = await bob.proc.waitFor((r) => r.type === "tool_execution_end" && r.toolName === "bash", 10_000);
+      expect(toolEnd.isError).toBe(true);
+      const agentEnd = await bob.proc.waitFor((r) => r.type === "agent_end", 10_000);
+      const last = ((agentEnd.messages ?? []) as Array<{ role?: string; stopReason?: string }>).filter((m) => m.role === "assistant").pop();
+      expect(last?.stopReason).toBe("aborted");
+      await vi.waitFor(() => expect(e.member(team, "bob")).toMatchObject({ status: "idle", lastSettleId: 1 }), { timeout: 5_000 });
+      expect(team.tasks.map((t) => [t.status, t.owner])).toEqual([["in_progress", "bob"]]);
+      // One lead notice for the Stop (coalesced on the real clock); the aborted settle adds none.
+      await vi.waitFor(() => expect(stopNotices(e, team)).toHaveLength(1), { timeout: 6_000 });
+      expect(notices(e, team)).toHaveLength(1);
+      expect(stopNotices(e, team)[0]?.wake).toBe(true);
+    } finally {
+      await link.close();
+    }
+  }, 60_000);
 });
 
 describe("orphaned team (S117)", () => {

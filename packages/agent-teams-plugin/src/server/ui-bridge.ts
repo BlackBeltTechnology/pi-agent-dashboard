@@ -32,10 +32,10 @@ import type { Logger } from "./types.js";
 import type { UiCounters } from "./ui-counters.js";
 
 /** A stamp that failed is not retried on a plain `change` for this long (structural events always retry). */
-export const STAMP_RETRY_MS = 2000;
+const STAMP_RETRY_MS = 2000;
 
 /** The `ServerPluginContext` members the bridge drives. */
-export interface UiBridgeHost {
+interface UiBridgeHost {
   broadcastToSubscribers(msg: unknown): void;
   assignSessionRef(sessionId: string, ref: Record<string, unknown>, opts?: { persist?: boolean }): boolean;
 }
@@ -144,7 +144,10 @@ export function createUiBridge(deps: UiBridgeDeps): UiBridge {
   function reconcileStamp(sessionId: string): void {
     const desired = liveTeamLedBy(sessionId)?.id ?? null;
     const current = stamped.get(sessionId) ?? null;
-    if (desired === current) return;
+    if (desired === current) {
+      failedAt.delete(sessionId);
+      return;
+    }
     let ok = false;
     try {
       ok = host.assignSessionRef(sessionId, { [LEAD_STAMP_KEY]: { teamId: desired } }, { persist: true });

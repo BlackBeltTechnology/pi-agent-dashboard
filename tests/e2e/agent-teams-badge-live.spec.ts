@@ -25,7 +25,12 @@ test.describe("agent-teams session badge, live", () => {
     await expect(badge).toHaveAccessibleName("Open team view, Lead");
 
     // Keyboard: the badge is a link in the tab order with a visible focus ring.
+    // Reach it with real key presses: `:focus-visible` (the host `focus-ring`) never
+    // matches a script-only `.focus()` after pointer input.
     await badge.focus();
+    await page.keyboard.press("Shift+Tab");
+    await expect(badge).not.toBeFocused();
+    await page.keyboard.press("Tab");
     await expect(badge).toBeFocused();
     const outline = await badge.evaluate((el) => getComputedStyle(el).outlineStyle + getComputedStyle(el).boxShadow);
     expect(outline).not.toMatch(/^none(none)?$/);

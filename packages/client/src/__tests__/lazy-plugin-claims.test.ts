@@ -31,6 +31,13 @@ const EAGER_SLOTS = new Set([
   "login-provider",
 ]);
 
+/**
+ * Narrow exceptions to the hot-slot rule: `pluginId:slot` pairs whose card is deliberately lazy because the
+ * host `CustomEntryRow` renders the generic card as the Suspense fallback (no empty gap) and eager would cost
+ * ~4 KB gz in the cold chunk. See change: add-agent-teams-ui (design D9, owner decision 2026-11-26).
+ */
+const HOT_SLOT_LAZY_EXCEPTIONS = new Set(["agent-teams:custom-entry-renderer"]);
+
 const isLazy = (c: unknown): boolean => (c as { $$typeof?: symbol } | undefined)?.$$typeof === REACT_LAZY;
 
 describe("heavy plugin claims are lazy", () => {
@@ -62,7 +69,7 @@ describe("heavy plugin claims are lazy", () => {
   it("hot-slot claims never name a module (no suspense gap in cards / composer / chat history)", () => {
     const offenders = PLUGIN_REGISTRY.flatMap((entry) =>
       entry.manifest.claims
-        .filter((c) => c.module && EAGER_SLOTS.has(c.slot))
+        .filter((c) => c.module && EAGER_SLOTS.has(c.slot) && !HOT_SLOT_LAZY_EXCEPTIONS.has(`${entry.manifest.id}:${c.slot}`))
         .map((c) => `${entry.manifest.id}:${c.slot}:${c.component}`),
     );
     expect(offenders).toEqual([]);

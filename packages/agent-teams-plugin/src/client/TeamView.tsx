@@ -70,6 +70,18 @@ function StateFrame({ onBack, children }: { onBack: () => void; children: ReactE
   );
 }
 
+/**
+ * Selected tab per team, kept beside the store (not in component state): the shell swaps its
+ * layout tree across the mobile breakpoint, which remounts this claim, and the selected tab
+ * SHALL survive that resize. Keyed by store so test stores stay isolated.
+ */
+const tabMemory = new WeakMap<TeamsStore, Map<string, TeamTab>>();
+function rememberedTabs(store: TeamsStore): Map<string, TeamTab> {
+  let m = tabMemory.get(store);
+  if (!m) tabMemory.set(store, (m = new Map()));
+  return m;
+}
+
 interface ReadyProps {
   snap: TeamUiSnapshot;
   stale: boolean;
@@ -81,19 +93,32 @@ interface ReadyProps {
 function ReadyView({ snap, stale, sessionId, store, onBack }: ReadyProps): ReactElement {
   const t = useViewT();
   const controls = useTeamControls(snap.id, store);
-  const [tab, setTab] = useState<TeamTab>("members");
+  const [tab, setTabState] = useState<TeamTab>(() => rememberedTabs(store).get(snap.id) ?? "members");
+  const setTab = useCallback(
+    (next: TeamTab) => {
+      rememberedTabs(store).set(snap.id, next);
+      setTabState(next);
+    },
+    [store, snap.id],
+  );
   const [ownerFilter, setOwnerFilter] = useState<string | undefined>();
   const [focus, setFocus] = useState<{ id: string; nonce: number } | undefined>();
   const viewedFrom = snap.members.find((m) => m.sessionId === sessionId)?.name;
 
-  const focusTask = useCallback((id: string) => {
-    setTab("tasks");
-    setFocus((f) => ({ id, nonce: (f?.nonce ?? 0) + 1 }));
-  }, []);
-  const showMemberTasks = useCallback((name: string) => {
-    setOwnerFilter(name);
-    setTab("tasks");
-  }, []);
+  const focusTask = useCallback(
+    (id: string) => {
+      setTab("tasks");
+      setFocus((f) => ({ id, nonce: (f?.nonce ?? 0) + 1 }));
+    },
+    [setTab],
+  );
+  const showMemberTasks = useCallback(
+    (name: string) => {
+      setOwnerFilter(name);
+      setTab("tasks");
+    },
+    [setTab],
+  );
   const clearFilter = useCallback(() => setOwnerFilter(undefined), []);
 
   const counts = { members: snap.members.length, tasks: snap.tasks.length, messages: typeof snap.mailTotal === "number" ? snap.mailTotal : snap.mail.length };

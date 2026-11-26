@@ -38,6 +38,9 @@ test.describe("Team view layout", () => {
     }
     for (const [width, min] of [[639, 44], [640, 24]] as const) {
       await page.setViewportSize({ width, height: 900 });
+      // the shell remounts the claim at the mobile breakpoint: wait for the ready view before measuring
+      await expect(page.getByRole("tablist", { name: "Team sections" })).toBeVisible();
+      await expect(page.getByTestId("team-panel-members")).toBeVisible();
       const boxes = await buttonBoxes(page.getByTestId("team-view"));
       expect(boxes.length).toBeGreaterThan(3);
       const small = boxes.filter((b) => b.h < min).map((b) => `${b.name} ${b.w}×${b.h}`);
@@ -49,8 +52,11 @@ test.describe("Team view layout", () => {
     test.setTimeout(120_000);
     const token = "x".repeat(400);
     const fifty: FixtureTask[] = Array.from({ length: 50 }, (_, i) => ({ id: String(i + 1), title: i === 0 ? token : `Task ${i + 1}`, status: "pending" }));
-    await page.setViewportSize({ width: 320, height: 640 });
+    // the session card lives in the sidebar, which is collapsed at 320 px: open at desktop width, then narrow
+    await page.setViewportSize({ width: 1440, height: 900 });
     await open(page, { tasks: fifty, members: [{ name: "alice", status: "busy", role: token }], mail: [{ id: 1, from: "alice", to: "lead", text: token }] });
+    await page.setViewportSize({ width: 320, height: 640 });
+    await expect(page.getByRole("tablist", { name: "Team sections" })).toBeVisible();
     for (const tab of [/Members/, /Tasks/, /Messages/]) {
       await page.getByRole("tab", { name: tab }).click();
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

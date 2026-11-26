@@ -109,7 +109,8 @@ export async function startRealPiLink(env: TeamsEnv, opts: RealPiLinkOptions = {
     waiters.get(e.sessionId)?.();
   });
 
-  env.fake.base.onAbort((sessionId) => {
+  /** The host's abort of one linked session; installed on the env, and exported so a test can restore it after scripting a refusal. */
+  const hostAbort = (sessionId: string): boolean => {
     const lp = bySession.get(sessionId);
     if (!lp) return false;
     const abort = (): void => {
@@ -129,7 +130,8 @@ export async function startRealPiLink(env: TeamsEnv, opts: RealPiLinkOptions = {
     }, PERSISTENT_ABORT_MS);
     timers.add(timer);
     return true;
-  });
+  };
+  env.fake.base.onAbort(hostAbort);
 
   /** Long-poll: answer at once when events are queued, else hold the request until one is (or `POLL_HOLD_MS`). */
   function holdEvents(sessionId: string, res: http.ServerResponse, send: (data: unknown) => void): void {
@@ -260,6 +262,8 @@ export async function startRealPiLink(env: TeamsEnv, opts: RealPiLinkOptions = {
     url,
     /** Every lane request the processes made, with the server's reply, in arrival order. */
     requests,
+    /** The host-abort model wired into `env.fake.base.onAbort` (re-install it after scripting a refusal). */
+    hostAbort,
     /** Teammates started so far (resolve once each process is running). */
     started: (): Promise<LinkedPi[]> => Promise.all(started),
     /** Resolve once `lp` has registered `n` session ids (default 1). */

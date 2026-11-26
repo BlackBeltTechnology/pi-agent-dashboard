@@ -158,7 +158,7 @@ Both log a structured outcome (ids only) and are exposed in the UI only when `vi
 **Alternatives:** everything eager — simplest, risks the cap that develop already sits near; everything lazy including the badge — contradicts "keep badges … eager" (a suspense gap on every card render).
 
 ### D10 — Layout, responsiveness, keyboard and ARIA
-- **Desktop (≥ `lg`)**: header; a members region; below it a two-column area — task board and message log. **Narrow**: a `role="tablist"` of Members · Tasks · Messages (roving tabindex, ←/→/Home/End, `aria-controls`, panels `role="tabpanel"` labelled by their tab), one panel visible. Exact arrangement is decided in the mock loop (§1) between the desktop three-region layout and tabs-everywhere; both must pass the same rules below.
+- **All widths (owner decision, mock loop §1.9: variant B, tabs everywhere)**: header, then a `role="tablist"` of Members · Tasks · Messages (roving tabindex, ←/→/Home/End, `aria-controls`, panels `role="tabpanel"` labelled by their tab), one panel visible. Decided in the mock loop: tabs everywhere (the three-region desktop variant was rejected); members render as a table, the board as a grouped list on narrow widths.
 - **Members grid**: a `<ul>` of cards (not `role="grid"`; no cell navigation needed); each card: name, role, status (glyph + text + pill state, `status-map.ts`), model, current task (`#id title`, link-style button that scrolls/focuses the task card), cwd (relative to lead cwd when inside it), degraded notice, `Open session` link, `Stop` button when `busy && viewerCanControl`.
 - **Task board**: three `<section aria-labelledby>` lists (Pending · In progress · Completed) with counts; cards show id, title, owner chip, dependency chips ("waits for #2 — pending"/"unblocked"), derived `blocked` flag as text, description and result in a disclosure (`<button aria-expanded>`, text plain). Read-only: no drag-and-drop, so no pointer-only interaction exists.
 - **Message log**: chronological list (`role="log"`, `aria-live="off"` — the throttled live region below announces instead), filter by member (`<select>`) and "urgent only"; rows `from → to`, kind label, time, text bounded to 400 chars with a per-row disclosure, markers "urgent" and "not yet acknowledged" (`ackedAt` absent). Auto-follow newest only while scrolled to the end; otherwise a "New messages" button.
@@ -301,6 +301,8 @@ Open host-policy conflict (parent / owner): `packages/client/src/__tests__/lazy-
 - **Lead is told of a user shutdown without a turn (B30):** a lead that needs to report back must be asked by the user.
 
 - **Cold-chunk cap raised 629 → 630 KiB (owner decision, 2026-11-26):** the 16 generated claim rows cost +856 B gz against 737 B of headroom; the eager catalog itself is +46 B. Consequence: the mock's "eager mail card" choice is not affordable and the card stays lazy (task 10.4 re-measures).
+
+- **Client store keeps idle snapshots (audit 10.5, non-blocking):** `teams-store.ts` retains one snapshot per team/session ever watched in the tab (each ≤ 384 KiB); a tab opening dozens of teams grows accordingly. No eviction yet; revisit if it shows up in practice.
 
 ## Open Questions
 

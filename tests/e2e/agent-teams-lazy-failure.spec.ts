@@ -2,6 +2,10 @@ import { expect, test } from "./fixtures.js";
 import { routed, routeTeams, sessionIdOf, teamState, teamViewUrl } from "./helpers/agent-teams.js";
 import { spawnFreshGitSession } from "./helpers/index.js";
 
+// The dashboard's /sw.js controls the second `page.goto` and fetches `/assets/*` itself, which
+// `page.route` never sees — so the chunk abort would be a no-op. Block it (cf. retro-ux-chat-rendering).
+test.use({ serviceWorkers: "block" });
+
 /**
  * L3 — lazy chunk failure (change: add-agent-teams-ui, task 14.3, test-plan S85).
  * `page.route` aborts the Team view chunk: the route shows the host overlay failure
