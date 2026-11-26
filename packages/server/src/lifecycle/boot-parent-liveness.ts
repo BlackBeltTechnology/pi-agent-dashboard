@@ -18,9 +18,10 @@
  *     held). Falls back to Tier 1 on any failure (koffi load, null handle,
  *     denied access). Never throws.
  *
- * `readLivePpid()` returns the server's LIVE parent PID (reparenting-aware) —
- * NOT `process.ppid`, which Node caches on first access and would stay pinned
- * to the original (now-dead) parent forever.
+ * `readLivePpid()` returns the server's LIVE parent PID (reparenting-aware).
+ * On Node 26 `process.ppid` is itself live (re-read per access, follows
+ * reparenting — pinned by `boot-parent-liveness-no-spawn.test.ts`), so the
+ * reader never forks a subprocess on the `/api/health` hot path.
  *
  * Supported-Node floor: koffi 3.x targets N-API 8 (Node >= 16). The bundled
  * server runtime (Node 26, `BUNDLED_NODE_VERSION`) and the package `engines`
@@ -31,7 +32,6 @@
  * See change: electron-attach-ownership-fixes.
  */
 
-import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { isProcessAlive, signalZero, type KillFn } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
@@ -176,25 +176,10 @@ const readLivePpidImpl: () => number = (() => {
       }
     };
   }
-  if (process.platform === "darwin") {
-    return () => {
-      try {
-        // macOS has no /proc; `ps` is the live-ppid source. execFileSync (no
-        // shell) + a hard timeout so a stalled `ps` can never block the
-        // single-threaded Fastify event loop on the health hot path.
-        const out = execFileSync("ps", ["-o", "ppid=", "-p", String(process.pid)], {
-          encoding: "utf-8",
-          timeout: 1000,
-        });
-        const ppid = Number.parseInt(out.trim(), 10);
-        return Number.isFinite(ppid) ? ppid : process.ppid;
-      } catch {
-        return process.ppid;
-      }
-    };
-  }
-  // Windows (and any other platform): Windows never reparents, so the cached
-  // getter is correct; zombie detection uses bootParentAlive there.
+  // macOS, Windows and any other platform: `process.ppid` is a live getter.
+  // macOS previously forked a synchronous `ps` here — measured 1–4 s
+  // event-loop stalls per /api/health request under load. Windows never
+  // reparents; zombie detection uses bootParentAlive there.
   return () => process.ppid;
 })();
 
