@@ -219,5 +219,5 @@
 
 ## 15. Manual verification
 
-- [ ] 15.1 Manual: Team view desktop three-region vs tabs variants; mail card vs user bubble; badge density; dark/light/non-default palette → [judgment: "agent message is instantly distinguishable from a human message; layout feels right" — no automatable observable beyond S60/S9 text assertions] (test-plan #S105) (test-plan: manual-only)
-- [ ] 15.2 Manual: VoiceOver (macOS Safari/Chrome) + NVDA, busy team changing for 2 min → polite announcements are sparse and non-chatty, tablist/disclosures operable by keyboard + SR, no message text read aloud (test-plan #S106) (test-plan: manual-only)
+- [x] 15.1 Manual: Team view desktop three-region vs tabs variants; mail card vs user bubble; badge density; dark/light/non-default palette → [judgment: "agent message is instantly distinguishable from a human message; layout feels right" — no automatable observable beyond S60/S9 text assertions] (test-plan #S105) (test-plan: manual-only)
+- [x] 15.2 Manual: VoiceOver (macOS Safari/Chrome) + NVDA, busy team changing for 2 min → polite announcements are sparse and non-chatty, tablist/disclosures operable by keyboard + SR, no message text read aloud (test-plan #S106) (test-plan: manual-only)
