@@ -31,6 +31,10 @@ FIXTURE_DIR="$REPO_ROOT/qa/fixtures"
 # shellcheck source=dist-only-lib.sh
 . "$HERE/dist-only-lib.sh"
 
+# Hermetic: a developer shell inside a pi session exports PI_DASHBOARD_SOCKET/URL/SESSION_ID..., which would
+# make the faux pi sessions below register with THAT dashboard instead of the one under test.
+for v in $(compgen -e | grep -E '^(PI_|DASHBOARD_STARTER$)' || true); do unset "$v"; done
+
 SECTIONS="${QA_TEMPLATES_SECTIONS:-install restart soak}"
 want() { case " $SECTIONS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
@@ -204,20 +208,27 @@ PLUGIN_ID="agent-teams"
 API_PATH="/api/plugins/$PLUGIN_ID"
 
 # ── install (#I2) ──────────────────────────────────────────────────────────────
-expect_route() {  # <METHOD> <path> <body|-> <status> <json error code>
-  local method="$1" path="$2" body="$3" status="$4" code="$5" out got
-  if [ "$body" = "-" ]; then out=$(api "$method" "$API_PATH$path"); else out=$(api "$method" "$API_PATH$path" "$body"); fi
-  got=$(api_code)
-  [ "$got" = "$status" ] || do_fail "$method $path answered $got, expected $status (body: $out)"
+# A bare curl is refused by the strict `requireLocalProof` default, so every REST call goes through
+# `pi-dashboard api` (mints local proof). It exits 0 on 2xx (body on stdout), 1 otherwise (body on stderr) and
+# does not print the status line: a route answer is therefore checked as "non-2xx + the route's own JSON error
+# code" (the codes are route-specific, so an unregistered route — which answers a different error — still fails).
+expect_route() {  # <METHOD> <path> <body|-> <status class label> <json error code>
+  local method="$1" path="$2" body="$3" status="$4" code="$5" out rc=0
+  if [ "$body" = "-" ]; then out=$(do_cli api "$method" "$API_PATH$path" --port "$PORT" 2>&1) || rc=$?
+  else out=$(do_cli api "$method" "$API_PATH$path" --data "$body" --port "$PORT" 2>&1) || rc=$?; fi
+  [ "$rc" = "1" ] || do_fail "$method $path: pi-dashboard api exited $rc, expected 1 (a $status answer) (output: $out)"
   [ "$(printf '%s' "$out" | jx 'j.error')" = "$code" ] || do_fail "$method $path answered {error:$(printf '%s' "$out" | jx 'j.error')}, expected $code — is the route registered? (body: $out)"
 }
 
 plugin_manifest_json() {
-  BIN_DIR="$BIN_DIR" node -e '
+  # Walks up from the real bin path (an installed layout). A bin that is only a shim outside any install (a
+  # dry run against a checkout) falls back to the checkout the shim runs: $REPO_ROOT/packages/agent-teams-plugin.
+  BIN_DIR="$BIN_DIR" REPO_ROOT="$REPO_ROOT" node -e '
     const fs = require("fs"), path = require("path");
     let dir = path.dirname(fs.realpathSync(path.join(process.env.BIN_DIR, "pi-dashboard")));
     const roots = [];
     for (let d = dir; d !== path.dirname(d); d = path.dirname(d)) roots.push(d);
+    roots.push(process.env.REPO_ROOT);
     for (const d of roots) {
       for (const p of [path.join(d, "node_modules/@blackbelt-technology/pi-dashboard-agent-teams-plugin"), path.join(d, "@blackbelt-technology/pi-dashboard-agent-teams-plugin"), path.join(d, "packages/agent-teams-plugin")]) {
         if (fs.existsSync(path.join(p, "package.json"))) { process.stdout.write(JSON.stringify({ dir: p, pkg: JSON.parse(fs.readFileSync(path.join(p, "package.json"), "utf8")) })); process.exit(0); }
@@ -231,12 +242,12 @@ run_install() {
   wait_until 60 "the $PLUGIN_ID plugin row to report loaded" row_has "$PLUGIN_ID" 'r.status && r.status.loaded===true && !r.status.error'
   echo "row: loaded:true, no error"
 
-  expect_route GET "/templates" - 400 cwd_required
-  expect_route GET "/teams/qa-none/plans" - 404 not_found
-  expect_route POST "/teams/start" '{}' 400 cwd_required
-  expect_route POST "/teams/qa-none/members/x/plan-decision" '{}' 404 not_found
-  expect_route POST "/hook-trust" '{}' 400 cwd_required
-  expect_route DELETE "/hook-trust" - 400 cwd_required
+  expect_route GET "/templates" - 4xx cwd_required
+  expect_route GET "/teams/qa-none/plans" - 4xx not_found
+  expect_route POST "/teams/start" '{}' 4xx cwd_required
+  expect_route POST "/teams/qa-none/members/x/plan-decision" '{}' 4xx not_found
+  expect_route POST "/hook-trust" '{}' 4xx cwd_required
+  expect_route DELETE "/hook-trust" - 4xx cwd_required
   echo "routes: the six templates-hooks routes answer their own JSON errors"
 
   local found claims
@@ -298,9 +309,15 @@ const BASE = process.env.QA_BASE;
 const TIMEOUT_MS = 120000;
 const procs = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const dirs = [];
 function finish(code, msg) {
   console.log(msg);
+  // Teammates are spawned by the server, not by us: kill every session this run created, then the leads we launched.
+  try {
+    for (const s of api("GET", "/api/sessions") || []) if (dirs.includes(s.cwd) && s.pid) { try { process.kill(s.pid, "SIGKILL"); } catch {} }
+  } catch { /* the server is down or restarting: best effort */ }
   for (const p of procs) { try { p.kill("SIGKILL"); } catch {} }
+  for (const d of dirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} }
   process.exit(code);
 }
 const fail = (m) => finish(1, "FAIL: " + m);
@@ -320,8 +337,21 @@ async function waitFor(pred, what, timeoutMs = TIMEOUT_MS) {
   }
   fail("timed out waiting for " + what + (last ? " (last error: " + last.message + ")" : ""));
 }
-const mkDir = (label) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-teams-tpl-" + label + "-")));
+const mkDir = (label) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-teams-tpl-" + label + "-"))); dirs.push(d); return d; };
 const sessionsIn = (cwd) => (api("GET", "/api/sessions") || []).filter((s) => s.cwd === cwd && s.status !== "ended");
+// "Quiet": not streaming and no session activity for 3 s. After a server restart a restored session reports `active`
+// (not `idle`) until its next run boundary, so the status alone cannot say the lead is free.
+async function settleIdle(cwd, sessionId) {
+  const read = () => sessionsIn(cwd).find((x) => x.id === sessionId);
+  let since = Date.now();
+  let last = (read() || {}).lastActivityAt;
+  await waitFor(async () => {
+    const s = read();
+    if (!s) return false;
+    if (s.status === "streaming" || s.lastActivityAt !== last) { last = s.lastActivityAt; since = Date.now(); return false; }
+    return Date.now() - since >= 3000;
+  }, "the lead session to go quiet");
+}
 function launchPi(cwd) {
   const child = spawn("pi", ["--mode", "rpc", "--model", "faux/faux-1"], { cwd, env: { ...process.env, FAUX_SCRIPT: "plain-text" }, stdio: ["pipe", "ignore", "inherit"] });
   child.on("error", (e) => fail("pi spawn error: " + e.message));
@@ -352,6 +382,10 @@ async function midRun() {
   // The goal carries the faux sentinel: the spawned members (and the playbook turn) answer plain text.
   lead.prompt("/agent-team start qa-squad [[faux:plain-text]] qa run");
   const team = await waitFor(() => { const t = teamOf(cwd); return t && names(t).join() === "alice,bob" && t.members.every((m) => m.status === "idle") ? t : undefined; }, "the team with two idle eager members");
+  // Both members going idle wakes the lead with a coalesced "idle" notice; an RPC prompt that lands while that turn
+  // runs is refused. Wait for the notice, then for the lead to be idle and stay idle, before sending the next prompt.
+  await waitFor(() => (snapOf(team.id).mail || []).some((m) => m.kind === "notice" && m.ackedAt), "the lead to receive the members-idle notice");
+  await settleIdle(cwd, team.leadSessionId);
   lead.prompt("[[faux:agent-teams-lead-task]] go");
   await waitFor(() => (snapOf(team.id).stats || {}).hook_blocks >= 1, "the TaskCreated hook to block the lead task");
   const before = snapOf(team.id);
@@ -369,6 +403,7 @@ async function midRun() {
   if (after.mail.some((m) => m.kind === "playbook")) fail("D12: a command-path team received a playbook mail after the restart");
   const live = sessionsIn(cwd).length;
   if (live !== 3) fail("D12: expected lead + 2 members (3 sessions) in the folder, found " + live + " (eager members spawned again?)");
+  await settleIdle(cwd, after.leadSessionId);
   lead.prompt("[[faux:agent-teams-lead-task]] go");
   await waitFor(() => (snapOf(team.id).stats || {}).hook_blocks >= 1, "the frozen hook to block after the restart although the file no longer has it");
   if (snapOf(team.id).tasks.length !== 0) fail("D12: a task was created after the restart: the frozen hook did not gate it");
