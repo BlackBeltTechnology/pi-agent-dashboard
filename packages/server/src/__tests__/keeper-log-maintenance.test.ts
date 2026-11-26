@@ -245,8 +245,47 @@ describe("sweepKeeperLogs — liveness gate (PID sidecar → isProcessAlive, NOT
 
     const r = makeManager({ maxBytes: cap, sweepMinAgeMs: 60_000, isUnsafeTestHomeScan: () => true }).sweepKeeperLogs();
 
-    expect(r).toEqual({ scanned: 0, reclaimedFiles: 0, reclaimedBytes: 0, skippedLive: 0 });
+    expect(r).toEqual({ scanned: 0, reclaimedFiles: 0, reclaimedBytes: 0, skippedLive: 0, prunedLaunchLogs: 0 });
     expect(statSync(log).size).toBe(cap * 8); // no directory scan reached it
+  });
+});
+
+// ── Launch-log tombstone prune ───────────────────────────────────────────────
+
+describe("sweepKeeperLogs — zero-byte launch-log prune", () => {
+  const DAY_MIN = 24 * 60;
+
+  it("unlinks a zero-byte launch log aged past the prune age with no live keeper", () => {
+    const p = writeLog("keeper-launch-gone.log", 0);
+    ageLog(p, 8 * DAY_MIN);
+    const r = makeManager().sweepKeeperLogs();
+    expect(existsSync(p)).toBe(false);
+    expect(r.prunedLaunchLogs).toBe(1);
+  });
+
+  it("keeps: too young, non-empty, live keeper sidecar, or a recently written keeper log", () => {
+    const young = writeLog("keeper-launch-young.log", 0);
+    ageLog(young, 6 * DAY_MIN);
+    const nonEmpty = writeLog("keeper-launch-data.log", 10);
+    ageLog(nonEmpty, 8 * DAY_MIN);
+    const live = writeLog("keeper-launch-live.log", 0);
+    ageLog(live, 8 * DAY_MIN);
+    writePidSidecar("live", process.pid);
+    const busy = writeLog("keeper-launch-busy.log", 0);
+    ageLog(busy, 8 * DAY_MIN);
+    writeLog("keeper-busy.log", 10); // keeper log written just now
+
+    const r = makeManager().sweepKeeperLogs();
+
+    for (const p of [young, nonEmpty, live, busy]) expect(existsSync(p)).toBe(true);
+    expect(r.prunedLaunchLogs).toBe(0);
+  });
+
+  it("never unlinks a zero-byte KEEPER log (D5 tombstones stay)", () => {
+    const p = writeLog("keeper-tomb.log", 0);
+    ageLog(p, 30 * DAY_MIN);
+    makeManager().sweepKeeperLogs();
+    expect(existsSync(p)).toBe(true);
   });
 });
 
@@ -292,9 +331,21 @@ describe("getKeeperLogStats — cached snapshot", () => {
     writeLog("keeper-after-sweep.log", 777);
     await new Promise((r) => setTimeout(r, 60));
 
-    const after = km.getKeeperLogStats();
-    expect(after.reclaimedBytes).toBe(3 * 1024 * 1024); // NOT zeroed by the rescan
-    expect(after.totalBytes).toBe(777); // …but the live fields DID refresh
+    km.getKeeperLogStats(); // TTL expired → kicks the background refresh
+    await vi.waitFor(() => expect(km.getKeeperLogStats().totalBytes).toBe(777)); // live fields DID refresh
+    expect(km.getKeeperLogStats().reclaimedBytes).toBe(3 * 1024 * 1024); // NOT zeroed by the rescan
+  });
+
+  it("SWR: a TTL-expired read returns the cached snapshot synchronously and rescans in the background", async () => {
+    writeLog("keeper-swr.log", 100);
+    const km = makeManager({ maxBytes: 1024, statsTtlMs: 20 });
+    km.sweepKeeperLogs(); // seeds snapshot (100)
+    writeLog("keeper-swr-added.log", 50);
+    await new Promise((r) => setTimeout(r, 40)); // TTL expired
+
+    // The expired read must NOT scan synchronously on the /api/health path.
+    expect(km.getKeeperLogStats().totalBytes).toBe(100);
+    await vi.waitFor(() => expect(km.getKeeperLogStats().totalBytes).toBe(150));
   });
 
   it("P4: 50 stats reads inside the TTL trigger no additional directory scan", () => {

@@ -21,6 +21,7 @@ import {
   truncateSync,
   unlinkSync,
 } from "node:fs";
+import { readdir as readdirAsync, stat as statAsync } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,6 +109,8 @@ export interface KeeperLogSweepResult {
   reclaimedFiles: number;
   reclaimedBytes: number;
   skippedLive: number;
+  /** Zero-byte `keeper-launch-*.log` tombstones unlinked (aged, no live keeper, keeper log also aged). */
+  prunedLaunchLogs: number;
 }
 
 export interface KeeperLogStats {
@@ -144,6 +147,12 @@ export const DEFAULT_KEEPER_LOG_MAX_BYTES = 134217728; // 128 MiB
 export const DEFAULT_SWEEP_MIN_AGE_MS = 5 * 60_000;
 /** Stats cache TTL default — `/api/health` is polled unguarded; never scan per request. */
 export const DEFAULT_KEEPER_LOG_STATS_TTL_MS = 60_000;
+/**
+ * Zero-byte launch-log prune age. Launch logs only capture keeper bootstrap
+ * stderr and accumulate one per spawn (10k+ observed), turning every stats
+ * rescan into a 10k-stat walk. Unlink only when empty AND untouched this long.
+ */
+export const DEFAULT_LAUNCH_LOG_PRUNE_AGE_MS = 7 * 24 * 60 * 60_000;
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -270,6 +279,8 @@ export interface KeeperManagerOptions {
   sweepMinAgeMs?: number;
   /** Stats cache TTL. Default 60 s. */
   statsTtlMs?: number;
+  /** Zero-byte launch-log prune age. Default 7 days. */
+  launchLogPruneAgeMs?: number;
   /** Test seam — override the unsafe-test-home guard that gates ALL directory scans. */
   isUnsafeTestHomeScan?: () => boolean;
   /**
@@ -307,6 +318,7 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
   const logMaxBytes = opts.maxBytes ?? DEFAULT_KEEPER_LOG_MAX_BYTES;
   const sweepMinAgeMs = opts.sweepMinAgeMs ?? DEFAULT_SWEEP_MIN_AGE_MS;
   const statsTtlMs = opts.statsTtlMs ?? DEFAULT_KEEPER_LOG_STATS_TTL_MS;
+  const launchLogPruneAgeMs = opts.launchLogPruneAgeMs ?? DEFAULT_LAUNCH_LOG_PRUNE_AGE_MS;
   const isUnsafeScan = opts.isUnsafeTestHomeScan ?? defaultIsUnsafeTestHomeScan;
   const probeStartedAt = opts.probeStartedAt;
 
@@ -555,33 +567,69 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
       return [];
     }
     const out: KeeperLogFileStat[] = [];
-    for (const name of names) {
-      if (!name.startsWith("keeper-") || !name.endsWith(".log")) continue;
-      const isLaunchLog = name.startsWith("keeper-launch-");
-      const sessionId = name.slice("keeper-".length, name.length - ".log".length);
-      let st;
+    for (const name of names.filter(isKeeperLogName)) {
       try {
-        st = statSync(path.join(sessionsDir, name));
+        out.push(toKeeperLogRow(name, statSync(path.join(sessionsDir, name))));
       } catch {
         continue; // raced away between readdir and stat — skip
       }
-      out.push({
-        path: path.join(sessionsDir, name),
-        sessionId,
-        size: st.size,
-        mtimeMs: st.mtimeMs,
-        isLaunchLog,
-      });
     }
     return out;
   }
 
+  /**
+   * Async twin of `listKeeperLogs()` for the `/api/health` stats refresh: same
+   * name filter + row shape, but readdir/stat via fs/promises in bounded
+   * batches so a 10k-file directory never blocks the event loop.
+   */
+  async function listKeeperLogsAsync(): Promise<KeeperLogFileStat[]> {
+    if (isUnsafeScan()) return [];
+    let names: string[];
+    try {
+      names = (await readdirAsync(sessionsDir)).filter(isKeeperLogName);
+    } catch {
+      return [];
+    }
+    const out: KeeperLogFileStat[] = [];
+    for (let i = 0; i < names.length; i += 64) {
+      const batch = await Promise.all(
+        names.slice(i, i + 64).map(async (name) => {
+          try {
+            return toKeeperLogRow(name, await statAsync(path.join(sessionsDir, name)));
+          } catch {
+            return null; // raced away — skip
+          }
+        }),
+      );
+      for (const row of batch) if (row) out.push(row);
+    }
+    return out;
+  }
+
+  function isKeeperLogName(name: string): boolean {
+    return name.startsWith("keeper-") && name.endsWith(".log");
+  }
+
+  function toKeeperLogRow(name: string, st: { size: number; mtimeMs: number }): KeeperLogFileStat {
+    return {
+      path: path.join(sessionsDir, name),
+      sessionId: name.slice("keeper-".length, name.length - ".log".length),
+      size: st.size,
+      mtimeMs: st.mtimeMs,
+      isLaunchLog: name.startsWith("keeper-launch-"),
+    };
+  }
+
   let statsSnapshot: KeeperLogStats = { ...EMPTY_KEEPER_LOG_STATS };
   let statsRefreshedAt = 0;
+  let statsRefreshInFlight = false;
 
   function refreshStatsNow(): void {
     statsRefreshedAt = Date.now();
-    const files = listKeeperLogs();
+    applyStats(listKeeperLogs());
+  }
+
+  function applyStats(files: KeeperLogFileStat[]): void {
     const keeper = files.filter((f) => !f.isLaunchLog);
     const launch = files.filter((f) => f.isLaunchLog);
     statsSnapshot = {
@@ -609,9 +657,15 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
       reclaimedFiles: 0,
       reclaimedBytes: 0,
       skippedLive: 0,
+      prunedLaunchLogs: 0,
     };
-    for (const f of listKeeperLogs()) {
-      if (f.isLaunchLog) continue;
+    const files = listKeeperLogs();
+    const keeperLogMtime = new Map(files.filter((f) => !f.isLaunchLog).map((f) => [f.sessionId, f.mtimeMs]));
+    for (const f of files) {
+      if (f.isLaunchLog) {
+        if (pruneLaunchTombstone(f, keeperLogMtime)) result.prunedLaunchLogs += 1;
+        continue;
+      }
       result.scanned += 1;
       // Liveness gate — POLITENESS, not safety (design D5): every liveness
       // predicate is defeatable here (discovery unlinks sidecars without
@@ -659,14 +713,55 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
     return result;
   }
 
+  /**
+   * Unlink a launch-log tombstone. Launch logs are never TRUNCATED (E12), but an
+   * EMPTY one untouched for `launchLogPruneAgeMs`, with no live keeper and a
+   * keeper log (if any) equally idle, carries no information and only inflates
+   * every directory scan. Keeper logs are NEVER unlinked (D5) — not here either.
+   */
+  function pruneLaunchTombstone(f: KeeperLogFileStat, keeperLogMtime: Map<string, number>): boolean {
+    if (f.size !== 0) return false;
+    const now = Date.now();
+    if (now - f.mtimeMs < launchLogPruneAgeMs) return false;
+    const sid = f.sessionId.slice("launch-".length);
+    const keeperMtime = keeperLogMtime.get(sid);
+    if (keeperMtime !== undefined && now - keeperMtime < launchLogPruneAgeMs) return false;
+    const keeperPid = readPidSidecar(pidPathFor(sessionsDir, sid, platform));
+    if (keeperPid !== null && isProcessAlive(keeperPid)) return false;
+    try {
+      unlinkSync(f.path);
+      return true;
+    } catch {
+      return false; // race / EACCES — never fail the sweep (X8)
+    }
+  }
+
+  /**
+   * Stale-while-revalidate: always return the cached snapshot synchronously.
+   * A TTL-expired read kicks ONE background async rescan; only a never-seeded
+   * snapshot (no boot sweep yet) scans synchronously. `/api/health` must never
+   * block on a directory walk — a 10k-file sync stat walk measured ~450 ms.
+   */
   function getKeeperLogStats(): KeeperLogStats {
-    if (Date.now() - statsRefreshedAt >= statsTtlMs) {
+    if (statsRefreshedAt === 0) {
       try {
         refreshStatsNow();
       } catch {
-        // A throwing refresh must never 500 the health hot path; serve the
-        // last snapshot (zeros on a fresh boot).
+        // A throwing refresh must never 500 the health hot path.
       }
+      return statsSnapshot;
+    }
+    if (Date.now() - statsRefreshedAt >= statsTtlMs && !statsRefreshInFlight) {
+      statsRefreshInFlight = true;
+      statsRefreshedAt = Date.now();
+      listKeeperLogsAsync()
+        .then(applyStats)
+        .catch(() => {
+          // Serve the last snapshot on failure.
+        })
+        .finally(() => {
+          statsRefreshInFlight = false;
+        });
     }
     return statsSnapshot;
   }
