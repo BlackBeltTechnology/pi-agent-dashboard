@@ -54,6 +54,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     access,
     userActions,
     counters,
+    extraStats: (teamId) => runtime.counters.forTeam(teamId),
     ...(identity ? { principalOf: (req: unknown) => identity.principalOf(req) } : {}),
   });
 }

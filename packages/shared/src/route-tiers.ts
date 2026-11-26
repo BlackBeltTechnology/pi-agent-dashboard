@@ -204,6 +204,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // Agent teams read snapshots (see change: add-agent-teams-core).
   { method: "GET", path: "/api/plugins/agent-teams/teams", tier: "observe" },
   { method: "GET", path: "/api/plugins/agent-teams/teams/:id", tier: "observe" },
+  // Agent teams templates + plans reads (see change: add-agent-teams-templates-hooks).
+  { method: "GET", path: "/api/plugins/agent-teams/templates", tier: "observe" },
+  { method: "GET", path: "/api/plugins/agent-teams/teams/:id/plans", tier: "observe" },
   // Runtime overlay (see change: electron-runtime-overlay-updates).
   { method: "GET", path: "/api/plugins/skill-atlas/graph", tier: "observe" },
   { method: "GET", path: "/api/plugins/team/agents", tier: "operate" },
@@ -393,6 +396,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // D9: reserve / release a stable tier-5 base for a loopback port. See change: serve-live-previews-on-capability-origin.
   { method: "POST", path: "/api/live-server/preview-path", tier: "control" },
   { method: "DELETE", path: "/api/live-server/preview-path/:pid", tier: "control" },
+  // Agent teams: revoking a recorded hook confirmation (see change: add-agent-teams-templates-hooks).
+  { method: "DELETE", path: "/api/plugins/agent-teams/hook-trust", tier: "operate" },
   // Egress state is private to the preview's owner: control tier AND the minting principal (handler).
   { method: "GET", path: "/api/live-server/:id/egress", tier: "control" },
   { method: "POST", path: "/api/live-server/:id/allow-once", tier: "control" },
@@ -450,6 +455,11 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // Agent teams user controls: supervision of running work is `control` (see change: add-agent-teams-ui).
   { method: "POST", path: "/api/plugins/agent-teams/teams/:id/members/:name/stop", tier: "control" },
   { method: "POST", path: "/api/plugins/agent-teams/teams/:id/shutdown", tier: "control" },
+  // Agent teams (add-agent-teams-templates-hooks): start spawns sessions, plan decisions widen a tool scope,
+  // hook trust grants code execution — all `operate`.
+  { method: "POST", path: "/api/plugins/agent-teams/teams/start", tier: "operate" },
+  { method: "POST", path: "/api/plugins/agent-teams/teams/:id/members/:name/plan-decision", tier: "operate" },
+  { method: "POST", path: "/api/plugins/agent-teams/hook-trust", tier: "operate" },
   // edit-office-in-pane-with-craft-web: prepare downloads a build (control, like spawning); csp-report only bumps a counter.
   { method: "POST", path: "/api/plugins/craft-web/csp-report", tier: "control" },
   // extend-craft-web-to-all-apps: open-outcome / validator-reject counters (log only, like csp-report).

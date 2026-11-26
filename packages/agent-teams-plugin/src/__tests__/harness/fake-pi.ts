@@ -6,7 +6,7 @@
  * host's `emitEventToSession` into `pi.events` events for that session.
  * See change: add-agent-teams-core.
  */
-import { createBridge } from "../../bridge/index.js";
+import { type BridgeOptions, createBridge } from "../../bridge/index.js";
 import { createLaneClient } from "../../bridge/lane.js";
 import type { TeamToolDef } from "../../bridge/tools.js";
 import type { TeamsEnv } from "./teams-env.js";
@@ -66,6 +66,14 @@ class FakePi {
     return [...this.active];
   }
 
+  /** Built-in + extra (e.g. MCP) tool names `getAllTools` reports besides the registered team tools; a test may extend it. */
+  builtinTools: string[] = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+
+  getAllTools(): Array<{ name: string }> {
+    this.requireRuntime();
+    return [...new Set([...this.builtinTools, ...this.tools.keys()])].map((name) => ({ name }));
+  }
+
   setActiveTools(names: string[]): void {
     this.requireRuntime();
     this.active = [...names];
@@ -108,6 +116,8 @@ export interface LinkOptions {
   /** Reconnect watch: whether the host request lane is open, and how often to sample it. */
   laneUp?: () => boolean;
   laneWatchMs?: number;
+  /** Replace the optional bridge modules (default: the shipped ones). */
+  modules?: BridgeOptions["modules"];
 }
 
 /** Activate the real bridge for `who` against the real server handlers of `env`. */
@@ -130,6 +140,7 @@ export function linkBridge(env: TeamsEnv, who: string, opts: LinkOptions = {}) {
     // Default: never "up" so the watcher stays inert unless a test drives it.
     laneUp: opts.laneUp ?? (() => false),
     ...(opts.laneWatchMs !== undefined ? { laneWatchMs: opts.laneWatchMs } : {}),
+    ...(opts.modules ? { modules: opts.modules } : {}),
   });
   return { pi, bridge, sid, requests, lane };
 }

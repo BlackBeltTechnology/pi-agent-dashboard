@@ -448,6 +448,17 @@ Columns: Required tier = `ROUTE_TIERS` value (enforced only for device/session c
 - 130 `ROUTE_TIERS` entries name routes with no literal core registration (e.g. `/api/kb/*`, `/api/mcp-client/*`, `/api/plugins/team/*`, `/api/plugins/gmail/*`, `/api/plugins/automation/*`, `/api/system-one/*`, `/api/folders/goals*`) — plugin-owned (`packages/shared/src/route-tiers.ts:30-540`).
 - Plugin routes register into the root instance during `loadServerEntries`; root hooks bind at `preReady` so gates #1–#20 cover them; post-`ready()` registration refused by Fastify (`packages/server/src/server.ts:3624-3637`).
 - Route→plugin attribution `routeOwners.record` (`packages/server/src/server.ts:2565`) feeds identity policy.
+- `agent-teams` templates/hooks/plan routes (prefix `/api/plugins/agent-teams`, owner `packages/agent-teams-plugin/src/server/templates-routes.ts`). Tiers in `packages/shared/src/route-tiers.ts`. Risk notes: [`agent-teams-hooks-and-plans.md`](agent-teams-hooks-and-plans.md). See change: add-agent-teams-templates-hooks.
+
+| Method | Path | Tier | Extra gate | Danger class |
+|---|---|---|---|---|
+| GET | `/api/plugins/agent-teams/templates` | observe | `admitRouteCwdParam` + `host.knownFolderCwds` | read (lists templates + hook commands) |
+| GET | `/api/plugins/agent-teams/teams/:id/plans` | observe | core `routeVisibility` (invisible ⇒ 404) | read |
+| POST | `/api/plugins/agent-teams/teams/start` | operate + `writeLimit` | cwd admitted; owner = request principal | exec/spawn (lead + members; hooks) |
+| POST | `/api/plugins/agent-teams/teams/:id/members/:name/plan-decision` | operate + `writeLimit` | visible AND controllable, else 404 | widens member tool scope. `"user"` policy advisory vs local-token callers (CRED-07) |
+| POST | `/api/plugins/agent-teams/hook-trust` | operate + `writeLimit` | cwd admitted; hash must equal current project hook hash | grants arbitrary shell as user (TOFU confirmation) |
+| DELETE | `/api/plugins/agent-teams/hook-trust` | operate + `writeLimit` | cwd admitted; `?cwd=&hash=` query | revokes confirmation; start-time gate only |
+
 - `/mcp`, `/editor/*` WS/HTTP surfaces = plugin/other mapper. `/editor/` in guard jurisdiction (`packages/server/src/auth/localhost-guard.ts:517`); `/mcp` NOT (own per-(ip, credential) throttle per `packages/server/src/server.ts:2008-2012` comment — Needs verification by MCP mapper).
 
 ### I. Auth-endpoint throttling, lockout, body limits
