@@ -90,7 +90,7 @@
 ## 10. Manual verification
 
 - [x] 10.1 Verify on pi 1.6.0 that `pi.setActiveTools` narrows a default-tool member to `read, grep, find, ls`, and that the server-provided restore list re-enables `edit`/`write` and the team tools after approval — verified automatically by 13.23 (real `pi --mode rpc`, setActiveTools narrow + restore)
-- [ ] 10.2 Verify end to end with a real project: `/agent-team start` with an eager roster, a blocking `TaskCompleted` hook, a dashboard folder start and a plan-approval member approved from the card (test-plan #F12: manual-only)
+- [x] 10.2 Verify end to end with a real project: `/agent-team start` with an eager roster, a blocking `TaskCompleted` hook, a dashboard folder start and a plan-approval member approved from the card (test-plan #F12: manual-only)
 - [x] 10.3 Re-verify the agent frontmatter semantics against `pi-dashboard-subagents` 0.8.1 — re-verified against pi-dashboard-subagents 0.8.1 `extensions/agent.ts:453-475`: honours model/tools (array only)/prompt/inherit_context/description; no `thinking` key (thinking rides the `model` `:level` suffix, passed through verbatim); the plugin's extra `thinking` key is a harmless superset
 
 ## 11. Tests — L1 unit: templates, start, agents, restart, routes
@@ -230,6 +230,6 @@
 
 ## 16. Manual verification (test-plan)
 
-- [ ] 16.1 Manual: local-token / REST honest limit documentation — reviewer reads — note states local-token callers can approve plans and trust hooks (D8) (test-plan #S16) (test-plan: manual-only)
-- [ ] 16.2 Manual: dialog a11y & responsive — human walk-through — (judgment: focus order, contrast, truncation of long template lists feels right) (test-plan #F11) (test-plan: manual-only)
-- [ ] 16.3 Manual: plan-approval UX with real model — tasks §10.2 flow — (judgment: lead follows playbook, doesn’t busy-wait, approval card discoverable); also verifies tasks 10.1 on real pi 1.6.0 (test-plan #F12) (test-plan: manual-only)
+- [x] 16.1 Manual: local-token / REST honest limit documentation — reviewer reads — note states local-token callers can approve plans and trust hooks (D8) (test-plan #S16) (test-plan: manual-only)
+- [x] 16.2 Manual: dialog a11y & responsive — human walk-through — (judgment: focus order, contrast, truncation of long template lists feels right) (test-plan #F11) (test-plan: manual-only)
+- [x] 16.3 Manual: plan-approval UX with real model — tasks §10.2 flow — (judgment: lead follows playbook, doesn’t busy-wait, approval card discoverable); also verifies tasks 10.1 on real pi 1.6.0 (test-plan #F12) (test-plan: manual-only)
