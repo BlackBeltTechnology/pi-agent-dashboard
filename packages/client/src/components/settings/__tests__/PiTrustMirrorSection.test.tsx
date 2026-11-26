@@ -152,16 +152,24 @@ describe("#F1 live rows, live-query controls, reason-code legend", () => {
     expect(((await screen.findByTestId("pi-trust-source-yolo")) as HTMLInputElement).checked).toBe(true);
   });
 
-  it("legend lists all 18 bridge reason codes with their labels", async () => {
+  it("legend lists all 19 bridge reason codes with their labels", async () => {
     render(<PiTrustMirrorSection />);
     const items = within(await screen.findByTestId("pi-trust-legend")).getAllByTestId("pi-trust-legend-item");
     const codes = Object.keys(MIRROR_WITHHELD_LABELS);
-    expect(codes).toHaveLength(18);
+    expect(codes).toHaveLength(19);
     expect(items.map((i) => i.getAttribute("data-code"))).toEqual(codes);
     for (const [code, label] of Object.entries(MIRROR_WITHHELD_LABELS)) {
       const item = items.find((i) => i.getAttribute("data-code") === code);
       expect(item?.textContent).toContain(label);
     }
+  });
+
+  it("T.135: the legend lists `not-covered` with a label saying no dashboard trust source covers the folder", async () => {
+    render(<PiTrustMirrorSection />);
+    const items = within(await screen.findByTestId("pi-trust-legend")).getAllByTestId("pi-trust-legend-item");
+    const item = items.find((i) => i.getAttribute("data-code") === "not-covered");
+    expect(item?.textContent).toMatch(/no dashboard trust source covers this folder/);
+    for (const code of Object.keys(MIRROR_WITHHELD_LABELS)) expect(MIRROR_WITHHELD_LABELS[code as keyof typeof MIRROR_WITHHELD_LABELS].length).toBeGreaterThan(0);
   });
 
   it("discloses live entries, other-machine bridges, server-only counters and the npm residual", async () => {

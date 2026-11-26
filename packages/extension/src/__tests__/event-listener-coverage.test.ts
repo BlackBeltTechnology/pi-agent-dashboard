@@ -12,7 +12,10 @@ import { describe, expect, it } from "vitest";
 import { forwardedBusChannels } from "../flow-event-wiring.js";
 
 const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const BENIGN = new Set(["models:get-available"]);
+// `mock-site:base-reservation` (D9): any in-process emitter may ask the bridge to reserve a preview base; the SERVER decides
+// (control tier of this connection, a tier-5 viewer, 8-per-connection bound) and a reservation is neither a credential nor a
+// viewable capability until a control-tier viewer mints. See change: serve-live-previews-on-capability-origin.
+const BENIGN = new Set(["models:get-available", "mock-site:base-reservation"]);
 
 function walk(dir: string): string[] {
   const out: string[] = [];

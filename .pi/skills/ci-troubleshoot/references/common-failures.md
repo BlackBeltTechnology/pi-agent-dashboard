@@ -19,22 +19,22 @@ Each lint test exists because of a real regression. **Fix the code, never loosen
 
 ### `verify-lockfile-versions.mjs` exits non-zero in `prepare`
 
-Cross-ref specifier in `package-lock.json` is not `^<root.version>`. Causes:
+Cross-ref specifier in `pnpm-lock.yaml` is not `^<root.version>`. Causes:
 
 1. Someone hand-edited the lockfile.
-2. `scripts/sync-versions.js` didn't run before `npm install --package-lock-only`.
+2. `scripts/sync-versions.js` didn't run before `pnpm install --lockfile-only`.
 3. A new workspace package was added but not registered for cross-ref sync.
 
 Fix:
 ```bash
 # Locally, reproduce the workflow steps:
-npm version 0.0.0-test --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
+npm pkg set version=0.0.0-test --workspaces --include-workspace-root
 node scripts/sync-versions.js
-npm install --package-lock-only --no-audit --no-fund
+pnpm install --lockfile-only
 node scripts/verify-lockfile-versions.mjs
 
 # If verify fails, fix sync-versions.js, then revert the version bump
-git checkout package.json packages/*/package.json package-lock.json
+git checkout package.json packages/*/package.json pnpm-lock.yaml
 ```
 
 ### `npm ci` fails in CI but works locally

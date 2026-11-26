@@ -984,7 +984,7 @@ See who trusts a folder:
 - Folder page banner: pi / dashboard (source + folder) / neither.
 - `GET /api/access/pi-trust`.
 
-Reason codes for withheld trust (server + bridge log): `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`.
+Reason codes for withheld trust (server + bridge log): `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`, `not-covered`.
 
 Trust from the dashboard:
 - Pin the folder, Add Folder, or worktree-init "Always trust" with "Also trust this folder in pi" checked.
@@ -996,7 +996,9 @@ Why still ignored:
 - Terminal `pi` ignores dashboard trust by default. Set `piTrustMirror.coverInteractive: true` to include it.
 - Folder moved, re-created, or synced from another machine → identity (`dev`, `ino`, `birthtimeMs`) mismatch → fails closed. Re-trust the folder.
 - `pi --no-extensions` → bridge never decides. `pi mcp list` reads only `trust.json`, so dashboard-trusted servers show `not-checked-by-pi`.
-- Activation-cwd auto-trust does not apply in forbidden/temporary folders (`/tmp`, `~/Downloads`, `~/.ssh`, `$HOME`, …).
+- Activation-cwd auto-trust removed. A dashboard spawn in a folder dashboard trust does not cover → `not-covered`, pi decides (`trust.json`, then `defaultProjectTrust`; RPC has no prompt, `ask` = untrusted). Road-independent: UI, MCP `spawn_session`, REST, WS, automation, goal, `/new`, worktree. Remedy: pin folder / add to workspace / `/trust` in terminal pi.
+- Forbidden/temporary folders (`/private/tmp`, `~/Downloads`, `~/.cache`, `$HOME`, system dirs) never trusted by the dashboard mirror. Bridge logs `forbidden-folder`, returns `undecided` unless pi recorded an entry there. pi decides — `defaultProjectTrust: "always"` still applies.
+- `piTrustMirror.enabled: false` also disables the activation path.
 
 Config `~/.pi/dashboard/config.json`:
 
@@ -1006,7 +1008,7 @@ Config `~/.pi/dashboard/config.json`:
 
 Source ids: `worktreeInit`, `workflow`, `pinned`, `folderWorkspaces`, `accessGrants` (default OFF).
 
-Rollback: `"enabled": false`. Bridge reads config live. Works with server down. Does NOT revert the bridge behaviour changes (recorded pi entry beats activation-cwd auto-trust; forbidden-folder auto-trust removed; spawn token removed from env).
+Rollback: `"enabled": false`. Bridge reads config live. Works with server down. Does NOT revert the bridge behaviour changes (recorded pi entry beats dashboard trust; no activation auto-trust outside dashboard trust; forbidden-folder auto-trust stays removed; spawn token removed from env).
 
 See change: mirror-dashboard-trust-to-pi.
 
@@ -1058,10 +1060,12 @@ See change: add-lan-knock-pairing.
 
 Preview frame is sandboxed (opaque origin). Its images, `fetch` and HMR socket send no cookie. Viewer mints per-preview capability: `POST /api/live-server/:id/capability` (tier `control`) → `/live/<id>/~c/<token>/`.
 
+Legacy path. Returned when no/invalid `accept` or `liveServer.previewOrigins.enabled: false`. Otherwise origin tiers apply: see next FAQ.
+
 - Scope: one preview. Idle 30 min, absolute 12 h.
 - Dies with target removal, device revoke, session end, server restart.
 - Never valid for `/api`. Stripped before forwarding. Server logs redact token.
-- Proxy adds `Referrer-Policy: no-referrer` when absent. Strips capability segment from forwarded `Referer`.
+- Legacy: proxy adds `Referrer-Policy: no-referrer` when app sets none. Tiers 1-5: replaces upstream value. Strips capability segment from forwarded `Referer`.
 - Dashboard cookies `pi_dash_device`, `pi_dash_token` and device bearers not forwarded to previewed app. App's own cookies pass through.
 - Viewer frames capability path always (local and remote).
 - `observe` devices cannot mint (needs `control`).
@@ -1069,6 +1073,68 @@ Preview frame is sandboxed (opaque origin). Its images, `fetch` and HMR socket s
 Previewed app sees token in its URL. Sharing preview URL shares access until idle expiry.
 
 See change: retire-trusted-networks-bypass.
+
+## Which live preview tier do I get?
+
+Chosen from raw `Host` header + socket peer. First match wins.
+
+- Tier 1 `http://<label>.localhost:<port>`: Host `localhost`/`127.0.0.1`, local peer, no forwarding header, no TLS.
+- Tier 2 `<scheme>://<label>.<suffix>`: Host in `wildcard.forHosts`.
+- Tier 3 `http://<ip>:<poolPort>`: login session, IPv4 Host, `portPool` set, pool port free.
+- Tier 4 `http://<label>.<a-b-c-d>.<ipDnsSuffix>`: IPv4 Host, `ipDnsSuffix` set.
+- Tier 5 `/preview/<pid>/` on dashboard origin: no earlier match. Covers IPv6 and remote Hosts.
+- Legacy `/live/<id>/~c/<token>/`: see previous FAQ.
+
+Details: `docs/architecture.md` § Capability origins and tiers.
+
+## How do I view a live preview over `ssh -L`?
+
+- `ssh -L 9000:127.0.0.1:8000 host`.
+- Browser opens `localhost:9000` → Host `localhost:9000` → tier 1.
+- Preview renders at `<label>.localhost:9000`.
+- Tier 1 interim path. Tunnel-only.
+
+## Why does a live preview fail behind a same-host reverse proxy?
+
+- Proxy on same host, adding no forwarding header, looks like local browser.
+- Browser behind proxy gets tier 1 origin `<label>.localhost`. Pinned limitation.
+- Fix: proxy sends `X-Forwarded-For`.
+- Or set `liveServer.previewOrigins.enabled: false` (legacy path).
+
+## How do I run a dev server under a tier-5 live preview base?
+
+1. Open site in tier-5 browser (remote Host).
+2. Run dev server with base = reserved path: `vite --base /preview/<pid>/`.
+3. View in live viewer. Viewer shows base path with Copy button.
+4. `restartRequired` = base changed. Restart server.
+
+Reservation: `POST /api/live-server/preview-path {port}` (control). Agent: bridge `preview_path_request`.
+- No tier-5-capable browser ⇒ `{path:null, tier5Viewers:false}`. Nothing reserved.
+- Release unbound reservation: `DELETE /api/live-server/preview-path/:pid`.
+- Unadopted reservation expires: 10 min from creation, 12 h while port target exists.
+
+## Does live preview work over IPv6?
+
+- IPv6 Host skips tiers 1-4. CSP has no IPv6 host-source form.
+- IPv6 Host ⇒ tier 5.
+
+## Why does a preview frame go blank with "A preview reset dashboard cookies" or "Preview navigated to the dashboard; blocked."?
+
+- "A preview reset dashboard cookies; reopen it to continue.": dashboard API answered 400 `duplicate_dashboard_cookie`. Tier 2/3 frames blank to `about:blank`. Tier 1 untouched.
+- Cause: duplicate `pi_dash_*` cookie. Sibling host or port on same host can set one. Server expires the name (self-heal).
+- Fix: Reopen or Reload. Nothing reopens automatically.
+- "Preview navigated to the dashboard; blocked.": previewed app navigated frame to readable dashboard URL. Frame blanked.
+- Fix: Reload.
+
+See change: serve-live-previews-on-capability-origin.
+
+## How do live previews work in Docker?
+
+- Container users reach dashboard through published port.
+- Result: tier 5, no setup.
+- Tier 3 (port pool) opt-in. See `docker/README.md` § Live previews.
+
+See change: serve-live-previews-on-capability-origin.
 
 ## Why do all my PWA installs of the dashboard have the same name on the launcher?
 
@@ -2023,11 +2089,11 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.5.0 lockstep floor). No session-kind probe, no keeper UDS route.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.6.0 lockstep floor). No session-kind probe, no keeper UDS route.
 
 Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.5.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
+Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.6.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
 
 Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
@@ -2130,6 +2196,18 @@ Recovery order:
 Diagnostic: `ps -p <piPid>` after Shutdown. Alive after 3 s indicates regression.
 
 See change: `fix-keeper-kill-escalation`. See also `docs/architecture.md` § "RPC keeper sidecar".
+
+## Why does pi exit late after Shutdown, `/quit` or `/exit`?
+
+Symptom: session card clears up to 5 s after Shutdown, `/quit` or `/exit`. Busy session on Windows ends without clean dispose.
+
+Cause: bridge `shutdown` calls `ctx.shutdown()`, then arms unref'd `process.exit(0)` fallback after `BRIDGE_SHUTDOWN_FALLBACK_MS` = 5000 (was 500). pi >=1.5.1 exits by itself when idle. Its `dispose()` saves rotated OAuth refresh token; fallback leaves that time.
+
+Residual risks (full list): `docs/architecture.md` § "Bridge shutdown fallback". Windows `taskkill /F` skips dispose. POSIX SIGKILL 2 s after SIGTERM can cut slow save. Headless 5 s fallback may beat last SIGKILL; process ends either way.
+
+Diagnostic: `ps -p <piPid>` still alive 5 s after Shutdown on POSIX → check residual risks above.
+
+See change: `update-pi-core-1-6-adopt-apis`.
 
 ## Why does my session die whenever it spawns subagents?
 
@@ -3374,7 +3452,7 @@ The dashboard derives one per-directory readiness state (`OpenSpecData.readiness
 
 - `BROKEN` · `missing-changes-dir` — Repair on the folder card (confirm, then re-runs init).
 - `BROKEN` · `cli-failed` — fix the openspec CLI itself. Error text shown; no Repair — init would auto-clean files in a directory that may hold real proposals.
-- `STALE` · `missing-skills` — Update on the folder card. Runs `openspec update --tools pi`, writes `.pi/skills/openspec-*`.
+- `STALE` · `missing-skills` — Update on the folder card. Runs `openspec update --tools pi`, writes `.pi/skills/openspec-*`. Skill counts only if `<configRoot>/.pi/skills/openspec-explore/` OR `<configRoot>/.agents/skills/openspec-explore/` exists. Other `openspec-*` dirs (e.g. `openspec-propose/`) alone do not count.
 - `STALE` · `profile-stale` — Settings → OpenSpec Workflow Profile → Update.
 - `ABSENT` — Initialize on the folder card. Or dismiss (adds cwd to `openspec.optOutDirectories`), or set `openspec.offerInitialization: false` to hide the offer fleet-wide.
 - `OPTED_OUT` — cwd listed in `openspec.optOutDirectories`. Re-enable via folder `⋯` menu → Enable OpenSpec for this folder.
@@ -4038,6 +4116,17 @@ Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
 
 See change: improve-kb-settings-sources-and-search.
 
+## How do I run dashboard reindex in-process or cancel it?
+
+Dashboard reindex runs in worker thread (`packages/kb-plugin/src/server/reindex-worker.mjs`).
+
+- Kill-switch: `PI_DASHBOARD_KB_REINDEX_WORKER=0` → in-process. Read per job.
+- Worker load failure before ready → in-process fallback automatically.
+- Cancel: `POST /api/kb/reindex/cancel?cwd=` (operator tier) → `200 {cancelled:true|false}`.
+- Log: grep `reindex mode=` (one line per job; `outcome=` field).
+
+Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
+
 ## Why is a new worktree's kb index fast / how do I disable seeding?
 
 First kb index in linked git worktree seeds from main checkout snapshot. Measured this repo: ~4 s seeded vs ~104 s cold. Result equals cold first index.
@@ -4053,13 +4142,14 @@ Source reuse gate. Source reused only when main recorded:
 
 - same schema version.
 - same index-options hash.
-- same kb engine fingerprint (`engine:<root>` in `kb_meta`, from `packages/kb/engine-fingerprint.json` `srcHash`).
+- same kb engine fingerprint (`engine:<root>` in `kb_meta`, from `packages/kb/engine-fingerprint.json` `rowsHash`; hash of `indexer.ts`, `chunker.ts`, `adoc-chunker.ts`, `frontmatter.ts`, `gitignore.ts`).
 
 Else that source builds from scratch.
 
 Upgrade:
 
-- First pass after kb upgrade re-chunks every source once (engine record absent).
+- First pass after kb upgrade re-chunks every source once (`rowsHash` record absent).
+- Non-row kb edits (docs, config, other kb files) do not force full reindex.
 - Until main finishes that pass, worktree seeds 0 sources.
 
 Log. Every first index prints ONE stderr line:
@@ -4551,6 +4641,7 @@ Local:
 
 - Team: `npm run test:e2e:team`. `pretest` builds team app via `npm run build:app --workspace=@blackbelt-technology/pi-dashboard-team-plugin`. Needs real `pi` CLI on PATH.
 - Identity matrix: `npm run build && npm run test:e2e:identity-matrix`.
+- Live preview: `npm run test:e2e:live-preview`. Config `playwright.live-preview.config.ts`. Guide `tests/e2e/live-preview/README.md`.
 
 CI (`.github/workflows/ci-e2e-browser.yml`):
 
@@ -4829,6 +4920,11 @@ PW_E2E_USE_RUNNING=1 npx playwright test csp-strict-enforce
 - Default-lane sibling: `tests/e2e/csp-strict-report.spec.ts` (dual Report-Only, sink labels).
 - Green enforce lane = exit-gate item of follow-up `enforce-strict-csp-default`.
 
+Report delivery — `report-uri` only, no header rewrite:
+- `tests/e2e/csp-strict-report.spec.ts` has NO `page.route` rewrite. Counter moves on the unmodified document.
+- `tests/e2e/csp-report-delivery.spec.ts` asserts `/` carries no `report-to` token and no `Reporting-Endpoints` header, then moves the strict `script-src-elem` counter.
+- Delivery is `report-uri /__pi/csp-report/<label>` only. `report-to` suppressed `report-uri` in Chromium; neither Chromium nor Firefox delivered `report-to` reports on plain http.
+
 OAuth real-gate lane — WF5, report sink public to OAuth gate:
 ```bash
 PI_E2E_TRUSTED_NETWORKS=203.0.113.0/24 PI_E2E_OAUTH_NO_BYPASS=1 npx playwright test csp-report-sink-oauth
@@ -4842,7 +4938,7 @@ PI_E2E_TRUSTED_NETWORKS=203.0.113.0/24 PI_E2E_OAUTH_NO_BYPASS=1 npx playwright t
 - Control request: `GET /api/sessions` (gated). `/api/health` public to OAuth gate, cannot show "gated".
 - Tear down lane harness before normal runs: `docker/test-down.sh`.
 
-See change: harden-cors-and-csp-reporting.
+See change: harden-cors-and-csp-reporting, fix-csp-report-delivery.
 
 ### Bus client denial
 

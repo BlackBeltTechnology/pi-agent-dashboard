@@ -57,7 +57,6 @@ import {
   mdiSourceFork,
   mdiSourceMerge,
   mdiSourcePull,
-  mdiTune,
 } from "@mdi/js";
 import { deriveStepperState, type SegmentId, type SegmentState } from "../../components/openspec/OpenSpecStepper.js";
 import { type ActionSpec, deriveOpenSpecActions, type OpenSpecActionKey } from "../../components/openspec/openspec-actions.js";
@@ -141,7 +140,6 @@ export interface SessionMenuActions {
   openPr: () => void;
   openUrl: (url: string) => void;
   openCardSections: () => void;
-  openCardDefaults: () => void;
 }
 
 export interface SessionMenuCtx {
@@ -555,7 +553,6 @@ export function deriveSessionMenu(session: DashboardSession, ctx: SessionMenuCtx
 
   const viewItems: SessionMenuItem[] = [
     { id: "card-sections", label: tr("sessionMenu.cardSections", "Card sections…"), icon: mdiCardsOutline, onSelect: actions.openCardSections },
-    { id: "card-defaults", label: tr("sessionMenu.cardDefaults", "Card section defaults…"), icon: mdiTune, onSelect: actions.openCardDefaults },
   ];
   const groups: SessionMenuGroup[] = [
     { id: "next", title: tr("sessionMenu.groupNext", "Next"), items: next ? [next] : [] },

@@ -618,3 +618,50 @@ The `spawn_session` MCP tool's input schema SHALL be generated from the shared `
 #### Scenario: Agent is forwarded
 - **WHEN** an MCP client calls `spawn_session {cwd:"/p", agent:"qmt"}`
 - **THEN** the host spawn hook SHALL receive `agent: "qmt"`
+
+### Requirement: MCP send_prompt forwards the delivery mode
+
+The MCP `send_prompt` tool SHALL accept an optional `delivery` (`"steer"` or `"followUp"`) and forward it on the `send_prompt` message to the session's bridge unchanged; when absent it SHALL be omitted (the bridge treats it as `followUp`). The plugin-context `sendToSession` SHALL accept an optional third argument `opts?: { delivery?: "steer" | "followUp" }`; callers passing only `(sessionId, text)` SHALL behave exactly as before. The tool's input schema SHALL reject any other `delivery` value.
+
+#### Scenario: Steer delivery is forwarded
+- **WHEN** a `control` caller invokes `send_prompt` with `{ sessionId: "S", text: "focus on X", delivery: "steer" }`
+- **THEN** the bridge for `S` SHALL receive `{ type: "send_prompt", sessionId: "S", text: "focus on X", delivery: "steer" }`
+
+#### Scenario: Absent delivery is not defaulted
+- **WHEN** a `control` caller invokes `send_prompt` with `{ sessionId: "S", text: "hello" }`
+- **THEN** the message sent to the bridge SHALL carry no `delivery` field
+
+#### Scenario: Invalid delivery is rejected
+- **WHEN** `send_prompt` is invoked with `delivery: "now"`
+- **THEN** the call SHALL fail schema validation and nothing SHALL be sent to the bridge
+
+#### Scenario: Existing two-argument callers are unchanged
+- **WHEN** another plugin calls `ctx.sendToSession("S", "hello")`
+- **THEN** the message sent SHALL be `{ type: "send_prompt", sessionId: "S", text: "hello" }` with no `delivery`
+
+#### Scenario: Images remain ignored
+- **WHEN** `send_prompt` is invoked with `images` (accepted by the schema) and any `delivery`
+- **THEN** only `text` and `delivery` SHALL be forwarded; `images` SHALL continue to be ignored (pre-existing behaviour, out of scope)
+
+### Requirement: MCP spawn_session does not auto-trust a folder dashboard trust does not cover
+
+A session started by `spawn_session` SHALL load the folder's trust-requiring `.pi/` resources only when pi's trust store records trust for it or dashboard trust covers it (pinned folder, folder inside a workspace folder, covered access grant or YOLO root). The tool result SHALL NOT claim the folder is trusted. ACP sessions run an external agent with no pi process or bridge, so this rule does not apply to them.
+
+#### Scenario: MCP spawn into an unpinned clone does not load its .pi/extensions
+- **GIVEN** `/w/clone` holds `.pi/extensions/x.ts`, is not pinned, is outside every workspace folder and has no pi trust entry
+- **WHEN** an agent token calls `spawn_session {cwd:"/w/clone"}`
+- **THEN** the spawned session SHALL NOT load `x.ts`
+
+#### Scenario: Spawn into a pinned workspace still works
+- **GIVEN** `/w/app` is pinned and holds `.pi/skills/s/SKILL.md`
+- **WHEN** a control client calls `spawn_session {cwd:"/w/app"}`
+- **THEN** the spawned session SHALL be trusted through dashboard trust and SHALL load the skill
+
+#### Scenario: No spawn road auto-trusts an unpinned folder
+- **GIVEN** `/w/clone` is unpinned, outside every workspace folder, holds `.pi/extensions/x.ts` and has no pi trust entry
+- **WHEN** a session is spawned there by an automation, a goal, `/new`, a worktree spawn, a subfolder spawn, REST or WS
+- **THEN** none of those sessions SHALL load `x.ts`
+
+#### Scenario: Spawn tool text is unchanged
+- **WHEN** `spawn_session` returns or is described
+- **THEN** its result text and tool description SHALL be those of the build before this change

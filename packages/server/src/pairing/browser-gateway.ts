@@ -3,12 +3,12 @@
  * Runs on the HTTP server port via upgrade handling.
  */
 
+import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import type {
   BrowserOpenSpecUpdateMessage,
   BrowserToServerMessage,
   ServerToBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
@@ -21,6 +21,7 @@ import { canAccessSession, filterSnapshotForPrincipal, isLocalOperator } from ".
 import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
 import { isSessionOwnedMessage, SESSION_LIST_MESSAGES } from "../identity/ws-message-scope.js";
 import { classifyWsRoad } from "../identity/ws-road-classification.js";
+import { markPreviewAccept } from "../live-server/preview-viewers.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
@@ -98,6 +99,14 @@ export function buildOpenSpecConnectSnapshot(
 export function frameClassOf(
   msg: ServerToBrowserMessage,
 ): { cls: "state" | "transcript"; key: string } {
+  // Flows-plugin agent pin (a plugin frame, outside the core union): state,
+  // never shed — a shed one is a `flow_open` that never shows. Keyed per
+  // request, so a later pin never coalesces over a queued one (each is acked).
+  // See change: add-flow-open-tool.
+  const plugin = msg as { type: string; sessionId?: unknown; requestId?: unknown };
+  if (plugin.type === "flows_open") {
+    return { cls: "state", key: `flows_open:${String(plugin.sessionId)}:${String(plugin.requestId)}` };
+  }
   switch (msg.type) {
     case "sessions_snapshot":
     case "pinned_dirs_updated":
@@ -266,23 +275,24 @@ export function projectDeferredSubagentFrame(msg: ServerToBrowserMessage): Serve
 }
 
 import { randomUUID } from "node:crypto";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
 import { hasPromptChannel, issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
 import { guardAcpBrowserMessage } from "../browser-handlers/acp-guard.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFocusMode, handleSetFocusProfile, handleSetFolderCollapsed, handleSetFolderExpanded, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleRemoveSteeringEntry, handleClearSteeringEntries, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
+import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleClearSteeringEntries, handleEditFollowupEntry, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleRemoveSteeringEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
 import { clearGapState, handleHistoryBackfill, handleSubscribe, sendEventBatches } from "../browser-handlers/subscription-handler.js";
-import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
-import type { ReplayState } from "../session/hydration-state.js";
-import { listKnownFolderCwds } from "../lib/route-admission.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
+import { listKnownFolderCwds } from "../lib/route-admission.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { relayBrowserPromptResponse } from "../questions/question-answer.js";
 import { createQuestionBroadcaster, createQuestionVisibility, type QuestionBroadcaster } from "../questions/question-broadcast.js";
 import type { QuestionStore } from "../questions/question-store.js";
+import type { ReplayState } from "../session/hydration-state.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
+import type { SudoBrowserSeam, SudoCredentialRelay } from "../sudo-credential/relay.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
 import { isSocketLocallyTrusted } from "./socket-locality.js";
 import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
@@ -685,6 +695,15 @@ export interface BrowserGateway {
    */
   setHostPolicy(policy: HostPolicy): void;
   /**
+   * Sudo credential prompt: the browser side the relay fans out through
+   * (control-tier session subscribers only), and the hook that routes the four
+   * `sudo_credential_*` browser frames + subscribe replay to the relay. Absent
+   * relay ⇒ those frames are dropped, never forwarded to the bridge.
+   * See change: add-sudo-credential-prompt.
+   */
+  readonly sudoSeam: SudoBrowserSeam;
+  setSudoCredentialRelay(relay: SudoCredentialRelay | undefined): void;
+  /**
    * Register a `plugin_action` handler keyed by pluginId, so multiple plugins
    * service `plugin_action` concurrently without one shadowing another. The
    * host supplies the pluginId from the plugin manifest (not self-declared).
@@ -834,6 +853,8 @@ export function createBrowserGateway(
   const customHandlerOwners = new Map<string, string>();
   /** Optional host access policy for non-session commands (D9, task 18.28). */
   let hostPolicy: HostPolicy | undefined;
+  /** Sudo credential relay (in-memory, never persists a password). See change: add-sudo-credential-prompt. */
+  let sudoRelay: SudoCredentialRelay | undefined;
 
   /**
    * `plugin_action` handlers keyed by pluginId (fan-out registry). Distinct
@@ -940,6 +961,10 @@ export function createBrowserGateway(
         sendTo(ws, msg as any, { sessionId, critical: true, criticalBudget });
       }
     }
+    // Sudo prompt: in-memory relay state (cache metadata + the pending request,
+    // never a password), control-tier owner subscribers only.
+    // See change: add-sudo-credential-prompt.
+    sudoRelay?.replayTo(ws, sessionId);
   }
 
   /**
@@ -1941,6 +1966,9 @@ export function createBrowserGateway(
   // (sockets with no `sessionTier` are not tier-gated, like the REST gate's exemptions).
   const isOperatorSocket = (ws: WebSocket): boolean =>
     holdsLiveCapability(ws) && decideWsTier(ws as TieredSocket, "provision_response").kind === "allow";
+  // Control tier = what the WS tier gate admits for `sudo_credential_shown`.
+  const sudoCanAnswer = (ws: WebSocket): boolean =>
+    decideWsTier(ws as TieredSocket, "sudo_credential_shown").kind === "allow";
 
   wss.on("connection", (ws, req) => {
     // Per-connection identity for the prompt capability; released on close.
@@ -2551,6 +2579,24 @@ export function createBrowserGateway(
             break;
           }
 
+          // Sudo credential: a dedicated in-memory road that structurally skips
+          // QuestionStore / event store / replay (never the generic bridge forward).
+          // Tier (control) + session-owner gates already ran above.
+          // See change: add-sudo-credential-prompt (D5/D6).
+          case "sudo_credential_response":
+          case "sudo_credential_cancel":
+          case "sudo_credential_forget":
+          case "sudo_credential_shown": {
+            sudoRelay?.handleBrowserMessage(ws, msg);
+            break;
+          }
+
+          // Tab announces it renders `/preview/<pid>/` frames: counted as a tier-5 viewer when its upgrade
+          // classified to tier 5. See change: serve-live-previews-on-capability-origin (D9).
+          case "live_preview_accept": {
+            markPreviewAccept(ws, (msg as { accept?: unknown }).accept);
+            break;
+          }
           case "architect_prompt_response": {
             // Legacy: now handled by prompt_response via PromptBus.
             // Keep case to avoid "unhandled message" warnings from old clients.
@@ -2777,6 +2823,19 @@ export function createBrowserGateway(
       customHandlers.set(type, handler);
       if (ownerPluginId) customHandlerOwners.set(type, ownerPluginId);
       else customHandlerOwners.delete(type);
+    },
+
+    sudoSeam: {
+      // Observe-tier (or revoked) sockets never receive the request: same tier
+      // predicate the inbound gate applies to `sudo_credential_shown`.
+      audience: (sessionId) => getSubscribers(sessionId).filter((ws) => sudoCanAnswer(ws)),
+      canAnswer: (ws) => sudoCanAnswer(ws as WebSocket),
+      // `critical`: the request blocks a helper, so it is exempt from the transcript shed.
+      send: (ws, msg) => sendTo(ws as WebSocket, msg, { sessionId: (msg as { sessionId?: string }).sessionId, critical: true }),
+    },
+
+    setSudoCredentialRelay(relay) {
+      sudoRelay = relay;
     },
 
     setHostPolicy(policy) {

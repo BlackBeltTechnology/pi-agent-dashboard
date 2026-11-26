@@ -34,6 +34,7 @@ import {
 } from "../access/verified-read.js";
 import type { LocalTrustContext } from "../auth/local-proof.js";
 import { canDiscloseAccessPosture, isLocallyTrusted } from "../auth/localhost-guard.js";
+import { requestPrincipalKey } from "../auth/request-principal.js";
 import {
   CreateProjectError,
   type CreateProjectReason,
@@ -52,6 +53,7 @@ import {
   isWithinBrowseRoots,
   resolveBrowseRoots,
 } from "../lib/browse-roots.js";
+import { contentDispositionAttachment } from "../lib/content-disposition.js";
 import { ContainmentBindingRefused, DashboardStateRefused, openStateChecked, readFileStateChecked } from "../lib/dashboard-state-guard.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
@@ -120,8 +122,21 @@ export function sendGateFailure(reply: import("fastify").FastifyReply, gate: Gat
 }
 
 import { serializeWrite } from "../lib/file-write-lock.js";
-import { resolveFileMention } from "../lib/resolve-file-mention.js";
-import { isWritableMdTarget } from "../lib/writable-md-target.js";
+import { getMentionFuzzyIndex, type MentionFuzzyIndex } from "../lib/mention-fuzzy-index.js";
+import { type ContainmentMemo, resolveMentionTagged } from "../lib/resolve-file-mention.js";
+import {
+  BATCH_BODY_LIMIT_BYTES,
+  BATCH_CONCURRENCY,
+  BATCH_RATE_PER_MINUTE,
+  type BatchResult,
+  createWindowLimiter,
+  formatBatchLog,
+  MAX_FIELD_CHARS,
+  mapConcurrent,
+  parseBatchBody,
+  toBatchResult,
+} from "../lib/resolve-mentions-batch.js";
+import { isTextDocWriteTarget, isWritableMdTarget } from "../lib/writable-md-target.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import {
@@ -226,14 +241,29 @@ type MdWriteOutcome =
   | { code: 404 | 409 | 413 | 500; error: string };
 
 /** Parsed + authorized write request, or a {code,error} reply mapping. */
-type MdWritePrep = { resolved: string; content: string; mtime: number } | GateFailure;
+type MdWritePrep =
+  | {
+      resolved: string;
+      content: string;
+      mtime: number;
+      /** Set when a write-mode GRANT admitted an outside-cwd target: the real path the gate decided. */
+      gatedReal?: string;
+    }
+  | GateFailure;
 
 // Parse, scope-validate, and authorize a `POST /api/file/write` body. Keeps the
 // route handler trivial. Authorization is the `isWritableMdTarget` security
 // boundary. See change: directory-settings-page-and-scoped-md-editing.
+//
+// A text doc OUTSIDE the admitted cwd (directory scope only) is not a flat 403 any more: it goes to the
+// write-mode containment gate (`evaluateContainment(..., {action:"write"})`), which admits it only through
+// a WRITE grant or a fresh operator write prompt (allow once / always / deny). A read grant and the
+// bound-checkout-root widening never admit a write. Global scope (no cwd) is unchanged.
+// See change: fix-file-link-editor-routing (D2).
 async function prepareMdWrite(
   body: { cwd?: unknown; path?: unknown; content?: unknown; mtime?: unknown },
   routeAdmission: RouteAdmissionDeps,
+  req: { request: import("fastify").FastifyRequest; reply: import("fastify").FastifyReply },
 ): Promise<MdWritePrep> {
   const rawPath = typeof body.path === "string" ? body.path : "";
   const content = typeof body.content === "string" ? body.content : undefined;
@@ -243,10 +273,30 @@ async function prepareMdWrite(
   }
   const target = await resolveScopedMdPath(body.cwd, rawPath, routeAdmission);
   if ("code" in target) return target;
-  if (!(await isWritableMdTarget(target.resolved, { cwd: target.cwd }))) {
+  if (await isWritableMdTarget(target.resolved, { cwd: target.cwd })) {
+    return { resolved: target.resolved, content, mtime };
+  }
+  // Only the outside-cwd text-doc case reaches the gate: global scope, a non-text extension, a Mermaid
+  // source and a dashboard-state path all stay a plain 403 with no prompt.
+  if (target.cwd === undefined || !(await isTextDocWriteTarget(target.resolved))) {
     return { code: 403, error: "target is not a writable markdown file in scope" };
   }
-  return { resolved: target.resolved, content, mtime };
+  // The gate runs BEFORE any stat (`performAtomicMdWrite`): a stat-first route would be an existence
+  // oracle for arbitrary outside paths.
+  const decision = await evaluateContainment(target.resolved, [target.cwd], {
+    site: "file-routes:write",
+    subjectKind: "file",
+    session: target.cwd,
+    hold: { request: req.request, reply: req.reply },
+    disclosure: canDiscloseAccessPosture(req.request),
+    action: "write",
+  });
+  // Only a GRANT-admitted decision proceeds: layer ① admitting a path `isWritableMdTarget` just refused
+  // would be a contradiction, so it fails closed.
+  if (!containmentAllows(decision, target.resolved) || !decision.viaGrant) {
+    return { code: 403, error: "path outside working directory — write not granted", ...decision.remedy };
+  }
+  return { resolved: target.resolved, content, mtime, gatedReal: decision.real };
 }
 
 // Atomic markdown write with optimistic-concurrency. Caller MUST run this inside
@@ -258,6 +308,7 @@ async function performAtomicMdWrite(
   resolved: string,
   content: string,
   mtime: number,
+  gatedReal?: string,
 ): Promise<MdWriteOutcome> {
   // Canonicalize to the realpath target: an in-scope symlink to an allowed
   // markdown file is authorized by `isWritableMdTarget` on its realpath, so we
@@ -270,6 +321,11 @@ async function performAtomicMdWrite(
     current = await fs.stat(real);
   } catch {
     return { code: 404, error: "file not found" };
+  }
+  // Re-bind: a target admitted by a write grant must still resolve to the path the gate decided. A symlink
+  // repointed during the operator hold (or after the gate) is refused with nothing written.
+  if (gatedReal !== undefined && real !== gatedReal) {
+    return { code: 409, error: "target changed while access was being decided" };
   }
   // Full-precision mtime token: rounding could collapse two fast saves into one
   // token and let a stale write pass the 409 check.
@@ -509,9 +565,12 @@ export function registerFileRoutes(
      * the known set of this registrar's own `sessionManager` + `preferencesStore`.
      */
     routeAdmission?: RouteAdmissionDeps;
+    /** Tracked-file index behind mention recovery (change: rich-chat-links). Absent → the process-wide index. */
+    mentionFuzzyIndex?: MentionFuzzyIndex;
   },
 ) {
   const { sessionManager, preferencesStore, networkGuard } = deps;
+  const mentionIndex = deps.mentionFuzzyIndex ?? getMentionFuzzyIndex();
   const routeAdmission: RouteAdmissionDeps = {
     ...deps.routeAdmission,
     knownCwds: deps.routeAdmission?.knownCwds ?? (() => listKnownFolderCwds({ sessionManager, preferencesStore })),
@@ -770,6 +829,7 @@ export function registerFileRoutes(
           if (
             kindResult.viewer === "monaco" ||
             kindResult.viewer === "markdown" ||
+            kindResult.kind === "html" || // read-only Source tab (rich-chat-links)
             kindResult.editable === true
           ) {
             content = await fh.readFile("utf-8");
@@ -1025,7 +1085,7 @@ export function registerFileRoutes(
     // the handler still refuses content above the 256 MiB ceiling.
     { preHandler: networkGuard, bodyLimit: 600 * 1024 * 1024 },
     async (request, reply) => {
-      const prep = await prepareMdWrite(request.body ?? {}, routeAdmission);
+      const prep = await prepareMdWrite(request.body ?? {}, routeAdmission, { request, reply });
       if ("code" in prep) {
         return sendGateFailure(reply, prep);
       }
@@ -1035,7 +1095,7 @@ export function registerFileRoutes(
       // cannot run two writes to one file at once. See change: add-editor-pane-file-handlers (D4).
       const lockKey = await safeRealpath(prep.resolved);
       const outcome = await serializeWrite(lockKey, () =>
-        performAtomicMdWrite(prep.resolved, prep.content, prep.mtime),
+        performAtomicMdWrite(prep.resolved, prep.content, prep.mtime, prep.gatedReal),
       );
       if (outcome.code !== 200) {
         reply.code(outcome.code);
@@ -1212,14 +1272,21 @@ export function registerFileRoutes(
 
   // Lazy file-mention resolver (change: server-side-file-mention-resolution).
   //
-  // Body `{ cwd, mention }` → `{ resolved, kind }` or `{ resolved: null }`.
+  // Body `{ cwd, mention }` → `{ resolved, kind }`, `{ resolved, kind, outside: true }` (containment
+  // failed: never statted, so the payload is independent of existence — change fix-file-link-editor-routing
+  // D1) or `{ resolved: null }`.
   // `cwd` is UNTRUSTED request input and is gated against the known-session set
   // (mirrors `/api/file`, NOT the wider exists-only pinned set — design D2/F6/F7,
   // so a resolve never succeeds on a path the open route would 403) BEFORE any
   // resolution. `resolveFileMention` then expands `~/`, runs containment
   // (cwd + git-root + `~/.pi`) BEFORE `fs.stat`, and returns null for a
   // non-existent in-scope mention (never an error).
-  fastify.post<{ Body: { cwd?: unknown; mention?: unknown } }>(
+  //
+  // Opt-in recovery (change: rich-chat-links, design D3): `recover: true` (literal boolean) enables the producing
+  // tool's directory (`toolCwd`, a string ≤ 1024 chars) and the tracked-file fuzzy fallback; without it the answer
+  // is exactly the exact-only lookup. Every answer carries `state` (found | recovered | ambiguous | missing | gated);
+  // recovery adds `via`, ambiguity adds `candidates` (and `resolved: null`).
+  fastify.post<{ Body: { cwd?: unknown; mention?: unknown; recover?: unknown; toolCwd?: unknown } }>(
     "/api/file/resolve-mention",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -1230,13 +1297,98 @@ export function registerFileRoutes(
         reply.code(400);
         return { success: false, error: "cwd and mention are required" } satisfies ApiResponse;
       }
+      const toolCwd = typeof body.toolCwd === "string" && body.toolCwd !== "" ? body.toolCwd : undefined;
+      if (toolCwd !== undefined && toolCwd.length > MAX_FIELD_CHARS) {
+        reply.code(400);
+        return { success: false, error: `toolCwd exceeds ${MAX_FIELD_CHARS} characters` } satisfies ApiResponse;
+      }
       const admitted = await admitFileCwd(cwd, routeAdmission, { reply });
       if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
-      const result = await resolveFileMention(mention, { cwd: admitted.cwd, canonCwd: admitted.canonCwd });
-      return {
-        success: true,
-        data: result ? { resolved: result.resolved, kind: result.kind } : { resolved: null },
-      } satisfies ApiResponse;
+      const result = await resolveMentionTagged(mention, {
+        cwd: admitted.cwd,
+        canonCwd: admitted.canonCwd,
+        recover: body.recover === true,
+        toolCwd,
+        fuzzyIndex: mentionIndex,
+      });
+      return { success: true, data: result } satisfies ApiResponse;
+    },
+  );
+
+  // Batch mention resolver (change: rich-chat-links, design D3/D14). Body `{ cwd, items: [{ mention, toolCwd?,
+  // reRooted? }] }` → `{ results }` in request order. Always recovers. Same network guard, tier (`observe`) and
+  // `cwd` admission as the single route, and admission runs BEFORE any resolution. Bounds: 512 KB body (413),
+  // any string field > 1024 chars (400, decided before any filesystem access), 200 resolved items per request
+  // (the rest `unknown`), 60 requests/min per principal (429). `gated` items carry only their state.
+  const batchLimiter = createWindowLimiter(BATCH_RATE_PER_MINUTE);
+  fastify.post(
+    "/api/file/resolve-mentions",
+    { preHandler: networkGuard, bodyLimit: BATCH_BODY_LIMIT_BYTES },
+    async (request, reply) => {
+      const started = performance.now();
+      const principal = requestPrincipalKey(request);
+      // Without a real principal every local caller would share one bucket anyway; key by address.
+      if (!batchLimiter.take(principal === "local-operator" ? `${principal}@${request.ip}` : principal)) {
+        reply.code(429);
+        return { success: false, error: "rate limited" } satisfies ApiResponse;
+      }
+      const parsed = parseBatchBody(request.body);
+      if (!parsed.ok) {
+        reply.code(400);
+        return { success: false, error: parsed.error } satisfies ApiResponse;
+      }
+      const admitted = await admitFileCwd(parsed.cwd, routeAdmission, { reply });
+      if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
+
+      const counters = { stats: 0 };
+      const containmentMemo: ContainmentMemo = new Map();
+      const fuzzy = { hit: 0, miss: 0, skipped: 0, buildMs: 0 };
+      const fuzzyIndex: MentionFuzzyIndex = {
+        clear: () => mentionIndex.clear(),
+        lookup: async (c, m) => {
+          const r = await mentionIndex.lookup(c, m);
+          if (r.status === "skipped") fuzzy.skipped++;
+          else {
+            if (r.cached) fuzzy.hit++;
+            else {
+              fuzzy.miss++;
+              fuzzy.buildMs = Math.max(fuzzy.buildMs, r.buildMs ?? 0);
+            }
+          }
+          return r;
+        },
+      };
+      const resolved = await mapConcurrent(parsed.items, BATCH_CONCURRENCY, async (item): Promise<BatchResult> =>
+        toBatchResult(
+          await resolveMentionTagged(item.mention, {
+            cwd: admitted.cwd,
+            canonCwd: admitted.canonCwd,
+            recover: true,
+            toolCwd: item.toolCwd,
+            reRooted: item.reRooted,
+            fuzzyIndex,
+            counters,
+            containmentMemo,
+          }),
+        ),
+      );
+      // Items past the cap are never materialised: one shared `unknown`, same order and length as the request.
+      const overflow = parsed.total - parsed.items.length;
+      const results: BatchResult[] = overflow > 0 ? resolved.concat(new Array<BatchResult>(overflow).fill({ state: "unknown" })) : resolved;
+      const counts: Partial<Record<BatchResult["state"], number>> = {};
+      for (const r of resolved) counts[r.state] = (counts[r.state] ?? 0) + 1;
+      if (overflow > 0) counts.unknown = overflow;
+      console.log(
+        formatBatchLog({
+          cwd: admitted.cwd,
+          items: parsed.total,
+          counts,
+          fuzzy,
+          stats: counters.stats,
+          totalMs: performance.now() - started,
+        }),
+      );
+      return { success: true, data: { results } } satisfies ApiResponse;
     },
   );
 
@@ -1255,8 +1407,9 @@ export function registerFileRoutes(
   // Streams the file bytes with `Content-Type` from extension, supports
   // HTTP Range so `<video>` seek works. Same cwd-allowlist + anti-traversal
   // gate as `/api/file`. Sets `Content-Disposition: inline` and a short
-  // private cache.
-  fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
+  // private cache. `download=1` switches to an attachment disposition
+  // (change: add-file-download); nothing else about the route changes.
+  fastify.get<{ Querystring: { cwd?: string; path?: string; download?: string } }>(
     "/api/file/raw",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -1324,7 +1477,10 @@ export function registerFileRoutes(
       const size = stat.size;
 
       reply.header("Content-Type", contentType);
-      reply.header("Content-Disposition", "inline");
+      reply.header(
+        "Content-Disposition",
+        request.query.download === "1" ? contentDispositionAttachment(path.basename(resolved)) : "inline",
+      );
       // Scriptable media types (SVG/HTML/XML) opened directly would run with the
       // dashboard origin. Enforce an opaque-origin sandbox in EVERY dashboard CSP
       // mode, on 200/206/416 and every admission path. The baseline CSP hook
@@ -1395,6 +1551,7 @@ export function registerFileRoutes(
         reply.header("Cache-Control", "no-store");
         reply.removeHeader("Accept-Ranges");
         reply.removeHeader("Content-Security-Policy");
+        reply.removeHeader("Content-Disposition"); // `download=1` must not save the JSON refusal as the file
         return { success: false, error };
       };
       let grantedHandle: Awaited<ReturnType<typeof openVerifiedRegularFile>> | undefined;
@@ -1842,16 +1999,10 @@ export function registerFileRoutes(
         reply.code(404);
         return { success: false, error: "attachment index out of range" } satisfies ApiResponse;
       }
-      // Header-safe filename: strip CR/LF/quote (anti-injection), fold non-ASCII
-      // to `_` for the legacy `filename=`, and carry the exact name via RFC 5987
-      // `filename*` so UTF-8 names (e.g. Hungarian) survive.
-      const rawName = (att.filename || `attachment-${index}`).replace(/["\r\n]/g, "");
-      const asciiName = rawName.replace(/[^\x20-\x7e]/g, "_");
+      // Header-safe attachment name (shared helper; see change: add-file-download).
+      const rawName = att.filename || `attachment-${index}`;
       reply.header("Content-Type", att.contentType || "application/octet-stream");
-      reply.header(
-        "Content-Disposition",
-        `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(rawName)}`,
-      );
+      reply.header("Content-Disposition", contentDispositionAttachment(rawName));
       reply.header("X-Content-Type-Options", "nosniff");
       reply.header("Cache-Control", "private, max-age=60");
       reply.header("Content-Length", String(att.content.length));

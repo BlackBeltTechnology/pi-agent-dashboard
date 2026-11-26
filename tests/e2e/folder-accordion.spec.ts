@@ -5,7 +5,7 @@
  */
 import { expect, test } from "./fixtures.js";
 import { setExpandedViaBus } from "./helpers/card-sections.js";
-import { setFolderCollapsedViaBus } from "./helpers/folder-collapse.js";
+import { inContainer, pinViaBus, setFolderCollapsedViaBus, unpinViaBus } from "./helpers/folder-collapse.js";
 import { ensureGitSession, expandFolder, FIXTURE_GIT, folderCard, gotoDashboard } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
@@ -59,5 +59,38 @@ test.describe("folder accordion", () => {
     await setExpandedViaBus(FIXTURE_GIT, true);
     await gotoDashboard(page);
     await expect(page.getByTestId(`folder-body-${FIXTURE_GIT}`)).toHaveCount(1, { timeout: 30_000 });
+  });
+
+  // S38 (#1134): a compact-empty folder is ONE header row — never taller than the
+  // same folder collapsed in classic mode, with no Group-by / compact-count row.
+  // The folder is empty (header only) so both modes show the same name and count.
+  // See change: sidebar-folder-ux.
+  test("S38: a compact-empty accordion folder is no taller than a classic collapsed one", async ({ page }) => {
+    const DIR = "/root/e2e-slim-card";
+    inContainer(`mkdir -p ${DIR}`);
+    await pinViaBus(DIR);
+    try {
+      await setFolderListMode(page, "classic");
+      await setFolderCollapsedViaBus(DIR, true);
+      await gotoDashboard(page);
+      const classicCard = folderCard(page, DIR);
+      await expect(classicCard).toBeVisible({ timeout: 30_000 });
+      const classicBox = await classicCard.boundingBox();
+
+      await setFolderListMode(page, "accordion");
+      await gotoDashboard(page);
+      const compactCard = folderCard(page, DIR);
+      await expect(compactCard).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId(`folder-body-${DIR}`)).toHaveCount(0);
+      await expect(page.getByTestId(`folder-group-by-row-${DIR}`)).toHaveCount(0);
+      await expect(page.getByTestId(`folder-compact-row-${DIR}`)).toHaveCount(0);
+      const compactBox = await compactCard.boundingBox();
+
+      expect(classicBox && compactBox).toBeTruthy();
+      expect(compactBox!.height).toBeLessThanOrEqual(classicBox!.height + 0.5);
+    } finally {
+      await setFolderCollapsedViaBus(DIR, false);
+      await unpinViaBus(DIR);
+    }
   });
 });

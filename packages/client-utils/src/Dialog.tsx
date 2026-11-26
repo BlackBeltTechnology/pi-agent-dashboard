@@ -179,14 +179,17 @@ interface DialogCancelProps {
   onClick: () => void;
   children?: ReactNode;
   testId?: string;
+  /** Mark as the dialog's initial focus target (renders `data-autofocus`, read by `useFocusTrap`). */
+  autoFocus?: boolean;
 }
 
-function DialogCancel({ onClick, children = "Cancel", testId }: DialogCancelProps) {
+function DialogCancel({ onClick, children = "Cancel", testId, autoFocus }: DialogCancelProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       data-testid={testId}
+      data-autofocus={autoFocus ? "" : undefined}
       className={`${ACTION_BASE} border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]`}
     >
       {children}

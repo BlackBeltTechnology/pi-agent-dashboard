@@ -320,3 +320,27 @@ describe("S24: no client-side SPA route lives under a guarded namespace", () => 
     ).toEqual([]);
   });
 });
+
+/**
+ * @structural-pin every `connections.set(` site in pi-gateway.ts must sit behind the shared origin decision
+ * (`originRefused(` for first frame / move commit, `await claim(` for register); a future unguarded site would
+ * reopen WS-02/WS-03. The scanner is proven to FAIL on an unguarded fixture.
+ * See change: harden-bridge-session-claim (BE57).
+ */
+describe("origin binding guards every routing-entry write (BE57)", () => {
+  const unguarded = (lines: string[]) =>
+    lines.flatMap((l, i) =>
+      /\bconnections\.set\(/.test(l) && !/originRefused\(|await claim\(/.test(lines.slice(Math.max(0, i - 120), i).join("\n")) ? [i + 1] : [],
+    );
+
+  it("pi-gateway.ts has no unguarded connections.set", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "../pi/pi-gateway.ts"), "utf8").split("\n");
+    expect(unguarded(src)).toEqual([]);
+  });
+
+  it("the scanner catches an unguarded fixture", () => {
+    const fixture = ["function evil(ws) {", "  currentSessionId = sid;", "  connections.set(sid, ws);", "}"];
+    expect(unguarded(fixture)).toEqual([3]);
+  });
+});
+

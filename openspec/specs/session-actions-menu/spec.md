@@ -119,9 +119,7 @@ Group contents:
     - Payload with no `readiness` field (older server): the group degrades exactly as the subcard does.
 - **GIT:** Commit N changes… (when dirty), Switch branch…, then the worktree actions — Push, Open PR or View PR #N, Merge (when not the NEXT item), Close worktree…
 - **PLUGINS:** the output of `session-card-action-bar` claims and intents (see "Plugin contributions render inside the PLUGINS group"). The flows plugin contributes here only for a session without flows (see `flows-plugin`).
-- **VIEW:**
-  - `Card sections…` opens the Session cards page of the session's group folder (`gitWorktree.mainPath` for worktree sessions, otherwise the session's cwd).
-  - `Card section defaults…` opens the global Session cards defaults in Settings.
+- **VIEW:** `Card sections…` opens the Session cards page of the session's group folder (`gitWorktree.mainPath` for worktree sessions, otherwise the session's cwd). It is the only VIEW item; the global defaults are reached from that page (see `session-card-section-visibility`).
 
 The menu holds the host's session actions and the `session-card-action-bar` slot output. Flow actions for a session with flows live in the FLOWS dock chip and the flow panel header (see `flows-dock-chip`). Controls rendered inside other plugin-owned sections stay where their plugin renders them: MEMORY subcard content, `session-card-badge` claims in STATUS (for example, a relay badge popover), and worktree card-section claims (for example, KB re-index). Moving them is out of scope.
 
@@ -162,6 +160,11 @@ Some controls act on one specific running thing rather than on the session. They
 #### Scenario: Card sections targets the group folder for a worktree session
 - **WHEN** the user activates `Card sections…` for a session whose `gitWorktree.mainPath` is `/repo`
 - **THEN** the app SHALL navigate to `/repo`'s Session cards page
+
+#### Scenario: VIEW has a single card-sections entry
+- **WHEN** the menu opens for any desktop session
+- **THEN** the `VIEW` group SHALL contain exactly one item, `Card sections…`
+- **AND** no `Card section defaults…` item SHALL render
 
 ### Requirement: NEXT shows exactly one emphasised primary
 

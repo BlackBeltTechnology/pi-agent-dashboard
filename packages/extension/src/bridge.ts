@@ -11,12 +11,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
-import { applyDefaultModel as applyDefaultModelFromConfig } from "./default-model-apply.js";
 import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 import { processPidNamespace } from "@blackbelt-technology/pi-dashboard-shared/pid-namespace.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { rendezvousEndpoint } from "@blackbelt-technology/pi-dashboard-shared/rendezvous.js";
+import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AbortLatch } from "./abort-latch.js";
 import { type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
@@ -29,6 +28,7 @@ import { type BridgeState, createInstance } from "./bridge-handlers/instance.js"
 import { registerProjectTrust, registerSessionInfoChanged, registerSessionShutdown, registerSessionStart, registerTurnEnd } from "./bridge-handlers/lifecycle.js";
 import { appendIdentityLog } from "./bridge-identity-log.js";
 import { createPollingHolder, drainDisposables, ensureDisposable, teardownPreviousIncarnation } from "./bridge-polling.js";
+import { runBridgeShutdown } from "./bridge-shutdown.js";
 import {
   createCommandHandler,
   tryExecSlashTemplate,
@@ -39,6 +39,7 @@ import { ConnectionManager, type WatchdogFireInfo } from "./connection.js";
 import { createCredentialGuard, createCredentialGuardToolCallHandler } from "./credential-guard.js";
 import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
+import { applyDefaultModel as applyDefaultModelFromConfig } from "./default-model-apply.js";
 import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
@@ -50,7 +51,6 @@ import {
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
-import { admitSteer, createSteerBuffer } from "./steer-buffer.js";
 import { drainOneFollowup } from "./followup-drain.js";
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
 import { createInboundLimits } from "./inbound-limits.js";
@@ -58,7 +58,6 @@ import { localCredentialPlan, proofFailureLogCause } from "./local-token-header.
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { createMcpDashboardRegistrar, type McpRegistrationApi, } from "./mcp-token-delivery.js";
 import { COALESCE_WINDOW_MS, MessageUpdateCoalescer } from "./message-update-coalescer.js";
-import { buildSpawnNewSessionMessage } from "./spawn-new-session.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { createPathGate } from "./path-gate/index.js";
 import { Suppression } from "./path-gate/suppression.js";
@@ -68,6 +67,7 @@ import { isPinnedEndpoint } from "./pinned-endpoint.js";
 import { PluginForwardRegistry } from "./plugin-event-forward-registry.js";
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
+import { createPreviewPathLink, installBaseReservationListener } from "./preview-path-link.js";
 import { getOwnPgid, } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, awaitStartupProviderModels, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
@@ -77,11 +77,15 @@ import { activate as activateRoleManager, resolveNamingModel } from "./role-mana
 import { loadServerPins, serverPinsPath } from "./server-pin-store.js";
 import { replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, filterByEnabledModels, isLive } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
+import { buildSpawnNewSessionMessage } from "./spawn-new-session.js";
 import { captureSpawnTokenAtActivation } from "./spawn-token.js";
+import { admitSteer, createSteerBuffer } from "./steer-buffer.js";
 import { flushBufferedSubagentFrames, } from "./subagent-forward-sites.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
 import { SubagentTickThrottle } from "./subagent-tick-throttle.js";
+import { createSudoAskpass, createSudoConfigReader } from "./sudo-askpass/index.js";
+import { sudoMaskState } from "./sudo-askpass/sudo-mask-registry.js";
 import {
   createTerminalReload,
   isBridgeReentry,
@@ -176,9 +180,9 @@ function initBridge(pi: ExtensionAPI) {
   // If bridge is already active for a different pi instance (e.g. a subagent
   // loading extensions in the same process), skip initialization to avoid
   // invalidating the parent session's bridge connection and event forwarding.
-  // `session_shutdown{reason:"reload"}` releases `prev.pi`, so the reloaded
-  // main session (a fresh ExtensionAPI) is not mistaken for a subagent.
-  // See change: fix-terminal-session-dashboard-reload (D4).
+  // `session_shutdown{reason: reload|new|resume|fork}` releases `prev.pi`, so the
+  // replacement main session (a fresh ExtensionAPI) is not mistaken for a subagent.
+  // See change: fix-terminal-session-dashboard-reload (D4), fix-session-bridge-registration (D1).
   // Re-init teardown (cleanup, connections, timers, disposables) runs only for a
   // genuine re-init; a subagent re-entry returns here untouched. Seam:
   // `bridge-polling.ts`. See change: optimize-polling-hot-paths (D11).
@@ -1139,6 +1143,15 @@ function initBridge(pi: ExtensionAPI) {
   });
   inst.pathGate = pathGate;
 
+  // Reserve-path pair (D9): the neutral `mock-site:base-reservation` probe is answered by the server's decision.
+  // See change: serve-live-previews-on-capability-origin.
+  const previewPathLink = createPreviewPathLink({
+    send: (m) => inst.connection.sendIfOpen(m),
+    sessionId: () => inst.sessionId ?? "",
+  });
+  inst.previewPathLink = previewPathLink;
+  const disposeBaseReservation = installBaseReservationListener(pi.events, () => (isActive() ? previewPathLink : undefined));
+
   // Credential vault: applies the hub's granted env values to process.env and
   // reconciles on every connect and session_start. State lives on `process`, so
   // a reload keeps it. See change: add-credential-vault.
@@ -1154,7 +1167,12 @@ function initBridge(pi: ExtensionAPI) {
   // every outgoing event_forward frame on a copy (with tail hold-back) and is
   // installed at the connection, so no plaintext value reaches the send buffer.
   const vaultRedaction = createVaultRedaction({
-    getState: () => vaultDelivery.redactionState(),
+    // Vault values plus operator-entered sudo passwords (append-only registry).
+    getState: () => {
+      const vault = vaultDelivery.redactionState();
+      const sudo = sudoMaskState();
+      return { version: vault.version + sudo.version, entries: [...vault.entries, ...sudo.entries] };
+    },
     createLocalBashOperations: async () => {
       try {
         const pkg: any = await import("@earendil-works/pi-coding-agent");
@@ -1186,9 +1204,65 @@ function initBridge(pi: ExtensionAPI) {
       return { message: { ...message, content: [{ type: "text", text: "[message withheld: vault redaction failed]" }] } } as any;
     }
   });
+  // Sudo credential prompt: installs an askpass wrapper while the server advertises
+  // `sudo-credential` (observed on `dashboard_identity`), asks the operator through
+  // the server relay and answers the helper. Never logs or stores the password
+  // beyond a zeroable in-memory cache. See change: add-sudo-credential-prompt.
+  const sudoAskpass = createSudoAskpass({
+    send: (m) => inst.connection.sendIfOpen(m),
+    sessionId: () => inst.sessionId ?? "",
+    isConnected: () => inst.connection?.isConnected === true,
+    readConfig: createSudoConfigReader({
+      load: () => loadConfig().sudoCredentialPrompt,
+      mtimeMs: () => {
+        try {
+          return fs.statSync(path.join(os.homedir(), ".pi", "dashboard", "config.json")).mtimeMs;
+        } catch {
+          return undefined;
+        }
+      },
+    }),
+    log: (line) => console.log(line),
+  });
+  // A Settings change applies live: re-evaluate the install predicate on a cheap tick.
+  {
+    const sudoTick = setInterval(() => {
+      if (isActive()) sudoAskpass.reconcile();
+    }, 2000);
+    sudoTick.unref?.();
+    getBridgeState().timers!.push(sudoTick);
+  }
+  pi.on("tool_execution_start", (event: any) => {
+    try {
+      if (isActive()) sudoAskpass.toolExecutionStart(event);
+    } catch {
+      /* the gate input is best effort; a failure leaves the gate closed */
+    }
+  });
+  pi.on("tool_execution_end", (event: any) => {
+    try {
+      sudoAskpass.toolExecutionEnd(event);
+    } catch {
+      /* see above */
+    }
+  });
+  pi.on("session_shutdown", () => {
+    try {
+      sudoAskpass.shutdown();
+    } catch {
+      /* best effort: the process-exit hook removes the directory */
+    }
+  });
   pi.on("user_bash", async () => {
     try {
-      return (await vaultRedaction.userBash()) as any;
+      // While the askpass wrapper is installed the `!` command is always wrapped (the
+      // password is registered mid-command, after this event) and tracked, so the
+      // gate opens for it. No operations while installed = untracked: gate closed
+      // for that command, never run unwrapped with the gate open (D7).
+      const installed = sudoAskpass.featureInstalled();
+      const result = await vaultRedaction.userBash({ always: installed });
+      if (!installed || !result) return result as any;
+      return { operations: sudoAskpass.trackUserBash(result.operations) } as any;
     } catch {
       return undefined;
     }
@@ -1254,6 +1328,7 @@ function initBridge(pi: ExtensionAPI) {
       if (!isActive() || inst.connection !== primaryConnection) return;
       pluginLaneUp();
       vaultDelivery.onOpen();
+      sudoAskpass.onOpen();
       // `onReconnect` skips the FIRST open, so plugin latest/stream messages
       // retained before it would wait for the next emission. Drain after the
       // manager flushes its buffered register frame (microtask).
@@ -1271,9 +1346,13 @@ function initBridge(pi: ExtensionAPI) {
       if (inst.connection !== primaryConnection) return;
       pluginLaneDown();
       pathGate.reset();
+      previewPathLink.reset();
       vaultDelivery.onClose();
+      sudoAskpass.onClose();
     },
     onMessage: safe(async (data: unknown) => {
+    // Sudo prompt answers are consumed here (never re-emitted); the identity is only observed.
+    if (isActive() && sudoAskpass.onServerMessage(data)) return;
     return handleInboundMessage(inst, data);
   }),
     onReconnect: safe(() => {
@@ -1437,12 +1516,10 @@ function initBridge(pi: ExtensionAPI) {
       // that. See change: honest-mid-turn-queue-surface (spec
       // mid-turn-prompt-queue: "Session shutdown invokes cachedCtx.shutdown
       // directly").
-      if (inst.cachedCtx?.shutdown) {
-        inst.cachedCtx.shutdown();
-      }
-      // Safety net: force exit after a short delay in case ctx.shutdown()
-      // doesn't terminate (e.g. in RPC mode headless sessions)
-      setTimeout(() => process.exit(0), 500);
+      // pi 1.5.1+ exits on its own when idle and its dispose() waits for a
+      // credential write, so the safety-net exit leaves it BRIDGE_SHUTDOWN_FALLBACK_MS.
+      // See change: update-pi-core-1-6-adopt-apis.
+      runBridgeShutdown(inst.cachedCtx);
     },
     abort: () => {
       // Pi.abort() cancels the turn; queues persist by design (pi ExtensionAPI
@@ -2149,7 +2226,8 @@ function initBridge(pi: ExtensionAPI) {
     drainDisposables(s);
 
     // Dev build & restart: rebuild client and stop server before reload
-    if (config.devBuildOnReload) {
+    // `/reload` only: a new/resume/fork session switch tears down too but must not rebuild or stop the server.
+    if (config.devBuildOnReload && s.shutdownReason === "reload") {
       const __filename = fileURLToPath(import.meta.url);
       const __dirname = path.dirname(__filename);
       const packageRoot = path.resolve(__dirname, "..", "..");
@@ -2159,6 +2237,7 @@ function initBridge(pi: ExtensionAPI) {
     // Release our EventBus subscriptions. Nothing to "restore": the bridge no
     // longer replaces any host function. See change: fix-automation-run-lifecycle.
     disposeEventBusForwarding();
+    disposeBaseReservation();
     pluginForwardRegistry.dispose();
     inst.connection.disconnect();
   };

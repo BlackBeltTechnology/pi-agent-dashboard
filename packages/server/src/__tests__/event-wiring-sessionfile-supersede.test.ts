@@ -194,3 +194,41 @@ describe("register sessionFile supersede", () => {
     expect(info.mock.calls.flat().join("\n")).toContain("[archive] supersede skipped: archive unavailable");
   });
 });
+
+/**
+ * `sessions_list` records are bound to the REPORTING socket's origin; a dispatch that lost `conn` seeds and
+ * rewrites nothing. See change: harden-bridge-session-claim (BE49).
+ */
+describe("sessions_list without a conn (a hop dropped it)", () => {
+  it("BE49: seeds no unseen id and rewrites no existing sessionFile", () => {
+    const sessionManager = createMemorySessionManager();
+    const piGateway = {
+      start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), clearHostPressure: vi.fn(),
+      getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => true), onEvent: undefined,
+      isSessionConnected: vi.fn(() => false),
+    } as any;
+    const eventStore = createMemoryEventStore(() => false);
+    const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway);
+    wireEvents({
+      sessionManager, eventStore, piGateway, browserGateway,
+      sessionOrderManager: { insert: vi.fn(), remove: vi.fn(), getOrder: vi.fn(() => []), reorder: vi.fn(), getAllOrders: vi.fn(() => ({})), moveToFront: vi.fn(), rekey: vi.fn() } as any,
+      preferencesStore: { getPinnedDirectories: () => [], setPinnedDirectories: () => {}, getSessionOrder: () => ({}), setSessionOrder: () => {}, getAutoNameSessions: () => false } as any,
+      pendingForkRegistry: createPendingForkRegistry(),
+      directoryService: makeFakeDirectoryService().service,
+      knownSessionIds: new Set<string>(),
+      pendingDashboardSpawns: new Map<string, number>(),
+    } as any);
+    sessionManager.register({ id: "E", cwd: "/w", source: "tui", sessionFile: "/a.jsonl", sessionDir: "/a" } as never);
+    piGateway.onEvent("S", {
+      type: "sessions_list",
+      cwd: "/w",
+      sessions: [
+        { id: "NEW", path: "/n.jsonl", cwd: "/w", name: "n", firstMessage: "x" },
+        { id: "E", path: "/b.jsonl", cwd: "/w", name: "e", firstMessage: "x" },
+      ],
+    });
+    expect(sessionManager.get("NEW")).toBeUndefined();
+    expect(sessionManager.get("E")!.sessionFile).toBe("/a.jsonl");
+  });
+});
+

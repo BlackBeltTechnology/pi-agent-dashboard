@@ -1,5 +1,6 @@
 # Credentials, tokens, keys and secrets — lifecycle
 > Scope: creation, storage, transport, rotation, revocation, redaction of every host-held secret · Evidence base: HEAD e54074304 · Mapper: 05-credentials-and-secrets (prefix CRED-) · Map index: [security-map.md](../security-map.md) · Register: [residual-risks.md](residual-risks.md)
+> Post-map update (change `harden-agent-tool-guards`, D1/D2/D7): agent-side provider-secret guard, agent-dir read carve-out, sensitive grant-subject set, grant-store preservation. CRED-01 closed agent-side. Rest of chapter = HEAD `e54074304` snapshot.
 
 ## Summary
 - Encrypted at rest: Electron paired-server bearer (`safeStorage`, `packages/electron/src/lib/server-keyring.ts:402`); `plugin-credentials.json` + `vault.json` (AES-256-GCM envelope, key in OS keychain or `PI_DASHBOARD_DATA_KEY_FILE`).
@@ -9,8 +10,9 @@
 - Durable bearers stored HASHED (SHA-256) only: paired-device bearers (`packages/server/src/pairing/paired-devices.ts:113`), passkey invites (`packages/server/src/auth/passkey/user-directory.ts:81`), model-proxy API keys (`packages/server/src/model-proxy/api-key-store.ts:14`), MCP tokens in memory (`packages/mcp-server-plugin/src/server/tokens.ts:59`), relay tickets (`packages/browser-plugin/src/server/relay/relay-ticket.ts:82`), break-glass codes/bearers (`packages/server/src/identity/break-glass.ts:37,54`).
 - Every token minted with `crypto.randomBytes`/`randomUUID`/`randomInt`. One `Math.random` hit: zrok reserved-name suffix (`packages/server/src/tunnel-providers/zrok.ts:171`) — hostname, not a credential.
 - Comparisons on secret-equality paths use `timingSafeEqual`; ticket/challenge stores use `Map` lookup keyed by the 256-bit value (no per-byte compare).
-- Agent `read` of `~/.pi/agent/auth.json` / `providers.json` = in-root, no prompt (`packages/extension/src/path-gate/roots.ts:132`, `decide.ts:78` before sensitive check `:88`). `plugin-credentials.json` + `vault.json` now blocked by credential guard. Finding CRED-01 partial. Server file routes now refuse pi-agent credential files (`auth.json`, `mcp-auth.json`, `providers.json`, `plugin-credentials.json`, `models.json`, `mcp.json`, `system-one/auth.json` + `<name>.*` siblings) for every caller (DEP-01 closed by close-security-map-high-findings); agent-side `read` unchanged (TOOL-04 open).
+- Agent `read` of pi provider secrets hard-blocked by the credential guard: `PI_AGENT_SECRET_FILES` = `auth.json`, `mcp-auth.json`, `providers.json`, `system-one/auth.json` of `~/.pi/agent` AND `PI_CODING_AGENT_DIR` (+ `<name>.*` siblings, symlinks), no operator override. `plugin-credentials.json` + `vault.json` blocked earlier. `models.json`, `mcp.json`, other projects' `sessions/**` ask on read (`Allow once`/`Deny` only). Finding CRED-01 closed agent-side by harden-agent-tool-guards. Server file routes refuse pi-agent credential files (`auth.json`, `mcp-auth.json`, `providers.json`, `plugin-credentials.json`, `models.json`, `mcp.json`, `system-one/auth.json` + `<name>.*` siblings) for every caller (DEP-01 closed by close-security-map-high-findings).
 - Dashboard session JWT (`pi_dash_token`, 7 d) has no server-side revocation on logout; only `auth.secret` change revokes. Finding CRED-03. Partly mitigated by close-security-map-high-findings: JWT of a refused public provider or a removed provider rejected on validation; allowlist edit still does not revoke other sessions.
+- Sudo password (operator-typed, `SUDO_ASKPASS` prompt): RAM only. Bridge `Buffer` cache, TTL `cacheMinutes` (default 5). Never stored, logged, replayed, or sent to LLM. Dedicated `sudo_credential_*` road, not `prompt_*`. Verbatim echo masked `[REDACTED:SUDO_PASSWORD]`; masker holds non-zeroable string copy for process lifetime. Plain-HTTP LAN transit unencrypted (accepted). See `tool-call-guards.md` C9a.
 - Fastify request logging off (`logger: false`, `packages/server/src/server.ts:1957`) → query-string tickets never reach a request log.
 - Vault values → pi `process.env` (hub-local only; remote refused `transport-insecure` because `isTls` never wired, `packages/server/src/server.ts:1869-1880`, default `false` at `packages/server/src/vault/vault-delivery-hub.ts:212`). Exact-match masking `[REDACTED:<NAME>]` on transcript + forwarded events.
 
@@ -53,6 +55,7 @@ Dir legend: `~/.pi/dashboard` created without explicit mode (`packages/shared/sr
 |---|---|---|---|---|
 | Provider API key (user entry) | browser → `POST /api/provider-auth/flow/:flowId/input` body → `auth.json` | HTTP body | audit line logs flow id prefix only | `packages/server/src/routes/provider-auth-routes.ts:262,272` |
 | Provider OAuth tokens | provider token endpoint → server → `auth.json`; pi reads file directly | HTTPS back-channel + file | never sent to browser | `provider-auth-storage.ts:222` |
+| Sudo password (operator) | browser → `sudo_credential_response` → server relay (memory, `{callId, sessionId, metadata}` only) → bridge → helper unix socket (0700 dir) → helper stdout → sudo pipe | WS (plain HTTP on LAN) + unix socket | never stored, logged, replayed; LAN plaintext accepted (`add-sudo-credential-prompt` accepted risk 2) | `packages/server/src/sudo-credential/relay.ts`, `packages/extension/src/sudo-askpass/install.ts`, `helper-script.ts` |
 | Provider keys to LLM via model proxy | `auth.json` → `InternalAuthStorage.resolve` → upstream request headers | HTTPS to provider | proxy callers present proxy key (hashed store) | `internal-auth-storage.ts:123-124`; `api-key-store.ts:42-48` |
 | Custom-provider key | `providers.json` literal or `$ENV` → bridge `resolveApiKey` | file / env | client gets `***` | `extension/src/provider-register.ts:536-538`; `provider-routes.ts:30` |
 | Spawn correlation token | server → spawned pi env `PI_DASHBOARD_SPAWN_TOKEN`; tmux `-e` argv | env + **argv** | argv visible to `ps` (CRED-09); bridge scrubs env on read | `process-manager.ts:432,624-626`; `extension/src/spawn-token.ts:27` |
@@ -67,7 +70,7 @@ Dir legend: `~/.pi/dashboard` created without explicit mode (`packages/shared/sr
 | Passkey invite / phone approval | `/auth/invite#<t>`, `/auth/phone#<t>` | URL **fragment** (not sent to server) | — | `auth/passkey/passkey-pages.ts:16`; `passkey-routes.ts:173` |
 | MCP bearer | server → bridge WS `mcp_token_minted` → `pi.registerMcpServer(... headers Authorization)` | WS (bridge socket) + HTTP header | never in `process.env`/logs/`pi.events` | `extension/src/mcp-token-delivery.ts.AGENTS.md`; `mcp-server-plugin/src/server/tokens.ts:101` |
 | Vault values | hub `vault_snapshot` over bridge socket → bridge sets `process.env` | WS (loopback/unix) + env | remote sessions refused (`transport-insecure`) | `vault-delivery-hub.ts:37-41,212`; `extension/src/vault-delivery.ts:168` |
-| Gmail access token | `gmail/lease` lane → bridge tool | WS lane | refresh token never leaves server | `gmail-plugin/src/server/lease.ts:5,164` |
+| Gmail access token | `gmail/lease` lane → bridge tool | WS lane, hub-local only (`hubLocalOnly`; non-local session → `origin_denied`, see `websocket-and-bridge.md` C7b) | refresh token never leaves server | `gmail-plugin/src/server/lease.ts:5,164`; `gmail-plugin/src/server/index.ts:25`. See change: harden-bridge-session-claim. |
 | Service secrets | child env / OCI file mount | env / file | never `-e`/`--env-file` | `services/secret-delivery.ts:1-9` |
 | OAuth client secret | server → IdP token endpoint body | HTTPS | — | `auth/auth.ts:458` |
 | Git remote userinfo | origin stripped before vault keying; git text redacted before client | — | — | `vault-delivery-hub.ts:253`; `git-worktree/redact-git-text.ts:4-6,101` |
@@ -171,9 +174,35 @@ sequenceDiagram
   H-->>B: "push snapshot (debounced) -> withdraw hash-matched names"
 ```
 
+### (c) Sudo password → sudo via `SUDO_ASKPASS`
+```mermaid
+sequenceDiagram
+  participant S as "sudo (bash call)"
+  participant H as "askpass helper"
+  participant B as "Bridge (pi process)"
+  participant V as "Server relay (memory)"
+  participant O as "Operator browser"
+  S->>H: argv[1]=prompt, stdout=pipe
+  H->>B: unix socket {promptText, ppid}
+  B->>B: gate: bash call in flight, single pending
+  alt fresh cache entry, invocation 1
+    B->>H: cached Buffer
+  else modal
+    B->>V: sudo_credential_request {callId, commands, prompt}
+    V->>O: modal (any authenticated owner)
+    O->>V: sudo_credential_response {password}
+    V->>B: relay, no store / log / replay
+    B->>B: mask-register, cache (if not final invocation)
+    B->>H: password
+  end
+  H->>S: stdout
+```
+
 ## Controls detail
 | Control | Purpose | Enforcement | Default | Bypass / exception | Fail mode | Tests |
 |---|---|---|---|---|---|---|
+| Sudo password non-persistence | RAM only; dedicated road skips `QuestionStore` / replay / event store; logs carry type + `callId` | `sudo-askpass/password-cache.ts`, `sudo-mask-registry.ts`, `server/src/sudo-credential/relay.ts` | ON | none (no persistence path) | closed (refuse, helper exit 1) | — |
+| Sudo password echo mask | exact-occurrence replace `[REDACTED:SUDO_PASSWORD]` in tool output, messages, `!` output, forwarded events | `sudo-askpass/sudo-mask-registry.ts`; `bridge.ts:1159-1163` | ON | transformed echo (base64 / hex / split / reversed) | masker error → output withheld (`tool-call-guards.md` C9) | — |
 | Atomic 0600 JSON write | no torn file, no group/world bits | `locked-json-file.ts:297-315` | 0600 / preserve `&0o700` | writers not using it: `role-manager.ts:113` (CRED-02), `json-store.ts:31` (mode optional) | closed (throws) | `server/src/__tests__/vault-store.test.ts` (lead) |
 | Lock coordination with pi | no lost update vs pi OAuth refresh | `LOCK_OPTIONS {stale:30000, realpath:false}` `locked-json-file.ts:39`; retry ELOCKED only `:63-86` | 2 s budget `:42` | compromise contained `:133-142` | closed (op fails) | — |
 | Corrupt quarantine | keep byte-exact backup | `locked-json-file.ts:205`; vault refuses writes `vault-store.ts` (AGENTS) | on | plugin store overwrites after backup (`plugin-credential-store.ts:151`) | closed for vault | `vault-store.test.ts` |
@@ -187,15 +216,35 @@ sequenceDiagram
 | Vault masking | keep values out of transcript/UI | `vault-masker.ts`, `vault-forwarder.ts:59`, `vault-redaction.ts:122` | on when values held | encoded forms, local TUI, foreign earlier `user_bash` handler (doc §7) | open for unknown forms | extension vault tests (lead) |
 | MCP token isolation | bearer not in env/events | `mcp-token-delivery.ts`; registry in-memory `tokens.ts:15-26` | on | — | closed | — |
 | Spawn token scrub | single-use correlation | `extension/src/spawn-token.ts:27` | on | tmux argv copy (CRED-09) | — | `spawn-token.test.ts` |
+| Agent-dir credential guard (hard block) | block every agent tool on pi provider secrets | `packages/extension/src/credential-guard.ts`; name set `packages/shared/src/agent-credential-files.ts` `PI_AGENT_SECRET_FILES`; path rules `read`/`edit`/`write`/`ls`/`find`/`grep`, text rules on command-bearing fields | ON, always (no config key, no env, no override) | `bash` indirection / encoding / script on disk (TOOL-31); third agent dir pi reports (TOOL-27); Windows alternate names, 8.3 (TOOL-28) | closed (internal error blocks only the evaluated call) | `extension/src/__tests__/credential-guard.test.ts`, `credential-guard-wiring.test.ts` |
+| Agent-dir read carve-out (ask) | `models.json`, `mcp.json`, `<agentDir>/sessions/**` ask on `read` | carve-out tested BEFORE every root class (`packages/extension/src/path-gate/decide.ts`), forces `sensitive:true` + `grantable:false` → `Allow once`/`Deny` only | ON | own session dir, skills, prompts, `settings.json` stay silent; `write`/`edit` inside a workspace root spanning the agent dir stays unprompted (TOOL-25) | closed (no UI → deny) | `path-gate/__tests__/decide-carveout.test.ts` |
+| Sensitive grant subjects | no `Always allow`, no grant, no ladder rung, no YOLO root/auto-allow, no non-local browse | `forbiddenGrantSubjects().sensitive` (`packages/shared/src/forbidden-subjects.ts`) + `browserProfileRoots`; every consumer via `isUngrantableSubject` / `isForbiddenGrantSubject` | ON | `~/.netrc.*` siblings, Windows `_netrc`, snap/flatpak profile locations (TOOL-26) | closed (refuse) | `server/src/access/__tests__/credential-dir-subjects.test.ts`, `yolo-credential-dirs.test.ts`; `server/src/__tests__/browse-roots.test.ts` |
+| Grant store raw-row preservation | persisted grants the filter no longer admits survive a write | `packages/server/src/access/access-grants.ts`: filtered at load, raw rows written back verbatim by `recordGrant` + `revokeGrant` | ON | — | closed (write fails, rows never dropped) | `server/src/access/__tests__/access-grants-preserve.test.ts` |
+| Grant store whole-file states | never overwrite a store it cannot read | invalid JSON / `version !== 1` → moved aside to `<file>.corrupt-<UTC ts>` by `recordGrant` (`revokeGrant` writes nothing); over `GRANT_STORE_MAX_BYTES` (1 048 576) → neither loaded nor rewritten, write refused with one log line | ON | — | closed | `server/src/access/__tests__/access-grants.test.ts` |
+
+### Protected sets (change: harden-agent-tool-guards)
+
+| Set | Members | Effect |
+|---|---|---|
+| `PI_AGENT_SECRET_FILES` | `auth.json`, `mcp-auth.json`, `providers.json`, `system-one/auth.json` | hard block in the credential guard; both agent dirs (`~/.pi/agent`, `PI_CODING_AGENT_DIR`); `<name>.*` siblings; no switch |
+| Agent-dir read carve-out | `models.json`, `mcp.json` (+ `<name>.*`), `<agentDir>/sessions/**` | `ask` on `read`, `sensitive`, `Allow once`/`Deny` only; own session dir exempt |
+| `sensitive` grant subjects | `~/.ssh`, `~/.pi`, `~/.aws`, `~/.config/gh`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.netrc`, browser user-data roots | refused as grant subject, ladder rung, YOLO root; no YOLO auto-allow; no non-local browse |
+| Browser user-data roots (`browserProfileRoots`, design D7, normative) | darwin `~/Library/Application Support/{Google/Chrome,Chromium,Microsoft Edge,BraveSoftware,Firefox}`; linux `~/.config/{google-chrome,chromium,microsoft-edge,BraveSoftware}` + `~/.mozilla`; win32 `%LOCALAPPDATA%\{Google\Chrome\User Data,Microsoft\Edge\User Data,BraveSoftware}` + `%APPDATA%\Mozilla` | sensitive on every consumer of the shared list |
+
+Side effect: a directory CONTAINING a sensitive subject (`~/.config`, macOS `~/Library/Application Support`, Windows `%LOCALAPPDATA%`) is ungrantable and cannot be a YOLO / cwd-plane root.
 
 ## Config & env knobs
 | Key / env | Default | Effect | path:line |
 |---|---|---|---|
+| `sudoCredentialPrompt.enabled` (config.json) | `true` | askpass helper on / off (Security tab) | `packages/shared/src/config.ts:1267,1774,2805` |
+| `sudoCredentialPrompt.cacheMinutes` | `5` | bridge-memory cache TTL; `0` off; clamp 0–60 | `packages/shared/src/sudo-credential.ts` |
+| `sudoCredentialPrompt.timeoutMs` | `120000` | answer window; clamp 5 000–600 000 | `packages/shared/src/sudo-credential.ts` |
 | `auth.secret` (config.json) | generated 32 B hex if absent | JWT + OAuth-state HMAC key | `auth/auth.ts:148-174` |
 | `auth.providers.<id>.clientSecret` | none | OAuth client secret, plaintext | `shared/src/config.ts:127,1920-1928` |
 | `vault.deliveryEnabled` | `true` | emergency off for delivery | `shared/src/config.ts:375,1977` |
 | `vault.offlineGraceHours` | 24 (clamp 1–168) | bridge keeps values offline | `shared/src/vault-delivery.ts:20`; `config.ts:1978` |
 | `acceptLegacyToken` (code const) | `true` | raw `X-Pi-Local-Token` admitted | `server.ts:768` |
+| `GRANT_STORE_MAX_BYTES` (code const) | 1 048 576 | grant store over cap: not loaded, not rewritten, writes refused | `server/src/access/access-grants.ts:131` |
 | `PI_DASHBOARD_ALLOW_UNPROVEN_LOCAL_SERVER=1` | unset | bridge skips server counter-proof | `extension/src/local-token-header.ts:53` |
 | `PI_DASHBOARD_TOKEN` | unset | remote bridge paired bearer (env) | `extension/src/bridge-ticket-client.ts:20` |
 | `PI_DASHBOARD_SPAWN_TOKEN` | per spawn | correlation token | `auth/spawn-token.ts:20` |
@@ -221,7 +270,7 @@ sequenceDiagram
 ## Findings
 | ID | Sev | Title | Evidence (path:line) | Impact | Suggested remedy |
 |---|---|---|---|---|---|
-| CRED-01 | Medium | Agent `read` of pi agent dir credential files never prompts | `packages/extension/src/path-gate/roots.ts:132` (agentDir = read-only root); `path-gate/decide.ts:78` returns `in-root` before sensitive flag `:88`; sensitive list `shared/src/forbidden-subjects.ts:113` | agent/LLM (prompt injection) reads `auth.json`, `plugin-credentials.json`, `providers.json` silently and can exfiltrate via any egress tool | exclude credential files from agentDir root or force `ask`; partial: `plugin-credentials.json` + `vault.json` closed by `credential-file-guard` (encrypt-credentials-at-rest); open: `auth.json`, `providers.json` |
+| CRED-01 | Medium | Agent `read` of pi agent dir credential files never prompts | `packages/extension/src/credential-guard.ts` (`PI_AGENT_SECRET_FILES`); `path-gate/decide.ts` read carve-out; sensitive list `shared/src/forbidden-subjects.ts` | was: agent/LLM (prompt injection) reads `auth.json`, `providers.json` silently, exfiltrates via any egress tool | **closed agent-side by harden-agent-tool-guards**: provider secrets hard-blocked, `models.json`/`mcp.json`/other sessions' transcripts ask on read; `plugin-credentials.json` + `vault.json` closed by `credential-file-guard` (encrypt-credentials-at-rest). Residuals: `bash` indirection (TOOL-31), third agent dir (TOOL-27) |
 | CRED-02 | Medium | Bridge rewrites `providers.json` (API keys) without 0600 | `packages/extension/src/role-manager.ts:113-114` (`writeFileSync(tmp, …)` no mode, then rename); contrast `server/src/routes/provider-routes.ts:235-238` | any role edit replaces the 0600 file with umask mode (typ. 0644) → other local OS users read provider API keys | write tmp with `{mode:0o600}` + chmod, or reuse `writeJsonAtomic` |
 | CRED-03 | Medium | Session JWT not revocable; logout only clears cookie | `server/src/auth/auth-plugin.ts:468-471`; `auth/auth.ts:180,201`; rotation only one-shot epoch `auth/secret-rotation.ts:28,180` | stolen `pi_dash_token` valid up to 7 d after logout for OAuth sessions; no operator rotate command (passkey sessions re-checked `auth-plugin.ts:343-349`) | server-side session id denylist / short JWT + refresh; `pi-dashboard rotate-secrets` CLI Partial: sessions of refused-open-enrolment + removed providers now rejected on validation (close-security-map-high-findings D3); logout still cookie-only. |
 | CRED-04 | Medium | Some host secret stores plaintext at rest | `auth/provider-auth-storage.ts:130`; `shared/src/config.ts:2716`; `auth/identity.ts:74`; `push/push-vapid.ts:33`; `services/secrets-store.ts:99`; docstring `dashboard-plugin-runtime/src/server/server-context.ts:861` | backups, sync, support bundles, any same-user process leak every secret partial: `vault.json` + `plugin-credentials.json` closed by encrypt-credentials-at-rest (archived 2026-10-26); open: `provider-auth-storage.ts`, `config.ts`, `identity.ts`, `push-vapid.ts`, `secrets-store.ts` |

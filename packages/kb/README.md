@@ -44,6 +44,10 @@ extension auto-reindexes filesystem sources only.
 than one source returns a candidate list (`<source-id>:<path>`) instead of a
 body; pass a candidate back, or qualify the path by its source directory.
 `--section` / `section` accepts a full heading path or a unique last heading.
+An unknown section in a found file prints
+`(section not found: <section> in <path> — sections:)` followed by up to 50 of
+the file's heading paths (then `(+K more sections)`); `(not found: <path>)`
+means the path itself is not indexed.
 
 ## Evaluate retrieval (kb eval)
 

@@ -5,7 +5,7 @@ Test overlay on `compose.yml`. Sets `PI_DASHBOARD_NO_MDNS=1`, `DASHBOARD_PORT="$
 Passes `PI_DASHBOARD_DISABLE_GRANT_PROMPT` through (empty = unset; only exact `1` engages the access-grant prompt kill switch) so the whole E2E suite can run with prompting force-disabled. See change: add-access-grant-dialog (task 9.2).
 
 Sets `PI_DASHBOARD_FIXTURE_PLUGINS=1` as build arg + runtime env (demo-plugin fixture loaded in the harness). See change: expose-plugin-credential-and-oauth-seams.
-Passes `PI_E2E_GOOGLE_BASE_URL` through to the dashboard service (loopback-only honoured by gmail-plugin; inert until a spec starts the fake). See change: add-gmail-plugin.
+Passes `PI_E2E_GOOGLE_BASE_URL` through to the dashboard service (loopback-only honoured by gmail-plugin; inert until a spec starts the fake). Also passes `PI_E2E_GOOGLE_BUILTIN` + `PI_GOOGLE_REMOTE_RETURN` (add-google-connect). See change: add-gmail-plugin.
 
 Passes `PI_E2E_CANARY` + `PI_DASHBOARD_CSP` to the container (the entrypoint reads the stage from `${HOST_CWD}/.pi-test-canary`).
 - Passes `PI_E2E_TERMINALS_MAX_CONCURRENT` (seeds `terminals.maxConcurrent`; empty = default 32). See change: harden-server-capability-bounds.
@@ -15,3 +15,5 @@ Passes `PI_E2E_CANARY` + `PI_DASHBOARD_CSP` to the container (the entrypoint rea
 Passes `PI_E2E_OAUTH_NO_BYPASS` through to the container. See change: harden-cors-and-csp-reporting.
 
 Top-level `pi-key` overridden to a tmpfs (`size=16m`), like `pi-state`: key and encrypted files vanish together each run. Precondition for the credential e2e rows F4/F5. See change: encrypt-credentials-at-rest.
+
+See change: rich-chat-links (task 9.12) — `PI_E2E_FRAME_POLICY_VERDICTS` (default `framed-allowed.test=allowed,framed-refused.test=refused`) arms the test-only frame-policy verdict seam (`packages/server/src/lib/frame-policy-test-seam.ts`); honoured only with `PI_E2E_SEED=1`, refused when `NODE_ENV=production`.

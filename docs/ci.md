@@ -129,7 +129,7 @@ Evidence of what a run skipped:
 
 ## Nightly safety net
 
-`.github/workflows/nightly-tests.yml`. Cron `0 3 * * *` + `workflow_dispatch`. Full sharded suite incl. slow tier.
+`.github/workflows/nightly-tests.yml`. Cron `0 3 * * *` + `workflow_dispatch`. Full sharded suite incl. slow tier + `budget` job (see Budget lane).
 
 `report` job — `scripts/test-selection/nightly-report.mjs`:
 
@@ -137,11 +137,168 @@ Evidence of what a run skipped:
 - expected jobs with no report (cancelled/infra — never counted passing)
 - bisect range since last green SCHEDULED develop run. Dispatch run never anchors.
 
-Scheduled red → open/update single `nightly-tests` issue. Green → comment + close.
+Scheduled red → open/update single `nightly-tests` issue. Green → comment + close. First attempt red → deferred to one rerun (see Nightly rerun-once).
 
 Emits `test-timings` artifact. Refresh `scripts/test-selection/timings.json` by hand from it — not committed automatically.
 
 Trade-off: regression missed by selection surfaces in next nightly, not on the merge.
+
+## Nightly rehearsal reporter (`nightly.yml`)
+
+Reporter serves two workflows: `nightly-tests.yml` (default modes) and `nightly.yml` (`--jobs-only`). See change: schedule-release-rehearsal.
+`nightly.yml` `report` job: `node scripts/test-selection/nightly-report.mjs --jobs-only --no-close-on-rerun --label nightly --name "Nightly Verdaccio build"`.
+Flags:
+- `--jobs-only`: verdict from `NEEDS_JSON`. No reports, no `timings.json`, no bisect-anchor query.
+- `--label <label>`: issue label. Read only in jobs-only mode. Default `nightly-tests`.
+- `--name <text>`: name in step-summary heading, headline, issue title, close comment. Read only in jobs-only mode.
+- `--no-close-on-rerun`: re-run attempt never closes. Read only in jobs-only mode.
+Verdict:
+- Red: any needed job not `success`. `skipped` counts red.
+- Red: `NEEDS_JSON` unset, empty, invalid JSON, or empty object.
+- Failed-job list: `failure`, `cancelled`, `timed_out` from jobs API.
+`nightly` issue rules:
+- Scheduled, attempt 1, red: opens or updates the issue.
+- Scheduled, attempt 1, green: comments and closes the issue.
+- Scheduled, attempt >1, red: comments on open issue, or opens it if none. Body untouched.
+- Scheduled, attempt >1, green: no issue call. Step summary only.
+- Re-run never closes the issue.
+- Dispatch (`GITHUB_EVENT_NAME` not `schedule`): step summary only. No issue call.
+- Failed issue call: run summary `Issue call failed: <error>`, `::error::` annotation, exit 1.
+- Recover failed issue call: re-run the `report` job.
+- `nightly` label reserved for reporter. Open issue with that label adopted; closed on green.
+Platform assumption unverified: re-run of scheduled run keeps `GITHUB_EVENT_NAME` `schedule`.
+Check on first re-run after merge: `gh run view <id> --attempt 2 --json event` (design T-B18).
+
+## Budget lane (`*.budget.test.*`)
+
+Timing / size / memory budget tests. Blocking runs must never collect them.
+
+### Contract
+
+- File name: `*.budget.test.*` (code ext). `isBudgetFile()` in `scripts/test-selection/decide.mjs`: `/\.budget\.test\.[cm]?[jt]sx?$/`.
+- `vitest.workers.ts` exports `BUDGET_TEST_EXCLUDE` = `["**/*.budget.test.*"]`, or `[]` when `RUN_BUDGET_TESTS === "1"`.
+- Six vitest configs spread it into `test.exclude`: `scripts/`, `packages/server` (×2), `packages/skill-atlas-plugin`, `packages/blender`, `packages/kb-plugin`.
+- Only `npm run test:budget` sets `RUN_BUDGET_TESTS=1`. Runs `vitest run --no-file-parallelism --passWithNoTests .budget.test.` (root config).
+- Lane-judging scripts never set it.
+
+### Selector
+
+- `decide()` drops budget files from unit shards, `real-process` and `ci-scenarios` lists.
+- Budget list = filename scan of `git ls-files` (`scanBudgetFiles()`), not the vitest index. Output: `selection.json` `budgetFiles`.
+- Assigned via `assigned.mjs <selection> budget`.
+
+### Blocking check (`ci` job)
+
+- Step: `node scripts/check-budget-lane.mjs`. Never sets `RUN_BUDGET_TESTS`.
+- Fails (exit 1) when:
+  - `vitest list --filesOnly` (root, and `packages/server/vitest.real-process.config.ts`) lists a budget file.
+  - tracked budget file sits in no root-config project that excludes it with the budget entry.
+  - static include/exclude judgement disagrees with vitest collection (matcher drift).
+- `GITHUB_ACTIONS` set → each finding also `::error file=<path>::`.
+- `--root <dir>` → fixture tree (tests only).
+
+### Nightly `budget` job (`nightly-tests.yml`)
+
+- `runs-on: ubuntu-latest`, `needs: select`, `timeout-minutes: 10` (~2× measured ~3 min; above 50 moves rerun deadline + watchdog, see Nightly rerun-once).
+- Serial: `pnpm run test:budget <assigned files>`, `BLENDER_WASM_E2E=1`.
+- Setup: `pnpm install --frozen-lockfile`, Playwright chromium, asserts `packages/client/dist/index.html`, blender runtime cache.
+- Empty assignment still runs (`--passWithNoTests`) → always uploads `vitest-report-budget`.
+- `verify-executed.mjs … budget` strict: zero-assertion or skipped assigned file → red.
+- In `report` `needs` and `--expected` list.
+
+### Warn-only assertion guard (`ci` job)
+
+- Step: `node scripts/check-budget-assertions.mjs --warn`. Always exit 0.
+- Lists upper-bound assertions on clock / memory readings still in blocking test files. Readings: `performance.now`, `Date.now`, `new Date()` arithmetic, `process.hrtime`, `process.uptime`, `process.memoryUsage`, `getHeapStatistics`, `process.resourceUsage`, `rssBytes`, `startLagMonitor`.
+- Scope: git-tracked `*.test.{ts,tsx,mts,mjs,js}` minus `tests/e2e/`, `qa/`, `**/fixtures/**`, `*.budget.test.*`.
+- `--warn`: `::warning file=<path>,line=<n>::` per hit. With `GITHUB_STEP_SUMMARY`: `### Budget assertions in blocking lanes: <n>` + table.
+- `--list`: every hit; allow-listed ones show entry + reason. Exit 0.
+- No flag: exit 1 on finding. Wired nowhere yet.
+- `LIVENESS_ALLOW`: 4 real-process liveness deadlines (`cli-stop-real`, `cli-foreground-real`, `shutdown-terminates-any-strategy`, `keeper`). Entry needs reason; must match exactly one hit; else finding.
+- Not detected: measurements in helpers, child processes, aliased readings, hand-thrown failures, Promise.race timeouts.
+- Follow-up `migrate-budget-assertions`: moves hits, switches step to no-flag blocking mode, adds to ship-it.
+
+### Concurrency: `nightly-tests.yml` has none
+
+- No `concurrency` group, workflow or job level. Intentional.
+- GitHub keeps one pending run per group; a queued run cancels the pending one.
+- Group would let a 03:00 cron or a dispatch displace the other: night with no report, no rerun.
+- Dispatch + scheduled runs may overlap: jobs on separate VMs; only `schedule` writes the issue; `test-timings` per run.
+
+## Nightly rerun-once
+
+Flaky-tolerant red night. Change: stabilize-blocking-test-lanes (D7).
+
+Files:
+
+- `.github/workflows/nightly-tests.yml` — attempts 1 and 2, `report` job.
+- `.github/workflows/nightly-tests-rerun.yml` — `workflow_run` rerun.
+- `.github/workflows/nightly-tests-watchdog.yml` — backstop.
+- `scripts/test-selection/nightly-report.mjs` — reporter.
+
+### Flow
+
+1. Attempt 1 `report`: `nightly-report.mjs --defer-first-attempt`.
+2. Writes `reports/attempt-1.json` = `{deferred, failingTests, failedJobs, noReport}`.
+3. `deferred = true` only when all hold:
+   - night is red.
+   - event `schedule`.
+   - `nightly-tests-rerun.yml` and `nightly-tests-watchdog.yml` both `state: active`.
+   - reporter ran at or before 04:05 UTC (`DEFER_DEADLINE_UTC_MINUTE` = 245) on the run's UTC creation date.
+4. Uploads artifact `nightly-attempt-1` (`attempt-1.json`, 30 days). Attempt 1 only.
+5. Deferred → no issue written yet; step summary says `RED — first attempt deferred`.
+6. `nightly-tests-rerun.yml` (`workflow_run`, completed `Nightly tests`):
+   - runs when conclusion `failure` or `cancelled`, `run_attempt == 1`, event `schedule`, branch `develop`.
+   - downloads `nightly-attempt-1`; `jq -e '.deferred == true'`.
+   - `true` → `gh run rerun <id> --failed`.
+   - missing or unparsable record → job red (exit 1); watchdog covers.
+   - `permissions: {}` top; job `actions: write` only. No checkout, no cache.
+   - runs default-branch copy of the file.
+7. Attempt 2 `report`: `--previous previous` reads the record. Download `continue-on-error`.
+8. Attempt 2 record missing: attempt 1 not a red scheduled run → note only. Otherwise → forced red, note `first-attempt record unavailable — passed-on-rerun not computed`.
+9. Attempt 2 writes the issue: red → create/update; green → comment + close.
+
+### Passed on rerun (flaky)
+
+Section in issue body (red) and close comment (green). Only when a list is non-empty.
+
+- Tests: failed on attempt 1, not failing on rerun. File-level failure (no assertion) passes when whole file no longer fails. Job must have a report on rerun.
+- Jobs: not `success` on attempt 1 (failed, or no report), `success` on rerun, every related shard reported.
+
+### Watchdog (`nightly-tests-watchdog.yml`)
+
+- Cron `47 7 * * *` (07:47 UTC) + `workflow_dispatch` (`--dry-run`: prints only).
+- Latest scheduled develop run not `success`, and no open `nightly-tests` issue names its run URL → opens/updates issue. Reason: `rerun not performed or not reported`.
+- Run started more than 24 h ago → nothing.
+- Run still in progress at 07:47 → reported red. Later green → its report closes issue.
+- Permissions: `contents: read`, `issues: write`, `actions: read`.
+
+### Worst-case timing
+
+Inputs: `select` 15, `unit` 50, `real-process` 30, `ci-scenarios` 40, `budget` 10, `report` 10, `rerun` 5 (`timeout-minutes`).
+
+- A = attempt length = `select` + longest test job + `report` = 15 + 50 + 10 = 75 min.
+- C = 03:00 UTC cron.
+- D = deferral deadline 04:05 UTC (245) = C + 15 + 50.
+- E = worst-case rerun end = D + `report` + R + A = 245 + 10 + 5 + 75 = 05:35 UTC.
+- W = watchdog 07:47 UTC = E + 2 h 12 min.
+- Contract test (`nightly-tests-workflow-contract.test.ts`) asserts `D ≥ C + select + longest test job` and `W ≥ D + report + R + A + 120 min`, from parsed workflows + exported constant.
+- Not measured: GitHub schedule start delay, `workflow_run` delivery, rerun job queue time.
+- Attempt 1 reporter past D (UTC creation date, next day included): no defer, reports itself.
+- Manual re-run: outside bound; writes issue as own report only.
+
+### Reporter flags (`nightly-report.mjs`)
+
+- `--reports <dir>` (required in report mode): reads `vitest-report-<job>/*.json`; writes `timings.json`.
+- `--expected <k1,k2,…>` (required in report mode): jobs with no report count red.
+- `--defer-first-attempt`: attempt-aware. Attempt 1 writes `attempt-1.json`; attempt ≥ 2 reads `--previous`.
+- `--previous <dir>`: dir holding `attempt-1.json`.
+- `--watchdog`: reads no reports; checks latest scheduled run.
+- `--dry-run`: with `--watchdog`, no issue write.
+- `--jobs-only`: `nightly.yml` `report` job. Verdict from `NEEDS_JSON`. Ignores all other mode flags.
+- `--label <label>`, `--name <text>`, `--no-close-on-rerun`: jobs-only mode only. See Nightly rehearsal reporter.
+- Usage error (missing `--reports`/`--expected`) → exit 1.
+- Env: `NEEDS_JSON`, `GITHUB_RUN_ATTEMPT`, `GITHUB_EVENT_NAME`, `GITHUB_STEP_SUMMARY`.
 
 ## Local reproduction
 

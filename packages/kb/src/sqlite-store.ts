@@ -9,7 +9,7 @@ import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, Ra
 
 /** Bump when the frontmatter structural schema/behavior changes so an existing
  *  DB force-reindexes once on open (design D6). */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 /** Default per-search proximity time budget, ms (design D2 of change
  *  bound-kb-proximity-search). A backstop: the exact window search (D1) keeps
  *  measured calls far below it. */
@@ -191,8 +191,11 @@ export class SqliteFtsStore implements KbStore {
       } catch { /* table absent in a pre-DDL store — nothing to clear */ }
     }
   }
+  /** IMMEDIATE: take the writer lock up front (honouring `busy_timeout`). A deferred BEGIN pins a WAL
+   *  snapshot on the batch's first read; if another connection commits before the batch's first write,
+   *  SQLite fails the upgrade with SQLITE_BUSY at once, bypassing `busy_timeout`. */
   begin() {
-    this.db.exec("BEGIN");
+    this.db.exec("BEGIN IMMEDIATE");
   }
   /** Lower/raise the SQLITE_BUSY wait on this connection (git scope keeps it
    *  within the search budget). See change: add-kb-git-forge-scope (G1). */
@@ -201,7 +204,7 @@ export class SqliteFtsStore implements KbStore {
   }
   /** BEGIN IMMEDIATE … COMMIT around a synchronous `fn` (ROLLBACK on throw), so
    *  the writer lock is held from the first statement to COMMIT. The existing
-   *  `begin()` is a plain BEGIN and is not used by the git scope. */
+   *  `begin()` (batch-level, no callback) is not used by the git scope. */
   immediate<T>(fn: (db: RawDb) => T): T {
     this.db.exec("BEGIN IMMEDIATE");
     try {

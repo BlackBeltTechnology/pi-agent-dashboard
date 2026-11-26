@@ -19,6 +19,7 @@ import {
 import type { HostGateMode } from "./host-admission.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsBashSourceSetting, WindowsGitSourceSetting } from "./platform/select-git-source.js";
+import { type PreviewOriginsConfig, parsePreviewOrigins } from "./preview-origins.js";
 import {
   defaultSchemeForPort,
   isValidPort,
@@ -31,6 +32,7 @@ import {
   routeKey,
 } from "./server-routes.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
+import { DEFAULT_SUDO_CREDENTIAL_PROMPT, parseSudoCredentialPrompt, type SudoCredentialPromptConfig } from "./sudo-credential.js";
 import { isTier, type Tier } from "./tiers.js";
 import {
   providerSupportsMode,
@@ -1057,6 +1059,15 @@ export interface DashboardConfig {
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
   /**
+   * Auto-seed the `coding` profile's missing artifacts into a project's config
+   * root when a folder is pinned, a session registers, or the boot sweep runs.
+   * `false` is the exact-no-op rollback path: every trigger point short-circuits
+   * and nothing is written. Absent resolves to `true` (active by default), so an
+   * unset config seeds — the switch exists to opt OUT.
+   * Read once in `createServer` and applied via `configureProjectSeed`.
+   */
+  autoSeedProjects: boolean;
+  /**
    * Cold-start readiness budget (ms) the bridge's auto-spawn allows before
    * giving up its health poll and reporting "readiness timeout". The spawned
    * server keeps booting regardless — the timeout only controls how long the
@@ -1253,6 +1264,8 @@ export interface DashboardConfig {
   /** Dashboard trust → pi project_trust mirror. See change: mirror-dashboard-trust-to-pi. */
   piTrustMirror: PiTrustMirrorConfig;
   agentPathGate: AgentPathGateConfig;
+  /** Sudo credential prompt (default on). See change: add-sudo-credential-prompt. */
+  sudoCredentialPrompt: SudoCredentialPromptConfig;
   /** Per-process bridge activation (see `BridgeActivationConfig`). */
   bridge: BridgeActivationConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
@@ -1279,7 +1292,15 @@ export interface DashboardConfig {
    * forwarding header (`ssh -L`, socat), which is otherwise undetectable. Absent / any
    * other value → automatic detection. See change: improve-canvas-html-and-url-ux (D5).
    */
-  liveServer?: { previewExposure?: "exposed" };
+  liveServer?: {
+    previewExposure?: "exposed";
+    /**
+     * Preview-origin tiers (validated + normalised; invalid tiers already dropped, `issues` come from
+     * `parsePreviewOrigins` on the raw file). Kept independently of `previewExposure`.
+     * See change: serve-live-previews-on-capability-origin (D12).
+     */
+    previewOrigins?: PreviewOriginsConfig;
+  };
   /** Merged trustedNetworks + auth.bypassHosts (deduplicated). Computed at load time. */
   resolvedTrustedNetworks: string[];
   /** CORS allowed origins for cross-origin client hosting */
@@ -1737,6 +1758,7 @@ const DEFAULTS: DashboardConfig = {
   autoStart: true,
   autoShutdown: false,
   shutdownIdleSeconds: 300,
+  autoSeedProjects: true,
   // Historical hardcoded value of the bridge cold-start health window — the
   // shared health-poll constant, referenced rather than respelled so the two
   // cannot drift. See change: add-configurable-readiness-timeout.
@@ -1758,6 +1780,7 @@ const DEFAULTS: DashboardConfig = {
   accessGrants: { promptEnabled: true },
   piTrustMirror: { ...DEFAULT_PI_TRUST_MIRROR, sources: { ...DEFAULT_PI_TRUST_MIRROR.sources } },
   agentPathGate: { ...DEFAULT_AGENT_PATH_GATE },
+  sudoCredentialPrompt: { ...DEFAULT_SUDO_CREDENTIAL_PROMPT },
   bridge: { ...DEFAULT_BRIDGE_ACTIVATION },
   defaultModel: "",
   defaultThinkingLevel: "",
@@ -2510,6 +2533,21 @@ export function knownServersNeedMigration(): boolean {
   }
 }
 
+/**
+ * `liveServer` block: `previewExposure` (only `"exposed"` is kept) and
+ * `previewOrigins`, kept independently of each other. A non-object block → defaults.
+ * Never throws; per-tier problems are reported by `parsePreviewOrigins`.
+ * See change: serve-live-previews-on-capability-origin (D12).
+ */
+function parseLiveServerConfig(raw: unknown): { liveServer?: NonNullable<DashboardConfig["liveServer"]> } {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const r = raw as { previewExposure?: unknown; previewOrigins?: unknown };
+  const liveServer: NonNullable<DashboardConfig["liveServer"]> = {};
+  if (r.previewExposure === "exposed") liveServer.previewExposure = "exposed";
+  if (r.previewOrigins !== undefined) liveServer.previewOrigins = parsePreviewOrigins(r.previewOrigins).value;
+  return Object.keys(liveServer).length > 0 ? { liveServer } : {};
+}
+
 function parseTrustedNetworks(raw: any): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((entry: unknown) => typeof entry === "string" && entry.length > 0);
@@ -2703,6 +2741,8 @@ export function loadConfig(): DashboardConfig {
       autoStart: parsed.autoStart ?? defaults.autoStart,
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,
+      autoSeedProjects:
+        typeof parsed.autoSeedProjects === "boolean" ? parsed.autoSeedProjects : defaults.autoSeedProjects,
       readinessTimeoutMs:
         typeof parsed.readinessTimeoutMs === "number" &&
         Number.isFinite(parsed.readinessTimeoutMs) &&
@@ -2752,7 +2792,7 @@ export function loadConfig(): DashboardConfig {
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
       ...(parseNetworkConfig(parsed.network) ? { network: parseNetworkConfig(parsed.network) } : {}),
       requireLocalProof: typeof parsed.requireLocalProof === "boolean" ? parsed.requireLocalProof : true,
-      ...(parsed.liveServer?.previewExposure === "exposed" ? { liveServer: { previewExposure: "exposed" as const } } : {}),
+      ...parseLiveServerConfig(parsed.liveServer),
       resolvedTrustedNetworks: [],
       cors: {
         allowedOrigins: Array.isArray(parsed.cors?.allowedOrigins)
@@ -2786,6 +2826,7 @@ export function loadConfig(): DashboardConfig {
       },
       piTrustMirror: parsePiTrustMirror(parsed.piTrustMirror),
       agentPathGate: parseAgentPathGate(parsed.agentPathGate),
+      sudoCredentialPrompt: parseSudoCredentialPrompt(parsed.sudoCredentialPrompt),
       bridge: parseBridgeActivation(parsed.bridge),
       knownServers: parseKnownServers(parsed.knownServers),
       reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),

@@ -33,6 +33,7 @@
  * No function here creates a grant (design D12).
  */
 import { getApiBase } from "../api/api-context.js";
+import { notifyAccessGrantsChanged } from "../chat/link-resolution-store.js";
 import type { AccessEntry, AccessGrantSnapshot } from "./access-grants-types.js";
 
 /** Loose shape of the dashboard's `{ success, data, error }` envelope. */
@@ -78,7 +79,12 @@ interface RevokeResult {
 export async function revokeAccessEntry(entry: AccessEntry): Promise<RevokeResult> {
   switch (entry.store) {
     case "pathGrants":
-      return send("DELETE", "/api/access/grants", { subject: entry.subject, scope: entry.scope });
+      // A write row revokes only its own entry (`mode:"write"`); a read row omits `mode` (today's behaviour).
+      return send("DELETE", "/api/access/grants", {
+        subject: entry.subject,
+        scope: entry.scope,
+        ...(entry.mode === "write" ? { mode: "write" } : {}),
+      });
     case "worktreeTrust":
       return send("DELETE", "/api/access/worktree-trust", { subject: entry.subject });
     case "kbTrust":
@@ -113,5 +119,7 @@ async function send(method: string, path: string, body: unknown): Promise<Revoke
     body: JSON.stringify(body),
   });
   const json = (await res.json().catch(() => ({}))) as ApiEnvelope<unknown>;
-  return { ok: res.ok && json?.success === true, status: res.status, error: json?.error };
+  const ok = res.ok && json?.success === true;
+  if (ok) notifyAccessGrantsChanged(); // transcript links re-resolve against the new grants (rich-chat-links D2)
+  return { ok, status: res.status, error: json?.error };
 }

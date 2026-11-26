@@ -36,6 +36,8 @@ function setup(o: {
   esrch?: boolean;
   tokenPids?: number[];
   resolveSpy?: typeof pidTarget.resolvePidTarget;
+  /** WSL liveness the in-distribution helper reports (default `unknown`: never decides). */
+  wslLive?: "alive" | "absent" | "unknown";
 } = {}) {
   const alive = new Set(o.alive ?? [4242]);
   const record =
@@ -64,12 +66,18 @@ function setup(o: {
     killByToken: vi.fn(async () => true),
   };
   const resolve = vi.fn(o.resolveSpy ?? pidTarget.resolvePidTarget);
+  const wslLiveness = vi.fn(async () => o.wslLive ?? ("unknown" as const));
+  const verifyAndKillWsl = vi.fn(async () => "error" as const);
+  const verifyAndKillWindows = vi.fn(async () => "error" as const);
   const { terminate } = createSessionTerminator({
     sessionManager,
     headlessPidRegistry: registry,
     signalZero,
     killProcess: killProcess as never,
     processStartedAt,
+    wslLiveness,
+    verifyAndKillWsl,
+    verifyAndKillWindows,
     findPidsBySpawnToken: () => o.tokenPids ?? [],
     platform: (o.ctx ?? SL).platform as NodeJS.Platform,
     pidContext: o.ctx ?? SL,
@@ -82,7 +90,7 @@ function setup(o: {
     expect(processStartedAt).not.toHaveBeenCalled();
     expect(killProcess).not.toHaveBeenCalled();
   };
-  return { terminate, signalZero, killProcess, processStartedAt, registry, resolve, spiesZero, record };
+  return { terminate, signalZero, killProcess, processStartedAt, registry, resolve, spiesZero, record, wslLiveness, verifyAndKillWsl, verifyAndKillWindows };
 }
 
 const FOREIGN = { originDeviceId: "dev-remote-1" };
@@ -103,9 +111,10 @@ describe("terminator — unattended paths refuse every non-host target before li
     expect(w.killProcess).not.toHaveBeenCalled();
   });
 
-  it("X3: WSL on a win32 server is never probed", async () => {
-    const w = setup({ ctx: SW, session: { pidNamespace: RL_WSL } });
-    expect((await w.terminate("s1", UNATTENDED)).outcome).toBe("refused-identity");
+  it("X3: WSL on a win32 server is decided inside the distribution, never from the Windows table", async () => {
+    const w = setup({ ctx: SW, session: { pidNamespace: RL_WSL }, wslLive: "absent" });
+    expect((await w.terminate("s1", UNATTENDED)).outcome).toBe("confirmed-dead");
+    expect(w.wslLiveness).toHaveBeenCalledWith(4242, "Ubuntu-24.04");
     w.spiesZero();
   });
 
@@ -146,7 +155,6 @@ describe("terminator — operator path", () => {
   it("X8: non-local targets are `not-local`, no signal", async () => {
     const cases: Array<[ServerPidContext, Partial<DashboardSession>]> = [
       [SL, FOREIGN],
-      [SW, { pidNamespace: RL_WSL }],
       [SW, { cwd: "/home/u/p" }],
     ];
     for (const [ctx, session] of cases) {

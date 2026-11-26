@@ -7,9 +7,18 @@
  * against synthetic sockets: the decisive "OPEN but not writable" state is not
  * constructible from a real client socket.
  *
- * See change: fix-duplicate-bridge-registration (D1, D2, D4, D6).
+ * Origin binding (D1/D4): a claim on a non-placeholder record is refused
+ * terminally when the newcomer's credential-derived origin differs from the
+ * record's. That rule precedes every accept reason (`unheld`, `incumbent-closed`,
+ * `placeholder`, `same-pid`), so the same-pid fast accept only ever applies
+ * within one origin. `undefined === undefined` is hub-local = hub-local, and
+ * `UNATTRIBUTED_REMOTE` equals itself (unattributed remotes are one class).
+ *
+ * See change: fix-duplicate-bridge-registration (D1, D2, D4, D6),
+ * harden-bridge-session-claim (D1, D4).
  */
 import type { PidTarget } from "../session/pid-target.js";
+import { UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 
 /** Bounded window the gateway waits for an incumbent's pong. */
 export const CONTENTION_PROBE_WINDOW = 5_000;
@@ -53,6 +62,11 @@ export type ClaimDecision =
   | { outcome: "probe" }
   /** The incumbent keeps the entry; the newcomer is refused terminally. */
   | { outcome: "refuse"; reason: "incumbent-alive" }
+  /**
+   * The record belongs to another origin (D1/D4): terminal, no probe, and the
+   * record is left untouched.
+   */
+  | { outcome: "refuse"; reason: "origin-mismatch" }
   /** The incumbent is dead; terminate it and hand the entry to the newcomer. */
   | { outcome: "displace"; reason: "incumbent-dead" };
 
@@ -61,6 +75,13 @@ export interface ClaimInput {
   incumbent: ProbeableSocket | undefined;
   /** The socket attempting to claim the id. */
   newcomer: ProbeableSocket;
+  /**
+   * The session record the gateway holds for this id, present iff it exists
+   * (whatever its status). Drives the origin binding.
+   */
+  recorded?: { originDeviceId?: string; source?: string; sessionFile?: string };
+  /** The newcomer's credential-derived `originDeviceId` (absent = hub-local). */
+  newcomerOriginDeviceId?: string;
   /** `source` of the session the gateway has recorded for this id. */
   incumbentSource?: string;
   /** pid the gateway recorded for the incumbent (from a completed register). */
@@ -93,6 +114,27 @@ function samePidNamespace(t: NonNullable<ClaimInput["pidTargets"]>): boolean {
 }
 
 /**
+ * A placeholder is the first-frame-created record only: `source:"unknown"` and
+ * no `sessionFile`. A `sessions_list`-seeded history record has a `sessionFile`
+ * and IS bound.
+ */
+export function isPlaceholderRecord(r: { source?: string; sessionFile?: string }): boolean {
+  return r.source === "unknown" && !r.sessionFile;
+}
+
+/**
+ * True when `recorded` is a non-placeholder record whose origin differs from the
+ * newcomer's. Shared by every path that takes a routing entry (register, first
+ * frame, move commit) so none can bypass the binding.
+ */
+export function originMismatch(
+  recorded: ClaimInput["recorded"],
+  newcomerOriginDeviceId: string | undefined,
+): boolean {
+  return !!recorded && !isPlaceholderRecord(recorded) && recorded.originDeviceId !== newcomerOriginDeviceId;
+}
+
+/**
  * Decide a claim *before* any probe. Returns `probe` when the outcome depends
  * on demonstrated liveness; the caller then resolves it with
  * {@link resolveProbe}.
@@ -102,6 +144,11 @@ export function decideClaim(input: ClaimInput): ClaimDecision {
 
   // First, before anything can claim: intent is not a claim (task 9.3a-v).
   if (input.provisional) return { outcome: "provisional" };
+
+  // Origin binding (D1/D4): before unheld / closed / placeholder / same-pid.
+  if (originMismatch(input.recorded, input.newcomerOriginDeviceId)) {
+    return { outcome: "refuse", reason: "origin-mismatch" };
+  }
 
   if (!incumbent) return { outcome: "accept", reason: "unheld" };
   if (incumbent === newcomer) return { outcome: "accept", reason: "same-socket" };
@@ -158,6 +205,18 @@ export function formatContentionLine(
   newcomerPid: number | undefined,
 ): string {
   return `[gateway] contention refused: ${sessionId} incumbentPid=${formatPid(incumbentPid)} newcomerPid=${formatPid(newcomerPid)}`;
+}
+
+/** Origin class for a log line: never a full device id, never a pid. */
+export function originClass(originDeviceId: string | undefined, prefix: (id: string) => string): string {
+  if (originDeviceId === undefined) return "hub";
+  if (originDeviceId === UNATTRIBUTED_REMOTE) return "unattributed";
+  return `device:${prefix(originDeviceId)}`;
+}
+
+/** The origin-refusal log line (no pids, no full device id). */
+export function formatOriginRefusalLine(sessionId: string, recorded: string, presented: string): string {
+  return `[bridge-claim] origin-refused session=${sessionId} recorded=${recorded} presented=${presented}`;
 }
 
 export interface ContentionRecord {

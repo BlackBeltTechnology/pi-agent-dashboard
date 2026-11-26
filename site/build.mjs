@@ -16,8 +16,9 @@
  */
 import { cp, mkdir, rm, readFile, readdir, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkInlineHashes } from "./csp.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const DIST = join(HERE, "dist");
@@ -26,6 +27,9 @@ const DIST = join(HERE, "dist");
 const ENTRIES = [
   "index.html",
   "404.html",
+  "privacy.html", // Google verification: privacy policy
+  "terms.html", // Google verification: terms of service
+  "oauth", // return.html: static Google sign-in return page (meta-CSP pinned by hash)
   "field.js",
   "gol.js", // Conway board background (combined mode floor)
   "media", // hero film + posters
@@ -49,14 +53,38 @@ for (const name of await readdir(join(HERE, "public"))) {
 }
 
 // Fail on a reference the artifact cannot satisfy. A missing hero poster or
-// favicon is invisible in review and obvious to every visitor.
-const html = await readFile(join(DIST, "index.html"), "utf8");
-const refs = [...html.matchAll(/(?:src|href)="(?!https?:|#|mailto:)([^"]+)"/g)].map((m) => m[1]);
+// favicon is invisible in review and obvious to every visitor. Every shipped
+// HTML page is checked, relative to its own directory (root-absolute refs resolve
+// from dist/), and any page with a meta CSP must carry matching inline hashes.
+const pages = [];
+const collect = async (dir) => {
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) await collect(p);
+    else if (e.name.endsWith(".html")) pages.push(p);
+  }
+};
+await collect(DIST);
+
 const broken = [];
-for (const ref of new Set(refs)) {
-  if (!existsSync(join(DIST, ref.split("?")[0]))) broken.push(ref);
+const problems = [];
+let refCount = 0;
+for (const page of pages) {
+  const rel = page.slice(DIST.length + 1);
+  const html = await readFile(page, "utf8");
+  const refs = [...html.matchAll(/(?:src|href)="(?!https?:|\/\/|#|mailto:|data:)([^"]+)"/g)].map((m) => m[1]);
+  refCount += new Set(refs).size;
+  for (const ref of new Set(refs)) {
+    const path = ref.split(/[?#]/)[0];
+    const target = path.startsWith("/") ? join(DIST, path) : join(dirname(page), path);
+    if (!existsSync(target)) broken.push(`${rel} -> ${ref}`);
+  }
+  problems.push(...checkInlineHashes(html, rel));
+  // Policy drafts ship with [[placeholders]] until legal review fills them in.
+  if (html.includes("[[")) console.warn(`build: WARNING ${rel} still contains [[placeholders]] (legal review pending)`);
 }
-if (broken.length) throw new Error(`build: index.html references missing files: ${broken.join(", ")}`);
+if (broken.length) throw new Error(`build: references missing files: ${broken.join(", ")}`);
+if (problems.length) throw new Error(`build: CSP check failed:\n  ${problems.join("\n  ")}`);
 
 let bytes = 0;
 const walk = async (dir) => {
@@ -67,4 +95,4 @@ const walk = async (dir) => {
   }
 };
 await walk(DIST);
-console.log(`dist/ ready — ${(bytes / 1024 / 1024).toFixed(1)} MB, ${refs.length} local refs all resolved`);
+console.log(`dist/ ready — ${(bytes / 1024 / 1024).toFixed(1)} MB, ${pages.length} pages, ${refCount} local refs all resolved`);

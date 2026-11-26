@@ -83,6 +83,57 @@ describe("opened-not-started header", () => {
   });
 });
 
+describe("view-only (path-opened) not-started header (add-flow-open-tool E20)", () => {
+  const auto = () => screen.queryByText("AUTO");
+  it("view-only: no Run, no AUTO, no Edit…; label, Close and Open flow… present", async () => {
+    const sid = `hdr-S-${++n}`;
+    publishCatalog(sid, [entry("ship-it")]);
+    act(() =>
+      setAttachment(sid, { id: "v1", name: "flows/a/flow.yaml", source: "/w/flows/a/flow.yaml", baselineStartedAt: 0, viewOnly: true }),
+    );
+    render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />));
+    await screen.findByTestId("flow-header-actions-idle");
+    expect(q("flow-idle-run")).toBeNull();
+    expect(auto()).toBeNull();
+    expect(q("flow-header-edit-button")).toBeNull();
+    expect(q("flow-view-only-label")?.textContent).toBe("view only - not registered");
+    expect(q("flow-idle-close")).toBeTruthy();
+    expect(q("flow-header-open")).toBeTruthy();
+  });
+
+  it("F7/X12: a view-only definition the plugin refuses shows the load error, the re-open hint and Close; no host fallback", async () => {
+    const f = vi.fn(async (url: string) => {
+      if (String(url).startsWith("/api/plugins/flows/files")) {
+        return { status: 200, json: async () => ({ success: true, data: { reported: true, agents: {}, handlers: {} } }) };
+      }
+      return { status: 403, json: async () => ({ success: false, error: "not a flow file of this session" }) };
+    });
+    vi.stubGlobal("fetch", f);
+    const sid = `hdr-S-${++n}`;
+    act(() =>
+      setAttachment(sid, { id: "v2", name: "flows/a/flow.yaml", source: "/w/flows/a/flow.yaml", baselineStartedAt: 0, viewOnly: true }),
+    );
+    render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />));
+    const msg = await screen.findByTestId("flow-slot-message");
+    await vi.waitFor(() => expect(msg.getAttribute("data-tone")).toBe("error"));
+    expect(msg.textContent).toContain("ask the agent to open it again");
+    expect(q("flow-idle-close")).toBeTruthy();
+    expect(f.mock.calls.some(([u]) => String(u).includes("/api/pi-resource-file"))).toBe(false);
+  });
+
+  it("catalog attachment: Run, AUTO and Edit… present, no view-only label", async () => {
+    const sid = `hdr-S-${++n}`;
+    publishCatalog(sid, [entry("ship-it")]);
+    act(() => setAttachment(sid, { id: "c1", name: "ship-it", source: "/p/ship-it/flow.yaml", baselineStartedAt: 0 }));
+    render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />));
+    await screen.findByTestId("flow-header-actions-idle");
+    expect(q("flow-idle-run")).toBeTruthy();
+    expect(auto()).toBeTruthy();
+    expect(q("flow-header-edit-button")).toBeTruthy();
+    expect(q("flow-view-only-label")).toBeNull();
+  });
+});
+
 /** E39: header Abort / Auto dispatch plugin_action. See change: update-flows-plugin (D2). */
 describe("header Abort / Auto dispatch (E39)", () => {
   it("sends flow.abort then flow.toggle-autonomous; no flow_control / flow_management", () => {

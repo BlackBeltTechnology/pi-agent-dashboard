@@ -8,8 +8,8 @@ import { usePreviewExposure } from "../../../hooks/usePreviewExposure.js";
 import { needsRunScripts, type Opener, wantedPolicy } from "../../../lib/live-preview/preview-policy.js";
 import { useLiveCapability } from "./useLiveCapability.js";
 
-export function useFramePolicy(targetId: string, opener: Opener, viewerId: string) {
-  const [scriptsOn, setScriptsOn] = useState(true);
+export function useFramePolicy(targetId: string, opener: Opener, viewerId: string, initialScriptsOn = true) {
+  const [scriptsOn, setScriptsOn] = useState(initialScriptsOn);
   const [runApprovedEpoch, setRunApprovedEpoch] = useState<number | null>(null);
   const exposure = usePreviewExposure();
 
@@ -18,7 +18,7 @@ export function useFramePolicy(targetId: string, opener: Opener, viewerId: strin
   const wanted = wantedPolicy(input);
   // Open egress is not gated by exposure, so it neither waits for nor re-mints on the epoch.
   const restricted = wanted.egress === "restricted";
-  const { capability, error } = useLiveCapability({
+  const { capability, error, remint } = useLiveCapability({
     targetId,
     policy: wanted,
     runScripts: runApproved,
@@ -38,6 +38,7 @@ export function useFramePolicy(targetId: string, opener: Opener, viewerId: strin
     restricted,
     capability,
     error,
+    retry: remint,
     granted: capability?.policy ?? wanted,
     showRun: needsRunScripts(input) || withheld,
     approveRun: () => setRunApprovedEpoch(exposure.epoch),

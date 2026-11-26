@@ -36,6 +36,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
 // Type-only import — erased at bundle time, so the rule above holds.
 import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
+import { DEFAULT_SUDO_CREDENTIAL_PROMPT, type SudoCredentialPromptConfig } from "@blackbelt-technology/pi-dashboard-shared/sudo-credential.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
@@ -43,7 +44,7 @@ import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.
 import { mdiAlert, mdiAlertCircleOutline, mdiAlertOutline, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTune, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useRoute } from "wouter";
+import { useLocation, useRoute, useSearch } from "wouter";
 import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
@@ -99,6 +100,7 @@ import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../
 import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
+import { SudoCredentialSection } from "./SudoCredentialSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
@@ -283,6 +285,8 @@ interface Config {
   agentPathGate?: { enabled: boolean; timeoutSeconds: number };
   /** Computed by GET /api/config (never persisted): `PI_DASHBOARD_AGENT_PATH_GATE` as set on the server. */
   agentPathGateEnvOverride?: "on" | "off" | null;
+  /** Sudo password prompt (default on). See change: add-sudo-credential-prompt. */
+  sudoCredentialPrompt?: SudoCredentialPromptConfig;
   /** Raw stored security knobs; `trustedTypes` is `off | report | enforce` when valid. See change: enforce-trusted-types-default. */
   security?: { trustedTypes?: unknown };
   /** Computed by GET /api/config (never persisted): the recognized `PI_DASHBOARD_TRUSTED_TYPES` value, or null. */
@@ -358,7 +362,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", windowsBashSource: "sessions", autoStart: "sessions", editor: "general",
-  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security", security: "security",
+  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security", sudoCredentialPrompt: "security", security: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -479,6 +483,14 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
     const a = config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
     const b = original.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
     if (a.enabled !== b.enabled || a.timeoutSeconds !== b.timeoutSeconds) partial.agentPathGate = { enabled: a.enabled, timeoutSeconds: a.timeoutSeconds };
+  }
+  // Sudo credential prompt: three flat fields, written whole (server clamp-merges).
+  {
+    const a = config.sudoCredentialPrompt ?? DEFAULT_SUDO_CREDENTIAL_PROMPT;
+    const b = original.sudoCredentialPrompt ?? DEFAULT_SUDO_CREDENTIAL_PROMPT;
+    if (a.enabled !== b.enabled || a.timeoutMs !== b.timeoutMs || a.cacheMinutes !== b.cacheMinutes) {
+      partial.sudoCredentialPrompt = { enabled: a.enabled, timeoutMs: a.timeoutMs, cacheMinutes: a.cacheMinutes };
+    }
   }
   /**
    * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
@@ -609,6 +621,8 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
  * See change: fix-settings-back-to-launching-route.
  */
 const BACK_SENTINEL = "@@back";
+/** Allowlist for the external `?scroll=` value (card-sections-global-pointer D4). */
+const SCROLL_TARGET_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export function SettingsPanel({ availableModels, onMessage, ws, onBack, selectedCwd, groupByPrefs, onSetDefaultGroupBy }: {
   /**
@@ -1185,6 +1199,34 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
     pendingScrollTargetRef.current = null;
     document.querySelector(`[data-testid="${target}"]`)?.scrollIntoView({ block: "start" });
   }, [activeTab]);
+  // External one-shot `?scroll=<data-testid>` (canonical `/settings/:page?/:sub?`
+  // URLs only), for navigation from OUTSIDE the panel; the in-panel helper
+  // above stays route-free. Read via the reactive `useSearch()` so a param that
+  // arrives while Settings is already open is consumed too. Waits for the
+  // loaded panel (a rejected `/api/config` leaves param + URL untouched). The
+  // value is untrusted URL input: only `^[A-Za-z0-9_-]{1,64}$` reaches the
+  // selector (selector-safe by construction). The param is then replaced away
+  // whether or not the target exists, keeping any `:sub`. The consumed-ref
+  // blocks a StrictMode double scroll and resets once `scroll` is gone, so a
+  // repeat trip scrolls again. See change: card-sections-global-pointer (D4).
+  const externalScroll = new URLSearchParams(useSearch()).get("scroll");
+  const externalScrollConsumedRef = useRef(false);
+  useEffect(() => {
+    if (externalScroll === null) {
+      externalScrollConsumedRef.current = false;
+      return;
+    }
+    // Wait until the route is canonical: the alias / invalid-page / legacy
+    // `?tab=` rewrite above owns that replace, and this render's fallback
+    // `activeTab` would otherwise clobber its destination.
+    if (!resolvedRoutePage || resolvedRoutePage !== routePage) return;
+    if (loading || !config || externalScrollConsumedRef.current) return;
+    externalScrollConsumedRef.current = true;
+    if (SCROLL_TARGET_RE.test(externalScroll)) {
+      document.querySelector(`[data-testid="${externalScroll}"]`)?.scrollIntoView({ block: "start" });
+    }
+    navigate(`/settings/${activeTab}${activeSubSegment}`, { replace: true });
+  }, [loading, config, activeTab, activeSubSegment, externalScroll, resolvedRoutePage, routePage, navigate]);
   // The runtime row + advisory share one navigate-then-scroll affordance.
   const navigateToRuntimePicker = useCallback(() => {
     requestRailNavigate("/settings/developer", "pi-runtime-section");
@@ -2395,7 +2437,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                       <p className="mt-1 text-xs text-red-400">{i18nT("common.mustBeAnIntegerBetween5000", undefined, "Must be an integer between 5000 and 120000.")}</p>
                     )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a new pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
+                      {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a new pi session to connect before reporting a failure and terminating the new pi process. Default 30000 (30s). Range 5000–120000.")}
                     </p>
                   </div>
                 </Section>
@@ -2708,6 +2750,10 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                   value={config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 }}
                   envOverride={config.agentPathGateEnvOverride ?? null}
                   onChange={(next) => update((c) => { c.agentPathGate = next; })}
+                />
+                <SudoCredentialSection
+                  value={config.sudoCredentialPrompt ?? DEFAULT_SUDO_CREDENTIAL_PROMPT}
+                  onChange={(next) => update((c) => { c.sudoCredentialPrompt = next; })}
                 />
                 <Section title={t("settings.pairDevice", undefined, "Pair a device")}>
                   {/* A route, not a duplicate (D2): Security keeps the words an

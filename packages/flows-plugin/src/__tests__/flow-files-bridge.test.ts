@@ -127,3 +127,20 @@ describe("startFlowFilesReporter", () => {
     expect(lane).toHaveBeenCalledWith("flows", FLOW_FILES_REPORT, { flows: [{ name: "ns:a", source: "/p/a.yaml" }], agents: [] });
   });
 });
+
+/**
+ * A host that refuses the report (`origin_denied`: a remote or deprecated-admission session) is final:
+ * the bridge neither retries nor crashes, and the preview routes answer the unreported response.
+ * See change: harden-bridge-session-claim (BX8).
+ */
+describe("a denied flow-file report is dropped silently", () => {
+  it("BX8: origin_denied is not retried", async () => {
+    lane.mockResolvedValue({ ok: false, error: "origin_denied: this handler is available to hub-local sessions only" });
+    const pi = fakePi();
+    startFlowFilesReporter(pi as never);
+    pi.fire("session_start");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(lane.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+});
+

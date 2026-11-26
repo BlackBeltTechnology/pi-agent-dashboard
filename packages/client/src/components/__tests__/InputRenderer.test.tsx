@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { PROMPT_DRAFT_DEBOUNCE_MS, resetPromptDraftMemory, setPromptDraft } from "../../lib/state/prompt-draft-storage.js";
 import { InputRenderer } from "../interactive-renderers/InputRenderer.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
@@ -297,5 +298,21 @@ describe("InputRenderer — resolved shows message body (change: fix-ask-user-ca
       </ThemeProvider>,
     );
     expect(screen.queryByText(MSG)).toBeNull();
+  });
+});
+
+// ── #1117 prompt draft persistence. See change: fix-input-state-consistency ──
+describe("InputRenderer draft persistence (#1117)", () => {
+  afterEach(() => {
+    sessionStorage.clear();
+    resetPromptDraftMemory();
+  });
+  it("S42b: typed text is restored after a remount with the same ids", () => {
+    const props = { requestId: "p1", sessionId: "A", method: "input", params: { title: "T" }, status: "pending" as const, onRespond: vi.fn(), onCancel: vi.fn() };
+    const first = render(<InputRenderer {...props} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "hello" } });
+    first.unmount();
+    render(<InputRenderer {...props} />);
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("hello");
   });
 });

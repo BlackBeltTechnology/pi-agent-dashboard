@@ -1,7 +1,7 @@
 import React from "react";
+import type { InteractiveUiRequest } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
-import type { InteractiveUiRequest } from "../../lib/chat/event-reducer.js";
 
 /**
  * Grouped multi-ask panel: renders the set of concurrently-pending
@@ -17,8 +17,10 @@ import type { InteractiveUiRequest } from "../../lib/chat/event-reducer.js";
  *
  * See change: surface-concurrent-ask-user-prompts.
  */
-export function MultiAskPanel({ requests, onRespondToUi }: {
+export function MultiAskPanel({ requests, sessionId, onRespondToUi }: {
   requests: InteractiveUiRequest[];
+  /** Owning session; keys each card's answer draft. See change: fix-input-state-consistency. */
+  sessionId?: string;
   onRespondToUi?: (requestId: string, result?: unknown, cancelled?: boolean) => void;
 }) {
   if (requests.length === 0) return null;
@@ -37,6 +39,7 @@ export function MultiAskPanel({ requests, onRespondToUi }: {
             <div key={request.requestId} data-testid={`multi-ask-card-${request.requestId}`}>
               <Renderer
                 requestId={request.requestId}
+                sessionId={sessionId}
                 method={request.method}
                 params={request.params}
                 status={request.status}

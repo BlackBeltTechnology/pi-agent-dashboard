@@ -630,7 +630,7 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - Final negative or non-finite → 0 (elapsed-only).
 - Parity test `packages/extension/src/__tests__/retry-delay-parity.test.ts` asserts mirror == pi-ai across grid.
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
-- Native `agent_settled` guaranteed at the 1.5.0 lockstep floor (`piCompatibility.minimum == recommended == 1.5.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
+- Native `agent_settled` guaranteed at the 1.6.0 lockstep floor (`piCompatibility.minimum == recommended == 1.6.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
 - Bridge follow-up drain (`bridgeFollowUp`) triggers on `agent_settled`, not `agent_end`. Forwarder schedules `drainFollowupQueue()` via `setTimeout(0)`; pi clears run-active before `agent_settled`, so `isIdle()` is true. No retry loop: a false `isIdle()` returns, the next `agent_settled` drains. Gate sequence: `packages/extension/src/followup-drain.ts`. See change: update-pi-core-1-3-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
@@ -1033,6 +1033,37 @@ pi-flows runs multi-agent workflows in-process. Subagent sessions use `SessionMa
 - Session actions menu: New flow… / "Turn on edit mode for this project" only for flowless sessions.
 - Shared logic: `useFlowActions(session)` + `<FlowActionDialogs>`.
 - Flow list source: `useFlowCatalog(sessionId)` → `flow_catalog` (see Plugin-declared event forwarding).
+
+**Agent `flow_open` tool (add-flow-open-tool):**
+- Bridge `packages/flows-plugin/src/bridge/flow-open-tool.ts` registers pi tool `flow_open` via `pi.registerTool`.
+- Loads only where flows plugin bridge loads. pi-flows unchanged.
+- Params: exactly one of `flow` (catalog `<ns>:<name>`, runnable) or `path` (flow.yaml/flow.yml or dir directly containing one; view-only). Else `refused/invalid-arguments`.
+- `promptGuidelines`: call `flow_open` after writing/editing/inspecting a flow.
+- Bridge tracks active `runId`: `flow:flow-started` sets; `flow:complete` same `runId` clears; `session_start` resets. Active run → local `refused/flow-running`.
+- Relative `path` resolved vs tool ctx cwd.
+- Lane `requestPluginServer("flows","flow/open")`. Lane error or missing seam → `refused/unavailable`. Never throws.
+- Server `packages/flows-plugin/src/server/flow-open.ts` `registerFlowOpen`: lane `hubLocalOnly`. Session id from lane meta only.
+- `flow`: lookup `stateStore` catalog. Miss → `requestCatalog(sid,{rediscover:true})`, retried while cooldown-suppressed, poll 100 ms up to 1.5 s → else `unknown-flow`.
+- `path` admission (`locateFlowPath`): resolve vs session cwd → realpath → dir ⇒ direct `flow.yaml|flow.yml` → regular file ≤ `MAX_FILE_BYTES` (1 MiB) → confined to `realpath(cwd)` (cwd `/` handled). Refusals `path-not-allowed` / `not-a-flow`.
+- No content read before admission. Then read via host `readFileGuarded` (absent → `unavailable`).
+- Dir without direct flow → `candidates` (≤20, cwd-relative). Walk: lstat BFS depth ≤6, skip `node_modules`/`.git`, no symlink follow. Walk visits ≤2000 dirs.
+- Dir pick: first regular `flow.yaml`, else `flow.yml`. Definition must carry `steps` array, else `not-a-flow`.
+- Path equal to catalog definition (canonical; catalog `source` resolved vs cwd) → opens as catalog flow (runnable).
+- Path-opened flow files → `FlowFileRegistry.open()` (shared `flowFileRegistry`): def + code handlers + reported agents it names, each confined to cwd.
+- Registry entries survive `report()`. Dropped on session end.
+- Each `/api/plugins/flows/file` read re-realpaths (must be unchanged + inside cwd) else 403. Host routes unchanged.
+- Delivery: broadcast `flows_open {sessionId, requestId, attachment{name, source, viewOnly, baselineStartedAt: Date.now()}}`.
+- `baselineStartedAt` = call accept time, stamped before catalog rediscovery wait.
+- `frameClassOf` classes it `state`, key `flows_open:<sessionId>:<requestId>` (never shed; never coalesced; each pin acked). Owner-scoped where identity enforced.
+- Client `FlowOpenListener` (`shell-headless` claim): stores attachment per device (`flow-attach-store`).
+- Client expands panel (`setFlowCollapsed(sid,["dashboard"],false)`). Sends `flows_open_ack {sessionId, requestId}` (tier `observe`, session-owned). Dedupe 128 requestIds.
+- Server counts acks per ws over fixed 1.5 s window (pending map ≤ 64) → `shown {acks, name, path, viewOnly}` or `no-viewer`.
+- Full pending map → new call `refused/rate-limited`; never evicts an open window.
+- Rate limit 10 calls / 10 s per session (cleared on session end) → `rate-limited`.
+- One `logger.info` per call: `flow_open session=<id> kind=<flow|path> outcome=<…> reason=<…> acks=<n>`. Never file content.
+- View-only panel: no Run, no AUTO, no Edit…. Label "view only - not registered".
+- View-only definition fetched with `fetchFlowFile(..., {noHostFallback:true})`.
+- Load error adds "ask the agent to open it again" hint + Close.
 
 ### Extension UI System (Phases 1 + 2 shipped)
 
@@ -1708,6 +1739,97 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Not a sandbox. Shell/MCP tools not path-checked. List them in `deniedTools`.
 - See change: add-path-containment-guard-extension.
 
+### Plugin Spawn Worktree (`add-plugin-spawn-worktree`)
+
+- `ServerPluginContext.spawnSession(opts)` gains optional `opts.worktree?: { branch; base?; ifExists: "reuse"|"fail"; attachChange? }`.
+- Honoured only with `mode: "worktree"`. Types: `packages/dashboard-plugin-runtime/src/server/server-context.ts`.
+- Bare `mode: "worktree"` (no block) → legacy local fallback: runs in `cwd`, warning logged.
+- Older host ignores block too. Caller treats success without `PluginSpawnResult.worktreePath` as "not in a worktree".
+- Trusted plugins only (`manifest.priority <= 100`). Same gate as `spawnSession`.
+- Hook body: `packages/server/src/spawn-process/plugin-spawn-worktree.ts` (`createPluginSpawnHook(deps)`). `server.ts` wires real deps.
+- Git step: `ensureWorktree` in `packages/server/src/git-worktree/ensure-worktree.ts`. Never throws.
+- Result: `{ok,path,branch,created}` | `{ok:false,code,message}`.
+
+`ensureWorktree` order:
+
+1. Known-folder admission (`admitRouteCwd`, same set as `POST /api/git/worktree`).
+2. Main-checkout resolve → `not_git`.
+3. Branch validation: `isValidRefArg`, `git check-ref-format --branch`, `@{` rejected, derived path under `<main>/.worktrees/`.
+4. Per-repo lock.
+5. Resolution.
+
+Resolution:
+
+- Registered worktree for branch → reuse (`created:false`). `ifExists:"fail"` → `exists`.
+- Stale registration (dir gone) → `git worktree prune` once.
+- Main checkout, or path outside `.worktrees/` → `branch_in_use`.
+- No registration:
+  - local branch → checkout.
+  - only `origin/<branch>` → `addWorktree({base:"origin/<branch>", newBranch})`.
+  - else fork `base ?? resolveDefaultBase` (verified; fail `base_not_found`).
+- `base` ignored when branch or worktree exists.
+
+Lock:
+
+- `withRepoLock(repoLockKey(cwd))` in `git-worktree/repo-lock.ts`.
+- Key = realpath of git common dir.
+- `POST /api/git/worktree` takes same lock. Responses unchanged.
+
+cwd-policy:
+
+- Hook `checkTarget` compares `cwdPolicyRegistry.resolve(worktreePath)` vs `resolve(opts.cwd)` before any git write.
+- Differ → `policy_mismatch`.
+
+Init:
+
+- `autoInitWorktreeOnSpawn` on → hook calls `startWorktreeInit(cwd,{skipIfRunning:true})` before filing intents. Awaits it.
+- `startWorktreeInit` in `git-worktree/start-worktree-init.ts`. Also used by `POST /api/git/worktree/init`.
+- Failed → `init_failed`. No spawn. Worktree kept.
+- Untrusted hook → never run. Spawn proceeds. Init stays pending.
+- `already_running` → `awaitInitRun` polls registry.
+- Server-side trigger. Browser-side twin: `auto-init-worktree.ts`.
+
+After success, every cwd-keyed step uses worktree path:
+
+- `pendingInitialPromptRegistry`.
+- `pendingAttachRegistry` (`attachChange`, kebab-case `^[a-z0-9][a-z0-9-]{0,99}$`). Withdrawn on spawn failure.
+- Full queue → `warning: "attach queue full; session not attached"`.
+- `spawnPiSession` / `spawnAcpSession`.
+- `armSpawnWatchdog`.
+- Headless PID registry.
+- No `gitWorktreeBase` written (dialog-only per `git-context`).
+
+Failure:
+
+- `success:false`. Nothing spawned, nothing queued. Never falls back to local.
+- Codes (`PluginSpawnWorktreeCode`): `invalid_block`, `not_git`, `admission_unavailable` (retryable), `branch_invalid`, `exists`, `base_not_found`, `branch_in_use`, `policy_mismatch`, `init_failed`, `git_failed`.
+
+Log per worktree spawn:
+
+- `[plugin-spawn] worktree <created|reused|failed> plugin=<id> branch=<json> code=<code>`.
+
+- See change: add-plugin-spawn-worktree.
+
+### Agent Teams Plugin (`add-agent-teams-core`)
+
+Package `packages/agent-teams-plugin/` (`@blackbelt-technology/pi-dashboard-agent-teams-plugin`). Plugin id `agent-teams` (NOT `team`; `packages/team-plugin` = unrelated persona product). Manifest `priority: 100`. `emits: [agent-teams:mail, agent-teams:team_closed]`.
+
+- Entries:
+  - bridge (`src/bridge/index.ts`): pi extension per session. CC-named tools. Mail → `pi.sendMessage` custom message (`customType` from `customTypeForKind`: `agent-teams-mail` default, `-idle`, `-notice`). Idle report on `agent_settled`. Teammate guards (`guard.ts`, `shell-guard.ts`).
+  - server (`src/server/index.ts`): server-owned team store, `<dataDir>/teams/<id>.json` (`persistence.ts`). Request lane (`lane.ts`). Teammate spawn (`driver.ts`). Read REST routes (`routes.ts`).
+  - client (`src/client/index.tsx`): manifest registration + i18n only. No UI (change `add-agent-teams-ui`).
+- Lead + teammates = pi sessions. One team per lead session. No nested teams.
+- Server store = single source of truth: members, task list, mail log.
+- Lead-only tools: `TeamCreate`, `TeammateSpawn`, `TeamDelete`, `ShutdownRequest`, broadcast, urgent mail.
+- Teammate tool set = `TEAM_TOOLS_BY_ROLE.member` (`shared/protocol.ts`).
+- Task list: sequential ids, synchronous claim, `owner` field, auto-unblock, self-claim on `agent_settled`.
+- Mail: direct + broadcast. Queued for busy/spawning/disconnected recipients. `urgent` interrupts.
+- Teammate spawn: `spawnSession` (session mode). Spawn prompt sent as `spawn_prompt` mail after bind + guarded `hello`. No `initialPrompt`.
+- Caps (`configSchema.json`): `maxTeammates` 5 (1–10), `maxActiveTeams` 3, `maxTasks` 50, `maxMessageChars` 8000, `maxResultChars` 4000, `maxFinalTextChars` 2000, `mailRatePerMin` 6, `pairExchangeLimit` 10.
+- Security inventory: `docs/security/plugins-client-electron.md` (A2 + bundled table), `tool-call-guards.md`, `websocket-and-bridge.md`.
+- Seams used: `docs/plugin-seams.md` § Consumer: agent-teams.
+- See change: add-agent-teams-core
+
 ### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
 
 `ServerPluginContext.spawnSession` accepts `PluginSpawnOptions.lifecycle: PluginSessionLifecycle` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`). Owning plugin declares per-session lifecycle decisions; core reads the flags, never the plugin name.
@@ -1938,7 +2060,7 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.5.0"`, `recommended: "1.5.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.6.0"`, `recommended: "1.6.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
 
 1.1.0 adds: `tool_execution_end.durationMs` preferred for tool row duration; `samplingParamsByThinkingLevel` passthrough; `GET /api/provider-auth/legacy-provider-ids` (`azure-openai-responses` -> `azure` rename scan). See change: update-pi-core-1-1-adopt-apis.
 
@@ -1948,7 +2070,7 @@ Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `read
 
 **Below-floor session signal.** Replaces per-feature pi version gates. Bridge `sendPiVersionIfChanged` (`packages/extension/src/model-tracker.ts`) reads the running pi argv-anchored via `readRunningPiVersion` and sends `pi_version_update`; server runs `computePiBelowFloor(version, serverPiMinimum())` (`packages/server/src/pi/pi-version-skew.ts`) → sets `DashboardSession.piBelowFloor: { minimum } | null`; client `PiBelowFloorWarning` renders on `SessionCard` + `SessionHeader`. Unknown or unparseable version → no flag. `minimum` sourced from `piCompatibility.minimum`. See change: update-pi-core-1-0-adopt-apis.
 
-**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.5.0). Supported range `>=1.5.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.5.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
+**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.6.0). Supported range `>=1.6.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.6.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
 
 See change: collapse-model-proxy-onto-modelruntime.
 
@@ -2028,6 +2150,22 @@ The Stop button supports two-click escalation for stuck sessions:
    Session marked "ended" (not removed), resumable via fork/continue.
 
 The bridge includes `process.pid` in `session_register` so the server can kill the process. The server also force-closes the bridge WebSocket and uses the headless PID registry as a fallback. If no PID is available, only the WebSocket is closed.
+
+### Bridge shutdown fallback
+
+Bridge `shutdown` handler (`packages/extension/src/bridge.ts`) → `runBridgeShutdown(inst.cachedCtx)` (`packages/extension/src/bridge-shutdown.ts`).
+- Calls `ctx.shutdown()` first. Errors swallowed (stale ctx must not skip fallback).
+- Arms unref'd `process.exit(0)` fallback after `BRIDGE_SHUTDOWN_FALLBACK_MS` = 5000 (was 500).
+- Why: pi >=1.5.1 exits itself when idle. Its `dispose()` waits for credential write (single-use OAuth refresh token already replaced by provider). Early exit loses rotated token.
+- Callers: server `{type:"shutdown"}` WS msg, `/quit`, `/exit`.
+- See change: `update-pi-core-1-6-adopt-apis` (spec `bridge-extension`).
+
+Residual risks (not fixed; server side tracked by follow-up `settle-server-credential-writes-on-exit`, `ModelRuntime.settleCredentialWrites`):
+- Windows: `killProcess` = `taskkill /F`. Busy session gets no clean dispose.
+- POSIX: SIGKILL 2 s after SIGTERM can cut dispose or credential write that runs longer.
+- Idle tmux (interactive) session: clean shutdown starts at once. pi unregisters signal handlers when it stops TUI (`interactive-mode.js` `stop()`). Ladder SIGTERM 1.5 s later ends dispose still waiting on credential write.
+- Headless: registry rung spends up to 2 s before grace + final escalation. 5 s fallback can fire before ladder's last SIGKILL. Process ends either way.
+- Keeper-hosted pi with unlinked PID: ended by keeper SIGKILL (`rpc-keeper-sidecar`). Skips dispose.
 
 ### Platform-routed kill paths
 All process termination across the codebase goes through `packages/shared/src/platform/process.ts`. No code outside that module may call `process.kill(...)` directly — enforcement is handled by `packages/shared/src/__tests__/no-direct-process-kill.test.ts`, a repo-level lint that scans every `.ts` file under `packages/*/src/` and fails CI if a direct call slips in. The three canonical helpers are:
@@ -2325,7 +2463,7 @@ flowchart TD
 
 **Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload`.
 
-**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.5.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
+**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.6.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
 
 **Token handshake** — slot `process.__pi_dashboard_pending_reload__ = {token, sessionId, state, armedAt}`. State `armed → started → delivered | expired`. Transitions compare-and-set — requesting instance `error` and reloaded instance `completed` mutually exclusive. `START_TIMEOUT_MS` = 5000, `FINISH_TIMEOUT_MS` = 60000, both measured from `armedAt`.
 
@@ -3101,7 +3239,7 @@ One server-derived per-cwd readiness state gates every OpenSpec affordance — f
 
 **Reconfiguration re-broadcast.** `reconfigurePolling` diffs readiness-affecting keys (`enabled`, `optOutDirectories`, `offerInitialization`) against the previous config; poll-tuning writes (interval, concurrency, jitter, worker flag) never trigger a readiness broadcast. `optOutDirectories` membership change re-broadcasts only the affected cwds; `enabled`/`offerInitialization` change re-broadcasts every cached cwd.
 
-**`hasOpenSpecSkills`.** Stat `<configRoot>/.pi/skills/openspec-explore/`. Config root via `resolveConfigRoot` (git-worktree/git-operations.ts): a worktree answers from its main checkout, because `.pi/skills/openspec-*` is gitignored and never checks out into a worktree. Root resolution memoized per cwd (stat-pass budget, P4); unresolvable → fall back to the cwd.
+**`hasOpenSpecSkills`.** Stat `<configRoot>/.pi/skills/openspec-explore/`, then `<configRoot>/.agents/skills/openspec-explore/`. Legacy first, short-circuit (common case 1 stat). Either layout → `true`. `.agents/skills/` = committed shared layout. Config root only, no ancestor walk. Config root via `resolveConfigRoot` (git-worktree/git-operations.ts): worktree answers from main checkout, because `.pi/skills/openspec-*` is gitignored and never checks out into a worktree. Root memoized per cwd (P4); `null` re-probed after 60s TTL. Unresolvable (`null`) root → `false`, NOT cwd fallback (probing cwd adopts stray tree). Presence recomputed every poll in `finalizeOpenSpecData` (not carried from unchanged-`openspec/` gate), so relocation/removal shows next poll. Source: packages/server/src/directory-service.ts `hasOpenSpecSkillsFor`.
 
 **Config keys** (`OpenSpecPollConfig`): `openspec.optOutDirectories: string[]` (default `[]`; pathKey-normalized at parse, trailing-slash spellings collapse to one entry), `openspec.offerInitialization: boolean` (default `true`; `false` suppresses only the ABSENT offer — `BROKEN`/`STALE`/`READY` unaffected; distinct from `openspec.enabled`, which disables the feature). Both writable via `PUT /api/config` partial `{ openspec: {...} }` — deep-merged, every other key preserved.
 
@@ -3599,7 +3737,7 @@ Source: `packages/server/src/live-server/` (`live-static.ts`, `live-csp.ts`, `li
 | scripts off | empty | `sandbox` (+ egress directives if restricted) |
 - Applies to port AND static targets on every capability response (`buildLiveCsp`).
 - Our CSP appended to upstream CSP. Upstream never stripped. Browser enforces intersection.
-- Restricted: `default-src 'none'`; `script-src` / `style-src` = `<P> 'unsafe-inline'` (+ `'unsafe-eval'` with scripts) + `<G>`; `connect-src <P> <G>`; `form-action 'none'`; `base-uri 'none'`; `frame-src 'none'`; `object-src 'none'`; `worker-src <P> blob:`; `manifest-src 'none'`; `frame-ancestors 'self'`; `report-uri` / `report-to`.
+- Restricted: `default-src 'none'`; `script-src` / `style-src` = `<P> 'unsafe-inline'` (+ `'unsafe-eval'` with scripts) + `<G>`; `connect-src <P> <G>`; `form-action 'none'`; `base-uri 'none'`; `frame-src 'none'`; `object-src 'none'`; `worker-src <P> blob:`; `manifest-src 'none'`; `frame-ancestors 'self'`; `report-uri` only (no `report-to`, no `Reporting-Endpoints`).
 - `<P>` = prefix from validated `Host`. Never `'self'`. Never dashboard origin.
 - `<G>` = project grants ∪ viewer allow-once set.
 
@@ -3654,6 +3792,140 @@ flowchart TD
 - Grant-time DNS: 3 s (`EGRESS_DNS_TIMEOUT_MS`). Private / loopback / fail → "Could not verify this origin; try again". Later rebinding = residual.
 - Store: `~/.pi/dashboard/preview-egress.json` `{[projectKey]: string[]}` via `auth/locked-json-file.ts`. Override `PI_PREVIEW_EGRESS_STORE`.
 - `projectKey` = canonical subject of git common root, else cwd.
+
+#### Capability origins and tiers (change: serve-live-previews-on-capability-origin)
+
+Source: `packages/server/src/live-server/` (`preview-origin.ts`, `preview-dispatch.ts`, `preview-pool.ts`, `preview-preflight.ts`, `preview-path-store.ts`, `preview-reserve.ts`, `preview-viewers.ts`, `preview-path-bridge.ts`, `live-server-proxy.ts`, `live-capability.ts`), `packages/server/src/auth/duplicate-cookie-gate.ts`, `packages/shared/src/preview-origins.ts`, `packages/server/src/routes/live-server-routes.ts`.
+
+Config: `liveServer.previewOrigins` = `{ enabled, wildcard: {suffix, forHosts[], scheme?}, portPool: "a-b", ipDnsSuffix }`.
+
+##### Mint negotiation
+- Client `POST /api/live-server/:id/capability` with `accept: ["origin","preview"]`.
+- No or invalid `accept` ⇒ legacy path.
+- Response: `{tier, origin?, path, base?, expiresAt, tokenId, policy}`.
+- Client validates shape. Refuses `origin` equal to dashboard origin.
+
+##### Tier table
+First match wins. Tier input = RAW `Host` header + socket peer. Never `request.protocol`.
+
+| Tier | Match | Origin | Path |
+|---|---|---|---|
+| 1 | Host `localhost` / `127.0.0.1`; peer loopback; no forwarding header; no TLS | `http://<label>.localhost:<port>` | `/` |
+| 2 | Host ∈ `wildcard.forHosts` | `<scheme>://<label>.<suffix>[:port]` | `/` |
+| 3 | login session principal; IPv4 Host the bind answers; pool port free | `http://<ip>:<poolPort>` | `/?k=<one-shot secret>` |
+| 4 | IPv4 Host; `ipDnsSuffix` set | `http://<label>.<a-b-c-d>.<suffix>[:port]` | `/` |
+| 5 | no earlier tier matches (incl. IPv6 Host, pool full) | dashboard origin | `/preview/<pid>/` |
+| legacy | no/invalid `accept`; or `enabled:false` | dashboard origin | `/live/<id>/~c/<token>/` |
+
+##### Tier 1
+- Same-host reverse proxy adding no forwarding header looks like local browser. Pinned limitation.
+- Fix: proxy sends `X-Forwarded-For`, or set `enabled:false`.
+
+##### Tier 2
+- Warns when `suffix` shares parent domain with a `forHosts` entry (cookie tossing).
+
+##### Tier 3 (port pool)
+- `portPool` `"a-b"`: ≤100 ports, all ≥1024. Excludes dashboard, gateway, TLS, model-proxy ports.
+- Invalid value ⇒ tier 3 off. Logged once.
+- Eligible principal: login session cookie `pi_dash_token` (`Path=/`) only.
+- One plain-HTTP listener per live capability, lowest free pool port. `EADDRINUSE` ⇒ skip next port.
+- ≤8 listeners per principal. Pool full ⇒ tier 4/5 with log `pool exhausted`. Never an error.
+- Listener released on every capability deletion: expiry, revoke, eviction, config change, shutdown.
+- Pool ports in `ownPorts`. No target may point at them. Forbidden to mock site.
+- Opt-in in Docker: see `docker/README.md` § Live previews.
+
+Pool-port request pipeline (in order, first failure stops):
+1. Fixed Host binding. Else `403`.
+2. Minting session cookie matches. Else `404`.
+3. One-shot `?k=` hop: sets host-only `pi_dash_pool_<port>` (`HttpOnly; SameSite=Strict; Path=/`), then redirects to clean URL. `to` must be single-slash root-relative, no `\` or control chars, ≤2048; else `/`.
+4. Later requests: cookie `pi_dash_pool_<port>` required. Else `404`.
+5. `Origin` present ⇒ must equal entry origin. Else `404` (upgrades `403`).
+
+##### Tier 4
+- `ipDnsSuffix` (e.g. `sslip.io`). IPv4 Host only.
+
+##### Tier 5 (`/preview/<pid>/`)
+- `pid` = 22 chars. One current pid per port target. Shared by all holders. Policy = narrowest holder.
+- Mint within last 20 min of lifetime ⇒ new pid, `restartRequired`.
+- Bounds: 32 pids per principal, 256 total.
+- Opaque origin: sandbox without `allow-same-origin`.
+- Full path forwarded upstream.
+- CORS: `Access-Control-Allow-Origin: null` for opaque origin. `OPTIONS` preflight answered for valid pid.
+- Authorised by pid, not dashboard auth.
+- WS upgrades on `/preview/<pid>/...` supported.
+- Pid drop (revoke, expiry, target removed, disabled) closes its tracked WS and in-flight responses (`preview-ws-registry.ts`; `server.ts` `previewWs.closePid`).
+- Tiers 1-5: `Referrer-Policy: no-referrer` replaces any upstream value. Legacy: only when app set none.
+- Tier 5 root-absolute `Location` rewritten into `/preview/<pid>/…`.
+- Dead or reset upstream on `/preview/` ⇒ `502 {"error":"bad_gateway"}`. Timeout ⇒ `504 {"error":"gateway_timeout"}`.
+- Residual: client abort does not destroy upstream HTTP request (`@fastify/reply-from`; same on `/live/`). Proxy timeout bounds it.
+
+##### Tier-5 base reservation
+- `POST /api/live-server/preview-path {port}|{targetId}` (control) ⇒ `{path:"/preview/<pid>/", expiresAt, tier5Viewers:true}`.
+- No tier-5-capable browser ⇒ `{path:null, tier5Viewers:false}`. Nothing reserved.
+- Browser announces `live_preview_accept`. Counted only if its upgrade Host classifies to tier 5.
+- `DELETE /api/live-server/preview-path/:pid` releases UNBOUND reservation. Reserver only.
+- Limits: 8 per principal, 64 total.
+- TTL: 10 min from creation; 12 h while port target exists.
+- Adopted by next control-tier tier-5 mint for that port. Unadopted pid unknown to everyone.
+- Agent path: bridge `preview_path_request` / `preview_path_result` / `preview_path_release`.
+- Tier 1-4 mint of port with live pid ⇒ `base:"/preview/<pid>/"`.
+- `serve_mock_site{base?}`: explicit base allowlist `^/([A-Za-z0-9._~-]+/)+$`, ≤256. Else neutral event `mock-site:base-reservation` (2 s wait, then root).
+
+##### Dispatch
+- Preview-shaped Host (`label.localhost`, wildcard suffix, IP-DNS suffix) ⇒ route-less `previewApp` (second Fastify instance).
+- `previewApp` never reaches host gate, CORS, cookie auth, `/api`, `/ws`, SPA, plugin routes.
+- Refusal: identical `403 {"error":"host_not_allowed"}`.
+- Dead upstream: `502`. Dispatcher failure: `503`. Never falls through to dashboard.
+- Preview WS upgrades handled before host gate.
+
+##### Duplicate-cookie gate
+- Repeated `pi_dash_*` cookie name ⇒ `400` (JSON or static HTML by `Accept`).
+- Response expires the name at every path (self-heal).
+- Set-Cookie expiry lines capped at 8 KiB total (`EXPIRY_MAX_BYTES`, `fitExpiryBudget`). `/`, `/api/`, `/auth/` kept first. Keeps 400 head under Node 16 KiB header limit.
+- Applies to WS upgrades.
+- Repeated `pi_dash_token` / `pi_dash_pool_*` ⇒ counts as missing credential.
+- `previewApp` exempt.
+
+##### CSP
+- Capability responses: CSP built from entry, never request.
+- Tiers 1-4: `allow-same-origin` + exact `frame-ancestors`.
+- Tier 5: path-scoped `frame-src`. No `frame-ancestors` (T11 fallback: Chromium blocks same-pid nested panes under `'self'`; sandboxed parent is opaque).
+- Tier 5 sandbox CSP still forces opaque origin. Pid is the capability.
+- Legacy: `frame-ancestors 'self'`.
+- Dashboard `frame-src` built per request from Host: `http://*.localhost`, wildcard suffix, `http://<host>:*` for pool.
+- `/preview/` skips dashboard baseline CSP (same as `/live/`).
+
+##### Rollback
+- `liveServer.previewOrigins.enabled: false` ⇒ every mint returns legacy path.
+- Existing origin-bound capabilities revoked at next sweep, reason `disabled`.
+- Boot log: `[live-preview] tiers: 1, 3(8100-8199), 5`.
+
+##### Client guards (D6(b), cookie reset)
+- Dashboard doc framed by live frame (`data-pi-live-frame`) or cross-origin parent (`frameElement === null`): no boot, no render, no boot-time API calls.
+- Source: `lib/live-preview/frame-guard.ts` `isDashboardBootBlocked`; `main.tsx`; `lib/boot/client-boot.ts`.
+- After each live-frame `load`: readable `contentWindow.location.href` ⇒ frame `about:blank` + "Preview navigated to the dashboard; blocked." until Reload.
+- Source: `components/editor-pane/live/LiveFrame.tsx`, `LiveFrameParts.tsx`.
+- Same-origin `/api/*` 400 `duplicate_dashboard_cookie` ⇒ tier 2/3 frames blank to `about:blank` + "A preview reset dashboard cookies; reopen it to continue."
+- Tier 1 untouched. Nothing auto-reopens. Reload / Reopen re-mints.
+- Source: `lib/live-preview/cookie-reset.ts`.
+
+##### Browser tests (live preview)
+- `npm run test:e2e:live-preview` ⇒ `playwright.live-preview.config.ts`. Specs: `tests/e2e/live-preview/`. Guide: `tests/e2e/live-preview/README.md`.
+- Host-run isolated dashboard (global-setup, `HOME=<tmp>`, tiers 1/2/3/5). Not docker harness.
+- Projects: `chromium`, `firefox`, `chromium-resolver`.
+- `chromium-resolver`: `*.resolver.spec.ts` only. `--host-resolver-rules` maps `*.preview.test`, `dash.test`, `dash5.test` → `127.0.0.1`.
+- Docker-harness tier-5 / legacy spec: `tests/e2e/live-preview-harness-tiers.spec.ts`.
+
+##### Observability (redacted)
+- `[live-preview] mint tier= target= h= via= peerLocal= reason=`
+- `[live-preview] pool bind|release|exhausted`
+- `[live-preview] reserve port= session= h=`
+- `[live-preview] pid dropped reason=holder-revoked|expired|target-removed|adoption-refused`
+- `[live-preview] refuse h= reason=` (one per `h` per 60 s)
+- `[live-preview] admit h= tier=` (first per entry)
+- `h` = first 8 hex of `sha256(secret)`. Never label, pid, token.
+
+See change: serve-live-previews-on-capability-origin.
 
 ### Network Access Control
 
@@ -3808,9 +4080,9 @@ NOT counted in snapshot: server-lifetime trust (session worktree trust, session 
 - Identity: canonical path + `dev` + `ino` (+ `birthtimeMs` when recorded). Entry applies only on identity match.
 - Identity mismatch → fail closed. Other machine, re-created folder, moved folder.
 
-**Deny rules** `mirrorDenyRules`. Separate from grant-subject `forbidden-subjects` (unchanged).
+**Deny rules** `mirrorDenyRules`. Builds on grant-subject `forbidden-subjects` (`grant.sensitive`), wider since change: harden-agent-tool-guards (D7).
 - Exact: `/`, `$HOME`, ancestors of `$HOME`, system dirs, broad parents (`/Users /home /Volumes /private /var/tmp /mnt /media`; win: drive root, `C:\Users`).
-- Subtree: `~/.ssh ~/.pi ~/.aws ~/.gnupg ~/.kube ~/.docker`, OS temp (`os.tmpdir`, `/tmp`, `/private/tmp`), `~/.cache`, `~/Downloads`.
+- Subtree: every grant-subject sensitive subject (`~/.ssh`, `~/.pi`, `~/.aws`, `~/.config/gh`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.netrc`, browser user-data roots) + OS temp (`os.tmpdir`, `/tmp`, `/private/tmp`), `~/.cache`, `~/Downloads`.
 
 **Decision order** `decidePiTrust` (shared by bridge, `host.isProjectTrusted`, toggle gate). First match wins.
 
@@ -3838,7 +4110,14 @@ flowchart TD
 - Per event: reads `config.json`, `trust.json` (lockless; BOM stripped; null = absent; bad shape/parse = undecided `store-unreadable`), snapshot.
 - Returns `{trusted:"yes", remember:false}` or undecided.
 - Dashboard-spawned headless sessions consult mirror always. Other sessions only if `coverInteractive`.
-- Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`, `identity-weak` + 7 `live-*` (see Live trust query).
+- **Activation cwd: no unconditional `yes`** (change: harden-agent-tool-guards D3). Activation cwd decided like any other cwd: recorded pi entry → snapshot mirror → live query. Auto-trusted only when dashboard trust covers it (pinned folder, workspace folder, covered grant, YOLO root via live query).
+- Nothing covers the activation cwd → `withheld("not-covered")`; pi decides (`trust.json`, then `defaultProjectTrust`; RPC has no prompt, `ask` = untrusted).
+- Road-independent: UI, MCP `spawn_session`, REST, WS, automation, goal, `/new`, worktree. No spawner cooperation, no flag, no state.
+- Forbidden/temporary activation folder (`/private/tmp`, `~/Downloads`, `~/.cache`, `$HOME`) → logs `forbidden-folder`. Never trusted **by the dashboard mirror**: no dashboard source covers a forbidden folder, bridge never returns `yes`.
+- pi still decides there: `piStoreBlocks` returns `recorded-entry` for a recorded pi entry; with none, bridge returns `undecided` → pi applies `trust.json`, then `defaultProjectTrust` (incl. `always`).
+- `piTrustMirror.enabled:false` also disables it (bridge returns undecided, pi decides).
+- Remedy for lost project `.pi/` resources: pin the folder, add it to a workspace, or `/trust` in a terminal pi.
+- Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`, `not-covered`, `identity-weak` + 7 `live-*` (see Live trust query).
 - Recorded-entry lookup `nearestRecordedEntry` (`packages/shared/src/pi-trust-mirror-snapshot.ts`) matches keys via `piPathsEqual`. Withholds yes for `/r/` or Windows case-different refusal.
 - p95 < 20 ms (1,000 entries, 20-deep cwd).
 - Spawn token: `PI_DASHBOARD_SPAWN_TOKEN` read + removed from env at bridge activation (`packages/extension/src/spawn-token.ts`). Process-global until first `session_register`. Agent-started nested pi never counts as dashboard-spawned.
@@ -3861,15 +4140,16 @@ flowchart TD
 
 **UI.**
 - Settings → Access → "Pi trust from the dashboard" (`packages/client/src/components/settings/PiTrustMirrorSection.tsx`): switches, effective list, per-entry choice, ignored rows (reason + label), pi `trust.json` entries + agent dir, disclosures.
-- Disclosures: precedence over `defaultProjectTrust` (incl `never`); scope; `--no-approve` / `--no-extensions` / pi CLI not covered; activation-cwd rule.
+- Disclosures: precedence over `defaultProjectTrust` (incl `never`); scope; `--no-approve` / `--no-extensions` / pi CLI not covered; no activation auto-trust outside dashboard trust.
 - Folder page banner: pi / dashboard (source + folder; "dashboard sessions, not terminal pi" unless `coverInteractive`) / neither (links Settings → Access).
 
 **Breaking bridge behaviour.** NOT reverted by `enabled:false`.
-- (a) Recorded pi entry beats activation-cwd auto-trust.
-- (b) Activation-cwd auto-trust no longer applies in forbidden/temporary folders (logged).
-- (c) Spawn token removed from env at activation (see Bridge).
+- (a) Recorded pi entry beats dashboard trust.
+- (b) No unconditional activation-cwd `yes` (harden-agent-tool-guards D3): a dashboard spawn in a folder dashboard trust does not cover gets `undecided` (`not-covered`) and pi decides.
+- (c) Bridge `yes` withheld in forbidden/temporary folders (logged `forbidden-folder`): dashboard trust never covers them, pi decides.
+- (d) Spawn token removed from env at activation (see Bridge).
 
-**Rollback.** `piTrustMirror.enabled: false`. Bridge reads config live. Works with server down. Does not revert (a)-(c).
+**Rollback.** `piTrustMirror.enabled: false`. Bridge reads config live. Works with server down. Does not revert (a)-(d).
 
 **Security residuals.**
 - Hook trust widened to full project trust for the subtree. Checkbox text states it.
@@ -3889,7 +4169,7 @@ sequenceDiagram
   participant B as bridge decideBridgeProjectTrust
   participant S as server POST /api/pi-trust/query
   P->>B: project_trust(cwd)
-  B->>B: store, recorded entry, activation rule, snapshot cover
+  B->>B: store, recorded entry, snapshot cover (activation cwd = any cwd)
   Note over B: snapshot miss, ask conditions hold
   B->>S: { cwd } + local proof OR Bearer PI_DASHBOARD_TOKEN
   S->>S: auth, rate limit, cap 8 KiB, deny rules, cover lookup
@@ -3957,9 +4237,10 @@ Bridge `decideBridgeProjectTrust` now async. Snapshot step stays sync (p95 < 20 
 - Bounds request + proof. `Promise.race([work, deadline→live-timeout])`. `AbortController` per call aborts `fetch` (`redirect:"error"`) + every `fs/promises` read.
 - After race: `inst.isActive()` re-check. Stale instance → undecided.
 
-**Reason codes** (`MirrorWithheldReason`, `packages/shared/src/pi-trust-mirror-types.ts`; 18, labels in `MIRROR_WITHHELD_LABELS`):
+**Reason codes** (`MirrorWithheldReason`, `packages/shared/src/pi-trust-mirror-types.ts`; 19, labels in `MIRROR_WITHHELD_LABELS`):
 - Parent (7): `forbidden-folder`, `not-project-root`, `hook-changed`, `source-off`, `source-not-installed`, `identity-mismatch`, `choice-unreadable`.
-- Bridge (4): `recorded-entry`, `store-unreadable`, `not-covered-session`, `identity-weak`.
+- Bridge (5): `recorded-entry`, `store-unreadable`, `not-covered-session`, `not-covered`, `identity-weak`.
+- `not-covered` = bridge log only (label "no dashboard trust source covers this folder"); never an Access-page ignored row, no source produced the folder.
 - Live (7): `live-timeout`, `live-unreachable`, `live-refused`, `live-unsupported`, `live-rate-limited`, `live-not-covered`, `live-error`.
 
 | Outcome | Code |
@@ -4037,6 +4318,21 @@ The grant layer is third in evaluation order but is deliberately **not numbered 
 The rejected alternative, `within(realpath(resolved), realpath(grant))`, was a **double-realpath** that contradicted D2 and was corrected in planning. Strict `fs.realpath` is used, not `safeRealpath`: a granted directory later deleted (or recreated as a symlink) refuses rather than matching its nearest existing ancestor. An empty grant list short-circuits before any syscall.
 
 **The store.** `packages/server/src/access/access-grants.ts`. Persisted at `~/.pi/dashboard/access-grants.json` (`PI_ACCESS_GRANTS_STORE` overrides; schema `{ version: 1, grants }`). One grant carries `subject` (realpath), `scope` (`"session"` — in-memory until server restart — or `"project"` — persisted), `grantedAt`, `origin` (the session whose denial produced it), and optional `widenedFrom` (the denied subject when the grant came from an offered ancestor). Invariants: absent/malformed store → empty, never throws; **cap 200 per scope**, oldest-`grantedAt` evicted within that scope only (a union cap would let an ephemeral session grant delete a persisted project grant); writes atomic (temp + rename) so a crash mid-write cannot truncate the store into its own malformed→empty rule; a failed write is non-fatal — the subject stays ungranted, the failure is logged **and returned to the caller** so the UI cannot claim a grant that does not exist. Recorded grants are audited (`[access-grant] granted subject=… scope=… site=… denialId=…`).
+
+**Write-mode grants** (change: fix-file-link-editor-routing, D2). Out-of-cwd text-doc save (`POST /api/file/write`) needs write grant. Read grant never admits write.
+
+- `AccessGrant.mode?: "read" | "write"`. Absent = read. Store stays `version: 1`; rollback-safe (old build reads entry as read grant).
+- `loadFromDisk` fail-closed: `mode` other than exact `"write"` → read.
+- One entry per `(subject, scope, mode)`. Write grant = second entry beside read grant. Revocable independently.
+- `grantedSubjects()` unchanged, includes write entries (write ⊃ read). `grantedWriteSubjects()` = `mode:"write"` only.
+- Write evaluation: `evaluateContainment(..., {action:"write"})`. Skips layer ② (`checkoutAnchors`): checkout roots never admit write. Grant layer uses write subjects only.
+- Denial side field = `action: "read" | "write"` (`PathDenial`, `DenialFacts`, `PendingGrant`). Not `mode`: `mode` already names held/deferred prompt plane.
+- Pending registry key = `plane \0 action \0 subject`. Read + write denial for same dir = separate entries.
+- Grant mode derived server-side from recorded denial/prompt `action`. Never from client field. `grant_response` carries verdict + rung only.
+- `allow-once` = transient real-path grant for this request, write predicate, never persisted. `performAtomicMdWrite` re-realpath must equal gated realpath, else refuse.
+- YOLO: write hold = filesystem-plane denial → auto allow-once, only within YOLO roots (default root = session cwd → outside write still prompts). No persisted grant.
+- Prompt before existence: nonexistent outside doc prompts, then `404`. Stat-first = existence oracle, refused.
+- Access page: write row shows "Write" badge. `DELETE /api/access/grants` optional `mode`; last-entry removal only un-mirrors pi-trust.
 
 `"session"` scope means the **server process**, not the pi session whose denial produced it (design D17): one grant widens the grant layer for every session and every connected client; `origin` is what the Access tab shows.
 
@@ -6690,7 +6986,7 @@ See change: add-radius-provider-login (D5, D6).
 
 **Non-goal.** Model proxy has no Radius OAuth refresh loader.
 
-**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.5.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.5.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.5.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.5.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis, update-pi-core-1-3-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis, to 1.3.0 in update-pi-core-1-3-adopt-apis, to 1.5.0 in update-pi-core-1-5-adopt-apis.
+**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.6.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.6.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.6.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.6.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis, update-pi-core-1-3-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis, to 1.3.0 in update-pi-core-1-3-adopt-apis, to 1.5.0 in update-pi-core-1-5-adopt-apis.
 
 **Routes** (`packages/server/src/routes/provider-auth-routes.ts`):
 
@@ -8436,13 +8732,14 @@ Path-only fetch (`getChunk` without `headingPath`) returns first chunk plus `sup
   - dir-qualified `<relDir>/<path>`. `relDir` = `relative(cwd, dir)`, `/`-normalized, filesystem roots only.
   - Dedup by (root, path).
 - 1 reading → hit.
-- 0 → `(not found: <arg>)`.
+- 0 → `(not found: <arg>)`. Unresolved path only.
 - >1 → `(ambiguous: <arg> is indexed in N sources — pass one of:)` + sorted `<source-id>:<path>` candidates. No body. Details `{found:false, candidates:N}`.
 - Section: `getChunkBySection(root, path, section)` (`packages/kb/src/sqlite-store.ts`).
   - Exact `heading_path` first.
   - Else (no ` > ` in arg) last-heading suffix match.
   - Several distinct heading paths → ambiguous section candidate list.
   - `getChunk` exact semantics unchanged.
+  - No match in a resolved file → `section-missing` result. Render `(section not found: <section> in <arg> — sections:)` + ≤50 distinct body heading paths (rowid order, `:meta` chunk excluded) + `(+K more section[s])` when K > 0. Empty list → `(section not found: <section> in <arg> — no sections)`. `found:false`. Paths via required `FetchStore.getChunks(root, path)`. See change: fix-kb-parent-link-and-section-miss.
 - Source classification (`classifyRef`, `packages/kb/src/sources.ts`):
   - `ssh://` → `git`.
   - GitHub repo ref (`[https://]github.com/<o>/<r>` + optional `.git`, `@<ref>`, `/tree/<ref>`) → `git` (regex `GITHUB_REPO`). Cloned as `https://github.com/<o>/<r>` (`.git` kept if given). Revision from `@ref`/`/tree/<ref>`. `pin` wins. No auto-subdir.
@@ -8504,12 +8801,16 @@ Settings page `packages/kb-plugin/src/client/KbSettingsPanel.tsx`. Add via `KbSo
 
 `reindexAll` (`packages/kb-plugin/src/server/kb-routes.ts`) walks `cfg.allSourceSpecs` — all kinds (filesystem/git/https/npm) via engine resolvers. Each source isolated: failure → `error` outcome, job `jobStatus:"error"`, `lastError` `"N source(s) failed: …"` (≤500 chars); untrusted → skipped, job stays idle; failed/skipped source keeps prior chunks. `git`/`https` resolution async (`execFile`, 120 s timeout) — never blocks server event loop. Reindex gate = saved `allSourceSpecs.length > 0`.
 
+Worker: job runs in `worker_threads` worker `reindex-worker.mjs` (`reindex-runner.ts`, core `reindex-core.ts`). Kill-switch `PI_DASHBOARD_KB_REINDEX_WORKER=0` → in-process. Read per job. Worker load failure before ready → in-process fallback. Crash after ready → job fails. Cancel → `cancel` msg, `terminate()` after `REINDEX_CANCEL_GRACE_MS` (5 s). Batch loop yields after `INDEX_BATCH_MAX_MS` (50 ms). One `[kb-plugin] reindex mode=worker|inprocess … outcome=…` log line per job.
+
 Trust = TOFU, global. Store `~/.pi/dashboard/kb-source-trust.json`, keyed sha256 of `{kind,ref,subdir,pin}`. One grant covers identical spec in every folder. Revoke under Access → `DELETE /api/kb/source-trust`. Grant path: UI trust dialog (`Trust & add` / `Add without trusting` / `Cancel`) → `PUT /api/kb/config` `trustRefs`, or `POST /api/kb/source-trust {ref}`. Server records SAVED spec matched by exact `ref` (404 none, 409 duplicate refs, 400 filesystem, 500 persist failure). `untrustedRefs` in PUT response lists grants that failed. Trust-store write atomic (`tmp`+rename); `recordTrust` returns boolean. Fetch-side SSRF/zip-slip guards from change `harden-untrusted-content-ingestion` (`net-guard.ts`, `archive-guard.ts`).
 
 ### KB source & search routes
 
 - `GET /api/kb/sources?cwd=` — per-source kind, files, trusted, outside, last outcome.
 - `GET /api/kb/search?cwd=&q=&limit=&docType=` — read-only test search over SAVED index. Opens existing store only — no init, no migrate, no create. `q` 1–512, `limit` 1–50 (default 10), `docType` `doc|agents|source-md`. No reindex, no verdicts. Stale schema → `needsReindex:true`.
+- `POST /api/kb/reindex/cancel?cwd=` — operator tier. Asks running job to stop. `200 {cancelled:true|false}`. Shares reindex admission. Job still `running` in `/stats` until settled. Repeat during grace → `cancelled:true`, no second stop.
+- `GET /api/kb/stats?cwd=` — adds transient `progress {root,done,total}` while running.
 
 All cwd-guarded (`isAllowedCwd`).
 
@@ -9176,7 +9477,11 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 | any, Vite `--dev` (per proxied response) | baseline only (legacy `script-src`), enforcing under `enforce`. No strict header. No report destination. Dev never feeds strict counter. |
 
 - Strict = baseline with `script-src 'self' 'nonce-<n>'`. No `'unsafe-inline'`, no `'unsafe-eval'`. Enforced only under explicit `enforce`.
-- Every emitted policy carries `report-uri /__pi/csp-report/<label>` + `report-to csp-<label>`; `Reporting-Endpoints` header declares them.
+- Every emitted policy carries `report-uri /__pi/csp-report/<label>` ONLY.
+- No `report-to` directive. No `Reporting-Endpoints` header. `cspReportEndpointName` removed from `csp-report-paths.ts`.
+- Live preview same (`buildLiveCsp`): `report-uri /live/<id>/~c/<token>/__pi/csp-report` only.
+- Why: Chromium 157 / Firefox 153 never delivered `report-to` + `Reporting-Endpoints` reports on plain http. `report-to` suppresses `report-uri` in Chromium. Prod counters stayed 0.
+- Residual: `report-uri` deprecated in CSP3. Tripwire = Chromium-only `tests/e2e/csp-report-delivery.spec.ts`. Safari / Firefox need a manual canary.
 - Route-level per-response policies (`/api/file/raw` sandbox, `ctx.serveApp` mounts, `/live/`) untouched by mode.
 - Release note: explicit `enforce` now enforces the STRICT policy (before: baseline). Existing `enforce` deployments see it.
 
@@ -9270,4 +9575,4 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 - Follow-up `enforce-strict-csp-default` owns soak + default flip. Exit gate: ≥ 14 d window, zero strict `script-src*` violations, `dropped == 0`, ≥ 1 release shipped, enforce-lane E2E green. Inspect directive / document breakdown before flip.
 - E2E lanes: see `docs/faq.md` § "CSP enforce + OAuth real-gate E2E lanes".
 
-See change: harden-cors-and-csp-reporting (D8, D9, D10).
+See change: harden-cors-and-csp-reporting (D8, D9, D10), fix-csp-report-delivery.

@@ -10,8 +10,8 @@
  * the editor pre-filled with the complete global entry minus secrets + `auth`,
  * each omission flagged, and its "Project settings…" opens the project-override
  * panel (enabled + exposure, credentials untouched). An untrusted folder shows a
- * notice (dashboard-spawned headless sessions trust the folder per run) while
- * editing stays allowed. Folder writes are project-scope only; a folder enable
+ * notice (folder servers stay inactive until pi trusts the project: pinned / workspace /
+ * granted folder, or a recorded pi decision) while editing stays allowed. Folder writes are project-scope only; a folder enable
  * of a whole-entry copy that needs re-entered secrets offers remove-or-reenter
  * (or convert, for a legacy copy); Remove / Reset / Convert keep an undo toast
  * that restores the exact prior entry (override rows via the project-override
@@ -177,7 +177,7 @@ function UntrustedNotice(): React.ReactElement {
       {t(
         "mcpFolderUntrusted",
         undefined,
-        "pi does not trust this project yet: folder servers stay inactive until the project is trusted. Headless sessions the dashboard starts in this folder trust it per run. Editing <cwd>/.pi/mcp.json stays allowed.",
+        "pi does not trust this project yet: folder servers stay inactive until the project is trusted. Editing <cwd>/.pi/mcp.json stays allowed.",
       )}{" "}
       <button
         type="button"

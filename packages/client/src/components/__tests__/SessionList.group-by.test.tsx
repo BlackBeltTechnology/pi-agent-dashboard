@@ -326,3 +326,88 @@ describe("performance: no re-partition on token/cost ticks", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+// Accordion compact folders are a single header row: no Group-by indicator row.
+// Grouping stays reachable from the folder menu. See change: sidebar-folder-ux
+// (test-plan #S30, #S31).
+describe("accordion compact folders have no Group-by row", () => {
+  const OTHER = "/home/user/other";
+  const chip = (cwd = CWD) => screen.queryByTestId(`folder-group-by-chip-${cwd}`);
+  const row = (cwd = CWD) => screen.queryByTestId(`folder-group-by-row-${cwd}`);
+
+  /** `repo` is unfocused (selection is in OTHER); `attention` makes it compact-attention, else compact-empty. */
+  function compact(mode: "status" | "location" | "none", attention: boolean) {
+    const sessions = [
+      mk("sel", { cwd: OTHER }),
+      mk("r1", attention ? { status: "streaming" } : {}),
+      mk("r2"),
+    ];
+    return render(
+      <List
+        sessions={sessions}
+        selectedId="sel"
+        pinnedDirectories={[CWD, OTHER]}
+        folderListMode="accordion"
+        folderAttentionPeek
+        sessionOrderMap={new Map()}
+        groupByPrefs={prefs({ folderGroupBy: { [CWD]: mode } })}
+      />,
+    );
+  }
+
+  it.each(["status", "location"] as const)("S30: compact-empty and compact-attention never render the row or chip (group-by %s)", (mode) => {
+    compact(mode, false);
+    expect(row()).toBeNull();
+    expect(chip()).toBeNull();
+    cleanup();
+    compact(mode, true);
+    expect(row()).toBeNull();
+    expect(chip()).toBeNull();
+  });
+
+  it("S30: the focused-collapsed folder and classic collapsed keep the indicator", () => {
+    render(
+      <List
+        sessions={[mk("r1"), mk("r2")]}
+        selectedId="r1"
+        collapsedGroups={[CWD]}
+        folderListMode="accordion"
+        groupByPrefs={prefs({ folderGroupBy: { [CWD]: "status" } })}
+      />,
+    );
+    expect(row()).not.toBeNull();
+    cleanup();
+    render(<List sessions={[mk("r1"), mk("r2")]} collapsedGroups={[CWD]} groupByPrefs={prefs({ folderGroupBy: { [CWD]: "status" } })} />);
+    expect(row()).not.toBeNull();
+  });
+
+  it("S30: a full accordion folder shows the chip for a non-none mode, none for `none`", () => {
+    render(
+      <List
+        sessions={[mk("r1"), mk("r2")]}
+        selectedId="r1"
+        folderListMode="accordion"
+        groupByPrefs={prefs({ folderGroupBy: { [CWD]: "status" } })}
+      />,
+    );
+    expect(chip()).not.toBeNull();
+    cleanup();
+    render(
+      <List
+        sessions={[mk("r1"), mk("r2")]}
+        selectedId="r1"
+        folderListMode="accordion"
+        groupByPrefs={prefs({ folderGroupBy: { [CWD]: "none" } })}
+      />,
+    );
+    expect(chip()).toBeNull();
+  });
+
+  it("S31: a compact folder has no indicator, but its menu still offers Group by with the current mode checked", () => {
+    compact("status", false);
+    expect(chip()).toBeNull();
+    fireEvent.click(screen.getByTestId(`folder-actions-menu-${CWD}`));
+    expect(screen.getByTestId("folder-menu-radio-group-by-status").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("folder-menu-radio-group-by-location").getAttribute("aria-checked")).toBe("false");
+  });
+});

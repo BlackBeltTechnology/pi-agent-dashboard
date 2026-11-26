@@ -187,10 +187,51 @@ describe("nightly infra contracts", () => {
     expect(src).toMatch(/shell:\s*isWin/);
   });
 
+  it("step (c) regenerates pnpm-lock.yaml with pnpm, not npm (verify-lockfile-versions reads pnpm-lock.yaml)", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    expect(src).toMatch(/run\(\s*"pnpm"\s*,\s*\[\s*"install"\s*,\s*"--lockfile-only"\s*\]\s*\)/);
+  });
+
+  it("step order: sync-versions < pnpm lockfile regen < verify-lockfile-versions", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    const sync = src.search(/run\(\s*"node"\s*,\s*\[\s*"scripts\/sync-versions\.js"/);
+    const pnpm = src.search(/run\(\s*"pnpm"\s*,\s*\[\s*"install"/);
+    const verify = src.search(/run\(\s*"node"\s*,\s*\[\s*"scripts\/verify-lockfile-versions\.mjs"/);
+    expect(sync).toBeGreaterThan(-1);
+    expect(pnpm).toBeGreaterThan(sync);
+    expect(verify).toBeGreaterThan(pnpm);
+  });
+
+  it("no npm lockfile regeneration in the publish script; the runtime lock still uses npm", () => {
+    expect(read("scripts", "nightly-verdaccio-publish.mjs")).not.toContain("--package-lock-only");
+    expect(read("scripts", "generate-runtime-lock.mjs")).toContain("--package-lock-only");
+  });
+
+  it("win32 spawn: shell covers npm and pnpm; only npm maps to npm.cmd", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    expect(src).toMatch(/shell:\s*isWin\s*&&\s*\(\s*cmd\s*===\s*"npm"\s*\|\|\s*cmd\s*===\s*"pnpm"\s*\)/);
+    expect(src).toMatch(/isWin\s*&&\s*cmd\s*===\s*"npm"\s*\?\s*"npm\.cmd"\s*:\s*cmd/);
+    expect(src).not.toContain('"pnpm.cmd"');
+  });
+
   it("verify-publish installs with pnpm (the repo has no package-lock.json)", () => {
     const wf = read(".github", "workflows", "nightly.yml");
     const job = wf.slice(wf.indexOf("  verify-publish:"), wf.indexOf("  knip:"));
     expect(job).toContain("pnpm install --frozen-lockfile");
     expect(job).not.toMatch(/npm ci|cache:\s*npm/);
+  });
+
+  it("every loopback publish passes --tag (npm 12 refuses a prerelease publish without one)", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    expect(src).toMatch(/const PUBLISH_TAG = \["--tag", "latest"\]/);
+    expect(src.match(/\.\.\.PUBLISH_TAG/g)).toHaveLength(2);
+  });
+
+  it("verify-publish refreshes pnpm-lock.yaml between the version bump and the publish script (spike run 1)", () => {
+    const wf = read(".github", "workflows", "nightly.yml");
+    const job = wf.slice(wf.indexOf("  verify-publish:"), wf.indexOf("  knip:"));
+    const at = (needle) => job.indexOf(needle);
+    expect(at("pnpm install --lockfile-only")).toBeGreaterThan(at("scripts/sync-versions.js"));
+    expect(at("pnpm install --lockfile-only")).toBeLessThan(at("node scripts/nightly-verdaccio-publish.mjs"));
   });
 });

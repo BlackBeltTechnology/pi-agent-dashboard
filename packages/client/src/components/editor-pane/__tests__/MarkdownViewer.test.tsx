@@ -43,15 +43,19 @@ vi.mock("../../preview/MarkdownContent.js", () => ({
 import { LiveSessionCwdsProvider } from "../../../lib/preview/use-mermaid-source.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import MarkdownViewer from "../MarkdownViewer.js";
+import { unsavedKey, unsavedStore } from "../unsaved-store.js";
 
 const originalFetch = globalThis.fetch;
 
 /** Programmable write-response for the POST leg. */
 let writeResponse: { status: number; body: unknown };
+/** When set, the POST leg is answered by this instead (pending / rejecting writes). */
+let writeHook: ((init: RequestInit) => Promise<unknown>) | null = null;
 
 function mockFetch(content = "# hi", mtime = 123) {
   globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
+      if (writeHook) return writeHook(init);
       return Promise.resolve({
         status: writeResponse.status,
         json: () => Promise.resolve(writeResponse.body),
@@ -79,6 +83,7 @@ beforeEach(() => {
     addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(), onchange: null,
   })) as unknown as typeof window.matchMedia;
   writeResponse = { status: 200, body: { success: true, data: { mtime: 456 } } };
+  writeHook = null;
   mockFetch();
 });
 afterEach(() => {
@@ -125,6 +130,139 @@ describe("MarkdownViewer — Preview/Edit (#4)", () => {
     fireEvent.change(ta, { target: { value: "# edited" } });
     fireEvent.click(screen.getByTestId("md-save-btn"));
     expect(await screen.findByTestId("changed-on-disk-banner")).toBeTruthy();
+  });
+});
+
+// fix-file-link-editor-routing S75 (cross-version compat): a server that predates write-mode grants answers an
+// out-of-cwd save with the flat pre-change 403 — the viewer shows the existing error and does not crash.
+describe("MarkdownViewer — pre-change flat 403 on save (S75)", () => {
+  it("surfaces the server error text and does not crash", async () => {
+    writeResponse = { status: 403, body: { success: false, error: "path outside working directory" } };
+    renderViewer("/Users/u/Downloads/x.md");
+    await screen.findByTestId("md-preview");
+    fireEvent.click(screen.getByTestId("md-edit-toggle"));
+    const ta = await screen.findByTestId("monaco-textarea");
+    fireEvent.change(ta, { target: { value: "# edited" } });
+    fireEvent.click(screen.getByTestId("md-save-btn"));
+    expect(await screen.findByText("path outside working directory")).toBeTruthy();
+    // The refusal does not discard the edit: still in the editor, still dirty.
+    expect((screen.getByTestId("monaco-textarea") as HTMLTextAreaElement).value).toBe("# edited");
+    expect(screen.getByTestId("md-dirty-dot")).toBeTruthy();
+    // The save really went out (no client-side gate swallowed it).
+    const posts = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([, init]) => (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(posts).toHaveLength(1);
+  });
+});
+
+const postCalls = () =>
+  (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+    ([, init]) => (init as RequestInit | undefined)?.method === "POST",
+  );
+
+async function editOutside(text = "# edited") {
+  renderViewer("/Users/u/Downloads/x.md");
+  await screen.findByTestId("md-preview");
+  fireEvent.click(screen.getByTestId("md-edit-toggle"));
+  fireEvent.change(await screen.findByTestId("monaco-textarea"), { target: { value: text } });
+}
+
+// fix-file-link-editor-routing S50: while the write prompt is pending the POST is unresolved; Save must lock.
+describe("MarkdownViewer — Save double activation (S50)", () => {
+  it("disables Save, shows Saving…, and sends exactly one POST for two clicks", async () => {
+    let release: (v: unknown) => void = () => {};
+    writeHook = () => new Promise((r) => { release = r; });
+    await editOutside();
+    const btn = screen.getByTestId("md-save-btn");
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getByTestId("md-save-btn").hasAttribute("disabled")).toBe(true));
+    expect(screen.getByTestId("md-save-btn").textContent).toContain("Saving…");
+    expect(postCalls()).toHaveLength(1);
+    release({ status: 200, json: () => Promise.resolve({ success: true, data: { mtime: 456 } }) });
+    await waitFor(() => expect(screen.getByTestId("md-save-btn").textContent).not.toContain("Saving…"));
+  });
+});
+
+// fix-file-link-editor-routing S72: a refused/failed save keeps the buffer; 409 → banner; 200 → clean + new mtime.
+describe("MarkdownViewer — save refused keeps the buffer (S72)", () => {
+  const refusals: Array<[string, () => void, string]> = [
+    ["403", () => { writeResponse = { status: 403, body: { success: false, error: "path outside working directory — write not granted" } }; }, "write not granted"],
+    ["500", () => { writeResponse = { status: 500, body: { success: false, error: "disk exploded" } }; }, "disk exploded"],
+    ["500 without an error body", () => { writeResponse = { status: 500, body: { success: false } }; }, "Save failed (500)"],
+    ["rejected fetch", () => { writeHook = () => Promise.reject(new Error("socket hang up")); }, "socket hang up"],
+  ];
+
+  it.each(refusals)("%s: error shown, tab stays dirty, buffer and editor intact", async (_n, arrange, message) => {
+    arrange();
+    await editOutside("# my unsaved work");
+    fireEvent.click(screen.getByTestId("md-save-btn"));
+    expect(await screen.findByText((c) => c.includes(message))).toBeTruthy();
+    // Nothing was cleared: editor still mounted with the typed text, dirty dot up, Save re-enabled.
+    expect((screen.getByTestId("monaco-textarea") as HTMLTextAreaElement).value).toBe("# my unsaved work");
+    expect(screen.getByTestId("md-dirty-dot")).toBeTruthy();
+    expect(screen.getByTestId("md-save-btn").hasAttribute("disabled")).toBe(false);
+  });
+
+  it("a later successful save clears the error", async () => {
+    writeResponse = { status: 403, body: { success: false, error: "write not granted" } };
+    await editOutside();
+    fireEvent.click(screen.getByTestId("md-save-btn"));
+    await screen.findByText(/write not granted/);
+    writeResponse = { status: 200, body: { success: true, data: { mtime: 456 } } };
+    fireEvent.click(screen.getByTestId("md-save-btn"));
+    await waitFor(() => expect(screen.queryByText(/write not granted/)).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("md-dirty-dot")).toBeNull());
+  });
+
+  it("409: ChangedOnDiskBanner shown and the buffer is kept", async () => {
+    writeResponse = { status: 409, body: { success: false, error: "changed" } };
+    await editOutside("# mine");
+    fireEvent.click(screen.getByTestId("md-save-btn"));
+    expect(await screen.findByTestId("changed-on-disk-banner")).toBeTruthy();
+    expect((screen.getByTestId("monaco-textarea") as HTMLTextAreaElement).value).toBe("# mine");
+    expect(screen.getByTestId("md-dirty-dot")).toBeTruthy();
+  });
+
+  it("200: dirty clears and the next save carries the updated mtime", async () => {
+    await editOutside("# one");
+    fireEvent.click(screen.getByTestId("md-save-btn"));
+    await waitFor(() => expect(screen.queryByTestId("md-dirty-dot")).toBeNull());
+    fireEvent.change(screen.getByTestId("monaco-textarea"), { target: { value: "# two" } });
+    fireEvent.click(screen.getByTestId("md-save-btn"));
+    await waitFor(() => expect(postCalls()).toHaveLength(2));
+    const sent = postCalls().map(([, init]) => JSON.parse((init as RequestInit).body as string));
+    expect(sent[0].mtime).toBe(123);
+    expect(sent[1].mtime).toBe(456);
+  });
+});
+
+// fix-file-link-editor-routing S73: an ungranted outside load shows the denial flow and no content bytes.
+describe("MarkdownViewer — ungranted outside load (S73)", () => {
+  it("renders DenialNotice for a 403 with a denial payload and no file text", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: false,
+        status: 403,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            error: "path outside working directory — read not granted",
+            reason: "outside-cwd",
+            hint: "grant access",
+            subject: "/Users/u/Downloads/secret.md",
+            denialId: "d-1",
+            ancestors: ["/Users/u"],
+            promptOutcome: "declined",
+          }),
+      }),
+    ) as unknown as typeof fetch;
+    renderViewer("/Users/u/Downloads/secret.md");
+    expect(await screen.findByTestId("denial-notice")).toBeTruthy();
+    expect(screen.queryByTestId("md-preview")).toBeNull();
+    expect(screen.queryByTestId("md-edit-toggle")).toBeNull();
+    expect(document.body.textContent).not.toContain("TOP-SECRET-BODY");
   });
 });
 
@@ -219,5 +357,76 @@ describe("MarkdownViewer mermaidSource", () => {
     fireEvent.click(screen.getByTestId("md-preview-toggle"));
     await screen.findByTestId("md-preview");
     expect(lastSource()).toMatchObject({ isDirty: true });
+  });
+});
+
+// fix-file-link-editor-routing 4.1 / 4.3 / 4.10 (S42 / S44 / S64): the viewer publishes {dirty, save} to the unsaved store.
+describe("MarkdownViewer — unsaved store (S42, S44, S64)", () => {
+  const key = unsavedKey("", "notes.md");
+  async function editNotes(text: string) {
+    const view = renderViewer("notes.md");
+    await screen.findByTestId("md-preview");
+    fireEvent.click(screen.getByTestId("md-edit-toggle"));
+    fireEvent.change(await screen.findByTestId("monaco-textarea"), { target: { value: text } });
+    return view;
+  }
+  const type = (v: string) => fireEvent.change(screen.getByTestId("monaco-textarea"), { target: { value: v } });
+
+  it("S42: dirty is true only while the buffer differs from the loaded content", async () => {
+    await editNotes("# hi");
+    expect(unsavedStore.hasUnsaved([key])).toBe(false);
+    type("# hi!");
+    await waitFor(() => expect(unsavedStore.hasUnsaved([key])).toBe(true));
+    type("# hi");
+    await waitFor(() => expect(unsavedStore.hasUnsaved([key])).toBe(false));
+    type("# hi again");
+    await waitFor(() => expect(unsavedStore.hasUnsaved([key])).toBe(true));
+    fireEvent.click(screen.getByTestId("md-save-btn"));
+    await waitFor(() => expect(unsavedStore.hasUnsaved([key])).toBe(false));
+  });
+
+  it("S44: dialog Save ok resolves true and writes the buffer", async () => {
+    await editNotes("# mine");
+    const p = unsavedStore.confirmLeave([key]);
+    unsavedStore.resolveDialog("save");
+    await expect(p).resolves.toBe(true);
+    expect(postCalls()).toHaveLength(1);
+  });
+
+  it.each([
+    ["409", () => { writeResponse = { status: 409, body: { success: false } }; }, "changed-on-disk-banner"],
+    ["403", () => { writeResponse = { status: 403, body: { success: false, error: "write not granted" } }; }, "md-save-error"],
+    ["network error", () => { writeHook = () => Promise.reject(new Error("down")); }, "md-save-error"],
+  ])("S44: dialog Save → %s resolves false, buffer intact, error/banner shown", async (_n, arrange, testId) => {
+    arrange();
+    await editNotes("# mine");
+    const p = unsavedStore.confirmLeave([key]);
+    unsavedStore.resolveDialog("save");
+    await expect(p).resolves.toBe(false);
+    expect(await screen.findByTestId(testId)).toBeTruthy();
+    expect((screen.getByTestId("monaco-textarea") as HTMLTextAreaElement).value).toBe("# mine");
+    expect(unsavedStore.hasUnsaved([key])).toBe(true);
+  });
+
+  it("S44: dialog Discard drops the buffer without a write; Cancel keeps it", async () => {
+    await editNotes("# mine");
+    let p = unsavedStore.confirmLeave([key]);
+    unsavedStore.resolveDialog("cancel");
+    await expect(p).resolves.toBe(false);
+    expect((screen.getByTestId("monaco-textarea") as HTMLTextAreaElement).value).toBe("# mine");
+    p = unsavedStore.confirmLeave([key]);
+    unsavedStore.resolveDialog("discard");
+    await expect(p).resolves.toBe(true);
+    await waitFor(() => expect((screen.getByTestId("monaco-textarea") as HTMLTextAreaElement).value).toBe("# hi"));
+    expect(postCalls()).toHaveLength(0);
+    expect(unsavedStore.hasUnsaved([key])).toBe(false);
+  });
+
+  it("S64: unmounting a dirty viewer removes its entry", async () => {
+    const { unmount } = await editNotes("# mine");
+    expect(unsavedStore.hasUnsaved([key])).toBe(true);
+    unmount();
+    expect(unsavedStore.hasUnsaved([key])).toBe(false);
+    await expect(unsavedStore.confirmLeave()).resolves.toBe(true);
   });
 });

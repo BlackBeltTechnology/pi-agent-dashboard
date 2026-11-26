@@ -11,7 +11,8 @@
  *
  * `normalizeUnderCwd` rewrites an absolute-under-cwd path to relative-posix so
  * the client agrees with the server. Anything else (already relative, or
- * absolute-outside-cwd) is returned unchanged.
+ * absolute-outside-cwd) is returned unchanged. A Windows drive letter compares
+ * case-insensitively (the rest of the path does not). See change: fix-file-link-editor-routing (G6).
  */
 
 /** Posix `/`, Windows `\`-rooted / UNC `\\server\share`, or `C:\` / `C:/` drive-absolute. */
@@ -34,6 +35,11 @@ export function normalizeUnderCwd(rawPath: string, cwd: string | undefined): str
 
   const prefix = `${posixCwd}/`;
   if (posixRaw.startsWith(prefix)) return posixRaw.slice(prefix.length);
+  // Windows drive: only the drive letter is case-insensitive (`c:` ≡ `C:`); the rest stays case-sensitive.
+  if (/^[A-Za-z]:\//.test(posixRaw) && /^[A-Za-z]:\//.test(prefix)) {
+    const lowerDrive = (s: string) => s[0].toLowerCase() + s.slice(1);
+    if (lowerDrive(posixRaw).startsWith(lowerDrive(prefix))) return posixRaw.slice(prefix.length);
+  }
 
   return rawPath; // absolute outside cwd — unchanged
 }

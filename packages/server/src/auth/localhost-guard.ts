@@ -529,7 +529,7 @@ export function createNetworkGuard(
  * Every dangerous route in the server lives under one of these; the
  * namespace-coverage test enforces that. See change: add-universal-network-guard.
  */
-const GUARD_JURISDICTION_PREFIXES = ["/api/", "/v1/", "/editor/", "/live/"] as const;
+const GUARD_JURISDICTION_PREFIXES = ["/api/", "/v1/", "/editor/", "/live/", "/preview/"] as const;
 
 /**
  * Fixed in-namespace public endpoints, compared against the EXACT pathname.
@@ -544,6 +544,17 @@ const GUARD_JURISDICTION_PREFIXES = ["/api/", "/v1/", "/editor/", "/live/"] as c
 const PUBLIC_IN_NAMESPACE_PATHS: ReadonlySet<string> = new Set([
   "/api/health",
   "/api/identity/login-config",
+]);
+
+/**
+ * Plugin OAuth return endpoints reachable WITHOUT a dashboard session, network pass condition or signed-in
+ * principal (GET only). The browser that completes a Google consent may be the system browser or another
+ * device with no dashboard cookie. The route accepts a code only for a pending sign-in whose unguessable
+ * `state` this dashboard issued (one-shot, 300 s) — the state is the credential, exactly like the login
+ * `/auth/callback/*`. Exact paths only; no prefix match. See change: add-google-connect (D12b).
+ */
+export const PUBLIC_PLUGIN_CALLBACK_PATHS: ReadonlySet<string> = new Set([
+  "/api/plugins/google/oauth/remote-callback",
 ]);
 
 /**
@@ -829,6 +840,7 @@ export function createNetworkGuardHook(opts: NetworkGuardHookOptions) {
     const bypassUrls = opts.getBypassUrls?.() ?? [];
     const isPublicInNamespace = (path: string): boolean =>
       (PUBLIC_IN_NAMESPACE_PATHS.has(path) && methodAllowsHealth) ||
+      (PUBLIC_PLUGIN_CALLBACK_PATHS.has(path) && methodAllowsHealth) ||
       pairingPrefixes.some((prefix) => path.startsWith(prefix)) ||
       isBypassed(path, bypassUrls);
     if (isPublicInNamespace(target.raw) && isPublicInNamespace(target.resolved)) return;

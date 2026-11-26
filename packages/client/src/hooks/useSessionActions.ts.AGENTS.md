@@ -9,3 +9,5 @@ redesign-directory-home-split: `handleSpawnSession` opts gain `model?`/`thinking
 Request ids minted via `randomUuid()` instead of `crypto.randomUUID` (non-secure LAN origins have no `randomUUID`). See change: add-lan-knock-pairing.
 
 `removeSteeringEntry(id)` → `remove_steering_entry{sessionId,id}`; `clearSteeringEntries()` → `clear_steering_entries{sessionId}`. No confirm. Test: `useSessionActions.steer-cancel.test.tsx`. See change: bridge-owned-cancellable-steer.
+
+`handleSelect(id)`: when `id !== selectedId` and `unsavedStore.hasUnsaved()` (session OR folder pane buffers), `await confirmLeave()` before `navigate`; clean / same session navigates immediately. Test: `useSessionActions.no-focus.test.tsx`. See change: fix-file-link-editor-routing (D3).

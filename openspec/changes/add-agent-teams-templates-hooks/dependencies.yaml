@@ -1,0 +1,5 @@
+blocked_by:
+  - change: add-agent-teams-core
+    reason: "builds on core's team store, ops, tools, dispatcher, spawn pipeline and extension points (createTeam/bindLead, registerMailKind, registerOpGate, registerDispatchEligibility, registerSpawnContributor, Team.overrides, modes registry, TEAM_TOOLS_BY_ROLE)"
+  - change: add-agent-teams-ui
+    reason: "relies on the ui capabilities agent-teams-chat-rendering (envelope/first-lines card convention) and agent-teams-ui-access (team owner and control rule applied to the plan routes); the Start team entry and the approval/playbook cards are owned by this change"

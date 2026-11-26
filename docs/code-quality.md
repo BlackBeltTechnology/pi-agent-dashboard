@@ -458,7 +458,7 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 ### Skip and warn
 
 - No `codeql` binary, or packs not cached and download fails → stderr `CODEQL SKIPPED: <cause>`, exit 0.
-- Pack download: 60 s timeout per pack.
+- Pack download: 60 s timeout per pack (unchanged).
 - `CODEQL_BIN` set but not executable → exit 2.
 - CLI version ≠ baseline header `codeql` → `CODEQL WARNING: version mismatch …`, continue.
 - `database create` exit 32 = no source of that language → no results for that language.
@@ -468,6 +468,16 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - `--check-baseline-diff` unresolvable ref → exit 2. Never pass.
 - Model pack pre-check failure → exit 2. Never skip. See `### Where it runs`.
 - Ref has no baseline (introducing change) → growth check passes.
+
+### Resolve timeout (`PI_CODEQL_RESOLVE_TIMEOUT_MS`)
+
+- Bounds `codeql resolve extensions` (model-pack pre-check, `verifyModelPack`).
+- Positive int, ms. Default `300000` (`MODEL_PACK_RESOLVE_TIMEOUT_DEFAULT_MS`; was 60 s).
+- Read by `resolveTimeout()` only on the path that finds a CodeQL binary.
+- Timeout → `CODEQL ERROR`, exit 2. Never skip (skip would disarm JS gate).
+- Non-integer or `0` value → exit 2.
+- Pack download timeout (60 s) unchanged.
+- 7.1 outcome: slow resolve = CodeQL JVM `lstat`-walks `$TMPDIR` when model pack sits under it (owner machine: `$TMPDIR` ~3 M entries); 41–170 s there vs ~1 s outside. Not heap, not concurrency. Fix not made: clean `$TMPDIR` or move run dir. See change: stabilize-blocking-test-lanes.
 
 ### Baseline
 
@@ -607,7 +617,7 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
   - Triaged in baseline:
     - team-plugin `TeamPaths.confine` → `false-positive:`.
     - automation `run-store.ts` `isSafeRunId` → `false-positive:`.
-    - `automation-writer.ts` → `accepted-risk:` citing #1104, finding F1. Alerts stay open on GitHub.
+    - `automation-writer.ts` → `false-positive:` gate `admitRouteCwdParam` (`packages/automation-plugin/src/server/index.ts:238`). Was `accepted-risk:` #1104 / F1; fixed by #1104, reason re-typed (reason-only). Alerts stay open on GitHub (CodeQL cannot see custom gate).
   - Known gap: 2 `js/missing-rate-limiting` (blackhole `index.ts`, roles `roles-routes.ts`) not recovered, even with real blackhole deps shape.
   - Post-merge (dismiss new plugin alerts, `--mirror-dismissal`, local-vs-GitHub parity numbers) tracked on #1059. Stays open.
 - Evidence: change `harden-codeql-ratchet-followups` `evidence/local-vs-ci.md` (path moves under `openspec/changes/archive/<date>-…` on archive).

@@ -534,3 +534,29 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     expect(h.broadcast).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * A history record the hub seeds from its OWN disk carries no `originDeviceId`, so it binds hub-local: a
+ * remote-attributed claim is refused, a hub-local one passes (documented residual, remedy: archive or fork
+ * from the hub). Falsifies the assumption that such records are unbound placeholders.
+ * See change: harden-bridge-session-claim (BE50).
+ */
+describe("hub-disk seeded history records are bound hub-local", () => {
+  it("BE50: seedDiscoveredHistory records carry a sessionFile, no origin, and are not placeholders", async () => {
+    const { seedDiscoveredHistory } = await import("../../session/seed-discovered-history.js");
+    const { createMemorySessionManager } = await import("../../session/memory-session-manager.js");
+    const { decideClaim } = await import("../../pi/bridge-contention.js");
+    const sm = createMemorySessionManager();
+    const seeded = seedDiscoveredHistory(
+      [{ id: "HD", cwd: "/w", sessionFile: "/nonexistent/hd.jsonl", firstMessage: "x", name: "hd" } as never],
+      { sessionManager: sm, sessionArchive: { has: () => false } },
+    );
+    expect(seeded.map((s) => s.id)).toEqual(["HD"]);
+    const rec = sm.get("HD")!;
+    expect(rec.originDeviceId).toBeUndefined();
+    const live = { readyState: 1, _socket: { destroyed: false, writable: true } };
+    expect(decideClaim({ incumbent: undefined, newcomer: live, recorded: rec, newcomerOriginDeviceId: "dev-1" })).toEqual({ outcome: "refuse", reason: "origin-mismatch" });
+    expect(decideClaim({ incumbent: undefined, newcomer: live, recorded: rec, newcomerOriginDeviceId: undefined }).outcome).toBe("accept");
+  });
+});
+

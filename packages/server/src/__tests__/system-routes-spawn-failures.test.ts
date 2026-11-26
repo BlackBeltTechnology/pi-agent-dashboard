@@ -82,4 +82,13 @@ describe("GET /api/spawn-failures", () => {
     expect(body.entries).toHaveLength(1);
     expect(body.entries[0].code).toBe("PI_CRASHED");
   });
+  it("serialises the optional terminated/terminatedPids fields untouched (E23)", async () => {
+    const entry = {
+      ts: "2026-01-01T00:00:00Z", cwd: "/p/x", strategy: "headless", code: "REGISTER_TIMEOUT",
+      message: "timeout", terminated: true, terminatedPids: [4242],
+    };
+    mockReadSpawnFailures.mockReturnValue([entry] as never);
+    const res = await app.inject({ method: "GET", url: "/api/spawn-failures" });
+    expect(JSON.parse(res.body).entries[0]).toMatchObject({ terminated: true, terminatedPids: [4242] });
+  });
 });

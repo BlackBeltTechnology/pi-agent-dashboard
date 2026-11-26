@@ -57,7 +57,8 @@ function entriesForStore(store: AccessStoreId, snapshot: AccessGrantSnapshot): A
       // Session-scoped grants ride the same array with the same four fields
       // (D17) — the tab must not distinguish them structurally.
       return snapshot.pathGrants.map((g) => ({
-        id: `${g.scope}\u0000${g.subject}`,
+        // A write grant is its own row: the key includes the mode (read ids are unchanged).
+        id: `${g.scope}\u0000${g.subject}${g.mode === "write" ? "\u0000write" : ""}`,
         store,
         subject: g.subject,
         legacyHashOnly: false,
@@ -66,6 +67,7 @@ function entriesForStore(store: AccessStoreId, snapshot: AccessGrantSnapshot): A
         origin: g.origin,
         ...(g.via ? { via: g.via } : {}),
         ...(g.widenedFrom ? { widenedFrom: g.widenedFrom } : {}),
+        ...(g.mode === "write" ? { mode: "write" as const } : {}),
       }));
     case "worktreeTrust":
       return snapshot.worktreeTrust.map((subject) => ({

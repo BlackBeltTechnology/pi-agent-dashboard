@@ -4,7 +4,10 @@
  * Gated tools: `read` / `write` / `edit` only. In-root calls return immediately
  * (no round-trip). Out-of-root calls ask in the session's own conversation via
  * PromptBus (dashboard card or TUI), under ONE time budget, per-session mutex,
- * repeat suppression and a fail-closed settlement table. Any internal error
+ * repeat suppression and a fail-closed settlement table. A live YOLO session is
+ * asked first (grantable, non-sensitive paths): its verdict precedes the
+ * recent-denial short-circuit, which still applies when YOLO is skipped or
+ * declines. Any internal error
  * blocks — this handler is deliberately NOT wrapped in the fail-open `safe()`.
  *
  * Not OS confinement: `bash` and custom/MCP tools are out of scope.
@@ -295,14 +298,12 @@ export function createPathGateHandler(deps: PathGateDeps) {
         if (deps.counters) deps.counters.blocked++;
         return block("no-ui", "no interactive UI is attached to approve out-of-workspace access");
       }
-      if (suppression.isSuppressed(`${sid}\u0000${d.suppressionKey}`)) {
-        log("recently-denied", tool, access, d.canonical, d.sensitive, sid);
-        if (deps.counters) deps.counters.blocked++;
-        return block("recently-denied", `access under ${d.suppressionKey} was denied moments ago`);
-      }
       // YOLO (server-owned): asked before the mutex so in-scope calls never queue behind
-      // an open out-of-scope prompt. Only for a grantable, non-sensitive path, against a
-      // server that advertised `path-yolo` AND writes the same grant store (same host).
+      // an open out-of-scope prompt, and BEFORE the recent-denial short-circuit: a live
+      // YOLO session overrides a Deny/timeout that left no remembered refusal, while a
+      // remembered refusal still answers `refused`. Only for a grantable, non-sensitive
+      // path, against a server that advertised `path-yolo` AND writes the same grant
+      // store (same host). See change: harden-path-and-process-guards (#1115).
       if (
         deps.yoloDecide &&
         !d.sensitive &&
@@ -326,6 +327,13 @@ export function createPathGateHandler(deps: PathGateDeps) {
           if (deps.counters) deps.counters.blocked++;
           return block("yolo-refused", `${d.subject} was denied earlier; clear it in Settings ▸ Access`);
         }
+      }
+      // Recent-denial short-circuit: reached when YOLO was skipped (no link, sensitive,
+      // ungrantable) or declined, so it still applies unconditionally there.
+      if (suppression.isSuppressed(`${sid}\u0000${d.suppressionKey}`)) {
+        log("recently-denied", tool, access, d.canonical, d.sensitive, sid);
+        if (deps.counters) deps.counters.blocked++;
+        return block("recently-denied", `access under ${d.suppressionKey} was denied moments ago`);
       }
       // Per-session mutex: at most one gate prompt open per session; another session of
       // the same pi process is never queued behind it.

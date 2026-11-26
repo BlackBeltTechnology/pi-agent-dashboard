@@ -2,47 +2,28 @@
 
 Multi-account Gmail for pi agents, managed from the pi-dashboard.
 
-- Guided Google Cloud setup (you bring your own OAuth client — Google offers no API to create one).
+- Accounts and OAuth clients are managed in **Settings → Google accounts** (Google Connect), including the guided Google Cloud setup.
 - Several Gmail accounts, each with its own **permission level**.
 - Refresh tokens stay in the dashboard server; tools get a short-lived access token per call.
 - Account-scoped tools; every write is confirmed by you.
 
-## Setup (Settings → General → Gmail)
+## Setup (Settings → Google accounts)
 
-The wizard walks through these steps. Each console link carries `?project=<id>`.
+Gmail accounts, OAuth clients and the guided Google Cloud setup are managed by the **Google accounts** plugin
+(`@blackbelt-technology/pi-dashboard-google-plugin`): open **Settings → Google accounts**, connect an account and turn
+on **Gmail** with a level. This plugin only provides the Gmail tools and the `gmail` product's permission levels; it
+stores no accounts or clients of its own.
 
-1. **Project + Gmail API.** Create a Google Cloud project and enable the Gmail API — via the console links, or run the copyable commands yourself:
-   ```sh
-   gcloud projects create <project-id>
-   gcloud services enable gmail.googleapis.com --project <project-id>
-   ```
-   The dashboard never runs `gcloud`.
-2. **Branding.** Console → Google Auth Platform → Branding (older consoles: *APIs & Services → OAuth consent screen*). Fill in the app name and support email.
-3. **Audience.**
-   - **Internal** admits only accounts of the project's own Workspace organisation. Choose it only when *every* account you will connect belongs to that organisation.
-   - Otherwise **External**, and add every address you will connect as a **test user** — this includes a second Workspace domain or a gmail.com account next to your Workspace account (with Internal, Google shows `Error 403: org_internal` for them).
-   - One OAuth client per dashboard: to mix organisations, use External.
-   - For an **External** app in *Testing* status, Google expires refresh tokens after **7 days** (the panel shows a `testing: 7-day` badge). *Publish app* gives longer-lived tokens, with an "unverified app" warning at sign-in.
-4. **Client.** Clients → Create client → application type **Desktop app**. Download the JSON.
-5. **Upload** the `client_secret_*.json`. Only a Desktop (`installed`) client is accepted; a Web client is rejected.
-6. **Test sign-in** = add your first account.
+- Accounts and clients connected with the previous Gmail-only wizard are imported into Google accounts once, on the first
+  start after upgrading (client → "Gmail client (migrated)"; each account keeps its level, aliases and filters).
+- When the Google accounts plugin is disabled, the Gmail tools stop working and Gmail's settings say "Turn on Google
+  accounts to manage Gmail accounts".
+- Sign-in errors (`access_denied`, `org_internal`, `admin_policy_enforced`, `scope_missing`, `redirect_uri_mismatch`,
+  `invalid_client`) are explained, with the fix, in the Google accounts connect dialog. Remote dashboards, return paths
+  and the "Window didn't come back?" switch are described in the Google plugin README.
+- REST: the former `/api/plugins/gmail/{client,setup,accounts,…}` management routes answer `410 { "error": "moved" }`
+  (`503 { "error": "google_connect_unavailable" }` while Google accounts is off). Use the Google plugin's routes.
 
-Every sign-in error is shown as a sentence (the raw code next to it, for support) and, where the fix is in the wizard, highlights that step:
-
-| Error | Fix |
-|---|---|
-| `access_denied` ("app not verified for this user") | step 3 — add the address as a test user |
-| `org_internal` | step 3 — the account is outside the project's Workspace organisation: switch the audience to External and add it as a test user |
-| `admin_policy_enforced` | the account's Workspace admin must trust the OAuth client id (Admin console → Security → API controls → App access control) |
-| `scope_missing` | Google did not grant the Gmail permission — add the account again and tick every permission (*Select all*) on the consent screen |
-| `redirect_uri_mismatch`, Web client | step 4 — create a **Desktop** client |
-| `invalid_client` | step 5 — re-upload the client JSON |
-
-Google shows some errors (`org_internal`, `admin_policy_enforced`, …) on its own page and never returns to the dashboard. While a sign-in waits, open **"Google showed an error instead of returning here?"** under the sign-in link and pick the code Google displayed: the sign-in is cancelled and the fix is shown. Failed sign-ins are logged once on the server as `[gmail] sign-in failed: <code>` (a fixed code — never tokens, URLs or email).
-
-Revoking an account asks for confirmation first.
-
-Remote dashboards: the sign-in listens on a `127.0.0.1` loopback port of the **dashboard host**. When your browser runs elsewhere, the redirect page fails to load — copy its full URL from the address bar and paste it into the flow view.
 
 ## Permission levels
 
@@ -79,7 +60,7 @@ Gmail API `403` errors are classified from Google's machine-readable reason only
 | Tool error code | Meaning / fix |
 |---|---|
 | `api_disabled` | The Gmail API is disabled in the OAuth client's Google Cloud project. The message names the project number and the command: `gcloud services enable gmail.googleapis.com --project=<n>` (or APIs & Services → Library → Gmail API → Enable), then retry in a minute. |
-| `scope_insufficient` | The account's grant lacks the Gmail permission. Re-authenticate it in Settings → Plugins → Gmail with every permission ticked. |
+| `scope_insufficient` | The account's grant lacks the Gmail permission. Re-authenticate it in Settings → Google accounts with every permission ticked. |
 | `gmail_error` | Any other 403. |
 
 ## Prompt injection
@@ -88,10 +69,14 @@ Mail content is attacker-controlled. Mailbox-derived results are marked `details
 
 ## Storage and removal
 
-- `~/.pi/agent/plugin-credentials.json`, namespace `gmail` (plaintext, mode 0600 — same posture as `auth.json`): the OAuth client and one record per account.
-- **Revoke** in the panel calls Google's revoke endpoint (best effort) and deletes the local record. If Google cannot be reached, revoke manually at <https://myaccount.google.com/permissions>.
+- Accounts, clients and tokens live in the Google accounts plugin (`~/.pi/agent/plugin-credentials.json`, namespace `google`, plaintext, mode 0600 — same posture as `auth.json`). The legacy `gmail` namespace is only read once, to import it; it is never written back.
+- **Revoke** in Settings → Google accounts calls Google's revoke endpoint (best effort) and deletes the local record. If Google cannot be reached, revoke manually at <https://myaccount.google.com/permissions>.
 - Disabling or uninstalling the plugin does not revoke grants.
 
 ## Testing
 
 `PI_E2E_GOOGLE_BASE_URL` points every Google endpoint at a fake server. It is honoured **only** for `http://127.0.0.1:*` / `http://localhost:*`; any other value is ignored with a warning.
+
+## Rolling back
+
+Rolling back to the pre-Google-Connect build keeps Gmail working only for accounts whose legacy token is still valid. It does not cover accounts first connected after the migration, accounts re-signed after `reauth_required`, accounts whose access was removed at Google, or Google invalidating older refresh tokens when it issues new ones. Levels, aliases and filters changed after migration are not written back.

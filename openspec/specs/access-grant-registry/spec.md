@@ -11,8 +11,8 @@ correlates a denial, a prompt, and the first reply.
 ### Requirement: A pending access request is recorded per plane and subject
 
 The server SHALL maintain a registry of pending access requests. Each entry
-SHALL be keyed by the pair of its **plane** and its **normalised subject**, never
-by the subject alone. Each plane SHALL own the normalisation of its own subjects,
+SHALL be keyed by the triple of its **plane**, its **action** (`read` or `write`,
+default `read`) and its **normalised subject**, never by the subject alone. Each plane SHALL own the normalisation of its own subjects,
 and a filesystem subject SHALL be normalised to the same canonical form the
 persisted grant store uses, so a verdict and the grant it produces cannot refer
 to different things.
@@ -34,6 +34,20 @@ to different things.
 - **GIVEN** a pending path-grant request for a directory
 - **WHEN** an unknown-working-directory denial arrives naming the same directory
 - **THEN** it SHALL be recorded as a separate entry, so the verdict applies the correct remedy
+
+#### Scenario: Concurrent writes coalesce and allow-once admits only the first
+
+- **GIVEN** a held write for `/out/a.md` and a second write for `/out/b.md` (same directory subject) joined onto the same entry
+- **WHEN** the operator answers allow-once
+- **THEN** only the request that raised the prompt SHALL be admitted, the joined request SHALL be refused (`403`, as a coalesced read is today), no grant SHALL be persisted, and a later write SHALL prompt again
+- **WHEN** the operator answers allow-always instead
+- **THEN** both held requests SHALL be released and re-evaluated against the persisted write grant
+
+#### Scenario: A write denial does not join a read entry
+
+- **GIVEN** a pending read request for a directory
+- **WHEN** a write denial arrives naming the same directory
+- **THEN** it SHALL be a separate entry, and a verdict on the read entry SHALL NOT release or grant the write
 
 ### Requirement: Entries are bounded, expiring, and settled at most once
 

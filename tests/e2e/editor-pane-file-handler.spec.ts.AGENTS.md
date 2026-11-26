@@ -5,3 +5,5 @@ L3 plugin file-handler modes in the editor pane (change: add-editor-pane-file-ha
 F1 tab switch / F2 `layout-mode-closed`→`split` / F3 session switch keep the instance and its edits. F11 save with a `touch` in flight → no `changed-on-disk-banner` after the settle + catch-up windows. F12 out-of-band rewrite → banner; Refresh → `file-handler-guard-dialog`; Cancel keeps banner + edits, confirm remounts (+1 mount). X9 save over a rewrite → `file-handler-conflict-dialog` (edits kept, disk untouched); Save as copy → `report.demo.docx`.
 
 Written, NOT run by the author (the parent runs the harness). See change: add-editor-pane-file-handlers.
+
+`beforeunload arming (built-in buffers)` (#S61): synthetic cancelable `beforeunload` probe + real reload dialog; armed while a built-in buffer is dirty, disarmed after Save/Discard; a dirty handler tab (`FileHandlerLayer`) warns independently. Written, NOT run by the author. See change: fix-file-link-editor-routing.

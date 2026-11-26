@@ -7,7 +7,8 @@ Files in this directory. One row per source file.
 | `__tests__/codeql-anchor-contract.test.ts` | Static contract on the CodeQL analysis anchor (#E19–#E25). → see `__tests__/codeql-anchor-contract.test.ts.AGENTS.md` |
 | `__tests__/codeql-baseline-gates.test.ts` | `operator-authz` reasons cite their bounding gate (#E1–#E16, #E32). → see `__tests__/codeql-baseline-gates.test.ts.AGENTS.md` |
 | `__tests__/codeql-workflow-contract.test.ts` | Static contract for `.github/workflows/codeql.yml` (#E1): matrix `actions`/`javascript-typescript`/`python`,… → see `__tests__/codeql-workflow-contract.test.ts.AGENTS.md` |
-| `__tests__/config-pairing.test.ts` | #E1: `pairing.acceptLanRequests` loader — default false, non-boolean → false. See change: add-lan-knock-pairing. |
+| `__tests__/config-auto-seed.test.ts` | `autoSeedProjects` loader — default… → see `__tests__/config-auto-seed.test.ts.AGENTS.md` |
+| `__tests__/config-pairing.test.ts` | #E1: `pairing.acceptLanRequests` loader… → see `__tests__/config-pairing.test.ts.AGENTS.md` |
 | `__tests__/client-build-deps-runtime.test.ts` | Repo-lint (#E6): client `package.json` declares `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`,… → see `__tests__/client-build-deps-runtime.test.ts.AGENTS.md` |
 | `__tests__/ci-vitest-report-artifact.test.ts` | Repo-lint: every vitest job in `ci.yml` uploads its own JSON report `if: always()`. → see `__tests__/ci-vitest-report-artifact.test.ts.AGENTS.md` |
 | `__tests__/ci-affected-selection-contract.test.ts` | Parallel `ci.yml` contract (E30). → see `__tests__/ci-affected-selection-contract.test.ts.AGENTS.md` |
@@ -18,7 +19,7 @@ Files in this directory. One row per source file.
 | `__tests__/loopback-host.test.ts` | #E25 loopback predicate forms. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter,… → see `__tests__/pi-trust-mirror.test.ts.AGENTS.md` |
-| `__tests__/pi-trust-resource-digest.test.ts` | #E15 #E16 #P1 digest equality, fail-closed set, caps, abort, p95 budget. See change: mirror-dashboard-trust-live-remote. User-skills exclusion under home (#E32), win32 casing via mocked `node:fs/promises` + `path.win32` (#E33). See change: update-pi-core-1-5-adopt-apis. |
+| `__tests__/pi-trust-resource-digest.test.ts` | #E15 #E16 #P1 digest equality, fail-closed set, caps, abort, p95 budget → see `__tests__/pi-trust-resource-digest.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-resource-golden.test.ts` | #E17 our resource list vs installed pi `trust-manager.js`; verdict vs `hasTrustRequiringProjectResources`. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/project-root.test.ts` | `hasProjectRootMarker`: `.git` dir/file + `.pi` true; plain/missing false. See change: add-access-provisioning. |
 | `__tests__/session-ui-path.test.ts` | #E1: plain id with none/diff/editor view; `a/b c` percent-encoded. See change: add-session-ui-deep-links-for-agents. |
@@ -31,7 +32,8 @@ Files in this directory. One row per source file.
 | `__tests__/explore-mockup-adoption-wiring.test.ts` | Repo-lint (test-plan W1–W9): `openspec/config.yaml` has exactly `rules.proposal`+`rules.tasks` (one string… → see `__tests__/explore-mockup-adoption-wiring.test.ts.AGENTS.md` |
 | `__tests__/ci-publish-imports-workflow-contract.test.ts` | ci.yml post-build publish-imports run contract (X3). → see `__tests__/ci-publish-imports-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/knip-workflow-contract.test.ts` | CI placement contract for the dead-code oracle (test-plan #X1-#X3). → see `__tests__/knip-workflow-contract.test.ts.AGENTS.md` |
-| `__tests__/nightly-workflow-contract.test.ts` | Repo-lint safety contract for the nightly (change: add-nightly-verdaccio-build). → see `__tests__/nightly-workflow-contract.test.ts.AGENTS.md` |
+| `__tests__/publish-workflow-contract.test.ts` | publish.yml lint. → see |
+| `__tests__/nightly-workflow-contract.test.ts` | Nightly safety + job shape. → see `__tests__/nightly-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/real-process-project-guard.test.ts` | Repo-lint for the real-process vitest phase. → see `__tests__/real-process-project-guard.test.ts.AGENTS.md` |
 | `__tests__/node-cap-single-source.test.ts` | Repo-lint (#E5): engines-cap arithmetic lives only in `node-version.ts`. → see `__tests__/node-cap-single-source.test.ts.AGENTS.md` |
 | `__tests__/smoke-node-matrix.test.ts` | Repo-lint (#E8): `_smoke.yml` `standalone-install-smoke-linux` matrix majors equal the SUPPORTED set… → see `__tests__/smoke-node-matrix.test.ts.AGENTS.md` |
@@ -41,7 +43,8 @@ Files in this directory. One row per source file.
 | `__tests__/spec-collateral-wiring.test.ts` | Repo-lint for spec-collateral wiring (X6, W1–W5). → see `__tests__/spec-collateral-wiring.test.ts.AGENTS.md` |
 | `__tests__/state-replay.test.ts` | L1 for the persisted `compaction` → `session_compact` replay arm (change: replay-compaction-boundary, E1–E7 +… → see `__tests__/state-replay.test.ts.AGENTS.md` |
 | `__tests__/workflow-token-cache-contract.test.ts` | Repo-lint: workflow token permissions + no release-job cache. → see `__tests__/workflow-token-cache-contract.test.ts.AGENTS.md` |
-| `__tests__/config-keeper-log.test.ts` | keeperLog parse boundaries (test-plan #E7): valid values pass; 0/−1/non-numeric/absent coerce to defaults; `capturePiOutput` unaffected. See change: fix-runaway-keeper-log-growth. |
+| `__tests__/config-keeper-log.test.ts` | keeperLog parse boundaries (test-plan… → see `__tests__/config-keeper-log.test.ts.AGENTS.md` |
+| `agent-credential-files.ts` | Import-free leaf: `PI_AGENT_SECRET_FILES` (hard block), `PI_AGENT_ASK_READ_FILES`/`_DIRS` (ask on read). → see `agent-credential-files.ts.AGENTS.md` |
 | `archive-types.ts` | `ArchiveEntry` interface — OpenSpec archive dir row (name, date, done artifacts). Shared server↔client. |
 | `bind-reachability.ts` | Bind-vs-trust reachability: the ONE predicate + well-known-range table, imported by both client and server so… → see `bind-reachability.ts.AGENTS.md` |
 | `boot-state.ts` | Exit-intent vocabulary for the server boot record. Exports `ExitIntent`… → see `boot-state.ts.AGENTS.md` |
@@ -70,6 +73,7 @@ Files in this directory. One row per source file.
 | `instance-directory.ts` | `listLocalInstances()` / `resolveInstanceRef()` / `formatInstanceLine()` — enumerates `gateway-*.sock` under… → see `instance-directory.ts.AGENTS.md` |
 | `launcher-origin.ts` | Loopback-host-on-configured-port predicate `isLauncherOrigin`. → see `launcher-origin.ts.AGENTS.md` |
 | `live-server.ts` | Pure browser-safe live-server SSRF boundary. `validateLiveTarget({host,port,label})` — loopback-only… → see `live-server.ts.AGENTS.md` |
+| `preview-origins.ts` | `liveServer.previewOrigins` parse+validate. → see `preview-origins.ts.AGENTS.md` |
 | `file-kind.ts` | Pure browser-safe viewer classifier. `fileKind(absPath, sniff?)` → `{ kind, mimeType, viewer, editable }`. → see `file-kind.ts.AGENTS.md` |
 | `git-worktree-helpers.ts` | Pure worktree helpers shared by server + client. `slugifyBranch(branch)` → fs-safe slug; `localNameOf(ref)`… → see `git-worktree-helpers.ts.AGENTS.md` |
 | `grammar-types.ts` | Wire contract for composer grammar/spell check (client↔server).… → see `grammar-types.ts.AGENTS.md` |
@@ -92,7 +96,7 @@ Files in this directory. One row per source file.
 | `mdns-discovery.ts` | mDNS `_pi-dashboard._tcp` advertise + discover. Identity-derived names `pi-dashboard-<id12>-<port>`, TXT… → see `mdns-discovery.ts.AGENTS.md` |
 | `models-json-reader.ts` | ONE shared pure reader for user-authored `~/.pi/agent/models.json`, consumed by BOTH registry paths… → see `models-json-reader.ts.AGENTS.md` |
 | `nav-intent.ts` | Navigation-intent wire types + `navIntentRequestFor(view)`. See change: harden-client-sinks. |
-| `network-denial-signal.ts` | `NETWORK_NOT_ALLOWED`, `GENERIC_NETWORK_DENIED_HINT`, `HealthNetworkAccessField`: generic 403 body constants + additive `/api/health` `networkAccess` field. Dependency-free (client value-imports). See change: surface-network-denial-on-health. |
+| `network-denial-signal.ts` | `NETWORK_NOT_ALLOWED`, `GENERIC_NETWORK_DENIED_HINT`, `HealthNetworkAccessField`: generic 403 body constants… → see `network-denial-signal.ts.AGENTS.md` |
 | `node-version.ts` | Single source of Node-version floors (`MIN_SERVER_NODE` 26.0.0, `MIN_PI_SPAWN_NODE` 22.19.0) + predicates… → see `node-version.ts.AGENTS.md` |
 | `notify.ts` | `normalizeNotifyLevel(level)` — maps an unrecognized notify level to `"info"`. → see `notify.ts.AGENTS.md` |
 | `openspec-activity-detector.ts` | Detects OpenSpec activity from tool-execution events. `detectOpenSpecActivity(toolName, args, cwd)` — `cwd` REQUIRED, from server state — returns `{… → see `openspec-activity-detector.ts.AGENTS.md` |
@@ -120,6 +124,7 @@ Files in this directory. One row per source file.
 | `pid-namespace.ts` | `buildPidNamespace(opts)`: single builder of pi pid-namespace report. → see `pid-namespace.ts.AGENTS.md` |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
 | `plugin-route-cwd.ts` | `admitRouteCwdParam(raw, {required, knownCwds, admitOptions})`: plugin-route cwd boundary — shape (non-string… → see `plugin-route-cwd.ts.AGENTS.md` |
+| `preview-egress.ts` | → `preview-egress.ts.AGENTS.md` |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |
 | `project-root.ts` | `hasProjectRootMarker(dir)`: the ONE `.git`/`.pi` project-root test (`.git` dir or worktree file, or `.pi`);… → see `project-root.ts.AGENTS.md` |
 | `prompt-answer.ts` | `encodePromptAnswer` (moved from client) + `validateQuestionAnswer`. → see `prompt-answer.ts.AGENTS.md` |
@@ -129,6 +134,7 @@ Files in this directory. One row per source file.
 | `redaction.ts` | `REDACTION_PATTERNS_V1`, `REDACTION_VERSION`, `redactSecrets`. → see `redaction.ts.AGENTS.md` |
 | `recommended-extensions.ts` | Curated manifest of recommended pi extensions. `RecommendedExtension` (id, source, displayName, status,…). → see `recommended-extensions.ts.AGENTS.md` |
 | `remote-credentials.ts` | `stripRemoteCredentials(raw)`: http(s) ⇒ drop all userinfo; other `scheme://user:pass@host` ⇒ drop password,… → see `remote-credentials.ts.AGENTS.md` |
+| `renderer-by-ext.ts` | → `renderer-by-ext.ts.AGENTS.md` |
 | `rest-api.ts` | REST endpoint request/response types. Sessions, events, spawn, file read/write (`FileWriteRequest` mtime… →… → see `rest-api.ts.AGENTS.md` |
 | `role-config-disk.ts` | Node-only `readRoleConfigFromDisk(home?)` + `providersJsonPath`; total — missing/garbled `providers.json` →… → see `role-config-disk.ts.AGENTS.md` |
 | `role-name-validation.ts` | Shared role-name trust boundary. `isValidRoleName(name, existing) → {ok, reason?}`: non-empty after trim;… → see `role-name-validation.ts.AGENTS.md` |
@@ -155,12 +161,13 @@ Files in this directory. One row per source file.
 | `tls-only-token.ts` | TLS-only bridge token marker. Exports `TLS_ONLY_TOKEN_PREFIX="pi_tls_"`, `isTlsOnlyToken`,… → see `tls-only-token.ts.AGENTS.md` |
 | `tls-status.ts` | Browser-safe wire types of `/api/health.tls`: `TlsGate`, `TlsSourceStatus`, `TlsCertStatus` (held, notAfter… → see `tls-status.ts.AGENTS.md` |
 | `tool-path-resolve.ts` | Shared pi-parity path resolver: `resolveToolPath`, `resolveReadTarget`, `canonicalizeTarget` (realpath… → see `tool-path-resolve.ts.AGENTS.md` |
+| `tool-workdir.ts` | → `tool-workdir.ts.AGENTS.md` |
 | `trusted-types-mode.ts` | `resolveTrustedTypesMode({env,config,cspMode})` → `{mode,source,warnings}`; `recognizeTrustedTypesMode`. → see `trusted-types-mode.ts.AGENTS.md` |
 | `tunnel-concurrency.ts` | Resolves WHICH providers run and in which mode.… → see `tunnel-concurrency.ts.AGENTS.md` |
 | `tunnel-provider.ts` | Tunnel ("Gateway") provider abstraction types. Exports `TunnelProvider` interface (`id`, `kind`… → see `tunnel-provider.ts.AGENTS.md` |
 | `transcript-request-guard.ts` | Pure `decideTranscriptRequest()` — session id only, path-bearing field refused. → see `transcript-request-guard.ts.AGENTS.md` |
 | `__tests__/transcript-request-guard.test.ts` | L1 for the guard (#E13, #E14): own-session allow, foreign-session refusal, every path-bearing field refused… → see `__tests__/transcript-request-guard.test.ts.AGENTS.md` |
-| `__tests__/bundle-runtime-contract.test.ts` | Bundle contract: root `dependencies` = `pluginRuntimeDeps` only; build-installer watch list derived + plugin gate after rebundle (E14, E24). See change: bundle-plugin-third-party-deps. |
+| `__tests__/bundle-runtime-contract.test.ts` | Bundle contract: root `dependencies` =… → see `__tests__/bundle-runtime-contract.test.ts.AGENTS.md` |
 | `__tests__/bundle-watch-paths.test.ts` | `bundle-watch-paths.mjs` output covers plugins, workspaces, client, bundler (E23). See change: bundle-plugin-third-party-deps. |
 | `__tests__/bundled-plugins-complete.test.ts` | bundledPlugins completeness; first-party deps are workspaces; third-party union conflict-free (E13). See change: bundle-plugin-third-party-deps. |
 | `__tests__/materialize-plugins-deps.test.ts` | `collectPluginRuntimeDeps` (E1–E8) + `findUnresolvedPluginDeps` (E9–E12). See change: bundle-plugin-third-party-deps. |
@@ -176,3 +183,5 @@ Files in this directory. One row per source file.
 | `route-tiers.ts` | `ROUTE_TIERS`, `routeTier(method, pattern)`, `hasRouteTier`… → see `route-tiers.ts.AGENTS.md` |
 | `tiers.ts` | `TIERS`, `Tier`, `isTier`, `rank`, `minTier`, `defaultTierForSource`. → see `tiers.ts.AGENTS.md` |
 | `usage-totals.ts` | Pure usage summing (seed / JSONL reader / replay agree). → see `usage-totals.ts.AGENTS.md` |
+
+- `live-server.ts` + `LiveCapabilityMintResponse` (mint body; tier `1|2|3|4|5|"legacy"`). Change: serve-live-previews-on-capability-origin.

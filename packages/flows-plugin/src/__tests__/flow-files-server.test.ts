@@ -10,7 +10,8 @@ import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FLOW_FILES_REPORT, FLOW_FILES_REQUEST_EVENT } from "../flow-files-contract.js";
-import { codeHandlerPaths, FlowFileRegistry, registerFlowFileRoutes } from "../server/flow-files.js";
+import { codeHandlerPaths, FlowFileRegistry, MAX_FILE_BYTES, registerFlowFileRoutes } from "../server/flow-files.js";
+import { openHarness } from "./flow-open-harness.js";
 
 let tmp: string;
 let flowFile: string;
@@ -93,6 +94,7 @@ describe("FlowFileRegistry", () => {
 describe("flow file routes", () => {
   let fastify: FastifyInstance;
   let report: (payload: unknown, meta: { sessionId: string }) => unknown;
+  let reportOpts: { hubLocalOnly?: boolean } | undefined;
   const emitEventToSession = vi.fn(() => true);
   let live: Array<{ id: string; cwd: string; status?: string }>;
 
@@ -104,14 +106,29 @@ describe("flow file routes", () => {
       fastify: fastify as never,
       networkGuard: async () => {},
       readFileGuarded: (p) => fs.promises.readFile(p, "utf8"),
-      registerPiRequestHandler: (type, h) => {
-        if (type === FLOW_FILES_REPORT) report = h;
+      registerPiRequestHandler: (type, h, opts) => {
+        if (type === FLOW_FILES_REPORT) {
+          report = h;
+          reportOpts = opts;
+        }
       },
       sessionManager: { listActive: () => live, getSession: (id) => live.find((s) => s.id === id) },
       emitEventToSession,
       registry: new FlowFileRegistry(),
     });
     await fastify.ready();
+  });
+
+  // The report stores bridge-claimed absolute paths the hub later reads from its own disk: hub-local sessions only.
+  // See change: harden-bridge-session-claim (D3).
+  it("registers the report handler hub-local-only", () => {
+    expect(reportOpts).toEqual({ hubLocalOnly: true });
+  });
+
+  it("BE108/BX9: a session whose report was denied by the host (origin_denied, handler never ran) gets the unreported answer and no file read", async () => {
+    const res = await getFile(flowFile);
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.payload).retry).toBe(true);
   });
   afterEach(async () => fastify.close());
 
@@ -127,7 +144,7 @@ describe("flow file routes", () => {
     expect(files.data.reported).toBe(false);
   });
 
-  it("after a report: serves reported files, 403 for others, files map resolved with the session cwd", async () => {
+  it("BE107: after a hub-local report: serves reported files, 403 for others, files map resolved with the session cwd", async () => {
     report({ flows: [{ name: "ns:demo", source: flowFile }], agents: [{ name: "filler", source: agentFile }] }, { sessionId: "S1" });
     const ok = await getFile(handler);
     expect(ok.statusCode).toBe(200);
@@ -229,5 +246,205 @@ describe("flow file route × host readFileGuarded seam", () => {
     expect((await t.get(agentFile)).statusCode).toBe(200);
     expect((await t.get(helper)).statusCode).toBe(403);
     await t.app.close();
+  });
+});
+
+// ── flow_open path admission + opened-file serving. See change: add-flow-open-tool. ──
+
+describe("flow/open path admission (E2–E7, X6)", () => {
+  let w: string;
+  const write = (rel: string, body = "name: x\nsteps: []\n") => {
+    const f = path.join(w, rel);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, body);
+    return f;
+  };
+  beforeEach(() => {
+    vi.useFakeTimers();
+    w = path.join(tmp, "w");
+    fs.mkdirSync(w, { recursive: true });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("E2: a directory with a direct flow.yaml is admitted, view-only, cwd-relative name, realpath source", async () => {
+    write("flows/a/flow.yaml");
+    const h = openHarness({ sessions: { S: w }, autoAck: ["ws1"] });
+    const r = await h.call({ path: "flows/a" });
+    expect(r).toMatchObject({ status: "shown", acks: 1, viewOnly: true, name: "flows/a/flow.yaml" });
+    expect(h.broadcasts[0].attachment).toMatchObject({
+      source: fs.realpathSync(path.join(w, "flows/a/flow.yaml")),
+      name: "flows/a/flow.yaml",
+      viewOnly: true,
+    });
+  });
+
+  it("E3: paths outside the cwd (parent, absolute, prefix-sharing sibling) → path-not-allowed, no read", async () => {
+    const other = path.join(tmp, "other", "flow.yaml");
+    fs.mkdirSync(path.dirname(other), { recursive: true });
+    fs.writeFileSync(other, "steps: []\n");
+    const sibling = path.join(tmp, "w2", "flow.yaml");
+    fs.mkdirSync(path.dirname(sibling), { recursive: true });
+    fs.writeFileSync(sibling, "steps: []\n");
+    const h = openHarness({ sessions: { S: w } });
+    for (const p of ["../other/flow.yaml", "/etc/flow.yaml", sibling]) {
+      expect(await h.call({ path: p })).toEqual({ status: "refused", reason: "path-not-allowed" });
+    }
+    expect(h.readFileGuarded).not.toHaveBeenCalled();
+    expect(h.broadcasts).toHaveLength(0);
+  });
+
+  it("E4: a symlinked directory escaping the cwd → path-not-allowed", async () => {
+    const outside = path.join(tmp, "outside");
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, "flow.yaml"), "steps: []\n");
+    fs.mkdirSync(path.join(w, "flows"), { recursive: true });
+    fs.symlinkSync(outside, path.join(w, "flows", "link"));
+    const h = openHarness({ sessions: { S: w } });
+    expect(await h.call({ path: "flows/link" })).toEqual({ status: "refused", reason: "path-not-allowed" });
+    expect(await h.call({ path: "flows/link/flow.yaml" })).toEqual({ status: "refused", reason: "path-not-allowed" });
+  });
+
+  it("E5: wrong name, oversize and a directory named flow.yaml → not-a-flow; exactly MAX_FILE_BYTES admitted", async () => {
+    write("x/other.yaml");
+    fs.mkdirSync(path.join(w, "d", "flow.yaml"), { recursive: true });
+    const h = openHarness({ sessions: { S: w }, autoAck: ["ws"] });
+    expect(await h.call({ path: "x/other.yaml" })).toMatchObject({ status: "refused", reason: "not-a-flow" });
+    expect(await h.call({ path: "d/flow.yaml" })).toMatchObject({ status: "refused", reason: "not-a-flow" });
+    write("y/flow.yaml", `steps: []\n# ${"a".repeat(MAX_FILE_BYTES - 13)}\n`);
+    expect(fs.statSync(path.join(w, "y/flow.yaml")).size).toBe(MAX_FILE_BYTES);
+    expect(await h.call({ path: "y/flow.yaml" })).toMatchObject({ status: "shown" });
+    fs.appendFileSync(path.join(w, "y/flow.yaml"), "#");
+    h.readFileGuarded?.mockClear();
+    expect(await h.call({ path: "y/flow.yaml" })).toMatchObject({ status: "refused", reason: "not-a-flow" });
+    expect(h.readFileGuarded).not.toHaveBeenCalled();
+  });
+
+  it("CR: a directory named flow.yaml beside a valid flow.yml falls back to flow.yml", async () => {
+    fs.mkdirSync(path.join(w, "z", "flow.yaml"), { recursive: true });
+    write("z/flow.yml");
+    const h = openHarness({ sessions: { S: w }, autoAck: ["ws"] });
+    expect(await h.call({ path: "z" })).toMatchObject({ status: "shown", name: "z/flow.yml" });
+  });
+
+  it("E6: session cwd `/` admits an absolute path (no `//` prefix bug)", async () => {
+    const f = write("tmpx/flow.yaml");
+    const h = openHarness({ sessions: { S: "/" }, autoAck: ["ws"] });
+    const r = await h.call({ path: fs.realpathSync(f) });
+    expect(r).toMatchObject({ status: "shown", name: path.relative("/", fs.realpathSync(f)) });
+  });
+
+  it("E7: a directory without a direct flow lists ≤20 cwd-relative candidates, depth ≤6, no node_modules/.git/symlinks", async () => {
+    for (let i = 0; i < 25; i++) {
+      const depth = (i % 7) + 1;
+      write(`root/${Array.from({ length: depth }, (_, d) => `d${i}_${d}`).join("/")}/flow.yaml`);
+    }
+    write("root/node_modules/flow.yaml");
+    write("root/.git/flow.yaml");
+    const ext = path.join(tmp, "ext");
+    fs.mkdirSync(ext, { recursive: true });
+    fs.writeFileSync(path.join(ext, "flow.yaml"), "steps: []\n");
+    fs.symlinkSync(ext, path.join(w, "root", "linked"));
+    const h = openHarness({ sessions: { S: w } });
+    const r = await h.call({ path: "root" });
+    expect(r).toMatchObject({ status: "refused", reason: "not-a-flow" });
+    const c = (r as { candidates: string[] }).candidates;
+    expect(c.length).toBeGreaterThan(0);
+    expect(c.length).toBeLessThanOrEqual(20);
+    for (const p of c) {
+      expect(path.isAbsolute(p)).toBe(false);
+      expect(p.startsWith("root/")).toBe(true);
+      expect(p.split("/").length - 2).toBeLessThanOrEqual(6);
+      expect(p).not.toMatch(/node_modules|\.git|linked/);
+    }
+  });
+
+  it("X6: no host readFileGuarded seam → unavailable", async () => {
+    write("flows/a/flow.yaml");
+    const h = openHarness({ sessions: { S: w }, readFileGuarded: null });
+    expect(await h.call({ path: "flows/a" })).toEqual({ status: "refused", reason: "unavailable" });
+  });
+});
+
+describe("opened flow files through the plugin file route (E12–E15, X7)", () => {
+  let w: string;
+  let flowDir: string;
+  let app: FastifyInstance;
+  let registry: FlowFileRegistry;
+  let report: (payload: unknown, meta: { sessionId: string }) => unknown;
+  const emitEvent = vi.fn((_sid: string, _type: string, _data: Record<string, unknown>) => true);
+  const live = () => [
+    { id: "S", cwd: w },
+    { id: "S2", cwd: w },
+  ];
+
+  beforeEach(async () => {
+    w = path.join(tmp, "w");
+    flowDir = path.join(w, "flows", "f");
+    fs.mkdirSync(flowDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(flowDir, "flow.yaml"),
+      ["name: f", "steps:", "  - id: load", "    type: code", "  - id: x", "    type: code", "    target: ../../out/s.ts", ""].join("\n"),
+    );
+    fs.writeFileSync(path.join(flowDir, "load.ts"), "// load\n");
+    fs.writeFileSync(path.join(flowDir, "_lib.ts"), "// lib\n");
+    fs.mkdirSync(path.join(tmp, "out"), { recursive: true });
+    fs.writeFileSync(path.join(tmp, "out", "s.ts"), "// secret\n");
+    registry = new FlowFileRegistry();
+    app = Fastify();
+    await registerFlowFileRoutes({
+      fastify: app as never,
+      networkGuard: async () => {},
+      readFileGuarded: (p) => fs.promises.readFile(p, "utf8"),
+      registerPiRequestHandler: (type, h) => {
+        if (type === FLOW_FILES_REPORT) report = h;
+      },
+      sessionManager: { listActive: live, getSession: (id) => live().find((s) => s.id === id) },
+      emitEventToSession: emitEvent,
+      registry,
+    });
+    await app.ready();
+    vi.useFakeTimers();
+    const h = openHarness({ sessions: { S: w }, autoAck: ["ws"], registry });
+    expect(await h.call({ path: "flows/f" })).toMatchObject({ status: "shown" });
+    vi.useRealTimers();
+  });
+  afterEach(async () => app.close());
+
+  const get = (p: string, sid = "S") =>
+    app.inject({ method: "GET", url: `/api/plugins/flows/file?sessionId=${sid}&path=${encodeURIComponent(p)}` });
+
+  it("E12: serves the named handler only; unnamed sibling and escaped target refused", async () => {
+    expect((await get(path.join(flowDir, "load.ts"))).statusCode).toBe(200);
+    expect((await get(path.join(flowDir, "_lib.ts"))).statusCode).toBe(403);
+    expect((await get(path.resolve(w, "../../out/s.ts"))).statusCode).toBe(403);
+    expect((await get(path.join(tmp, "out", "s.ts"))).statusCode).toBe(403);
+  });
+
+  it("E13: another session cannot read S's opened flow", async () => {
+    report({ flows: [] }, { sessionId: "S2" });
+    expect((await get(path.join(flowDir, "flow.yaml"), "S2")).statusCode).toBe(403);
+  });
+
+  it("E14: a catalog re-report keeps the opened files readable", async () => {
+    report({ flows: [] }, { sessionId: "S" });
+    expect((await get(path.join(flowDir, "flow.yaml"))).statusCode).toBe(200);
+  });
+
+  it("E15: never-reported session: /files reported:true with handlers[displayName]; /file 200 (no 409)", async () => {
+    emitEvent.mockClear();
+    const files = JSON.parse((await app.inject({ method: "GET", url: "/api/plugins/flows/files?sessionId=S" })).payload);
+    expect(files.data.reported).toBe(true);
+    expect(files.data.handlers["flows/f/flow.yaml"]).toEqual({ load: path.join(flowDir, "load.ts") });
+    expect((await get(path.join(flowDir, "flow.yaml"))).statusCode).toBe(200);
+    // Still asks the bridge for its catalog report (review r1 non-blocking).
+    expect(emitEvent).toHaveBeenCalledWith("S", FLOW_FILES_REQUEST_EVENT, {});
+  });
+
+  it("X7: definition swapped for a symlink to outside after admission → 403", async () => {
+    const outside = path.join(tmp, "outside.yaml");
+    fs.writeFileSync(outside, "steps: []\n");
+    fs.rmSync(path.join(flowDir, "flow.yaml"));
+    fs.symlinkSync(outside, path.join(flowDir, "flow.yaml"));
+    expect((await get(path.join(flowDir, "flow.yaml"))).statusCode).toBe(403);
   });
 });

@@ -41,6 +41,9 @@ export const SESSION_OWNED_MESSAGES: ReadonlySet<string> = new Set([
   "edit_followup_entry",
   "extension_ui_response",
   "fetch_content",
+  // A browser's acknowledgement of a `flows_open` pin for one session (flows plugin).
+  // See change: add-flow-open-tool.
+  "flows_open_ack",
   "force_kill",
   "history_backfill",
   "kill_process",
@@ -54,6 +57,10 @@ export const SESSION_OWNED_MESSAGES: ReadonlySet<string> = new Set([
   "retry_session",
   "send_prompt",
   "session_unview",
+  "sudo_credential_cancel",
+  "sudo_credential_forget",
+  "sudo_credential_response",
+  "sudo_credential_shown",
   "session_view",
   "setSessionDisplayPrefs",
   "set_model",
@@ -94,6 +101,7 @@ export const NON_SESSION_MESSAGES: ReadonlySet<string> = new Set([
   "grant_response",
   "kill_terminal",
   "list_files",
+  "live_preview_accept",
   "move_folder_to_workspace",
   "open_inline_terminal",
   "openspec_bulk_archive",

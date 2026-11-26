@@ -8,7 +8,6 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createPiDefaultRemirror, setActivePiDefaultRemirror } from "./pi-default-remirror.js";
 import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createPluginSessionManager, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
@@ -79,6 +78,7 @@ import { scanAcpSessions } from "./acp-bridge/acp-restore.js";
 import { stopAllLocalAcpSessions } from "./acp-bridge/local-host.js";
 import { createAgentEventHub } from "./agent-events/agent-event-hub.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
+import { auditPrefix } from "./auth/audit-log.js";
 import { resolveRedirectBase } from "./auth/auth.js";
 import { authorizeWsUpgrade, buildLoginAvailable, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
@@ -88,7 +88,7 @@ import {
   formatBindReachabilityWarning,
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
-import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
+import { createTicketRefusalLog, decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import {
   CORS_ALLOWED_METHODS,
   type CorsOriginOptions,
@@ -103,7 +103,8 @@ import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrust
 import { registerCspReportSink } from "./auth/csp-report-sink.js";
 import { CspReportStore } from "./auth/csp-report-store.js";
 import { stateCallerFor } from "./auth/dashboard-state-caller.js";
-import { isHostAdmitted } from "./auth/host-admission.js";
+import { createDuplicateCookieGate, refuseDuplicateCookieUpgrade } from "./auth/duplicate-cookie-gate.js";
+import { classifyAdmittedHostname, isHostAdmitted } from "./auth/host-admission.js";
 import {
   createHostGate,
   evaluateHostGate,
@@ -167,9 +168,11 @@ import {
   respawnForRuntimeSwap,
 } from "./browser-handlers/session-action-handler.js";
 import { runLifecycleAction } from "./browser-handlers/session-lifecycle.js";
+import { buildPluginSendPrompt } from "./build-plugin-send-prompt.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { readRawConfig, seedWindowsSourceSettings, writeConfigPartial } from "./config-api.js";
 import {
+  getResolvedPreviewOrigins,
   liveAcceptLanRequests,
   liveAllowedHosts,
   liveCorsAllowedOrigins,
@@ -180,6 +183,7 @@ import {
   liveRequireLocalProof,
   liveTrustedNetworks,
   rawConfigHasHostGateMode,
+  setPreviewOriginsRuntime,
 } from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
@@ -187,7 +191,9 @@ import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycl
 import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embed-lifecycle/plugin-session-close.js";
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
+import { ensureWorktree } from "./git-worktree/ensure-worktree.js";
 import { resolveMainPath } from "./git-worktree/git-operations.js";
+import { awaitInitRun, startWorktreeInit } from "./git-worktree/start-worktree-init.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import {
   listPersistedTrust as listPersistedWorktreeTrust,
@@ -225,6 +231,7 @@ import {
 } from "./lib/client-dist.js";
 import { readFileGuarded as guardedReadFile, runWithStateCaller } from "./lib/dashboard-state-guard.js";
 import { collectRuleSources } from "./lib/folder-project.js";
+import { resolveFramePolicyTestSeam } from "./lib/frame-policy-test-seam.js";
 import { createIndexHtmlSender } from "./lib/index-html.js";
 import { listKnownFolderCwds, type RouteAdmissionDeps } from "./lib/route-admission.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
@@ -241,8 +248,18 @@ import {
 import { createReservedHandler } from "./live-server/live-csp-report.js";
 import { createEgressGrantRequester, createPreviewEgress, requestOriginsOf } from "./live-server/live-egress.js";
 import { createPreviewExposure, wirePreviewExposure } from "./live-server/live-exposure.js";
+import { liveLog } from "./live-server/live-log.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
-import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
+import { handleLiveServerUpgrade, type LiveProxyDeps, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
+import { createPreviewDispatch, type PreviewDispatch, previewServerFactory, routePreviewUpgrade } from "./live-server/preview-dispatch.js";
+import { createPreviewObserver, type PreviewObserver } from "./live-server/preview-observe.js";
+import { isPreviewShapedOriginUrl, previewLogHash } from "./live-server/preview-origin.js";
+import { parsePreviewPath } from "./live-server/preview-path.js";
+import { PreviewPathStore } from "./live-server/preview-path-store.js";
+import { createPreviewPool, type PreviewPool } from "./live-server/preview-pool.js";
+import { createPreviewPreflight } from "./live-server/preview-preflight.js";
+import { hasTier5Viewer, stampPreviewViewer } from "./live-server/preview-viewers.js";
+import { createPreviewWsRegistry } from "./live-server/preview-ws-registry.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
@@ -280,17 +297,20 @@ import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore } from "./persistence/preferences-store.js";
+import { CONTENTION_RATE_LIMIT } from "./pi/bridge-contention.js";
 import { loadHostProjectTrustService } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
-import { createPiGateway } from "./pi/pi-gateway.js";
+import { createPiGateway, type GatewayConn } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
+import { createPiDefaultRemirror, setActivePiDefaultRemirror } from "./pi-default-remirror.js";
 import { createPackageCompletionHandler, createPluginDiscoveryWiring, type PluginDiscoveryWiring } from "./plugin-discovery-wiring.js";
 import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
 import { getRuntimeClientRegistry, installRuntimeClientRegistry, logRuntimeAdmissions } from "./plugin-runtime-clients.js";
+import { configureProjectSeed, resolveAutoSeedEnabled, sweepKnownProjects } from "./project-seed.js";
 import { createPushService, type PushService } from "./push/push-service.js";
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
@@ -308,6 +328,7 @@ import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-ro
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { denialBody, gateFilePath, registerFileRoutes } from "./routes/file-routes.js";
 import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
+import { registerFramePolicyRoutes } from "./routes/frame-policy-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
@@ -392,12 +413,13 @@ import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spaw
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
-import { mapPluginSpawnOptions } from "./spawn-process/plugin-spawn-choice.js";
+import { createPluginSpawnHook } from "./spawn-process/plugin-spawn-worktree.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createSessionTerminator } from "./spawn-process/session-terminator.js";
 import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
+import { createSudoCredentialRelay } from "./sudo-credential/relay.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
 import { createAcmeCredentials } from "./tls/sources/acme/credentials.js";
@@ -757,6 +779,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     ],
   });
   setCwdPolicyRegistry(cwdPolicyRegistry);
+  // Auto-seed pi project defaults (change: auto-seed-project-defaults). The
+  // boot sweep covers folders the dashboard ALREADY knows about — pinned dirs +
+  // workspace folders, the same set `recognizedRoots` spans; folders learned
+  // later are covered by the pin handler and bridge registration. Each dir is
+  // deferred onto its own tick, so a large pin list never stalls startup.
+  configureProjectSeed(resolveAutoSeedEnabled(loadConfig(), CONFIG_FILE));
+  sweepKnownProjects([
+    ...preferencesStore.getPinnedDirectories(),
+    ...preferencesStore.getWorkspaces().flatMap((w) => w.folders),
+  ]);
   // Server identity + device pairing (D2/D5/D6). Additive; independent of OAuth.
   const serverIdentity = ensureServerIdentity();
   const pairedDeviceRegistry = new PairedDeviceRegistry();
@@ -818,6 +850,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
   // The proof cookie is bound to the listener's port; `0` until `listen` runs (inject() in tests).
   let httpListenPort = 0;
+  /** Rate-limited (per device) below-operate bridge-ticket refusal line (D2). */
+  const logTicketRefusal = createTicketRefusalLog({ windowMs: CONTENTION_RATE_LIMIT, prefix: (id) => auditPrefix(id) });
   const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof, () => httpListenPort);
   const localProofCodes = new LocalProofCodeStore();
   const pairingManager = new PairingManager({
@@ -895,6 +929,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // so `worktree_init_*` events stream only to the dialog that
   // initiated the run. See change: generalize-worktree-init-hook.
   const worktreeInitRegistry = createWorktreeInitRegistry();
+  // Latched at the top of `stop()`: the plugin spawn hook refuses a launch that resumes after it
+  // (its child would escape the shutdown sweeps). See change: add-plugin-spawn-worktree.
+  let serverStopping = false;
 
   // Restore sessions from per-session .meta.json files (scans ~/.pi/agent/sessions/)
   const scanStartedAt = Date.now();
@@ -1458,10 +1495,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   // Ports the dashboard itself listens on are never previewable (a loopback origin is trusted
   // by its CORS / mutation gates). See change: improve-canvas-html-and-url-ux (D1).
+  // Tier 3 pool (D5) + the proxy deps it forwards through: both late-bound (the manager's `ownPorts` reads the pool at seed time).
+  let previewPool: PreviewPool | undefined;
+  // Late-bound like `previewPool`: the observer is built with the dispatcher, after the store whose `onDelete` feeds it.
+  let previewObserver: PreviewObserver | undefined;
+  let liveProxyDepsRef: LiveProxyDeps | undefined;
   const liveServerManager = createLiveServerManager(preferencesStore, {
     ownPorts: () => {
       const tls = loadConfig().tls;
-      return [config.port, config.piPort, ...(tls?.enabled ? [tls.port] : [])];
+      // Pool ports (tier 3) are the dashboard's own: no target may point at one (D5).
+      return [config.port, config.piPort, ...(tls?.enabled ? [tls.port] : []), ...(previewPool?.poolPorts() ?? [])];
     },
   });
 
@@ -1844,11 +1887,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Private plugin request/reply lane: one handler per (pluginId, type), reply
   // sent host-internally on the requesting socket (not the priority-gated
   // sendExtensionMessage). See change: expose-plugin-credential-and-oauth-seams (D7).
-  const pluginRequestLane = createPluginRequestLane((sessionId, msg) =>
-    piGateway.sendToSession(sessionId, msg),
+  const pluginRequestLane = createPluginRequestLane(
+    (sessionId, msg) => piGateway.sendToSession(sessionId, msg),
+    // A hub-local-only reply is delivered only to the socket that passed the gate (see the lane).
+    { currentChannel: (sessionId) => piGateway.channelOf(sessionId) },
   );
-  function dispatchPluginRequest(sessionId: string, msg: PluginRequestMessage): void {
-    pluginRequestLane.handle(sessionId, msg).catch((err) => {
+  // Forward the SENDING socket's own origin + channel (never `originOf(sessionManager.get(id))` /
+  // `channelOf(id)`, which follow the routing entry and the recorded session, not the sender).
+  // See change: harden-bridge-session-claim (D3).
+  function dispatchPluginRequest(sessionId: string, msg: PluginRequestMessage, conn?: GatewayConn): void {
+    pluginRequestLane.handle(sessionId, msg, conn).catch((err) => {
       console.error("[plugin-request]", err);
     });
   }
@@ -1964,6 +2012,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     isTlsBridgesLive: tlsBridgesLive,
     exposurePending: () => pairedDeviceRegistry.exposurePending(),
   });
+  // Sudo credential prompt: in-memory relay (never persists a password); the bridge must also pass the
+  // vault trust predicate. See change: add-sudo-credential-prompt.
+  const sudoCredential = createSudoCredentialRelay({
+    browsers: browserGateway.sudoSeam,
+    sendToBridge: (sessionId, msg) => piGateway.sendToSession(sessionId, msg),
+    isBridgeTrusted: (sessionId) => vaultDelivery.isBridgeTrusted(sessionId),
+  });
+  browserGateway.setSudoCredentialRelay(sudoCredential);
   onVaultRoutingChanged = (sessionId, declared) => vaultDelivery.handleRegister(sessionId, declared);
   // Revoke, rotation, add and a first plaintext exposure withdraw within the push debounce (~150 ms).
   pairedDeviceRegistry.onChange(() => vaultDelivery.schedulePush());
@@ -1976,6 +2032,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     replayState,
     inFlightToolCalls,
     vaultDelivery,
+    sudoCredential,
     // Lazy: `yolo` is constructed further down; a pre-init call throws and the
     // handler declines. See change: yolo-covers-agent-path-gate.
     decideAgentPath: (p) =>
@@ -2015,6 +2072,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingPromptAcks,
     dispatchPluginPiMessage,
     dispatchPluginRequest,
+    // D9: the bridge reserve-path pair; late-bound (the stores are built after `wireEvents`).
+    previewPathBridge: () =>
+      previewPaths
+        ? {
+            reserve: {
+              store: previewPaths,
+              hasTier5Viewer: () => hasTier5Viewer(browserGateway.wss.clients),
+              portRefusal: (port) => liveServerManager.portRefusal(port),
+            },
+            deviceTier: (deviceId) => pairedDeviceRegistry.list().find((d) => d.id === deviceId)?.tier,
+            isSessionLive: (id) => piGateway.getConnectedSessionIds().includes(id),
+          }
+        : undefined,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
     dispatchSessionRegisteredCwd,
@@ -2047,8 +2117,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     onParentDead: () => server.stop({ exitIntent: "ephemeral" }),
   });
 
+  // Preview-shaped Hosts are answered by the route-less `previewApp` and never enter the dashboard app (D3).
+  // Late-bound: the capability store the dispatch needs is built further down, before `listen`.
+  // See change: serve-live-previews-on-capability-origin.
+  let previewDispatch: PreviewDispatch | undefined;
+  // Tier-5 pid store; late-bound like `previewDispatch` (the preflight hook is registered before the store exists).
+  let previewPaths: PreviewPathStore | undefined;
   const fastify = Fastify({
     logger: false,
+    serverFactory: previewServerFactory(() => previewDispatch) as never,
     keepAliveTimeout: MAIN_KEEP_ALIVE_TIMEOUT_MS,
     connectionTimeout: MAIN_CONNECTION_TIMEOUT_MS,
     // Add-ons feature ids embed a local package's absolute path (`pkg:local:/…`), which exceeds
@@ -2186,8 +2263,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       bindHost: config.host,
       // Exact certificate names of the TLS listener (empty unless enabled + bound).
       tlsListenerNames: () => tlsListener.tlsListenerNames(),
+      // The `live preview capability hosts` pattern row (D3): present whenever previews are on.
+      livePreviewEnabled: () => getResolvedPreviewOrigins().enabled,
     },
     ...resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()),
+  });
+  // Inputs of the preview-origin overlap checks (D12): live tunnels, TLS names and the static
+  // admission classifier, so a label-shaped host that is already admitted is never shaped as a preview.
+  setPreviewOriginsRuntime({
+    tunnelOrigins: liveTunnelOrigins,
+    tlsNames: () => tlsListener.tlsListenerNames(),
+    classifyAdmittedHostname: (hostname) => classifyAdmittedHostname(hostname, getHostGateCtx().admission),
   });
   /**
    * The ONE origin-policy input, shared by the CORS plugin, the WS upgrade gate
@@ -2353,6 +2439,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Origin at all). Report-only default; `PI_DASHBOARD_HOST_GATE=enforce`
   // or `hostGate.mode` flips it. See change: add-host-allowlist-admission (D1).
   fastify.addHook("onRequest", createHostGate(getHostGateCtx, hostGateState, () => config.port));
+  // Duplicate `pi_dash_*` cookie names → self-healing 400, directly after the host gate and before the CORS
+  // observer / `@fastify/cors`, so the refusal carries no ACAO and precedes every origin gate. previewApp is exempt
+  // by construction (own Fastify instance). See change: serve-live-previews-on-capability-origin (D10).
+  fastify.addHook("onRequest", createDuplicateCookieGate());
+  // Tier-5 opaque-origin preflight: answered for a VALID `/preview/<pid>/` before `@fastify/cors` denies `null` (D8, P6).
+  fastify.addHook("onRequest", createPreviewPreflight(() => previewPaths));
   // A denied cross-origin Origin may raise a DEFERRED cors-plane prompt; after
   // the host gate so a host-refused request never prompts. Never alters the
   // response. See change: add-access-grant-dialog.
@@ -2440,19 +2532,58 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // removed / refused-public-IdP provider is not live. See change: close-security-map-high-findings (D3).
   let sessionProviderRejectedAccessor: ((provider: unknown) => boolean) | null = null;
   const sessionProviderRejected = (provider: unknown): boolean => sessionProviderRejectedAccessor?.(provider) ?? false;
+  const capabilityPrincipalLive = (p: import("./live-server/live-capability.js").CapabilityPrincipal): boolean => {
+    if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
+    // Minted on network trust alone: only valid while network trust still authenticates.
+    if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
+    if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
+    if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService, sessionProviderRejected) !== null;
+    return true;
+  };
+  // Tier 3 pool (D5): the store's `onDelete` closes the listener of a deleted entry on EVERY deletion path.
+  // Late-bound (`previewPool` is built just below the store it reads).
   const liveCapabilities = new LiveCapabilityStore({
     isTargetLive: (id) => liveServerManager.has(id),
-    isPrincipalLive: (p) => {
-      if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
-      // Minted on network trust alone: only valid while network trust still authenticates.
-      if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
-      if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
-      if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService, sessionProviderRejected) !== null;
-      return true;
+    isPrincipalLive: capabilityPrincipalLive,
+    onDelete: (entry, reason) => {
+      previewPool?.onDelete(entry, reason);
+      // The entry is gone: drop its "first admit" bookkeeping so observer state tracks live entries (D13, no leak across churn).
+      if (entry.label) previewObserver?.forget(previewLogHash(entry.label));
     },
+    getPreviewConfig: () => getResolvedPreviewOrigins(),
   });
+  previewPool = createPreviewPool({
+    range: () => {
+      const r = getResolvedPreviewOrigins();
+      return r.enabled ? r.pool : undefined;
+    },
+    bindHost: () => config.host,
+    findByPoolPort: (port) => liveCapabilities.findByPoolPort(port),
+    revokeByPoolPort: (port, reason) => liveCapabilities.revokeByPoolPort(port, reason),
+    touch: (grant) => void liveCapabilities.touch(grant.tokenId, grant.minterKey),
+    manager: liveServerManager,
+    proxyDeps: () => liveProxyDepsRef,
+  });
+  // Tier 5 (`/preview/<pid>/`, D8): one current pid per port target; liveness is re-checked at every use, so a revoked
+  // holder / removed target / disabled previews drops the pid on its next request or sweep.
+  const previewWs = createPreviewWsRegistry();
+  previewPaths = new PreviewPathStore({
+    onDrop: (reason, pid) => {
+      liveLog(undefined, "pid dropped", { reason, h: previewLogHash(pid) });
+      previewWs.closePid(pid); // in-flight HMR sockets die with the pid
+    },
+    targetIdForPort: (port) => liveServerManager.getByPort(port)?.id,
+    isPortAllowed: (port) => liveServerManager.portRefusal(port) === null,
+    isTargetLive: (id) => liveServerManager.has(id),
+    isPrincipalLive: capabilityPrincipalLive,
+    isEnabled: () => getResolvedPreviewOrigins().enabled,
+  });
+  previewPaths.start();
   // An evicted preset / static target takes its tokens with it.
-  liveServerManager.setEvictionListener((id) => liveCapabilities.revokeByTarget(id));
+  liveServerManager.setEvictionListener((id) => {
+    liveCapabilities.revokeByTarget(id);
+    previewPaths?.revokeByTarget(id);
+  });
   // Per-token egress state (markup scan, CSP reports, allow-once, project grants). Project grants are read
   // from their store on every CSP build, so a grant or revoke applies on the next response with no restart.
   const previewEgress = createPreviewEgress({
@@ -2504,7 +2635,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   fastify.addHook("onRequest", async (request) => {
     previewExposure.noteRequest(request.headers as Record<string, unknown>);
   });
-  fastify.addHook("onRequest", createLiveCapabilityHook(liveCapabilities));
+  fastify.addHook("onRequest", createLiveCapabilityHook(liveCapabilities, previewPaths));
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
   registerDeviceSessionRoutes(fastify, {
     registry: pairedDeviceRegistry,
@@ -2867,6 +2998,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Signed navigation intents for operator-opened route-backed overlays
   // (per-process key: a restart invalidates them). See change: harden-client-sinks (D10).
   registerNavIntentRoutes(fastify, { networkGuard, intents: new NavIntents() });
+  // Framing probe for web-link previews: operator click → one SSRF-hardened outbound HEAD, verdict only
+  // (control tier; own browser Origin required). See change: rich-chat-links (D12).
+  registerFramePolicyRoutes(fastify, {
+    networkGuard,
+    corsOpts,
+    ownOrigins: previewEgressOwnOrigins,
+    ownPorts: () => {
+      const tls = loadConfig().tls;
+      return [config.port, ...(tls?.enabled ? [tls.port] : [])];
+    },
+    // Test-only verdict seam (PI_E2E_SEED + PI_E2E_FRAME_POLICY_VERDICTS, refused in production): undefined = real probe.
+    probe: resolveFramePolicyTestSeam(process.env, console),
+  });
   // On-demand AI mermaid repair (opt-in via `mermaidRepair` config; 404 when off).
   // See change: add-mermaid-ai-repair.
   registerMermaidRepairRoutes(fastify, {
@@ -3492,6 +3636,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerLiveServerRoutes(fastify, liveServerManager, {
     networkGuard,
     capabilities: liveCapabilities,
+    pool: previewPool,
+    previewPaths,
+    hasTier5Viewer: () => hasTier5Viewer(browserGateway.wss.clients),
     exposure: previewExposure,
     promptingEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
     getTrustedNetworks: admissionList,
@@ -3514,11 +3661,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       return { ok: true, resolved: gate.resolved };
     },
   });
-  registerLiveServerProxy(fastify, liveServerManager, {
+  const liveProxyDeps: LiveProxyDeps = {
     isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
     isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
     grantedOrigins: (grant) => previewEgress.grantedFor(grant),
+    // D3(c): a tier 1-4 upstream `Location` / `Refresh` aimed at the dashboard app is contained (dropped / rewritten onto the preview).
+    isDashboardUrl: (url) => {
+      const tls = loadConfig().tls;
+      const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+      return (
+        (port === config.port || (tls?.enabled === true && port === tls.port)) &&
+        !isPreviewShapedOriginUrl(url.origin) &&
+        isHostAdmitted(url.host, getHostGateCtx().admission)
+      );
+    },
     onStaticHtmlServed: (grant, real) => previewEgress.noteServed(grant, real),
+    trackPreviewResponse: (pid, res) => previewWs.track(pid, res),
     reservedHandler: createReservedHandler({
       egress: previewEgress,
       ownOriginsOf: (request) => requestOriginsOf(request),
@@ -3527,6 +3685,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // a refusal here records no denial and raises no prompt.
     staticGate: async (cwd, absPath) =>
       !("code" in (await gateFilePath(cwd, absPath, fileRouteAdmission, { allowGrant: true, quiet: true }))),
+  };
+  liveProxyDepsRef = liveProxyDeps;
+  registerLiveServerProxy(fastify, liveServerManager, liveProxyDeps);
+  previewObserver = createPreviewObserver();
+  previewDispatch = createPreviewDispatch({
+    onRefused: (reason, h) => previewObserver?.refused(reason, h),
+    onAdmitted: (h, tier) => previewObserver?.admitted(h, tier),
+    store: liveCapabilities,
+    manager: liveServerManager,
+    proxyDeps: liveProxyDeps,
+    isPeerLocal: (request) =>
+      isLocallyTrusted({ ip: request.socket.remoteAddress ?? "", headers: request.headers as Record<string, unknown> }),
   });
 
   // ONE model runtime for the provider-auth flow listing AND the model proxy,
@@ -3639,6 +3809,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           localTrust,
           verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token, bearerChannelOf(request.raw)),
         });
+        logTicketRefusal(verdict);
         if (!verdict.allow) {
           reply.code(403);
           return { success: false as const, error: verdict.reason };
@@ -4031,6 +4202,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             secondFastify = null;
           }
           try { await tlsListener.stop(); } catch { /* ignore */ }
+          try { await previewDispatch?.close(); } catch { /* ignore */ }
+          try { liveCapabilities.close(); } catch { /* ignore */ }
+          try { await previewPool?.close(); } catch { /* ignore */ }
           try { await fastify.close(); } catch { /* ignore */ }
         },
       });
@@ -4295,128 +4469,40 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 set.add(handler);
                 return () => set.delete(handler);
               },
-              sendToSession: (sessionId, text) =>
-                piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text }),
+              sendToSession: (sessionId, text, opts) =>
+                piGateway.sendToSession(sessionId, buildPluginSendPrompt(sessionId, text, opts)),
               // Session-spawn hook. Gated to first-party/trusted plugins
               // (priority <= 100 by convention). Untrusted plugins get a
-              // hook that always rejects. See change: add-automation-plugin.
-              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
-              spawnSession: async (opts) => {
-                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
-                if (!trusted) {
-                  return { success: false, message: `spawn not permitted for plugin "${plugin.manifest.id}"` };
-                }
-                // Validate the untrusted root options object BEFORE mapping or
-                // dereferencing `opts.pluginRef`/`opts.cwd`. A JS plugin can
-                // call `spawnSession(null)` or omit `cwd`; reject both with a
-                // structured result instead of throwing.
-                if (typeof opts !== "object" || opts === null) {
-                  return { success: false, message: "spawn options must be an object" };
-                }
-                if (typeof opts.cwd !== "string" || opts.cwd.length === 0) {
-                  return { success: false, message: "spawn options require a non-empty cwd" };
-                }
-                // Map plugin-facing options to session options BEFORE filing
-                // the ref below. The mapper is total (never throws) and
-                // sanitizes untrusted plugin input. See change:
-                // add-plugin-spawn-scope (D7).
-                // ACP agent spawn: validate BEFORE anything is filed or spawned (pi-only
-                // options rejected, unknown agent rejected). See change: add-acp-session-driver (D14).
-                const acpRejection = validatePluginAcpSpawn(opts);
-                if (acpRejection) return { success: false, message: acpRejection };
-                // Literal model passes through; `@role` resolves once; a dropped
-                // choice is reported in `warning`. See change: add-spawn-model-choice.
-                const { options: sessionOptions, warning: choiceWarning } = mapPluginSpawnOptions(opts, {
-                  defaultModel: loadConfig().defaultModel || undefined,
-                });
-                // Honour a caller-supplied spawn token VERBATIM (trusted-only
-                // — this code only runs past the trusted gate). A token
-                // already pending for ANY owner is rejected via the
-                // non-destructive `has()` probe, leaving the prior owner's
-                // entry untouched. Otherwise mint up front so the ownership
-                // ref is filed against it BEFORE the `spawnPiSession` await
-                // (unchanged), closing the register-in-the-gap miss. See
-                // change: detach-automation-goal-from-core,
-                // relocate-goal-product-to-plugin (D1-#1).
-                const requested = typeof opts.spawnToken === "string" ? opts.spawnToken : "";
-                if (requested?.includes("\0")) {
-                  // A NUL cannot survive argv/registry round-trips — honouring
-                  // "used verbatim" means refusing, not silently re-minting a
-                  // token the caller's persisted state would never match.
-                  return { success: false, message: "spawnToken must not contain NUL" };
-                }
-                const spawnToken = requested || mintSpawnToken();
-                if (requested && pendingPluginRefRegistry.has(spawnToken)) {
-                  return {
-                    success: false,
-                    message: `spawnToken "${spawnToken}" is already pending for another spawn`,
-                  };
-                }
-                pendingPluginRefRegistry.file(
-                  spawnToken,
-                  opts.pluginRef,
-                  plugin.manifest.id,
-                  opts.lifecycle,
-                );
-                // Fresh-spawn reprime rides the per-cwd pending-initial-prompt
-                // FIFO exactly as core's own respawn path does: enqueue BEFORE
-                // the spawn await, consume on failure/throw so a dead spawn
-                // leaves no stale intent for an unrelated later register in
-                // the same cwd. See change:
-                // relocate-goal-product-to-plugin (D1-#3).
-                const initialPrompt =
-                  typeof opts.initialPrompt === "string" && opts.initialPrompt.length > 0
-                    ? opts.initialPrompt
-                    : undefined;
-                if (initialPrompt) pendingInitialPromptRegistry.enqueue(opts.cwd, initialPrompt);
-                // mode/sandbox threading (change: redesign-automation-editor-and-board).
-                // DOCUMENTED LIMITATION (task 4.2): the host hook does not yet
-                // enforce these. `worktree` would need ephemeral worktree
-                // create+cleanup wired to run-end correlation (discard/merge
-                // policy unspecified); pi exposes no `--sandbox` flag so the
-                // sandbox level cannot be applied at spawn. Both fall back to
-                // running in-place at `opts.cwd`. Log non-default requests so
-                // the gap is visible until the host gains support.
-                if (opts.mode === "worktree" || (opts.sandbox && opts.sandbox !== "workspace-write")) {
-                  console.warn(
-                    `[plugin-spawn] mode=${opts.mode ?? "local"} sandbox=${opts.sandbox ?? "(default)"} requested but not yet enforced by the host hook; running in-place at ${opts.cwd}`,
-                  );
-                }
-                try {
-                  const result =
-                    typeof opts.agent === "string"
-                      ? await spawnAcpSession(opts.cwd, { agent: opts.agent, spawnToken })
-                      : await spawnPiSession(opts.cwd, { ...sessionOptions, spawnToken });
-                  // Plugin/automation spawn: transport-less, reclaim required.
-                  armSpawnWatchdog(opts.cwd, "headless", result);
-                  if (result.process && result.pid) {
-                    browserGateway.headlessPidRegistry.register(
-                      result.pid,
-                      opts.cwd,
-                      result.process,
-                      result.spawnToken ?? spawnToken,
-                      keeperOptsFromSpawnResult(result),
-                    );
-                  }
-                  // Token-keyed, idempotent rollback on failure so no later
-                  // session resolves a stale ref; the queued initial prompt
-                  // is consumed with it.
-                  if (!result.success) {
-                    pendingPluginRefRegistry.remove(spawnToken);
-                    if (initialPrompt) pendingInitialPromptRegistry.withdraw(opts.cwd, initialPrompt);
-                  }
-                  return {
-                    success: result.success,
-                    message: result.message,
-                    ...(result.spawnToken ? { spawnToken: result.spawnToken } : { spawnToken }),
-                    ...(result.success && choiceWarning ? { warning: choiceWarning } : {}),
-                  };
-                } catch (err) {
-                  pendingPluginRefRegistry.remove(spawnToken);
-                  if (initialPrompt) pendingInitialPromptRegistry.withdraw(opts.cwd, initialPrompt);
-                  return { success: false, message: err instanceof Error ? err.message : String(err) };
-                }
-              },
+              // hook that always rejects. The flow (incl. the optional `worktree`
+              // block) lives in `createPluginSpawnHook`.
+              // See change: add-automation-plugin, add-plugin-spawn-worktree.
+              spawnSession: createPluginSpawnHook({
+                plugin: { id: plugin.manifest.id, priority: plugin.manifest.priority },
+                defaultModel: () => loadConfig().defaultModel,
+                mintSpawnToken,
+                validateAcp: validatePluginAcpSpawn,
+                pendingPluginRefRegistry,
+                pendingInitialPromptRegistry,
+                pendingAttachRegistry,
+                spawnPi: (cwd, o) => spawnPiSession(cwd, o as Parameters<typeof spawnPiSession>[1]),
+                spawnAcp: spawnAcpSession,
+                armWatchdog: (cwd, result) => armSpawnWatchdog(cwd, "headless", result),
+                registerHeadlessPid: (pid, cwd, child, token, result) =>
+                  browserGateway.headlessPidRegistry.register(
+                    pid,
+                    cwd,
+                    child as Parameters<typeof browserGateway.headlessPidRegistry.register>[2],
+                    token,
+                    keeperOptsFromSpawnResult(result),
+                  ),
+                ensureWorktree: (o) =>
+                  ensureWorktree({ ...o, knownCwds: knownFolderCwds, admitOptions: { onIndeterminate: cwdAdmissionLogger } }),
+                resolveCwdPolicy: (cwd) => cwdPolicyRegistry.resolve(cwd),
+                autoInitEnabled: () => preferencesStore.getAutoInitWorktreeOnSpawn(),
+                startWorktreeInit: (cwd, o) => startWorktreeInit(cwd, { ...o, registry: worktreeInitRegistry }),
+                awaitInitRun: (cwd) => awaitInitRun(worktreeInitRegistry, cwd),
+                isStopping: () => serverStopping,
+              }),
               // Spawn-env contributor hook. Trusted-gated like `spawnSession`
               // (policy, not a sandbox); untrusted plugins get a no-op.
               // See change: add-context-mode-settings-plugin.
@@ -4516,6 +4602,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // `onRequest` scope) or the opened handle. Not trust-gated (it only narrows).
               // See change: close-security-map-high-findings (D1, H1).
               readFileGuarded: guardedReadFile,
+              // Public base for plugin OAuth return URLs: same resolution as the dashboard login redirect.
+              // See change: add-google-connect.
+              getDashboardBaseUrl: () => resolveRedirectBase(config.port, config.authConfig?.redirectBaseUrl).base,
               // Rename a live session: in-memory + `session_updated` broadcast
               // + `rename_session` to pi — the host's own rename block, lifted
               // verbatim (the broadcast carries `{ name: name || undefined }`).
@@ -4735,8 +4824,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 });
                 return res.ok ? { ok: true, flowId: res.flow.id } : res;
               },
-              registerPiRequestHandler: (id, type, handler) =>
-                pluginRequestLane.register(id, type, handler),
+              registerPiRequestHandler: (id, type, handler, opts) =>
+                pluginRequestLane.register(id, type, handler, opts),
               // First-party scope gate shared with the `/api/plugins` `firstParty`
               // projection. See change: promote-model-roles-settings.
               providerAuth: createGatedProviderAuth(plugin.packageName, readAuthJson),
@@ -4846,6 +4935,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // path, two transports). See change: add-tailscale-cert-tls (D1).
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
       const onUpgrade = (request: import("node:http").IncomingMessage, socket: import("node:stream").Duplex, head: Buffer): void => {
+        // FIRST branch (D3): a preview-shaped Host is served — or refused — by the preview dispatcher, ahead of
+        // the dashboard host gate, Origin gate and ticket. It never reaches the switch below.
+        if (routePreviewUpgrade(previewDispatch, request, socket, head)) return;
         // Stamp the local-credential verdict FIRST (before the Host/Origin gates):
         // everything below reads it via `hasLocalCredential(request.headers)`.
         // The proof floor is per transport: a TLS socket is stamped against the
@@ -4877,6 +4969,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           socket.destroy();
           return;
         }
+
+        // Duplicate `pi_dash_*` cookie names: 400 + expiry lines before any Origin gate or ticket (D10).
+        if (refuseDuplicateCookieUpgrade(request, socket)) return;
 
         // Access check for WebSocket upgrades
         const remoteAddress = request.socket.remoteAddress || "";
@@ -4917,7 +5012,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             })
           ) {
             console.error(
-              `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+              redactCapability(
+                `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+              ),
             );
             socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
             socket.destroy();
@@ -4962,14 +5059,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // only WITH a valid capability. See change: retire-trusted-networks-bypass (D5),
         // improve-canvas-html-and-url-ux (D10).
         const liveCap = scope === "live" ? parseCapabilityPath(request.url) : null;
-        const liveCapPrincipal = liveCap
-          ? liveCapabilities.validate(liveCap.targetId, liveCap.token, {
-              genuinelyLocal: isLocallyTrusted({ ip: remoteAddress, headers: request.headers as Record<string, unknown> }),
-            })
-          : null;
+        const wsLocal = isLocallyTrusted({ ip: remoteAddress, headers: request.headers as Record<string, unknown> });
+        // Tier 5: the same `live` scope, admitted by a valid `/preview/<pid>/` (full path forwarded). D8.
+        const previewWsPath = scope === "live" ? parsePreviewPath(request.url) : null;
+        const previewWsGrant = previewWsPath ? (previewPaths?.validate(previewWsPath.pid, { genuinelyLocal: wsLocal }) ?? null) : null;
+        const liveCapPrincipal = previewWsGrant
+          ? previewWsGrant.principal
+          : liveCap
+            ? liveCapabilities.validate(liveCap.targetId, liveCap.token, { genuinelyLocal: wsLocal })
+            : null;
         if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts(), liveCapPrincipal !== null)) {
           console.error(
-            `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+            redactCapability(
+              `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
+            ),
           );
           socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
           socket.destroy();
@@ -5126,7 +5229,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               }
               // Locality is decided ONCE here, from the upgrade request; handlers read the bit.
               // See change: harden-server-capability-bounds (D1b).
-              stampSocketLocality(ws, request, localTrust);
+              const socketLocal = stampSocketLocality(ws, request, localTrust);
+              // D9: does this socket classify to tier 5? (counted only after the tab's `live_preview_accept`)
+              stampPreviewViewer(ws, request, { genuinelyLocal: socketLocal, resolved: getResolvedPreviewOrigins() });
               if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               if (sessionTierOf) (ws as TieredSocket).sessionTier = sessionTierOf;
               // Tag with the minting device so `closeDeviceSockets` can find it on revoke (D7).
@@ -5177,10 +5282,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Chunked past the 32-bit timer cap (`scheduleAtExpiry`), released on close.
               const cancelExpiry = scheduleAtExpiry(upgradeAuth.principalExpiresAt, () => socket.destroy());
               socket.once("close", cancelExpiry);
+              if (previewWsGrant && previewWsPath) previewWs.track(previewWsPath.pid, socket);
               handleLiveServerUpgrade(liveServerManager, request, socket, head, {
                 isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
                 isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
                 capabilityPrefix: liveCapPrincipal && liveCap ? liveCap.prefix : undefined,
+                ...(previewWsGrant ? { previewTargetId: previewWsGrant.targetId } : {}),
               });
             });
             break;
@@ -5218,6 +5325,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       // The proof floor is taken after readiness, immediately before the bind.
+      await previewDispatch?.ready();
       await listenWithProofFloor(fastify, (at) => (httpBoundAt = at), { port: config.port, host: config.host });
       const bound = fastify.server.address();
       if (bound && typeof bound === "object") httpListenPort = bound.port;
@@ -5599,6 +5707,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     async stop(opts: { exitIntent?: ExitIntent } = {}) {
+      serverStopping = true;
       // A clean stop must also disarm the ephemeral watch so a
       // create/stop cycle in one process leaves no ticking timer.
       ephemeralParentWatch.stop();
@@ -5672,6 +5781,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       pairingManager.dispose();
       stopDeviceExpirySweep();
       vaultDelivery.dispose();
+      sudoCredential.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).
       pendingPromptAcks.dispose();
@@ -5722,6 +5832,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       // The TLS listener (and its open connections) closes with the server.
       try { await tlsListener.stop(); } catch { /* ignore */ }
+      try { await previewDispatch?.close(); } catch { /* ignore */ }
+          try { liveCapabilities.close(); } catch { /* ignore */ }
+          try { await previewPool?.close(); } catch { /* ignore */ }
       await fastify.close();
     },
   };

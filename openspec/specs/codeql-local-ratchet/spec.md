@@ -395,6 +395,15 @@ Before analysis the script SHALL resolve the model pack offline and require, per
 copied file, a resolved row count equal to the file's data rows (a presence check).
 Any model-pack failure SHALL exit 2 and SHALL NOT skip.
 
+Model-pack resolution SHALL be abandoned after `PI_CODEQL_RESOLVE_TIMEOUT_MS`
+milliseconds (default 300000). That timeout SHALL be separate from the 60-second
+pack-download timeout. A resolution that times out is a model-pack failure: the
+script SHALL exit 2 naming the timeout and the variable. The variable SHALL be
+read only on the path that uses it, after a CodeQL binary is found: a value that
+is not a positive integer SHALL then exit 2 before any CodeQL command runs. When
+no CodeQL binary is found, the script SHALL skip as it does today, whatever the
+variable holds.
+
 #### Scenario: Resolution exit code alone is not trusted
 - **WHEN** model-pack resolution exits 0 but reports a row count for a copied file that differs from the file's data rows, or omits the file
 - **THEN** the script SHALL exit 2 naming the model pack
@@ -410,6 +419,27 @@ Any model-pack failure SHALL exit 2 and SHALL NOT skip.
 #### Scenario: Ignored model file is not applied
 - **WHEN** a git-ignored `.github/codeql/extensions/x.model.yml` exists in the working tree
 - **THEN** the generated pack SHALL NOT contain it
+
+#### Scenario: Slow resolution within the bound succeeds
+- **WHEN** `PI_CODEQL_RESOLVE_TIMEOUT_MS` is unset and model-pack resolution takes 90 seconds and reports the expected rows
+- **THEN** the analysis SHALL continue
+
+#### Scenario: Resolution timeout is an error, not a skip
+- **WHEN** `PI_CODEQL_RESOLVE_TIMEOUT_MS` is 200 and model-pack resolution does not finish within it
+- **THEN** the script SHALL exit 2 with a `CODEQL ERROR:` line naming `PI_CODEQL_RESOLVE_TIMEOUT_MS`
+- **AND** it SHALL NOT print `CODEQL SKIPPED:`
+
+#### Scenario: Invalid timeout value is refused
+- **WHEN** a CodeQL binary is found and `PI_CODEQL_RESOLVE_TIMEOUT_MS` is `0`, `-5` or `abc`
+- **THEN** the script SHALL exit 2 before running any CodeQL command
+
+#### Scenario: A missing binary still skips with an invalid timeout value
+- **WHEN** `CODEQL_BIN` is unset, no `codeql` is on `PATH`, and `PI_CODEQL_RESOLVE_TIMEOUT_MS` is `abc`
+- **THEN** the script SHALL print `CODEQL SKIPPED:` and exit 0
+
+#### Scenario: Pack download timeout still skips
+- **WHEN** a pinned query pack is not cached and its download does not finish within 60 seconds
+- **THEN** the script SHALL print `CODEQL SKIPPED:` and exit 0, unchanged by `PI_CODEQL_RESOLVE_TIMEOUT_MS`
 
 ### Requirement: Mirror-dismissal mode
 The script SHALL offer `--mirror-dismissal <ruleId> <file> <lineHash> --alert
@@ -533,8 +563,19 @@ The repository SHALL contain a non-test, never-executed module `scripts/codeql-a
 - **THEN** the contract test SHALL fail naming the module and registrar
 
 #### Scenario: Unfixed finding keeps an accepted-risk reason
-- **WHEN** the baseline holds an entry for `packages/automation-plugin/src/server/automation-writer.ts` (finding F1, tracked in #1104)
-- **THEN** its reason SHALL start with `accepted-risk:` and cite the issue as `#<digits>` (`#1104`), never `false-positive:` and never a placeholder, and the contract test SHALL fail naming the entry otherwise
+- **WHEN** the baseline holds an `accepted-risk:` entry for `packages/automation-plugin/src/server/automation-writer.ts` while the finding is unfixed
+- **THEN** its reason SHALL cite an issue as `#<digits>`, never a placeholder, and the contract test SHALL fail naming the entry otherwise
+
+#### Scenario: Fixed F1 leaves no accepted-risk entry
+- **GIVEN** the automation `plugin_action` `create` and `run` actions admit `payload.cwd` (#1104)
+- **WHEN** the contract test reads the baseline entries for `packages/automation-plugin/src/server/automation-writer.ts`
+- **THEN** none SHALL carry an `accepted-risk:` reason or cite `#1104`
+- **AND** any entry that remains SHALL be `false-positive:` and SHALL name the admission gate and the file:line where the route and the `plugin_action` handler run it
+
+#### Scenario: A still-reproducing F1 entry is re-typed by a reason-only edit
+- **GIVEN** the F1 alerts still reproduce after #1104 is fixed (no script mode re-types a still-reproducing entry)
+- **WHEN** only the `reason` of each `automation-writer.ts` entry is changed to a `false-positive:` reason naming the admission gate, and the analysis is then re-run
+- **THEN** the run SHALL be recorded against the edited baseline and `--check-baseline-diff` SHALL show only those reason changes (no `ruleId`, `file`, `lineHash` or `count` change)
 
 #### Scenario: Test code stays out of scope
 - **WHEN** a flagged pattern exists only in a `__tests__` file

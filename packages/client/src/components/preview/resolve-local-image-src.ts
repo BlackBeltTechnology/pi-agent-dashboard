@@ -24,7 +24,7 @@ export function dirname(path: string): string {
 }
 
 /** Collapse "." and ".." segments over "/" (POSIX, browser-safe). */
-function collapse(path: string): string {
+export function collapse(path: string): string {
   const isAbs = path.startsWith("/");
   const out: string[] = [];
   for (const seg of path.split("/")) {

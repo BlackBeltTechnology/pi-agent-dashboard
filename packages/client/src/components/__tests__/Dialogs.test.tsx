@@ -1,5 +1,5 @@
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
@@ -100,6 +100,53 @@ describe("ExploreDialog", () => {
     const onSend = vi.fn();
     renderExplore({ changeName: "feat-a", onSend, onClose: () => {} });
     fireEvent.click(screen.getByTestId("explore-send"));
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  // See change: fix-input-state-consistency (#1136).
+  async function pasteImage() {
+    let pendingOnload: (() => void) | null = null;
+    vi.stubGlobal(
+      "FileReader",
+      class {
+        result = "data:image/png;base64,iVBORw0KGgo=";
+        onload: (() => void) | null = null;
+        readAsDataURL() {
+          pendingOnload = () => this.onload?.();
+        }
+      },
+    );
+    const file = new File([new Uint8Array([137, 80, 78, 71])], "test.png", { type: "image/png" });
+    fireEvent.paste(screen.getByTestId("explore-textarea"), {
+      clipboardData: { items: [{ type: "image/png", getAsFile: () => file, kind: "file" }] },
+    });
+    await act(async () => {
+      pendingOnload?.();
+    });
+  }
+
+  it("S10: image-only Explore is enabled and sends ('', [image])", async () => {
+    const onSend = vi.fn();
+    renderExplore({ changeName: "", onSend, onClose: () => {} });
+    expect((screen.getByTestId("explore-send") as HTMLButtonElement).disabled).toBe(true);
+    await pasteImage();
+    const btn = screen.getByTestId("explore-send") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("", [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }]);
+    vi.unstubAllGlobals();
+  });
+
+  it("S11: empty / whitespace and no image stays blocked (button and Cmd+Enter)", () => {
+    const onSend = vi.fn();
+    renderExplore({ changeName: "", onSend, onClose: () => {} });
+    const ta = screen.getByTestId("explore-textarea");
+    for (const v of ["", "  "]) {
+      fireEvent.change(ta, { target: { value: v } });
+      expect((screen.getByTestId("explore-send") as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.keyDown(ta, { key: "Enter", metaKey: true });
+    }
     expect(onSend).not.toHaveBeenCalled();
   });
 

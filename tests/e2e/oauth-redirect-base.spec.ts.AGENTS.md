@@ -5,3 +5,5 @@ L3 spec (change: config-override-oauth-redirect-base, review of PR #409). Seeds 
 AF6: with a plain-http `auth.redirectBaseUrl` and a host-side (non-loopback) peer, `GET /auth/start/github` with and without `X-Forwarded-Proto: https` returns 302 whose `pi_dash_oauth_state` Set-Cookie has NO `Secure` (header never trusted; `trustProxy` off). Typechecks (`lint:e2e`); NOT run locally (needs the docker harness). See change: harden-auth-credentials.
 
 E109: github with `allowedUsers: []` ⇒ `/auth/start/github` 403 (no Location); non-empty `allowedUsers` ⇒ 302 to github authorize, same pid. F2c now writes a NON-EMPTY allowedUsers (empty would refuse github). afterAll restores seeded `allowedUsers`. See change: close-security-map-high-findings (D3).
+
+Adds `google built-in app with PI_GOOGLE_REMOTE_RETURN=off` (A13): runs only on a harness started with that env (`PI_GOOGLE_REMOTE_RETURN=off docker/test-up.sh -d`), otherwise skipped with that reason. See change: add-google-connect.

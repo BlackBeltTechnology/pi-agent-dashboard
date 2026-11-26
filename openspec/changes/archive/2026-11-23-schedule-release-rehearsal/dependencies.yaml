@@ -1,0 +1,15 @@
+blocked_by:
+  - change: stabilize-blocking-test-lanes
+    reason: "The tag gate excludes the budget lane only because stabilize-blocking-test-lanes stops plain pnpm test collecting *.budget.test.* unless RUN_BUDGET_TESTS=1; this change pins that the release path never sets it (release-gate clause 6). Both edit main in scripts/test-selection/nightly-report.mjs; this change's flags build on its version. Detail: design.md § Dependencies."
+related:
+  - fix-nightly-publish-pnpm-lockfile
+  - rehearse-runtime-asset-matrix
+  - server-launch-smoke-suite
+  - windows-authenticode-signing
+  - add-android-server-host
+  - macos-notarization
+  - fix-npm12-remote-tarball-install
+  - add-release-video-pipeline
+  - migrate-budget-assertions
+  - update-pi-core-1-6-adopt-apis
+  - enforce-strict-csp-default

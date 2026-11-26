@@ -12,8 +12,8 @@ import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/co
 import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
-import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
 import type { ServeAppOptions } from "./app-mount.js";
@@ -152,7 +152,11 @@ export type OnSessionResolvedFn = (
  * for headless sessions). Returns false when the session is not connected.
  * See change: add-goal-continuation-plugin.
  */
-export type SendToSessionFn = (sessionId: string, text: string) => boolean;
+export type SendToSessionFn = (
+  sessionId: string,
+  text: string,
+  opts?: { delivery?: "steer" | "followUp" },
+) => boolean;
 
 /**
  * Send a raw server→extension control message to ONE session's bridge socket
@@ -372,12 +376,35 @@ export interface PluginSpawnOptions {
   /** Optional session name passed as `--name`. */
   name?: string;
   /**
-   * Run isolation mode requested by the caller. `worktree` asks the host to
-   * run in an isolated git checkout; `local` runs in `cwd` directly. See
-   * change: redesign-automation-editor-and-board (4.2 limitation: worktree
-   * lifecycle not yet implemented in the host hook — falls back to `local`).
+   * Run isolation mode requested by the caller. `local` runs in `cwd`
+   * directly. `worktree` runs in a git worktree ONLY together with a
+   * {@link PluginSpawnOptions.worktree} block; `mode: "worktree"` WITHOUT the
+   * block keeps its original documented fallback and runs in `cwd` (so existing
+   * `mode: worktree` automations do not suddenly create worktrees). A host that
+   * predates the block ignores it and also runs in `cwd` — callers that need a
+   * worktree MUST treat a success without {@link PluginSpawnResult.worktreePath}
+   * as "not in a worktree" and stop. See change: redesign-automation-editor-and-board,
+   * add-plugin-spawn-worktree.
    */
   mode?: "worktree" | "local";
+  /**
+   * Create-or-reuse a git worktree for `branch` of the repository containing
+   * `cwd` and run the session there (requires `mode: "worktree"`). Failures are
+   * typed ({@link PluginSpawnResult.code}) and NEVER fall back to `cwd`.
+   * An existing local branch is checked out; a branch only on `origin` is
+   * continued from `origin/<branch>`; otherwise a new branch forks from `base`
+   * (default: the repository's default base). `base` is ignored when the branch
+   * or its worktree already exists. `ifExists` decides what an existing worktree
+   * for the branch means. `attachChange` (kebab-case OpenSpec change name)
+   * attaches the session to that change, as the dashboard's worktree dialog does.
+   * See change: add-plugin-spawn-worktree.
+   */
+  worktree?: {
+    branch: string;
+    base?: string;
+    ifExists: "reuse" | "fail";
+    attachChange?: string;
+  };
   /**
    * Sandbox level requested by the caller. See change:
    * redesign-automation-editor-and-board (4.2 limitation: pi exposes no
@@ -750,10 +777,38 @@ export type OnShutdownFn = (fn: () => void) => () => void;
  */
 export type PluginNetworkGuard = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 
+/**
+ * Typed failure of a spawn that carried a `worktree` block. The spawn started
+ * no session and queued no intent. `admission_unavailable` is retryable.
+ * See change: add-plugin-spawn-worktree.
+ */
+export type PluginSpawnWorktreeCode =
+  | "invalid_block"
+  | "not_git"
+  | "admission_unavailable"
+  | "branch_invalid"
+  | "exists"
+  | "base_not_found"
+  | "branch_in_use"
+  | "policy_mismatch"
+  | "init_failed"
+  | "git_failed";
+
 /** Result of a plugin session-spawn request. */
 export interface PluginSpawnResult {
   success: boolean;
   message?: string;
+  /**
+   * Set when a spawn with a `worktree` block failed BEFORE a session launch was attempted (block, admission,
+   * worktree or init failure). A failure of the launch itself carries `message` only.
+   */
+  code?: PluginSpawnWorktreeCode;
+  /** Worktree the session runs in (present on success when a `worktree` block was honoured; absent = not in a worktree). */
+  worktreePath?: string;
+  /** Branch checked out in that worktree. */
+  branch?: string;
+  /** True iff this spawn created the worktree (false = reused). */
+  created?: boolean;
   /** Spawn correlation token (present on success). */
   spawnToken?: string;
   /** Set when a model / role / thinking choice was dropped (the spawn still ran). See change: add-spawn-model-choice. */
@@ -1045,19 +1100,50 @@ export type PluginFlowStartResult =
 
 // ── Bridge request/reply lane ────────────────────────────────────────────────
 
+/** Host-observed origin of the SENDING socket (never claimed by the bridge). */
+export interface PluginRequestOrigin {
+  /** True when the session's files live on the hub's own host. */
+  local: boolean;
+  /** Paired-device id for an attributable remote session. */
+  deviceId?: string;
+}
+
+/** Host-observed admission of the SENDING socket (structurally the host's `BridgeChannel`). */
+export interface PluginRequestChannel {
+  admission: string;
+  provenTls: boolean;
+  ticketTls: boolean;
+  ticketDeviceId?: string;
+}
+
 /**
  * Answers one `plugin_request` from a plugin bridge entry. `sessionId` is the
- * host's socket key, never the payload's. The request is from "some session of
- * this user" — authorize on the payload. A throw replies `{ok:false,error:message}`.
- * See change: expose-plugin-credential-and-oauth-seams (D7).
+ * host's socket key, never the payload's; `origin` and `channel` are what the
+ * host observed about the SENDING socket. The lane does not authenticate the
+ * caller: a handler that returns a credential, secret or path-trusted value MUST
+ * register with `{ hubLocalOnly: true }`, which makes the host refuse it
+ * (`origin_denied`) for any session that is not hub-local and locally admitted.
+ * A throw replies `{ok:false,error:message}`.
+ * See change: expose-plugin-credential-and-oauth-seams (D7),
+ * harden-bridge-session-claim (D3).
  */
 export type PluginRequestHandler = (
   payload: unknown,
-  meta: { sessionId: string },
+  meta: { sessionId: string; origin?: PluginRequestOrigin; channel?: PluginRequestChannel },
 ) => unknown | Promise<unknown>;
 
+/** Per-handler policy declared at registration. */
+export interface PluginRequestHandlerOptions {
+  /** Run only for a hub-local, locally admitted session. Required for credential-bearing handlers. */
+  hubLocalOnly?: boolean;
+}
+
 /** Register the single owner of `(this plugin, type)`; a duplicate throws. */
-export type RegisterPiRequestHandlerFn = (type: string, handler: PluginRequestHandler) => void;
+export type RegisterPiRequestHandlerFn = (
+  type: string,
+  handler: PluginRequestHandler,
+  opts?: PluginRequestHandlerOptions,
+) => void;
 
 /** Subset of pi-ai's streamSimple (as adapted by the server) a plugin consumes. */
 export type PluginStreamSimpleFn = (opts: {
@@ -1311,6 +1397,13 @@ export interface ServerPluginContext {
    */
   readFileGuarded?: ReadFileGuardedFn;
   /**
+   * The dashboard's public base URL, no trailing slash — the same resolution the dashboard login's OAuth
+   * redirect uses (`auth.redirectBaseUrl` → tunnel → `http://localhost:<port>`). Optional: absent on hosts
+   * that do not wire it, where a plugin that needs a redirect address must refuse rather than guess.
+   * See change: add-google-connect (D2/D12).
+   */
+  getDashboardBaseUrl?: () => string;
+  /**
    * Subscribe to server shutdown (not trust-gated). See change:
    * relocate-goal-product-to-plugin (D1-#8).
    */
@@ -1481,7 +1574,12 @@ export interface ServerContextDeps {
   /** Plugin OAuth flow start (optional). See change: expose-plugin-credential-and-oauth-seams. */
   startPluginOAuthFlow?: (pluginId: string, opts: PluginOAuthStartOptions) => Promise<PluginFlowStartResult>;
   /** Plugin request-lane registration (optional). See change: expose-plugin-credential-and-oauth-seams. */
-  registerPiRequestHandler?: (pluginId: string, type: string, handler: PluginRequestHandler) => void;
+  registerPiRequestHandler?: (
+    pluginId: string,
+    type: string,
+    handler: PluginRequestHandler,
+    opts?: PluginRequestHandlerOptions,
+  ) => void;
   /**
    * Host-bound `serveApp` (trust gate + package root + mount registry). Absent hosts
    * give plugins a call that throws. `env.dataDir` is the plugin's data directory.
@@ -1508,6 +1606,8 @@ export interface ServerContextDeps {
   networkGuard: PluginNetworkGuard;
   /** Guarded UTF-8 file read (optional). See change: close-security-map-high-findings (D1). */
   readFileGuarded?: ReadFileGuardedFn;
+  /** Dashboard public base URL (optional). See change: add-google-connect. */
+  getDashboardBaseUrl?: () => string;
   /** Subscribe to server shutdown. See change: relocate-goal-product-to-plugin. */
   onShutdown: OnShutdownFn;
   /**
@@ -1626,7 +1726,7 @@ export function createServerPluginContext(
         }
       : undefined,
     registerPiRequestHandler: deps.registerPiRequestHandler
-      ? (type, handler) => deps.registerPiRequestHandler!(pluginId, type, handler)
+      ? (type, handler, opts) => deps.registerPiRequestHandler!(pluginId, type, handler, opts)
       : undefined,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
     getPiResources: deps.getPiResources,
@@ -1639,6 +1739,7 @@ export function createServerPluginContext(
     assignSessionRef: deps.assignSessionRef,
     networkGuard: deps.networkGuard,
     readFileGuarded: deps.readFileGuarded,
+    getDashboardBaseUrl: deps.getDashboardBaseUrl,
     onShutdown: deps.onShutdown,
     // Workspace seam (add-chat-gateway-team-controls): defaulted so a host that
     // does not wire it still exposes a total accessor to plugins.

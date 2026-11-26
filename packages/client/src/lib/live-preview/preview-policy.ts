@@ -10,6 +10,7 @@
  */
 import { isLoopbackUrl, validateAddressPath } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import type { PreviewPolicy } from "../api/live-server-api.js";
+import type { CapabilityTier, MintShape } from "./mint-response.js";
 
 export type Opener = "operator" | "agent";
 
@@ -22,12 +23,15 @@ export function egressForOpener(opener: Opener): PreviewPolicy["egress"] {
  * Frame `sandbox` token string for a policy (design D3 table):
  * open+scripts → 4 tokens; restricted+scripts → `allow-scripts allow-forms`;
  * scripts off → empty (the attribute stays present).
+ * Tiers 1-4 frame their OWN origin, so scripted frames also carry `allow-same-origin` (never for tier 5 / legacy,
+ * which stay opaque on the dashboard origin). See change: serve-live-previews-on-capability-origin (D7).
  */
-export function sandboxFor(policy: PreviewPolicy): string {
+export function sandboxFor(policy: PreviewPolicy, tier: CapabilityTier = "legacy"): string {
   if (!policy.scripts) return "";
+  const sameOrigin = tier === 1 || tier === 2 || tier === 3 || tier === 4 ? " allow-same-origin" : "";
   return policy.egress === "open"
-    ? "allow-scripts allow-forms allow-popups allow-downloads"
-    : "allow-scripts allow-forms";
+    ? `allow-scripts${sameOrigin} allow-forms allow-popups allow-downloads`
+    : `allow-scripts${sameOrigin} allow-forms`;
 }
 
 /** Inputs of the wanted-policy decision. */
@@ -92,9 +96,17 @@ export function parsePresetPath(viewerPath: string | undefined): PresetPath | nu
   }
 }
 
-/** Compose a frame `src` from the API base, a minted capability path and a validated deep path. */
-export function frameSrc(apiBase: string, capabilityPath: string, deep: string): string {
-  return `${apiBase}${capabilityPath}${deep}`;
+/**
+ * Compose a frame `src` from a validated mint response and a validated deep path (no leading slash).
+ * Tiers 1, 2, 4: `origin + base? + deep`; tier 3: the one-shot `?k=` hop with `to=` carrying `base + deep`;
+ * tier 5 / legacy: the dashboard origin (API base) + the capability path + deep.
+ */
+export function frameSrc(apiBase: string, cap: Pick<MintShape, "tier" | "origin" | "path" | "base">, deep: string): string {
+  if (cap.origin !== undefined) {
+    if (cap.tier === 3) return `${cap.origin}${cap.path}&to=${encodeURIComponent(`${cap.base ?? "/"}${deep}`)}`;
+    return `${cap.origin}${cap.base ?? cap.path}${deep}`;
+  }
+  return `${apiBase}${cap.path}${deep}`;
 }
 
 export type AddressTarget =

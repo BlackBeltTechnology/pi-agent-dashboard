@@ -1,23 +1,27 @@
 import { expect, test } from "./fixtures.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
-// Faux round-trip — Phase-1 server-side tilde-home mention resolution
-// (change: server-side-file-mention-resolution, test-plan S19).
+// Faux round-trip — a `~/` file mention opens in the EDITOR PANE
+// (changes: server-side-file-mention-resolution S19, rewritten by fix-file-link-editor-routing, test-plan #S53).
 //
 // `[[faux:text-tildelink]]` streams an assistant message referencing
 // `~/.pi/agent/settings.json` — a home file test-entrypoint seeds under
-// PI_E2E_SEED. MarkdownContent linkifies the mention into ONE `~/…` FileLink
-// (the new tilde tokenizer branch). Clicking it MUST resolve server-side
-// (expand `~/`, authorize via the fixed `~/.pi` anchor) and open the resolved
-// HOME file — NOT a `/`-rooted 404 from the old tilde-split defect.
+// PI_E2E_SEED. MarkdownContent linkifies the mention into ONE `~/…` FileLink.
+// Clicking it resolves server-side (expand `~/`, authorize via the fixed `~/.pi`
+// anchor) and — the split workspace being live for the session — opens the
+// resolved HOME file as an absolute-path tab in the editor pane. It no longer
+// opens `file-preview-overlay` (that was the pre-change behaviour of absolute links).
 //
-// The tilde token is `absolute:true`, so the click always routes to the preview
-// overlay (never the cwd-rooted split); the `/api/open-editor` stub mirrors the
-// sibling tool-output-links spec to keep any editor detection out of the path.
-test.describe("faux round-trip — tilde-home file mention resolves on click", () => {
-  test("clicking a ~/.pi mention opens the resolved home file, not a /-rooted 404", async ({
+// The `/api/open-editor` stub is kept (and counted) to prove the link never takes
+// the external-editor path.
+test.describe("faux round-trip — tilde-home file mention opens in the editor pane", () => {
+  test("clicking a ~/.pi mention opens a pane tab for the resolved home file, not the overlay", async ({
     page,
   }) => {
+    const openEditorRequests: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("/api/open-editor")) openEditorRequests.push(req.url());
+    });
     await page.route("**/api/open-editor", (route) =>
       route.fulfill({
         status: 500,
@@ -36,11 +40,18 @@ test.describe("faux round-trip — tilde-home file mention resolves on click", (
     await expect(link).toBeVisible({ timeout: 30_000 });
     await link.click();
 
-    // Preview overlay opens (editor path forced off) …
-    await expect(page.getByTestId("file-preview-overlay")).toBeVisible({ timeout: 15_000 });
-    // … with real content (the seeded home file read succeeded) …
-    await expect(page.getByTestId("file-preview-code")).toBeVisible({ timeout: 15_000 });
-    // … and NOT a stale/404 error body (the old bug would 404 on a /-rooted split).
-    await expect(page.getByTestId("file-preview-error")).toHaveCount(0);
+    // The editor pane opens with a tab for the resolved HOME file (absolute path,
+    // NOT a `/`-rooted 404 from the old tilde-split defect) …
+    await expect(page.getByTestId("split-editor-pane").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="editor-tab"][data-tab-path$="/.pi/agent/settings.json"]')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    // … renders the file content (Monaco mounted for the JSON file) …
+    await expect(page.locator(".monaco-editor").first()).toBeVisible({ timeout: 30_000 });
+    // … with no denial / load-error notice …
+    await expect(page.getByTestId("denial-notice")).toHaveCount(0);
+    // … and the overlay count converges to 0, with no external-editor request.
+    await expect(page.getByTestId("file-preview-overlay")).toHaveCount(0);
+    expect(openEditorRequests).toEqual([]);
   });
 });

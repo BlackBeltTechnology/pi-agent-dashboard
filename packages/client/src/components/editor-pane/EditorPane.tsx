@@ -17,7 +17,7 @@
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiChevronDown, mdiClose, mdiFileTreeOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { ancestorDirs } from "../../lib/layout/editor-pane-state.js";
@@ -36,11 +36,13 @@ import { DocumentBar } from "./DocumentBar.js";
 import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel, type Mode as SearchMode } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
-import { type BulkClosePlan, type BulkRiskEntry, planBulkClose } from "./file-handler/close-risk.js";
+import { type BulkClosePlan, type BulkRiskEntry, type CloseRiskLookups, planBulkClose } from "./file-handler/close-risk.js";
 import { FileHandlerAnchor } from "./file-handler/FileHandlerAnchor.js";
 import { isUnderSessionCwd } from "./file-handler/file-handler-claims.js";
 import { type FileModeOffers, FileModeOffersContext } from "./file-handler/file-mode-offers.js";
 import { useFileHandlerPane } from "./file-handler/use-file-handler-pane.js";
+import { guardPaneClose } from "./guard-pane-close.js";
+import { confirmLeave, unsavedKey, unsavedStore } from "./unsaved-store.js";
 
 // D3 (change: add-lazy-terminal-diff-bootstrap): the keep-alive terminal layer
 // is a lazy boundary. `React.lazy` fires its import as soon as it is rendered,
@@ -62,7 +64,7 @@ import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
 import { TabContextMenu } from "./TabContextMenu.js";
 import { TabSearchPopover } from "./TabSearchPopover.js";
 import { basename } from "./tab-labels.js";
-import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
+import { isPseudoTabViewer, isSourceTabPath, type OpenPathViewer, sourceTabFile } from "./viewer-kinds.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
@@ -92,7 +94,7 @@ function searchModeForKey(e: KeyboardEvent): SearchMode | null {
   return !e.shiftKey && (e.key === "p" || e.key === "P") ? "file" : null;
 }
 
-const riskKey = (e: BulkRiskEntry): string => (e.kind === "terminal" ? `t:${e.id}` : `h:${e.key}`);
+const riskKey = (e: BulkRiskEntry): string => (e.kind === "terminal" ? `t:${e.id}` : e.kind === "buffer" ? `b:${e.path}` : `h:${e.key}`);
 
 export function EditorPane() {
   const { t } = useI18n();
@@ -276,7 +278,7 @@ export function EditorPane() {
   // A handler-mode tab has no built-in viewer: no baseline read here (the handler's
   // `snapshot()` sets the baseline) and `refreshNonce` does not key it.
   const fileViewerKey =
-    activeTab && cwd && !isPseudoTabViewer(activeTab.viewer) && !fh.handlerView
+    activeTab && cwd && !isPseudoTabViewer(activeTab.viewer) && !isSourceTabPath(activeTab.path) && !fh.handlerView
       ? `${sessionId}\u0000${cwd}\u0000${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${activeTab.autoOpened === true}`
       : null;
   useEffect(() => {
@@ -298,7 +300,10 @@ export function EditorPane() {
       </div>
     );
   } else {
-    const classification = fileKind(absOf(cwd, activeTab.path));
+    // A `source:<abs>` tab shows the REAL file read-only: every file lookup below uses the file behind it.
+    const sourceTab = isSourceTabPath(activeTab.path);
+    const viewPath = sourceTabFile(activeTab.path);
+    const classification = fileKind(absOf(cwd, viewPath));
     // NOTE: `classification` is computed for every tab, including pseudo-tab
     // paths where its `.viewer` is wrong (`diff:src/foo.ts` → `monaco`). Only
     // `.kind`/`.mimeType` are consumed. `activeTab.viewer` is the discriminator.
@@ -309,10 +314,10 @@ export function EditorPane() {
     // Never replace this with a cast.
     const viewer = activeTab.viewer;
     const autoOpened = activeTab.autoOpened === true;
-    const viewerKey = fileViewerKey ?? "";
+    const viewerKey = fileViewerKey ?? (sourceTab ? `${activeTab.path}:${refreshNonce}` : "");
     const viewerProps = {
       cwd,
-      path: activeTab.path,
+      path: viewPath,
       kind: classification.kind,
       mimeType: classification.mimeType,
       size: 0,
@@ -320,6 +325,9 @@ export function EditorPane() {
       restrictCsp: activeTab.restrictCsp,
       reloadNonce: activeTab.reloadNonce,
       updatedByAgent: activeTab.updatedByAgent,
+      htmlMode: activeTab.htmlMode,
+      opener: activeTab.opener,
+      readOnly: sourceTab ? true : undefined,
     };
     // Plugin tabs render through PluginTabHost (claim by prefix, richer
     // props); never the registry, never CappedViewer (no `/api/file`).
@@ -355,7 +363,7 @@ export function EditorPane() {
                 ? t("session.archivedUnavailable", undefined, "Archived session unavailable")
                 : t("session.resolving", undefined, "Loading session…")}
             </div>
-          ) : changeDetection && baselineReadyKey !== viewerKey ? (
+          ) : changeDetection && !sourceTab && baselineReadyKey !== viewerKey ? (
             // Baseline first (D2): the digest round-trip is the price of the
             // fail-safe ordering; a failed digest still resolves (null baseline).
             <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>
@@ -372,12 +380,28 @@ export function EditorPane() {
   const language = activeTab ? activeTab.path.slice(activeTab.path.lastIndexOf(".") + 1) : "";
 
   // ── Closing: single close (per tab) and the bulk runner (design D6) ────────
+  // Handler lookups + built-in unsaved buffers (read live from the unsaved store).
+  // Re-render when a built-in buffer turns dirty/clean: `isTabDirty` (Download hint, tab-search marks) reads the store at render time.
+  useSyncExternalStore(unsavedStore.subscribe, unsavedStore.getState, unsavedStore.getState);
+  const closeLookups: CloseRiskLookups = {
+    ...fh.closeLookups,
+    bufferDirty: (tab) => tab.viewer !== "terminal" && !tab.handlerMode && unsavedStore.hasUnsaved([unsavedKey(sessionId, tab.path)]),
+  };
+  // Pane ✕: a dirty built-in buffer asks first; clean closes at once (D3).
+  const closePane = () => guardPaneClose(sessionId, stateRef.current.openFiles, () => updateSplit({ mode: "closed" }));
   const closeTabAt = (i: number) => {
     const f = stateRef.current.openFiles[i];
     const termId = f?.viewer === "terminal" ? stripTermId(f.path) : null;
     // D4 — closing a terminal tab kills its terminal (silent: no confirmation).
     if (termId) terminal.closeTerminalTab(termId);
-    else if (f?.handlerMode && changeDetection) {
+    else if (f && !f.handlerMode && unsavedStore.hasUnsaved([unsavedKey(sessionId, f.path)])) {
+      // A built-in tab with an unsaved buffer: Save / Discard / Cancel first (D3).
+      void confirmLeave([unsavedKey(sessionId, f.path)]).then((ok) => {
+        if (!ok) return;
+        const idx = stateRef.current.openFiles.findIndex((t) => t.path === f.path);
+        if (idx >= 0) dispatch({ type: "closeTab", index: idx });
+      });
+    } else if (f?.handlerMode && changeDetection) {
       // Closing the last tab of a handler instance with unsaved/unknown
       // edits asks first; re-resolve the index afterwards (async).
       void fh.guardTabClose(i).then((ok) => {
@@ -396,7 +420,7 @@ export function EditorPane() {
   const runBulkClose = (paths: string[]) => {
     setTabSearchOpen(false);
     setContextMenu(null);
-    const plan = planBulkClose(stateRef.current.openFiles, paths, fh.closeLookups);
+    const plan = planBulkClose(stateRef.current.openFiles, paths, closeLookups);
     if (plan.targets.length === 0) return;
     if (plan.risky.length === 0) dispatch({ type: "closeTabs", paths: plan.targets });
     else setBulk({ targets: plan.targets, plan });
@@ -405,7 +429,7 @@ export function EditorPane() {
   // re-shows the dialog instead of acting (design D6, "recompute on confirm").
   const confirmBulk = (mode: "keep" | "discard") => {
     if (!bulk) return;
-    const fresh = planBulkClose(stateRef.current.openFiles, bulk.targets, fh.closeLookups);
+    const fresh = planBulkClose(stateRef.current.openFiles, bulk.targets, closeLookups);
     const listed = new Set(bulk.plan.risky.map(riskKey));
     if (fresh.risky.some((e) => !listed.has(riskKey(e)))) {
       setBulk({ targets: bulk.targets, plan: fresh });
@@ -418,7 +442,8 @@ export function EditorPane() {
       for (const e of fresh.risky) {
         // Kill only (never `closeTerminalTab`, which would dispatch `closeByPath` first).
         if (e.kind === "terminal") terminal.killTerminal(e.id);
-        else fh.discardInstance(e.key);
+        else if (e.kind === "handler") fh.discardInstance(e.key);
+        // A built-in buffer needs no discard call: closing its tab unmounts the viewer.
       }
       dispatch({ type: "closeTabs", paths: fresh.targets });
     }
@@ -451,12 +476,18 @@ export function EditorPane() {
   };
 
   const textDeps = useMemo(
-    () => ({ terminalTitle, terminalFallback: t("terminal.terminal", undefined, "terminal") }),
+    () => ({ terminalTitle, terminalFallback: t("terminal.terminal", undefined, "terminal"), sourceLabel: t("editor.sourceTab", undefined, "source") }),
     [terminalTitle, t],
   );
   const BAR_BTN =
     "inline-flex h-7 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50";
   const contextTab = contextMenu ? state.openFiles[contextMenu.index] : null;
+
+  // A built-in buffer with unsaved edits, or a handler instance reporting `dirty`.
+  const isTabDirty = (f: (typeof state.openFiles)[number]): boolean => {
+    const k = fh.closeLookups.keyOf(f);
+    return (!!k && fh.closeLookups.getInstance(k)?.dirty === true) || !!closeLookups.bufferDirty?.(f);
+  };
 
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
@@ -515,7 +546,7 @@ export function EditorPane() {
         <button
           type="button"
           data-testid="editor-pane-close"
-          onClick={() => updateSplit({ mode: "closed" })}
+          onClick={closePane}
           className={`${BAR_BTN} w-7`}
           aria-label={t("editor.closeEditor", undefined, "Close editor")}
           title={t("editor.closeEditor", undefined, "Close editor")}
@@ -537,6 +568,7 @@ export function EditorPane() {
         claims={activeTab && !isPseudoTabViewer(activeTab.viewer) ? fh.matching : []}
         selectedMode={fh.handlerView ? activeTab?.handlerMode : undefined}
         outsideCwd={fh.outsideCwd}
+        dirty={!!activeTab && isTabDirty(activeTab)}
         onSelectMode={(m) => void fh.selectMode(m)}
         terminalTitle={terminalTitle}
         pluginLabel={pluginLabel}
@@ -553,16 +585,7 @@ export function EditorPane() {
           activeIndex={state.activeIndex}
           textDeps={textDeps}
           pluginLabel={pluginLabel}
-          unsavedPaths={
-            new Set(
-              state.openFiles
-                .filter((f) => {
-                  const k = fh.closeLookups.keyOf(f);
-                  return !!k && fh.closeLookups.getInstance(k)?.dirty === true;
-                })
-                .map((f) => f.path),
-            )
-          }
+          unsavedPaths={new Set(state.openFiles.filter(isTabDirty).map((f) => f.path))}
           hasFileSearch={hasFileSearch}
           onActivate={(path) => {
             const i = stateRef.current.openFiles.findIndex((f) => f.path === path);
@@ -579,7 +602,7 @@ export function EditorPane() {
         <TabContextMenu
           anchorEl={contextMenu.anchor}
           isLast={contextMenu.index === state.openFiles.length - 1}
-          fileTab={!isPseudoTabViewer(contextTab.viewer) && isUnderSessionCwd(contextTab.path, cwd)}
+          fileTab={!isPseudoTabViewer(contextTab.viewer) && !isSourceTabPath(contextTab.path) && isUnderSessionCwd(contextTab.path, cwd)}
           onClose={() => setContextMenu(null)}
           onCloseTab={() => closeTabAt(contextMenu.index)}
           onCloseOthers={() => runBulkClose(state.openFiles.filter((_, i) => i !== contextMenu.index).map((f) => f.path))}

@@ -16,6 +16,7 @@ import { decidePassive, evaluateContainment } from "../containment-gate.js";
 const h = vi.hoisted(() => ({
   secret: new Set<string>(),
   subjects: [] as string[],
+  writeSubjects: [] as string[],
   hold: vi.fn(),
 }));
 
@@ -23,7 +24,7 @@ vi.mock("../../lib/dashboard-state-guard.js", () => ({
   dashboardStateRefuses: async (p: string) => h.secret.has(p),
   currentCallerUnproven: () => false,
 }));
-vi.mock("../access-grants.js", () => ({ grantedSubjects: () => h.subjects }));
+vi.mock("../access-grants.js", () => ({ grantedSubjects: () => h.subjects, grantedWriteSubjects: () => h.writeSubjects }));
 vi.mock("../denial-hold.js", () => ({ holdDenial: (...a: unknown[]) => h.hold(...a) }));
 
 let root: string;
@@ -39,6 +40,7 @@ beforeEach(() => {
   for (const f of [path.join(k, "a.txt"), path.join(k, "b.txt"), path.join(out, "x.txt"), path.join(out, "y.txt")]) fs.writeFileSync(f, "x");
   h.secret.clear();
   h.subjects = [];
+  h.writeSubjects = [];
   h.hold.mockReset();
   h.hold.mockResolvedValue({ kind: "deny", reason: "no" });
   __resetPathDenials();
@@ -168,5 +170,58 @@ describe("a refused credential path keeps its decided path (#E26)", () => {
       expect(containmentAllows(evaluated, other)).toBe(false);
       expect(containmentAllows(passive, other)).toBe(false);
     }
+  });
+});
+
+// fix-file-link-editor-routing 3b (#S23, #S36 gate half): the action selects the predicate and rides to the hold.
+describe("evaluateContainment action:'write' (#S23)", () => {
+  it("a read grant never admits a write; the refusal is held with action:'write'", async () => {
+    h.subjects = [out];
+    const p = path.join(out, "x.txt");
+    const d = await evaluateContainment(p, [k], { site: "t", action: "write" });
+    expect(d).toMatchObject({ allowed: false, resolved: p });
+    expect(h.hold).toHaveBeenCalledTimes(1);
+    expect(h.hold.mock.calls[0][0]).toMatchObject({ plane: "filesystem", action: "write" });
+    expect(listPathDenials()[0]).toMatchObject({ action: "write" });
+  });
+
+  it("a write grant admits a write (and a read)", async () => {
+    h.subjects = [out];
+    h.writeSubjects = [out];
+    const p = path.join(out, "x.txt");
+    expect(await evaluateContainment(p, [k], { site: "t", action: "write" })).toMatchObject({ allowed: true, viaGrant: true });
+    expect(await evaluateContainment(p, [k], { site: "t" })).toMatchObject({ allowed: true, viaGrant: true });
+    expect(h.hold).not.toHaveBeenCalled();
+  });
+
+  it("cwd admits a write without a grant", async () => {
+    const p = path.join(k, "a.txt");
+    expect(await evaluateContainment(p, [k], { site: "t", action: "write" })).toMatchObject({ allowed: true, viaGrant: false });
+  });
+
+  it("a read refusal's hold facts carry no action", async () => {
+    await evaluateContainment(path.join(out, "y.txt"), [k], { site: "t" });
+    expect("action" in h.hold.mock.calls[0][0]).toBe(false);
+  });
+
+  it("post-hold allow-once re-evaluates against the WRITE predicate with the answered subject", async () => {
+    const p = path.join(out, "y.txt");
+    h.hold.mockResolvedValue({ kind: "allow", verdict: "allow-once", subject: out });
+    expect(await evaluateContainment(p, [k], { site: "t", action: "write" })).toMatchObject({ allowed: true, viaGrant: true });
+  });
+
+  it("post-hold allow-always against a READ-only store does not admit a write", async () => {
+    // The persisted grant is read-mode (e.g. revoked or mis-joined): re-evaluation is mode-specific.
+    const p = path.join(out, "y.txt");
+    h.subjects = [out];
+    h.hold.mockResolvedValue({ kind: "allow", verdict: "allow-always", subject: out });
+    const d = await evaluateContainment(p, [k], { site: "t", action: "write" });
+    expect(d.allowed).toBe(false);
+  });
+
+  it("a nonexistent target under a write grant is admitted (the route answers 404; writes never create)", async () => {
+    h.writeSubjects = [out];
+    const p = path.join(out, "missing.txt");
+    expect(await evaluateContainment(p, [k], { site: "t", action: "write" })).toMatchObject({ allowed: true, viaGrant: true });
   });
 });

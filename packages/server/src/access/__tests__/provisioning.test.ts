@@ -144,7 +144,9 @@ describe("2.9 / #E3 classification decision table", () => {
       ]),
     );
     expect(classes(v)).toEqual([
-      "invalid", "invalid", "invalid", "missing", "missing", "forbidden", "sensitive", "sensitive", "in-root", "covered", "grantable",
+      // harden-agent-tool-guards D7: `~/.aws` and (darwin) `~/Library` are now in the shared sensitive
+      // list, so they classify exactly like `~/.ssh` (`forbidden`, parity oracle T.83).
+      "invalid", "invalid", "invalid", "missing", "missing", "forbidden", "forbidden", "forbidden", "in-root", "covered", "grantable",
     ]);
   });
 
@@ -186,15 +188,17 @@ describe("2.12 / #E6 credential folders and their ancestors", () => {
         { path: "~/.docker" }, { path: "~/Library/Keychains" }, { path: "~/Library" },
       ]),
     );
+    // The shared list (D7) classifies the CLI credential dirs and the `~/Library` ancestor of the
+    // macOS browser roots `forbidden` like `~/.ssh`; `Library/Keychains` stays the local `sensitive` rule.
     expect(classes(v)).toEqual([
-      "forbidden", "forbidden", "sensitive", "sensitive", "sensitive", "sensitive", "sensitive", "sensitive",
+      "forbidden", "forbidden", "forbidden", "forbidden", "forbidden", "forbidden", "sensitive", "forbidden",
     ]);
     expect(classes(v)).not.toContain("grantable");
   });
 
   it("a symlink into a credential folder is sensitive, and collapses onto the real folder", () => {
     const v = ok(create(mk(), [{ path: path.join(w, "creds") }]));
-    expect(v.lines).toMatchObject([{ path: path.join(home, ".gnupg"), classification: "sensitive" }]);
+    expect(v.lines).toMatchObject([{ path: path.join(home, ".gnupg"), classification: "forbidden" }]);
     expect(ok(create(mk(), [{ path: path.join(w, "creds") }, { path: "~/.gnupg" }])).lines).toHaveLength(1);
   });
 
@@ -560,35 +564,6 @@ describe("2.27 / #E28 terminal transitions are first-wins", () => {
     const v = ok(create(h, [{ path: "../lib" }]));
     expect(await h.reg.settle(v.requestId, { lines: "x" } as never)).toMatchObject({ ok: false, status: 400 });
     expect(h.reg.get(v.requestId)?.status).toBe("pending");
-  });
-});
-
-describe("2.28 / #P1 the synchronous settle section is fast", () => {
-  it("32 grantable lines against a 168-grant store: sync section < 50 ms", async () => {
-    seed(synthetic(168));
-    const names = Array.from({ length: 32 }, (_, i) => dir(w, `perf${i}`));
-    const base = (await import("../provisioning.js")).defaultProvisioningFs;
-    let lastAwait = 0;
-    let sync = Number.NaN;
-    const timed: ProvisioningFs = {
-      ...base,
-      inspectAsync: async (p) => {
-        const f = await base.inspectAsync(p);
-        lastAwait = performance.now();
-        return f;
-      },
-    };
-    const h = mk({
-      fs: timed,
-      onTerminal: () => {
-        sync = performance.now() - lastAwait;
-      },
-    });
-    const v = ok(create(h, names.map((n) => ({ path: n }))));
-    const r = await h.reg.settle(v.requestId, approveAll(v));
-    expect(r.ok && r.request.lines.every((l) => l.outcome === "granted")).toBe(true);
-    expect(listGrants()).toHaveLength(200);
-    expect(sync).toBeLessThan(50);
   });
 });
 

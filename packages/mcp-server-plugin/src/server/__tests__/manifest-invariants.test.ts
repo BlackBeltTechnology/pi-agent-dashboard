@@ -3,8 +3,9 @@
  *
  * See change: expand-mcp-tiered-surface (D6/D7).
  */
-import { rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
+import { rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { describe, expect, it } from "vitest";
 import { GENERATED_TOOLS } from "../generated/tools.js";
 import { MANIFEST, type ToolRow } from "../tools.manifest.js";
@@ -111,5 +112,21 @@ describe("E18 — session-targeting coverage", () => {
         expect(p.arg, t.name).toBe(t.sessionTargeting ? "sessionId" : "id");
       }
     }
+  });
+});
+
+// harden-agent-tool-guards D8 (T.87, test-plan #E89): TOOL-03 stays Low only while config writes sit above
+// the MCP `control` tier. If this fails, `bash`-less self-disable of the path gate becomes reachable by a
+// per-session token and D8's "no new capability" argument no longer holds.
+describe("T.87 PUT /api/config stays above the MCP control tier", () => {
+  it("is tier operate; no control-tier MCP tool maps to it", () => {
+    expect(routeTier("PUT", "/api/config")).toBe("operate");
+    const bound = MANIFEST.filter((r) => r.bind.kind === "rest" && r.bind.method === "PUT" && r.bind.path === "/api/config");
+    expect(bound.length).toBeGreaterThan(0);
+    for (const t of GENERATED_TOOLS.filter((g) => bound.some((r) => r.name === g.name))) {
+      expect(t.tier, t.name).toBe("operate");
+      expect(rank(t.tier as Tier), t.name).toBeGreaterThan(rank("control"));
+    }
+    expect(GENERATED_TOOLS.filter((g) => g.tier === "control").some((g) => bound.some((r) => r.name === g.name))).toBe(false);
   });
 });

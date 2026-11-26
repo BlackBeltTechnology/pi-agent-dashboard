@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSplitWorkspace } from "../../split/SplitWorkspaceContext.js";
 import { fileHandlerInstanceKey } from "../file-handler/file-handler-claims.js";
 import { createFileHandlerStore, type FileHandlerStore } from "../file-handler/file-handler-store.js";
+import { UnsavedChangesHost } from "../UnsavedChangesHost.js";
+import { unregisterUnsaved, unsavedKey, unsavedStore } from "../unsaved-store.js";
 import { installMemoryStorage, mount, readPane, seedPane, stubFetch, tab } from "./chrome-harness.js";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
@@ -35,7 +37,9 @@ beforeEach(() => {
   stubFetch();
   store = createFileHandlerStore();
 });
+const unsavedKeys: string[] = [];
 afterEach(() => {
+  for (const k of unsavedKeys.splice(0)) unregisterUnsaved(k);
   cleanup();
   globalThis.fetch = originalFetch;
   vi.restoreAllMocks();
@@ -411,5 +415,78 @@ describe("Search tabs popover (#E18, #F4, #F8, #X6)", () => {
     expect(screen.getByTestId("tab-search-empty").textContent).toContain("No open tab matches");
     expect(screen.getByTestId("tab-search-popover")).toBeTruthy();
     expect(screen.queryByTestId("editor-search-panel")).toBeNull();
+  });
+});
+
+// fix-file-link-editor-routing 4.5 / 4.9 (S46 / S63): built-in unsaved buffers join the bulk-close confirmation.
+describe("bulk close with a built-in unsaved buffer (S46, S63)", () => {
+  const buffer = (path: string, dirty = true) => {
+    const key = unsavedKey("s1", path);
+    unsavedKeys.push(key);
+    unsavedStore.registerUnsaved(key, { label: path, dirty, save: async () => true, discard: () => {} });
+    return key;
+  };
+  const mountPane = () => mount({ terminals: [{ id: "t1", title: "zsh" }], extra: <UnsavedChangesHost /> });
+
+  const bulkActions: Array<[string, () => void]> = [
+    ["Close all", () => (openMenuOn("a.ts"), fireEvent.click(menuItem("tab-menu-close-all")))],
+    ["Close others", () => (openMenuOn("a.ts"), fireEvent.click(menuItem("tab-menu-close-others")))],
+    ["Close to the right", () => (openMenuOn("a.ts"), fireEvent.click(menuItem("tab-menu-close-right")))],
+  ];
+  it.each(bulkActions)("S46: %s lists notes.md once (unsaved changes will be lost)", (_n, act) => {
+    seedPane("s1", [tab("a.ts"), tab("notes.md"), tab("b.ts")], 0);
+    buffer("notes.md");
+    mountPane();
+    act();
+    const list = screen.getByTestId("bulk-close-list");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(list.textContent).toContain("notes.md");
+    expect(list.textContent).toContain("unsaved changes will be lost");
+    expect(paths()).toEqual(["a.ts", "notes.md", "b.ts"]);
+  });
+
+  it("S46: a clean-only set closes with no confirmation", () => {
+    seedPane("s1", [tab("a.ts"), tab("notes.md"), tab("b.ts")], 0);
+    buffer("notes.md", false);
+    mountPane();
+    openMenuOn("a.ts");
+    fireEvent.click(menuItem("tab-menu-close-all"));
+    expect(screen.queryByTestId("bulk-close-confirm")).toBeNull();
+    expect(paths()).toEqual([]);
+  });
+
+  it("S46: 'Close all but these 1' keeps notes.md; 'Close all & discard' closes it with no extra prompt", () => {
+    seedPane("s1", [tab("a.ts"), tab("notes.md"), tab("b.ts")], 0);
+    buffer("notes.md");
+    mountPane();
+    openMenuOn("a.ts");
+    fireEvent.click(menuItem("tab-menu-close-all"));
+    fireEvent.click(screen.getByTestId("bulk-close-keep"));
+    expect(paths()).toEqual(["notes.md"]);
+
+    cleanup();
+    seedPane("s1", [tab("a.ts"), tab("notes.md"), tab("b.ts")], 0);
+    mountPane();
+    openMenuOn("a.ts");
+    fireEvent.click(menuItem("tab-menu-close-all"));
+    fireEvent.click(screen.getByTestId("bulk-close-discard"));
+    expect(paths()).toEqual([]);
+    expect(screen.queryByTestId("unsaved-dialog")).toBeNull();
+    expect(screen.queryByTestId("bulk-close-confirm")).toBeNull();
+  });
+
+  it("S63: a buffer that turns dirty while the confirmation is open re-shows it instead of closing", () => {
+    seedPane("s1", [tab("a.ts"), tab("notes.md"), tab("term:t1")], 0);
+    mountPane();
+    openMenuOn("a.ts");
+    fireEvent.click(menuItem("tab-menu-close-all"));
+    expect(within(screen.getByTestId("bulk-close-list")).getAllByRole("listitem")).toHaveLength(1); // zsh only
+    act(() => void buffer("notes.md"));
+    fireEvent.click(screen.getByTestId("bulk-close-discard"));
+    expect(paths()).toEqual(["a.ts", "notes.md", "term:t1"]);
+    const list = screen.getByTestId("bulk-close-list");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(list.textContent).toContain("zsh");
+    expect(list.textContent).toContain("notes.md");
   });
 });

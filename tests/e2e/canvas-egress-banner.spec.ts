@@ -47,6 +47,22 @@ test.describe("improve-canvas-html-and-url-ux — F16 egress banner", () => {
   });
 });
 
+test.describe("fix-csp-report-delivery — F3 runtime report reaches the preview sink", () => {
+  test("F3: a blocked fetch in a restricted preview shows as 'reported by this page' (no header rewriting)", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:canvas-html-egress-report]] go");
+
+    // The harness dashboard is network-exposed, so the preview starts with scripts off: the operator runs them.
+    await page.getByTestId("live-run-scripts").click({ timeout: 40_000 });
+
+    const row = page.getByTestId("egress-banner").getByTestId("egress-row").filter({ hasText: "https://example.invalid" });
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await expect(row.getByTestId("egress-source")).toHaveText("reported by this page", { timeout: 15_000 });
+  });
+});
+
 test.describe.serial("improve-canvas-html-and-url-ux — F18 project grant", () => {
   test.skip(process.env.PI_DASHBOARD_DISABLE_GRANT_PROMPT === "1", "prompting force-disabled by the kill switch");
   let saved: Record<string, string | null> = {};

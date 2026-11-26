@@ -7,6 +7,17 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { sweepPromptDrafts } from "../../../hooks/useDraftSweep.js";
+import {
+  getPromptDraftImages,
+  hasPromptDraft,
+  PROMPT_DRAFT_DEBOUNCE_MS,
+  promptDraftStats,
+  resetPromptDraftMemory,
+  setPromptDraftImages,
+} from "../../../lib/state/prompt-draft-storage.js";
+import { InputRenderer } from "../../interactive-renderers/InputRenderer.js";
+import { SelectRenderer } from "../../interactive-renderers/SelectRenderer.js";
 import { QuestionDialog } from "../QuestionDialog.js";
 import { detail, mockReducedMotion, row } from "./question-fixtures.js";
 
@@ -380,5 +391,160 @@ describe("inline Other in the dialog", () => {
     expect(screen.getByTestId("question-answer-error").textContent).toContain("answer is not one of the options");
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByTestId("question-dialog")).toBeTruthy();
+  });
+});
+
+// See change: fix-input-state-consistency (#1116, S26).
+describe("own Other collapses in the dialog", () => {
+  it("S26: opted-in select listing its own Other shows only the inline row; typed text posts as the answer", async () => {
+    const d = detail({ id: "q1", allowOther: true, options: ["Approve", "Other (describe)"] });
+    serve((url, init) => (init?.method === "POST" ? ok({ transmitted: true }) : ok(d)));
+    const { onClose } = open(d);
+    await settle();
+    expect(screen.queryByText("Other (describe)")).toBeNull();
+    expect(screen.getByText("Approve")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    const field = screen.getByRole("textbox", { name: "Other answer" });
+    fireEvent.change(field, { target: { value: "later" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ answer: "later" });
+  });
+});
+
+// See change: fix-input-state-consistency (#1117): prompt-draft sharing between the chat card and the dialog.
+describe("prompt drafts shared across surfaces", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    resetPromptDraftMemory();
+  });
+  afterEach(() => {
+    sessionStorage.clear();
+    resetPromptDraftMemory();
+  });
+
+  const optedDetail = (over: Partial<QuestionDetail> = {}) =>
+    detail({ id: "q1", promptId: "p1", sessionId: "s1", allowOther: true, options: ["A", "B"], ...over });
+  const card = (props: Record<string, unknown> = {}) => (
+    <SelectRenderer
+      requestId="p1"
+      sessionId="s1"
+      method="select"
+      params={{ title: "Pick", options: ["A", "B"], allowOther: true }}
+      status="pending"
+      onRespond={() => {}}
+      onCancel={() => {}}
+      {...props}
+    />
+  );
+  const otherField = () => screen.getByRole("textbox", { name: "Other answer" }) as HTMLInputElement;
+
+  it("S47: the dialog initialises from the card's Other text (key = detail.sessionId + detail.promptId, not the store id)", async () => {
+    const cardView = render(card());
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    fireEvent.change(otherField(), { target: { value: "foo" } });
+    cardView.unmount();
+    serve(() => ok(optedDetail()));
+    open(optedDetail());
+    await settle();
+    expect(otherField().value).toBe("foo");
+  });
+
+  it("S48: latest edit wins; a surface that never edited never writes", async () => {
+    const cardView = render(card());
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    fireEvent.change(otherField(), { target: { value: "a" } });
+    serve(() => ok(optedDetail()));
+    const first = open(optedDetail());
+    await settle();
+    expect(screen.getAllByRole("textbox", { name: "Other answer" })).toHaveLength(2);
+    // The card is edited AFTER the dialog mounted.
+    fireEvent.change(screen.getAllByRole("textbox", { name: "Other answer" })[0], { target: { value: "ab" } });
+    first.view.unmount();
+    serve(() => ok(optedDetail()));
+    open(optedDetail());
+    await settle();
+    const dialogField = within(screen.getByRole("dialog")).getByRole("textbox", { name: "Other answer" }) as HTMLInputElement;
+    expect(dialogField.value).toBe("ab");
+    cardView.unmount();
+  });
+
+  it("S50: images are not restored in the dialog and its image map is neither read nor written", async () => {
+    setPromptDraftImages("s1", "p1", -1, [{ type: "image", data: "AAA", mimeType: "image/png" }]);
+    const before = promptDraftStats().imageEntries;
+    const cardView = render(
+      <InputRenderer requestId="p1" sessionId="s1" method="input" params={{ title: "t" }} status="pending" onRespond={() => {}} onCancel={() => {}} />,
+    );
+    expect(cardView.container.querySelectorAll("img.h-16")).toHaveLength(1); // the card restores it
+    fireEvent.change(cardView.container.querySelector("textarea") as HTMLTextAreaElement, { target: { value: "t" } });
+    cardView.unmount();
+    const d = detail({ id: "q1", promptId: "p1", sessionId: "s1", type: "input", options: undefined });
+    serve(() => ok(d));
+    open(d);
+    await settle();
+    const dlg = screen.getByRole("dialog");
+    expect((dlg.querySelector("textarea") as HTMLTextAreaElement).value).toBe("t");
+    expect(dlg.querySelectorAll("img.h-16")).toHaveLength(0);
+    expect(promptDraftStats().imageEntries).toBe(before);
+    expect(getPromptDraftImages("s1", "p1")).toHaveLength(1);
+  });
+
+  it("an old server's detail without promptId is ephemeral: nothing persisted, nothing shared", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const d = optedDetail({ promptId: undefined });
+      serve(() => ok(d));
+      open(d);
+      await settle();
+      fireEvent.click(screen.getByRole("button", { name: "Other" }));
+      fireEvent.change(otherField(), { target: { value: "x" } });
+      vi.advanceTimersByTime(PROMPT_DRAFT_DEBOUNCE_MS * 2);
+      expect(Object.keys(sessionStorage).filter((k) => k.startsWith("ask-draft:"))).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("S59/S72: a failed delivery keeps the draft (store + sessionStorage) and the typed text", async () => {
+    const d = optedDetail();
+    serve((url, init) => (init?.method === "POST" ? err(500, "boom") : ok(d)));
+    const { onClose } = open(d);
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    fireEvent.change(otherField(), { target: { value: "keep me" } });
+    fireEvent.keyDown(otherField(), { key: "Enter" });
+    await waitFor(() => expect(screen.getByTestId("question-answer-error")).toBeTruthy());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(hasPromptDraft("s1", "p1")).toBe(true);
+    window.dispatchEvent(new Event("pagehide")); // flush the debounced mirror now
+    expect(sessionStorage.getItem("ask-draft:s1:p1")).toContain("keep me");
+    expect(otherField().value).toBe("keep me");
+  });
+
+  it("S73: a slow answer keeps the draft until the request leaves `pending` — cleared by state, not at the click", async () => {
+    const d = optedDetail();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    serve(async (url, init) => {
+      if (init?.method === "POST") {
+        await gate;
+        return ok({ transmitted: true });
+      }
+      return ok(d);
+    });
+    const { onClose } = open(d);
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    fireEvent.change(otherField(), { target: { value: "slow" } });
+    fireEvent.keyDown(otherField(), { key: "Enter" });
+    await settle();
+    expect(hasPromptDraft("s1", "p1")).toBe(true); // in flight
+    release();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(hasPromptDraft("s1", "p1")).toBe(true); // still pending in state: the dialog itself never clears
+    sweepPromptDrafts(new Map([["s1", { interactiveRequests: [{ requestId: "p1", method: "select", params: {}, status: "resolved" as const }] }]]));
+    expect(hasPromptDraft("s1", "p1")).toBe(false);
   });
 });

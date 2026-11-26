@@ -8,7 +8,6 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { forbiddenGrantSubjects } from "../forbidden-subjects.js";
 import { nativePathApi, piPathComparisonKey, piPathsEqual } from "../pi-path-compare.js";
-import { nearestRecordedEntry } from "../pi-trust-mirror-snapshot.js";
 import {
   ancestorKeys,
   decidePiTrust,
@@ -19,6 +18,7 @@ import {
   mirrorDenyRules,
   piTrustKey,
 } from "../pi-trust-mirror.js";
+import { nearestRecordedEntry } from "../pi-trust-mirror-snapshot.js";
 
 const settings = (over: Partial<Record<MirrorSourceKind, boolean>> = {}) => ({
   sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false, yolo: true, ...over },
@@ -269,5 +269,16 @@ describe("#E2 snapshot liveCount reader (mirror-dashboard-trust-live-remote)", (
   it("a parent-era snapshot reads liveCount 0 with its entries unchanged", async () => {
     const snap = await read({});
     expect(snap).toEqual({ version: 1, generation: 3, entries: [entry], liveCount: 0 });
+  });
+});
+
+// harden-agent-tool-guards D7 (T.84, test-plan #E85): the deny rules build on the shared sensitive list.
+describe("T.84 credential dirs are never mirrored or trusted", () => {
+  it("a pinned folder inside ~/.aws or ~/.kube (with .pi/) is denied; the CLI credential dirs and browser roots are subtree-denied", () => {
+    const rules = mirrorDenyRules({ homedir: "/h", platform: "linux" });
+    for (const p of ["/h/.aws/proj", "/h/.kube/x", "/h/.config/gh/x", "/h/.docker/c", "/h/.config/google-chrome/Default"]) {
+      expect(isMirrorDenied(p, rules, "linux"), p).toBe(true);
+    }
+    expect(isMirrorDenied("/h/work/app", rules, "linux")).toBe(false);
   });
 });

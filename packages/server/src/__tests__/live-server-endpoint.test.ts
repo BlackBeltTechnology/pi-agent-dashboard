@@ -165,6 +165,8 @@ function stubManager(ids: string[] = ["vite-5173", "docs-8080"]) {
     getStatic: () => undefined,
     presetSessionOf: () => undefined,
     has: (id: string) => targets.has(id),
+    getByPort: () => undefined,
+    portRefusal: () => null,
     list: () => [...targets.values()],
     remove: (id: string) => {
       targets.delete(id);

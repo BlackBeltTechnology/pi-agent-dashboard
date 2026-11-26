@@ -27,6 +27,9 @@ export const YOUTUBE_HOSTS = new Set([
   "youtu.be",
 ]);
 
+/** Kinds whose renderer takes a URL target (media / PDF); all other kinds are file-only. */
+const URL_MEDIA_KINDS: ReadonlySet<RendererKind> = new Set(["video", "audio", "image", "pdf"]);
+
 export function dispatchPreview(target: ViewTarget): RendererKind {
   if (target.kind === "file") {
     return RENDERER_BY_EXT[extOf(target.path)] ?? "fallback";
@@ -34,14 +37,20 @@ export function dispatchPreview(target: ViewTarget): RendererKind {
   // URL target — host first, then extension, then fallback.
   let host = "";
   let pathname = "";
+  let protocol = "";
   try {
     const u = new URL(target.url);
     host = u.hostname.toLowerCase();
     pathname = u.pathname;
+    protocol = u.protocol;
   } catch {
     return "fallback";
   }
+  if (protocol !== "http:" && protocol !== "https:") return "fallback";
   if (YOUTUBE_HOSTS.has(host)) return "youtube";
-  const ext = extOf(pathname);
-  return RENDERER_BY_EXT[ext] ?? "fallback";
+  // Only renderers that accept a URL target keep their kind; every other
+  // extension (`.html`, `.md`, none…) is a web page. Framing is decided by
+  // `WebPagePreview`, never here. See change: rich-chat-links (D11).
+  const kind = RENDERER_BY_EXT[extOf(pathname)];
+  return kind && URL_MEDIA_KINDS.has(kind) ? kind : "webpage";
 }

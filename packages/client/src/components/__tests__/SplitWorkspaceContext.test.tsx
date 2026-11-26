@@ -814,3 +814,96 @@ describe("SplitWorkspaceProvider — empty cwd guard", () => {
     expect(onWatchFiles).toHaveBeenCalledWith("sE", "/proj", expect.any(Array));
   });
 });
+
+describe("openUrlTarget opener provenance (rich-chat-links, #E24)", () => {
+  beforeEach(() => localStorage.clear());
+  const URL_A = "https://example.com/d";
+
+  it("same URL reuses its tab; operator click upgrades + activates; an agent open never downgrades", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sE24") });
+    const urlTabs = () => result.current.paneState.openFiles.filter((f) => f.path === `url:${URL_A}`);
+
+    act(() => result.current.openUrlTarget(URL_A));
+    expect(urlTabs()).toHaveLength(1);
+    expect(urlTabs()[0].opener).toBeUndefined();
+
+    // A different tab takes focus, then the operator clicks the same URL again.
+    act(() => result.current.openInSplit("src/other.ts"));
+    expect(result.current.paneState.openFiles[result.current.paneState.activeIndex].path).toBe("src/other.ts");
+    act(() => result.current.openUrlTarget(URL_A, { opener: "operator-click" }));
+    expect(urlTabs()).toHaveLength(1);
+    expect(urlTabs()[0].opener).toBe("operator-click");
+    expect(result.current.paneState.openFiles[result.current.paneState.activeIndex].path).toBe(`url:${URL_A}`);
+
+    // Agent re-opens the URL: still one tab, the operator provenance is kept.
+    act(() => result.current.openUrlTarget(URL_A, { opener: "agent" }));
+    expect(urlTabs()).toHaveLength(1);
+    expect(urlTabs()[0].opener).toBe("operator-click");
+  });
+
+  it("a fresh tab records the opener it was opened with", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sE24b") });
+    act(() => result.current.openUrlTarget(URL_A, { opener: "agent" }));
+    expect(result.current.paneState.openFiles[0].opener).toBe("agent");
+  });
+
+  it("`opener` is in-memory only: a restored tab starts without it", () => {
+    const first = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sE24c") });
+    act(() => first.result.current.openUrlTarget(URL_A, { opener: "operator-click" }));
+    expect(first.result.current.paneState.openFiles[0].opener).toBe("operator-click");
+    first.unmount();
+    const raw = localStorage.getItem("pi-dashboard:editor-pane:sE24c") ?? "";
+    expect(raw).toContain(`url:${URL_A}`);
+    expect(raw).not.toContain("operator-click");
+    const second = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sE24c") });
+    expect(second.result.current.paneState.openFiles[0].opener).toBeUndefined();
+  });
+});
+
+describe("openSourceTab / htmlMode (rich-chat-links, #E27)", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("openSourceTab opens `source:<abs>` beside the rendered tab; a second call focuses it", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sE27", "/w/r") });
+    act(() => result.current.openInSplit("m/board.html"));
+    act(() => result.current.openSourceTab("m/board.html"));
+    const paths = () => result.current.paneState.openFiles.map((f) => f.path);
+    expect(paths()).toEqual(["m/board.html", "source:/w/r/m/board.html"]);
+    expect(result.current.paneState.openFiles[1].viewer).toBe("monaco");
+    expect(result.current.paneState.activeIndex).toBe(1);
+
+    act(() => result.current.dispatch({ type: "setActive", index: 0 }));
+    act(() => result.current.openSourceTab("/w/r/m/board.html")); // absolute input → the same tab
+    expect(paths()).toEqual(["m/board.html", "source:/w/r/m/board.html"]);
+    expect(result.current.paneState.activeIndex).toBe(1);
+  });
+
+  it("openSourceTab reveals a closed split", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sE27b", "/w/r") });
+    expect(result.current.split.mode).toBe("closed");
+    act(() => result.current.openSourceTab("a.html"));
+    expect(result.current.split.mode).toBe("split");
+  });
+
+  it("an outside-cwd absolute path keeps its own absolute tab", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sE27c", "/w/r") });
+    act(() => result.current.openSourceTab("/home/u/x.html"));
+    expect(result.current.paneState.openFiles[0].path).toBe("source:/home/u/x.html");
+  });
+
+  it("openInSplit records htmlMode on the tab, also on an already-open one", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sE28", "/w/r") });
+    act(() => result.current.openInSplit("m/board.html", undefined, undefined, { htmlMode: "static" }));
+    expect(result.current.paneState.openFiles[0].htmlMode).toBe("static");
+    // A plain re-open leaves the chosen mode alone; no duplicate tab.
+    act(() => result.current.openInSplit("m/board.html"));
+    expect(result.current.paneState.openFiles).toHaveLength(1);
+    expect(result.current.paneState.openFiles[0].htmlMode).toBe("static");
+    // An already-open rendered tab takes the mode when Static is chosen.
+    act(() => result.current.openInSplit("m/other.html"));
+    expect(result.current.paneState.openFiles[1].htmlMode).toBeUndefined();
+    act(() => result.current.openInSplit("m/other.html", undefined, undefined, { htmlMode: "static" }));
+    expect(result.current.paneState.openFiles).toHaveLength(2);
+    expect(result.current.paneState.openFiles[1].htmlMode).toBe("static");
+  });
+});

@@ -15,3 +15,5 @@ Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/c
 `security?: { trustedTypes?: unknown }` on `DashboardConfig`: `loadConfig()` copies `parsed.security.trustedTypes` RAW (unvalidated; `resolveTrustedTypesMode` validates + warns); never seeded by `ensureConfig()`. See change: enforce-trusted-types-default.
 
 `requireLocalProof` defaults TRUE; parse is boolean-strict (missing/non-boolean → true). See change: close-container-loopback-impersonation (D1).
+
+`liveServer.previewOrigins` kept independently of `previewExposure` (`parseLiveServerConfig` → `preview-origins.ts` `parsePreviewOrigins().value`); invalid tiers dropped individually. See change: serve-live-previews-on-capability-origin.

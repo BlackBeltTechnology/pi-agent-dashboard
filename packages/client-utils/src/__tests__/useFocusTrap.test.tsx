@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React, { useRef } from "react";
+import { afterEach, describe, expect, it } from "vitest";
 import { useFocusTrap } from "../useFocusTrap.js";
 
 afterEach(() => cleanup());
@@ -156,5 +156,198 @@ describe("useFocusTrap — late-arriving focusables", () => {
     expect(document.activeElement).toBe(getByTestId("trap"));
     await new Promise((r) => setTimeout(r, 20));
     expect(document.activeElement).toBe(getByTestId("trap"));
+  });
+});
+
+// ── data-autofocus: opt-in default focus target ──
+// See change: sidebar-folder-ux (test-plan #S20, #S22).
+function MarkedHarness({ markup }: { markup: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref, true);
+  return (
+    <div ref={ref} tabIndex={-1} data-testid="trap">
+      {markup}
+    </div>
+  );
+}
+
+describe("useFocusTrap — data-autofocus", () => {
+  it("focuses the marked control instead of the first focusable", () => {
+    const { getByTestId } = render(
+      <MarkedHarness
+        markup={
+          <>
+            <button data-testid="close">✕</button>
+            <button data-testid="cancel" data-autofocus>
+              Cancel
+            </button>
+          </>
+        }
+      />,
+    );
+    expect(document.activeElement).toBe(getByTestId("cancel"));
+  });
+
+  it("skips a marked control inside a CSS-hidden ancestor and focuses the first visible focusable", () => {
+    const { getByTestId } = render(
+      <MarkedHarness
+        markup={
+          <>
+            <button data-testid="close">✕</button>
+            <div style={{ display: "none" }}>
+              <button data-testid="cancel" data-autofocus>
+                Cancel
+              </button>
+            </div>
+          </>
+        }
+      />,
+    );
+    expect(document.activeElement).toBe(getByTestId("close"));
+  });
+
+  it("falls back to the first focusable when nothing is marked", () => {
+    const { getByTestId } = render(
+      <MarkedHarness
+        markup={
+          <>
+            <button data-testid="close">✕</button>
+            <button data-testid="cancel">Cancel</button>
+          </>
+        }
+      />,
+    );
+    expect(document.activeElement).toBe(getByTestId("close"));
+  });
+
+  it("with several marked controls focuses the first in DOM order", () => {
+    const { getByTestId } = render(
+      <MarkedHarness
+        markup={
+          <>
+            <button data-testid="close">✕</button>
+            <button data-testid="a" data-autofocus>
+              A
+            </button>
+            <button data-testid="b" data-autofocus>
+              B
+            </button>
+          </>
+        }
+      />,
+    );
+    expect(document.activeElement).toBe(getByTestId("a"));
+  });
+
+  it("skips a marked control that is hidden (own attribute or ancestor)", () => {
+    const { getByTestId } = render(
+      <MarkedHarness
+        markup={
+          <>
+            <button data-testid="close">✕</button>
+            <button data-testid="hid" data-autofocus aria-hidden="true">
+              Hidden
+            </button>
+            <div hidden>
+              <button data-testid="hid2" data-autofocus>
+                Hidden too
+              </button>
+            </div>
+          </>
+        }
+      />,
+    );
+    expect(document.activeElement).toBe(getByTestId("close"));
+  });
+
+  it("late arrival: focus moves once, to the marked control, and is not taken back", async () => {
+    function LateMarked() {
+      const ref = useRef<HTMLDivElement>(null);
+      const [ready, setReady] = React.useState(false);
+      useFocusTrap(ref, true);
+      React.useEffect(() => setReady(true), []);
+      return (
+        <div ref={ref} tabIndex={-1} data-testid="trap">
+          {ready && (
+            <>
+              <button data-testid="plain">Plain</button>
+              <button data-testid="marked" data-autofocus>
+                Marked
+              </button>
+            </>
+          )}
+        </div>
+      );
+    }
+    const { getByTestId } = render(<LateMarked />);
+    await waitFor(() => expect(document.activeElement).toBe(getByTestId("marked")));
+    // The user moves focus on; the one-shot handoff must not steal it back.
+    getByTestId("plain").focus();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).toBe(getByTestId("plain"));
+  });
+
+  it("late arrival with nothing marked still focuses the first focusable", async () => {
+    function LateUnmarked() {
+      const ref = useRef<HTMLDivElement>(null);
+      const [ready, setReady] = React.useState(false);
+      useFocusTrap(ref, true);
+      React.useEffect(() => setReady(true), []);
+      return (
+        <div ref={ref} tabIndex={-1} data-testid="trap">
+          {ready && (
+            <>
+              <button data-testid="one">One</button>
+              <button data-testid="two">Two</button>
+            </>
+          )}
+        </div>
+      );
+    }
+    const { getByTestId } = render(<LateUnmarked />);
+    await waitFor(() => expect(document.activeElement).toBe(getByTestId("one")));
+  });
+});
+
+/** Two traps that do NOT contain each other (a portaled plugin dialog over the Settings overlay). */
+function Stacked() {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  useFocusTrap(outer, true);
+  useFocusTrap(inner, true);
+  return (
+    <>
+      <div ref={outer} tabIndex={-1} data-testid="outer">
+        <button data-testid="outer-first">Outer</button>
+      </div>
+      <div ref={inner} tabIndex={-1} data-testid="inner">
+        <button data-testid="inner-a">A</button>
+        <button data-testid="inner-b">B</button>
+        <button data-testid="inner-c">C</button>
+      </div>
+    </>
+  );
+}
+
+describe("useFocusTrap — stacked dialogs", () => {
+  it("only the topmost trap acts: Tab from the middle of the top dialog is left to the browser, not pinned to its first control", () => {
+    const { getByTestId } = render(<Stacked />);
+    const b = getByTestId("inner-b");
+    b.focus();
+    expect(fireEvent.keyDown(b, { key: "Tab" })).toBe(true); // not default-prevented, no focus move
+    expect(document.activeElement).toBe(b);
+  });
+
+  it("the top trap still wraps at its own edge, and the lower trap resumes once the top one closes", () => {
+    const { getByTestId, rerender } = render(<Stacked />);
+    const c = getByTestId("inner-c");
+    c.focus();
+    fireEvent.keyDown(c, { key: "Tab" });
+    expect(document.activeElement).toBe(getByTestId("inner-a"));
+    rerender(<Harness open />); // unmount Stacked → both traps leave the stack
+    const last = getByTestId("last");
+    last.focus();
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(document.activeElement).toBe(getByTestId("first"));
   });
 });

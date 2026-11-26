@@ -11,8 +11,9 @@
  * Covers test-plan E12–E22, E30, P2, X1, X2, X6, X7.
  * See change: widen-containment-to-resolved-checkout.
  */
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import * as gitMod from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import {
@@ -26,8 +27,10 @@ import {
   useGitPath,
 } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-shim.js";
 import Fastify from "fastify";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { decidePassive } from "../../access/containment-gate.js";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { __resetPathDenials, listPathDenials } from "../../access/access-denials.js";
+import { __resetAccessGrants, recordGrant } from "../../access/access-grants.js";
+import { decidePassive, evaluateContainment } from "../../access/containment-gate.js";
 import { checkoutAnchors, isAllowed, isAllowedReal, within } from "../path-containment.js";
 
 // Spy on the resolver/binding seams so "git was never spawned" is assertable.
@@ -395,5 +398,108 @@ describe("empty grant store ≡ layers ①–② alone (T.39)", () => {
       expect(withEmptyGrants.allowed, p).toBe(bare);
       expect(withEmptyGrants.viaGrant, p).toBe(false);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix-file-link-editor-routing 3b: containment for a WRITE. `action:"write"`
+// disables the checkout-root widening (layer ②) and admits only write grants.
+// test-plan #S23, #S24.
+// ---------------------------------------------------------------------------
+describe("evaluateContainment action:'write' (S23, S24)", () => {
+  let grantsDir: string;
+  let prevStore: string | undefined;
+
+  beforeEach(() => {
+    grantsDir = mkdtempSync(path.join(os.tmpdir(), "pc-write-"));
+    prevStore = process.env.PI_ACCESS_GRANTS_STORE;
+    process.env.PI_ACCESS_GRANTS_STORE = path.join(grantsDir, "grants.json");
+    __resetAccessGrants();
+    __resetPathDenials();
+  });
+
+  afterEach(() => {
+    if (prevStore === undefined) delete process.env.PI_ACCESS_GRANTS_STORE;
+    else process.env.PI_ACCESS_GRANTS_STORE = prevStore;
+    __resetAccessGrants();
+    __resetPathDenials();
+    rmSync(grantsDir, { recursive: true, force: true });
+  });
+
+  const decide = async (p: string, anchors: string[], action?: "read" | "write") =>
+    (await evaluateContainment(p, anchors, { site: "t", ...(action ? { action } : {}) })).allowed;
+
+  it("S23: the matrix — location × action", async () => {
+    const cwd = subdir(fx.worktree, "packages", "s23");
+    const inCwd = path.join(cwd, "in.md");
+    // Bound checkout roots: the worktree's own root and the MAIN checkout (layer ②).
+    const checkoutFile = path.join(fx.normal, "s23-checkout.md");
+    const worktreeRootFile = path.join(fx.worktree, "s23-root.md");
+    const readGrantDir = subdir(fx.root, "s23-read");
+    const writeGrantDir = subdir(fx.root, "s23-write");
+    const noneDir = subdir(fx.root, "s23-none");
+    const readFile = path.join(readGrantDir, "r.md");
+    const writeFile = path.join(writeGrantDir, "w.md");
+    const noneFile = path.join(noneDir, "n.md");
+    for (const f of [inCwd, checkoutFile, worktreeRootFile, readFile, writeFile, noneFile]) writeFileSync(f, "x");
+    recordGrant({ subject: readGrantDir });
+    recordGrant({ subject: writeGrantDir, mode: "write" });
+
+    // [location, path, readOrNone, write]
+    const rows: Array<[string, string, boolean, boolean]> = [
+      ["under cwd", inCwd, true, true],
+      ["bound checkout root (own)", worktreeRootFile, true, false],
+      ["bound checkout root (main)", checkoutFile, true, false],
+      ["under a read grant", readFile, true, false],
+      ["under a write grant (write ⊃ read)", writeFile, true, true],
+      ["none", noneFile, false, false],
+    ];
+    for (const [name, p, readOk, writeOk] of rows) {
+      expect(await decide(p, [cwd]), `${name} / no action`).toBe(readOk);
+      expect(await decide(p, [cwd], "read"), `${name} / read`).toBe(readOk);
+      expect(await decide(p, [cwd], "write"), `${name} / write`).toBe(writeOk);
+    }
+  });
+
+  it("S23: a no-action evaluation is byte-identical to pre-change (decision shape and denial record)", async () => {
+    const cwd = subdir(fx.normal, "s23b");
+    const miss = path.join(fx.root, "s23b-miss", "m.md");
+    mkdirSync(path.dirname(miss), { recursive: true });
+    writeFileSync(miss, "x");
+    const d = await evaluateContainment(miss, [cwd], { site: "t" });
+    expect(d.allowed).toBe(false);
+    expect(Object.keys(d).sort()).toEqual(["allowed", "real", "remedy", "resolved", "viaGrant"]);
+    const [denial] = listPathDenials();
+    expect(denial).toBeDefined();
+    expect("action" in denial).toBe(false); // a read denial carries no `action` key
+  });
+
+  it("S23: a write refusal records action:'write' on the denial", async () => {
+    const cwd = subdir(fx.normal, "s23c");
+    const miss = path.join(fx.root, "s23c-miss", "m.md");
+    mkdirSync(path.dirname(miss), { recursive: true });
+    writeFileSync(miss, "x");
+    await evaluateContainment(miss, [cwd], { site: "t", action: "write" });
+    expect(listPathDenials()[0]).toMatchObject({ action: "write" });
+  });
+
+  it("S24: a write grant admits its subtree, not a prefix-sibling, parent, or a symlink escaping it", async () => {
+    const cwd = subdir(fx.normal, "s24");
+    const grant = subdir(fx.root, "s24", "Downloads");
+    const old = subdir(fx.root, "s24", "Downloads-old");
+    const secretDir = subdir(fx.root, "s24", "secret");
+    const nested = path.join(subdir(grant, "a", "b"), "x.md");
+    const prefixSibling = path.join(old, "x.md");
+    const parent = path.join(fx.root, "s24", "x.md");
+    const secret = path.join(secretDir, "l.md");
+    const link = path.join(grant, "l.md");
+    for (const f of [nested, prefixSibling, parent, secret]) writeFileSync(f, "x");
+    symlinkSync(secret, link);
+    recordGrant({ subject: grant, mode: "write" });
+
+    expect(await decide(nested, [cwd], "write"), "nested").toBe(true);
+    expect(await decide(prefixSibling, [cwd], "write"), "Downloads-old").toBe(false);
+    expect(await decide(parent, [cwd], "write"), "parent").toBe(false);
+    expect(await decide(link, [cwd], "write"), "symlink judged on realpath").toBe(false);
   });
 });

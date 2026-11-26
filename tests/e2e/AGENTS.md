@@ -12,6 +12,8 @@ One row per file.
 | `acp-spawn-picker.spec.ts` | → `acp-spawn-picker.spec.ts.AGENTS.md` |
 | `agent-credential-refusal.spec.ts` | → `agent-credential-refusal.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → `agent-path-gate.spec.ts.AGENTS.md` |
+| `agent-secret-guards.spec.ts` | → `agent-secret-guards.spec.ts.AGENTS.md` |
+| `agent-teams-core.spec.ts` | L3 (add-agent-teams-core, test-plan S133/S134): a faux-scripted lead (`agent-teams-lead-spawn`/`-task`)… → see `agent-teams-core.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → `archived-attachment.spec.ts.AGENTS.md` |
@@ -21,6 +23,7 @@ One row per file.
 | `canvas-loopback-url-chip.spec.ts` | L3 |
 | `canvas-static-mockup.spec.ts` | L3 |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
+| `chat-gateway-guard-readiness.spec.ts` | → `chat-gateway-guard-readiness.spec.ts.AGENTS.md` |
 | `chat-motion.spec.ts` | → `chat-motion.spec.ts.AGENTS.md` |
 | `claude-subscription-compat.spec.ts` | #F1 sign-in prompt → Turn on → row on after reload (real compat route, staged auth reads); #F3 Landing Step ① notice → Turn on → row on. See change: retire-anthropic-messages-bridge. |
 | `composer-dock-collapse.spec.ts` | L3 composer dock collapse/peek/file open (synthetic bridge, stubbed diff/quota): 44 px one-line bar at 375 px… → see `composer-dock-collapse.spec.ts.AGENTS.md` |
@@ -34,7 +37,9 @@ One row per file.
 | `credential-vault-locked.spec.ts` | → `credential-vault-locked.spec.ts.AGENTS.md` |
 | `csp-report-sink-oauth.spec.ts` | WF5: report sink POST public to armed OAuth gate; GET / unknown label gated. → see `csp-report-sink-oauth.spec.ts.AGENTS.md` |
 | `csp-strict-enforce.spec.ts` | WF2/WF3/WF6/WF7 under `PI_DASHBOARD_CSP=enforce`: no `unsafe-*`, nonce == import-map nonce, inline-script… → see `csp-strict-enforce.spec.ts.AGENTS.md` |
-| `csp-strict-report.spec.ts` | WF1/WF4 in default `report` harness: zero strict `script-src*` violations on core + plugin routes; TT/inline-script report delivery. See change: harden-cors-and-csp-reporting. |
+| `csp-strict-report.spec.ts` | WF1/WF4 in default `report` harness: zero strict `script-src*` violations on core + plugin routes;… → see `csp-strict-report.spec.ts.AGENTS.md` |
+| `csp-report-delivery.spec.ts` | F1 in default `report` harness: `/` carries `report-uri` only (no `report-to`, no `Reporting-Endpoints`);… → see `csp-report-delivery.spec.ts.AGENTS.md` |
+| `editor-pane-chrome.spec.ts` | Editor-pane chrome L3 (pane bar, document bar, rail Search, bulk close, Search tabs:… → see `editor-pane-chrome.spec.ts.AGENTS.md` |
 | `editor-pane-file-handler.spec.ts` | → `editor-pane-file-handler.spec.ts.AGENTS.md` |
 | `electron-pages-trusted-types.spec.ts` | F6: Electron bundled pages (`file://`, stubbed preload bridges) render hostile data as text under the… → see `electron-pages-trusted-types.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | → `first-run-create-project.spec.ts.AGENTS.md` |
@@ -45,6 +50,7 @@ One row per file.
 | `kb-settings-sources-search.spec.ts` | → `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | → `known-server-stale-name.spec.ts.AGENTS.md` |
 | `mock-site/` | Live-component mock site E2E (own config `playwright.mock-site.config.ts`, self-started site); see `mock-site/AGENTS.md`. See change: add-live-component-mock-site. |
+| `live-preview/` | Live-preview L3 suite (own config `playwright.live-preview.config.ts`, host-run isolated server +… → see `live-preview/.AGENTS.md` |
 | `pair-mode-request-access.spec.ts` | F7/F8 (variant harness `PI_E2E_TRUST_MODE=pair`, `PI_E2E_OAUTH=0`; skips elsewhere): unpaired browser shows… → see `pair-mode-request-access.spec.ts.AGENTS.md` |
 | `peer-shared-bridge.spec.ts` | → `peer-shared-bridge.spec.ts.AGENTS.md` |
 | `large-selection.spec.ts` | → `large-selection.spec.ts.AGENTS.md` |
@@ -65,6 +71,7 @@ One row per file.
 | `provider-models-refresh.spec.ts` | → `provider-models-refresh.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | → `push-webhook-settings.spec.ts.AGENTS.md` |
 | `README.md` | → `README.md.AGENTS.md` |
+| `access-credential-dirs.spec.ts` | → `access-credential-dirs.spec.ts.AGENTS.md` |
 | `fixtures/severity-baseline.json` | → `fixtures/severity-baseline.json.AGENTS.md` |
 | `fixtures/trusted-types-budget.json` | → `fixtures/trusted-types-budget.json.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | → `access-grants-revoke.spec.ts.AGENTS.md` |
@@ -92,6 +99,7 @@ One row per file.
 | `browser-relay.spec.ts` | → `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | → `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | → `chat-attachment-two-phase.spec.ts.AGENTS.md` |
+| `chat-image-only-send.spec.ts` | #1136: directory home still needs text (image only → send disabled, no spawn, S63); chat image-only send via… → see `chat-image-only-send.spec.ts.AGENTS.md` |
 | `chat-pane-below-floor-allocation.spec.ts` | → `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | → `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | → `chat-render-perf.spec.ts.AGENTS.md` |
@@ -183,6 +191,7 @@ One row per file.
 | `openspec-init-affordances-folder.spec.ts` | → `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | → `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | → `openspec-locality-gate.spec.ts.AGENTS.md` |
+| `openspec-shared-skills-layout.spec.ts` | → `openspec-shared-skills-layout.spec.ts.AGENTS.md` |
 | `openspec-status-all.spec.ts` | → `openspec-status-all.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | → `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | → `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
@@ -202,7 +211,7 @@ One row per file.
 | `security-pair-link.spec.ts` | → `security-pair-link.spec.ts.AGENTS.md` |
 | `paging-empty-reply-exhausted.spec.ts` | → `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
 | `paging-exhausted-reconnect-rearm.spec.ts` | → `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
-| `pi-1-5-floor-smoke.spec.ts` | → `pi-1-5-floor-smoke.spec.ts.AGENTS.md` |
+| `pi-1-6-floor-smoke.spec.ts` | → `pi-1-6-floor-smoke.spec.ts.AGENTS.md` |
 | `pi-runtime.spec.ts` | → `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | → `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-hash-parity.spec.ts` | → `plugin-hash-parity.spec.ts.AGENTS.md` |
@@ -257,6 +266,7 @@ One row per file.
 | `skill-provenance.spec.ts` | → `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | → `smoke.spec.ts.AGENTS.md` |
 | `spawn-correlation-recovery.spec.ts` | → `spawn-correlation-recovery.spec.ts.AGENTS.md` |
+| `spawn-skill-follows-trust.spec.ts` | → `spawn-skill-follows-trust.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | → `split-composer-overflow.spec.ts.AGENTS.md` |
 | `split-divider-drag.spec.ts` | #F1-F4 divider drag |
 | `steer-cancel.spec.ts` | → `steer-cancel.spec.ts.AGENTS.md` |
@@ -286,6 +296,9 @@ One row per file.
 | `tool-burst.spec.ts` | → `tool-burst.spec.ts.AGENTS.md` |
 | `tool-collapse-narration.spec.ts` | → `tool-collapse-narration.spec.ts.AGENTS.md` |
 | `tool-created-files.spec.ts` | → `tool-created-files.spec.ts.AGENTS.md` |
+| `rich-links-files.spec.ts` | → `rich-links-files.spec.ts.AGENTS.md` |
+| `rich-links-flush.spec.ts` | → `rich-links-flush.spec.ts.AGENTS.md` |
+| `rich-links-web.spec.ts` | → `rich-links-web.spec.ts.AGENTS.md` |
 | `tool-output-links.spec.ts` | → `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | → `tool-output-selection.spec.ts.AGENTS.md` |
 | `trust-mode-pair.spec.ts` | → `trust-mode-pair.spec.ts.AGENTS.md` |
@@ -308,6 +321,10 @@ One row per file.
 | `mcp-tiered-token.spec.ts` | → `mcp-tiered-token.spec.ts.AGENTS.md` |
 | `identity-matrix/` | → `identity-matrix.AGENTS.md` |
 | `card-block-toggles.spec.ts` | → `card-block-toggles.spec.ts.AGENTS.md` |
+| `card-sections-global-pointer.spec.ts` | → `card-sections-global-pointer.spec.ts.AGENTS.md` |
 | `card-visual-effects.spec.ts` | → `card-visual-effects.spec.ts.AGENTS.md` |
 | `focus-mode.spec.ts` | → `focus-mode.spec.ts.AGENTS.md` |
 | `folder-accordion.spec.ts` | → `folder-accordion.spec.ts.AGENTS.md` |
+| `untrusted-content-guard-posture.spec.ts` | → `untrusted-content-guard-posture.spec.ts.AGENTS.md` |
+| `untrusted-content-guard-project-layer.spec.ts` | → `untrusted-content-guard-project-layer.spec.ts.AGENTS.md` |
+| `prompt-draft-persistence.spec.ts` | #1117 prompt-answer drafts: Other text survives a session switch (S40), batch step+answers survive a reload… → see `prompt-draft-persistence.spec.ts.AGENTS.md` |

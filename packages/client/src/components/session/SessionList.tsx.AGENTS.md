@@ -69,3 +69,10 @@ See change: fix-archive-fold-key-and-filter-chips.
 - `ToggleButton` optional `icon`: set → full-width row, leading icon, trailing `mdiCheck` (`<testId>-check`, `aria-hidden`) while active; unset → markup unchanged (scope toggles). Funnel `Archived` (`mdiArchiveOutline`, `search-include-archive`) + `Hidden` (`mdiEyeOffOutline`, `show-hidden-toggle`) both render through it.
 - `card-pill-surfaces-no-literals.test.ts` anchors 3 regions (ToggleButton, renderAddToWorkspaceButton, folder-pinned-indicator-); archive chip no longer a separate anchor.
 - Tests: `SessionList.folder-visibility.test.tsx` (archive fold keyed by archiveKeyPlatform), `SessionList.header-declutter.test.tsx` (E12/E13 fold-key change).
+
+## sidebar-folder-ux
+- `remove-from-sidebar` (`directory` group, neutral): pinned or workspace-owned folders. No live session → sends `onRemoveFolderFromWorkspace(ws,cwd)` then `onUnpinDirectory(cwd)` directly. Live (status ≠ `ended`, **unfiltered** `sessions`, same group key via `sessionsInGroup` in `lib/session/session-grouping.ts`) → `RemoveFromSidebarConfirm` (state `removeFromSidebar`, ctx captured at open; outlives menu/folder). Confirm: `onShutdown` per live session recomputed NOW (try/catch each), then removal (each try/catch), focus back to `folder-actions-menu-<cwd>` via `refocusTriggerCwd` + effect. Withheld when live sessions exist and `onShutdown` is absent.
+- Focus mode: `useFocusState().enabled` → `suppressChip` on both compact `FolderActionBanner` call sites.
+- Accordion compact: no Group-by row (`!isCompact` on the collapsed-row condition); compact-empty count = header `<button data-testid=folder-compact-count-<cwd>>` (sibling of the name link, `aria-label` `1 session`/`N sessions`, `--text-secondary`, `stopPropagation`, `activateFolder` only). `folder-compact-row-*` is gone.
+- Tests: `SessionList.remove-from-sidebar.test.tsx`, `SessionList.accordion.test.tsx` (count), `SessionList.card-blocks.test.tsx` (Focus × chip), `SessionList.focus-render-count.test.tsx`.
+

@@ -1,5 +1,6 @@
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
+import { BUDGET_TEST_EXCLUDE } from "../../vitest.workers";
 import { REAL_PROCESS_TESTS } from "./vitest.real-process-files";
 
 /**
@@ -23,6 +24,8 @@ export default defineConfig({
     // so the paths mean the same thing from either cwd.
     root: __dirname,
     include: [...REAL_PROCESS_TESTS],
+    // Budget files run only in the nightly lane (RUN_BUDGET_TESTS=1); see vitest.workers.ts, design.md D1.
+    exclude: [...configDefaults.exclude, ...BUDGET_TEST_EXCLUDE],
     environment: "node",
     pool: "forks",
     // Two forks, not `PARALLEL_MAX_WORKERS`: every member spawns at least one

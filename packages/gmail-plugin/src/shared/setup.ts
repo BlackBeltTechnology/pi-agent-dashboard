@@ -1,6 +1,6 @@
 /**
- * Setup-field validators shared by the wizard (instant feedback) and the
- * server route (authoritative): project id and owner account. Pure.
+ * Setup-field validators (project id, owner account). Pure. The setup wizard now lives
+ * in the Google accounts plugin (Settings → Google accounts); kept for legacy-import code.
  * See change: improve-gmail-plugin-setup-ux.
  */
 

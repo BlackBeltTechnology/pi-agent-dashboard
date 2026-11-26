@@ -719,11 +719,15 @@ The bridge SHALL register `pi.on("session_info_changed", ...)` (pi 0.80.3+, try/
 
 ### Requirement: Bridge auto-decides project_trust for dashboard-spawned headless sessions in the activation cwd
 
-The bridge SHALL capture `activationCwd = process.cwd()` and whether the session is dashboard-spawned at bridge **activation** (before any `project_trust` event can fire — the event is emitted during resource-loader reload, ahead of `session_start`); dashboard-spawned SHALL be derived once from the single-use spawn token present at activation, which the bridge SHALL then remove from its process environment while keeping the value for its first registration. It SHALL register a `project_trust` handler (pi 0.79.0+) as a personal extension that reads `eventCwd` from the event's `cwd`, falling back to its own per-event `ctx` argument, inside try/catch; any error SHALL yield undecided. When pi's trust store file (of the running pi's agent directory, read without pi's lock) holds a recorded entry for `eventCwd` or an ancestor, or cannot be read, parsed or validated, the handler SHALL return undecided, so pi's own resolution applies — a deliberate change: a dashboard-spawned headless session in an activation cwd the user recorded as untrusted no longer auto-trusts. Otherwise it SHALL decide "trust" for this run when `dashboardSpawned === true`, `isHeadlessRpcSession(...)` is true, the canonical forms of `eventCwd` and `activationCwd` are equal, AND `eventCwd` is not a folder the `pi-trust-mirror` forbidden-folder rules exclude (also a deliberate change: dashboard spawns in temporary, `~/Downloads`, `~/.cache` or forbidden folders no longer auto-trust). In every other case it SHALL resolve `eventCwd` through the `pi-trust-mirror` decision from the snapshot and, when the snapshot does not cover it and the live-query conditions hold, from the `pi-trust-mirror` live trust query, awaited for at most `piTrustMirror.liveQueryTimeoutMs` (the handler is asynchronous; pi awaits it) — consulting dashboard trust for sessions other than dashboard-spawned headless ones only when `piTrustMirror.coverInteractive` is true — and SHALL decide "trust" for this run when that yields dashboard trust, returning undecided otherwise, and logging the reason when a dashboard-spawned session is denied trust it would have had before this change. Trust SHALL be per-run (never remembered). `ctx.isProjectTrusted()` SHALL be logging-only. Because pi applies the first yes/no among extension handlers, a "trust" from the bridge takes precedence over a later user extension's refusal; this SHALL be documented. Dashboard trust covers subtrees, so this auto-decision is deliberately widened from the exact activation directory to folders dashboard trust covers.
+The bridge SHALL capture `activationCwd = process.cwd()` and whether the session is dashboard-spawned at bridge **activation** (before any `project_trust` event can fire — the event is emitted during resource-loader reload, ahead of `session_start`); dashboard-spawned SHALL be derived once from the single-use spawn token present at activation, which the bridge SHALL then remove from its process environment while keeping the value for its first registration. It SHALL register a `project_trust` handler (pi 0.79.0+) as a personal extension that reads `eventCwd` from the event's `cwd`, falling back to its own per-event `ctx` argument, inside try/catch; any error SHALL yield undecided. When pi's trust store file (of the running pi's agent directory, read without pi's lock) holds a recorded entry for `eventCwd` or an ancestor, or cannot be read, parsed or validated, the handler SHALL return undecided, so pi's own resolution applies — a deliberate change: a dashboard-spawned headless session in an activation cwd the user recorded as untrusted no longer auto-trusts. Otherwise it SHALL resolve `eventCwd`, the activation cwd included, through the `pi-trust-mirror` decision from the snapshot and, when the snapshot does not cover it and the live-query conditions hold, from the `pi-trust-mirror` live trust query, awaited for at most `piTrustMirror.liveQueryTimeoutMs` (the handler is asynchronous; pi awaits it) — consulting dashboard trust for sessions other than dashboard-spawned headless ones only when `piTrustMirror.coverInteractive` is true — and SHALL decide "trust" for this run when that yields dashboard trust, returning undecided otherwise. There is no activation-cwd rule of its own: a dashboard spawn into a folder that no dashboard trust source covers (a pinned folder, a folder inside a workspace folder, a covered access grant or YOLO root) SHALL NOT be auto-trusted, whichever road spawned it, and pi's own resolution applies. A dashboard-spawned headless session whose activation cwd the `pi-trust-mirror` forbidden-folder rules exclude (temporary, `~/Downloads`, `~/.cache` or forbidden folders) SHALL log `forbidden-folder`, and the reason SHALL be logged whenever a dashboard-spawned session is denied trust it would have had before this change (`not-covered` when no source covers the folder, else the existing reason code). Trust SHALL be per-run (never remembered). `ctx.isProjectTrusted()` SHALL be logging-only. Because pi applies the first yes/no among extension handlers, a "trust" from the bridge takes precedence over a later user extension's refusal; this SHALL be documented.
 
 #### Scenario: Dashboard-spawned headless session in its activation cwd auto-trusts
-- **WHEN** a dashboard-spawned headless RPC session raises `project_trust` while `eventCwd` equals `activationCwd`, the folder is not forbidden, and pi's trust store has no recorded entry for it or an ancestor
+- **WHEN** a dashboard-spawned headless RPC session raises `project_trust` while `eventCwd` equals `activationCwd`, dashboard trust covers the folder (for example it is pinned), and pi's trust store has no recorded entry for it or an ancestor
 - **THEN** the handler SHALL decide "trust" for this run
+
+#### Scenario: Activation cwd outside dashboard trust is not auto-trusted
+- **WHEN** a dashboard-spawned headless RPC session raises `project_trust` while `eventCwd` equals `activationCwd`, the folder is unpinned, outside every workspace folder, covered by no grant or YOLO root, and `trust.json` has no entry for it
+- **THEN** the handler SHALL return undecided, log `not-covered`, and pi's own resolution SHALL apply
 
 #### Scenario: Recorded refusal beats the activation-cwd rule
 - **WHEN** a dashboard-spawned headless RPC session raises `project_trust` in its activation cwd and `trust.json` records `false` for that cwd
@@ -1159,3 +1163,51 @@ Running and resumed sessions SHALL NOT change model when the role map changes.
 - **GIVEN** `config.defaultModel` is `@coding` and role `coding` is assigned `claude-haiku-5-5` (no `provider/`)
 - **WHEN** a brand-new startup session passes the default-model gate
 - **THEN** the bridge SHALL NOT call `pi.setModel()` and SHALL log one line naming `@coding`
+
+### Requirement: Bridge ownership is released on session-replacing shutdown
+When the bridge instance that owns the process-wide bridge slot receives `session_shutdown` with `reason` `reload`, `new`, `resume` or `fork`, it SHALL release ownership so the fresh `ExtensionAPI` pi loads next initialises the bridge (the ownership mechanism behind "Bridge WebSocket survives session replacement"). A different pi instance loading while the owner has not shut down (a subagent) SHALL still be skipped. `quit`, other and absent reasons SHALL NOT release.
+
+#### Scenario: Resume replacement registers
+- **WHEN** the owning instance receives `session_shutdown{reason:"resume"}` and pi then loads a new extension instance (a distinct `ExtensionAPI` object)
+- **THEN** the new instance SHALL pass the re-entry guard and send `session_register` for the incoming session
+
+#### Scenario: New and fork replacement register
+- **WHEN** the owning instance receives `session_shutdown{reason:"new"}` or `{reason:"fork"}` and pi loads a new instance
+- **THEN** the new instance SHALL pass the re-entry guard
+
+#### Scenario: Subagent load is still rejected
+- **WHEN** a different pi instance loads while the owner has received no `session_shutdown`
+- **THEN** initialisation SHALL be skipped and the parent's bridge SHALL be unchanged
+
+#### Scenario: Quit does not release
+- **WHEN** the owner receives `session_shutdown{reason:"quit"}` and a different pi instance loads
+- **THEN** the re-entry guard SHALL still reject it
+
+### Requirement: Bridge session shutdown leaves pi time for a clean exit
+
+On a `shutdown` request (the server's `{ type: "shutdown" }` message, or `/quit` / `/exit`) the bridge SHALL call `cachedCtx.shutdown()` first and arm an `unref()`'d `process.exit(0)` fallback after `BRIDGE_SHUTDOWN_FALLBACK_MS` (5000 ms). pi's own clean exit or the server's SIGTERM normally ends the process first, so the bridge does not cut short pi's `dispose()`, which waits for credential writes at the pi 1.6.0 floor.
+
+#### Scenario: Idle session exits through pi, not the fallback
+- **GIVEN** the session is idle
+- **WHEN** the bridge receives `{ type: "shutdown" }`
+- **THEN** it SHALL call `cachedCtx.shutdown()` once
+- **AND** SHALL NOT call `process.exit` within 4999 ms of the request
+
+#### Scenario: Fallback still ends a session nothing else stopped
+- **GIVEN** `cachedCtx.shutdown()` returned and the process is still running
+- **WHEN** 5000 ms elapse after the request
+- **THEN** the bridge SHALL call `process.exit(0)`
+
+#### Scenario: Fallback is armed even when shutdown is missing or throws
+- **GIVEN** `cachedCtx.shutdown` is absent, or throws
+- **WHEN** the bridge handles a `shutdown` request
+- **THEN** the error SHALL NOT escape the handler
+- **AND** the bridge SHALL still call `process.exit(0)` 5000 ms after the request
+
+#### Scenario: /quit takes the same path
+- **WHEN** the user sends `/quit` or `/exit` through the dashboard
+- **THEN** the bridge SHALL call `cachedCtx.shutdown()` and arm the same 5000 ms fallback
+
+#### Scenario: Fallback timer does not hold the event loop
+- **WHEN** the bridge arms the fallback timer
+- **THEN** the timer SHALL be `unref()`'d

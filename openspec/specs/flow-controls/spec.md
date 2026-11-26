@@ -81,7 +81,7 @@ The UI SHALL render a "Stop after turn" button alongside the existing Abort butt
 
 ### Requirement: Live flow header offers Open flow and Edit
 
-The live flow panel header SHALL offer **Open flow…** and **Edit…** beside Abort. While the flow is running, Open flow… SHALL be disabled with the reason "A flow is running"; Edit… SHALL stay enabled. The opened-but-not-started panel header SHALL offer Open flow… (to pick a different flow) and Edit… beside its existing Run control; that header never shows while a flow runs, because a running flow replaces it.
+The live flow panel header SHALL offer **Open flow…** and **Edit…** beside Abort. While the flow is running, Open flow… SHALL be disabled with the reason "A flow is running"; Edit… SHALL stay enabled. The opened-but-not-started panel header SHALL offer Open flow… (to pick a different flow) and Edit… beside its existing Run control; that header never shows while a flow runs, because a running flow replaces it. A view-only (path-opened) not-started panel SHALL offer Open flow… but SHALL NOT offer Edit… or Run (see `flow-pre-run-attach`).
 
 #### Scenario: Running flow header
 - **WHEN** a flow is running
@@ -91,3 +91,8 @@ The live flow panel header SHALL offer **Open flow…** and **Edit…** beside A
 - **GIVEN** `ship-it` is open but not started
 - **WHEN** the user activates Open flow… and picks `batch:apply`
 - **THEN** the panel SHALL show `batch:apply` as not started
+
+#### Scenario: View-only header
+- **GIVEN** a path-opened flow is shown view-only and not started
+- **WHEN** the header renders
+- **THEN** it SHALL show Open flow… and SHALL NOT show Edit… or Run

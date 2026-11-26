@@ -1,7 +1,8 @@
-import { isOtherAllowed } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
+import { isOtherAllowed, isOwnOtherOption } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
 import { mdiCheckboxMarkedOutline, mdiCheckCircle } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useState } from "react";
+import { useMemo, useState } from "react";
+import { usePromptDraft, usePromptDraftSync } from "../../hooks/usePromptDraft.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
@@ -9,25 +10,53 @@ import { InlineMarkdown } from "./InlineMarkdown.js";
 import { OtherOption } from "./OtherOption.js";
 import type { InteractiveRendererProps } from "./types.js";
 
-export function MultiselectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
+/** Persisted multiselect state: checked listed options + the inline Other row. */
+interface MultiselectDraft {
+  checked: string[];
+  otherActive: boolean;
+  otherText: string;
+}
+
+function parseMultiselectDraft(raw: unknown): MultiselectDraft | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  if (!Array.isArray(r.checked) || !r.checked.every((c) => typeof c === "string")) return undefined;
+  if (typeof r.otherActive !== "boolean" || typeof r.otherText !== "string") return undefined;
+  return { checked: r.checked as string[], otherActive: r.otherActive, otherText: r.otherText };
+}
+
+/** Re-keyed per (session, prompt) so a reused element re-initialises from that prompt's draft. */
+export function MultiselectRenderer(props: InteractiveRendererProps) {
+  return <MultiselectRendererBody key={`${props.sessionId ?? ""}\u0000${props.requestId}`} {...props} />;
+}
+
+function MultiselectRendererBody({ params, status, result, onRespond, onCancel, sessionId, requestId }: InteractiveRendererProps) {
   const title = params.title as string;
   const message = params.message as string | undefined;
-  const options = (params.options as string[]) ?? [];
+  const rawOptions = (params.options as string[]) ?? [];
   const selectedValues = (result as any)?.values as string[] | undefined;
 
-  const [checked, setChecked] = useState<Set<string>>(new Set());
   // Inline "Other" (opt-in). See change: add-ask-user-inline-other.
-  const otherAllowed = isOtherAllowed({ allowOther: params.allowOther as boolean | undefined, options });
-  const [otherActive, setOtherActive] = useState(false);
-  const [otherText, setOtherText] = useState("");
+  const otherAllowed = isOtherAllowed({ allowOther: params.allowOther as boolean | undefined, options: rawOptions });
+  // The inline row replaces the caller's own "Other…" option: list once, use for rows,
+  // select-all, counts and value filtering. See change: fix-input-state-consistency (#1116).
+  const options = otherAllowed ? rawOptions.filter((o) => !isOwnOtherOption(o)) : rawOptions;
+  const draftSession = status === "pending" ? sessionId : undefined;
+  const draft = usePromptDraft(draftSession, requestId, parseMultiselectDraft);
+  // A restored draft only re-selects options still listed, and only reopens Other while it is allowed.
+  const [checked, setChecked] = useState<Set<string>>(() => new Set((draft?.checked ?? []).filter((c) => options.includes(c))));
+  const [otherActive, setOtherActive] = useState(otherAllowed && draft?.otherActive === true);
+  const [otherText, setOtherText] = useState(draft?.otherText ?? "");
+  const draftState = useMemo<MultiselectDraft>(() => ({ checked: [...checked], otherActive, otherText }), [checked, otherActive, otherText]);
+  usePromptDraftSync(draftSession, requestId, draftState);
   const otherTrimmed = otherText.trim();
   const otherBlocked = otherAllowed && otherActive && !otherTrimmed;
   // Select all touches only the listed options; the custom value is appended on submit, de-duplicated.
-  const submitValues = Array.from(new Set([...checked, ...(otherAllowed && otherActive && otherTrimmed ? [otherTrimmed] : [])]));
+  const submitValues = Array.from(new Set([...[...checked].filter((v) => options.includes(v)), ...(otherAllowed && otherActive && otherTrimmed ? [otherTrimmed] : [])]));
 
   // Derived: are all real options currently checked? Drives the synthetic
   // "Select all" row's checkbox state and its click behavior.
-  const allChecked = options.length > 0 && checked.size === options.length;
+  const allChecked = options.length > 0 && options.every((o) => checked.has(o));
 
   function toggle(option: string) {
     setChecked((prev) => {

@@ -211,3 +211,37 @@ describe("GrantPromptDialog", () => {
     alertSpy.mockRestore();
   });
 });
+
+// fix-file-link-editor-routing S38 — prompt copy per `action` (D2).
+describe("GrantPromptDialog — write vs read copy", () => {
+  const withAction = (action?: "read" | "write"): GrantRequestMessage => ({
+    ...prompt("filesystem", "/Users/u/Downloads", HELD("access-grants.json", ["/Users/u"])),
+    ...(action ? { action } : {}),
+  });
+
+  it("action:'write' says a write was blocked and that allowing also allows reading and saving text documents", () => {
+    const { dialog } = renderDialog(withAction("write"));
+    const text = dialog.textContent ?? "";
+    expect(text).toContain("A write was blocked");
+    expect(text).toContain("also allows reading and saving text documents");
+    expect(text).not.toContain("A read was blocked");
+    // Same three verdicts + the ancestor ladder.
+    expect(verdictButtons()).toHaveLength(3);
+    expect(within(dialog).getByTestId("grant-dialog-ladder")).toBeTruthy();
+  });
+
+  it.each([undefined, "read"] as const)("action:%s keeps the read wording", (action) => {
+    const { dialog } = renderDialog(withAction(action));
+    const text = dialog.textContent ?? "";
+    expect(text).toContain("A read was blocked");
+    expect(text).not.toContain("A write was blocked");
+    expect(text).not.toContain("saving text documents");
+    expect(verdictButtons()).toHaveLength(3);
+  });
+
+  it("action:'write' leaves non-filesystem planes' copy alone", () => {
+    const { dialog } = renderDialog({ ...PROMPTS.network, action: "write" });
+    expect(dialog.textContent).not.toContain("A write was blocked");
+  });
+});
+

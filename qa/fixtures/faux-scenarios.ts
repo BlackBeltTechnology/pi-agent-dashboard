@@ -239,6 +239,18 @@ export function summarizeDashboardCall(context: FauxContext): string {
 }
 
 /** Build a single-tool-call scenario for the client renderer matrix. */
+
+/** Scripted `read` calls (one per path) followed by a closing text, so the run ends. */
+function readsThenText(paths: string[], closing: string) {
+  return {
+    script: [
+      ...paths.map((path) => fauxAssistantMessage([fauxToolCall("read", { path })], { stopReason: "toolUse" })),
+      fauxAssistantMessage([fauxText(closing)]),
+    ],
+    expect: { toolName: "read" },
+  };
+}
+
 function toolScenario(
   name: string,
   args: Record<string, unknown>,
@@ -680,11 +692,72 @@ const CHAT_MOTION_GLIDE_PRELUDE = Array.from(
     "while the view is following the bottom of a live session, which is exactly where the glide has to carry the user.",
 ).join("\n\n");
 
+/** Closing texts of the agent-teams lead scenarios (asserted by qa/tests/60 and the L3 spec). */
+export const AGENT_TEAMS_LEAD_READY = "AGENT_TEAMS_LEAD_READY";
+export const AGENT_TEAMS_TASK_CREATED = "AGENT_TEAMS_TASK_CREATED";
+/** Closing text of the agent-teams teammate scenarios (mirrored as `TEAMMATE_ACK` in the plugin harness). */
+const AGENT_TEAMS_TEAMMATE_ACK = "AGENT_TEAMS_TEAMMATE_ACK";
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
     script: [fauxAssistantMessage([fauxText(PLAIN_TEXT_MARKER)])],
     expect: { text: PLAIN_TEXT_MARKER },
+  },
+
+  // Agent-teams lead scripts (change: add-agent-teams-core, L2 qa/tests/60 and L3
+  // tests/e2e/agent-teams-core.spec.ts). The lead creates a team and spawns one
+  // teammate (`alice`, on the faux model); the spawn prompt carries a
+  // `plain-text` sentinel so her first turn is a plain scripted reply.
+  "agent-teams-lead-spawn": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("TeamCreate", { name: "e2e-team" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("TeammateSpawn", {
+            name: "alice",
+            model: "faux/faux-1",
+            prompt: "[[faux:plain-text]] Stand by for instructions.",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_LEAD_READY)]),
+    ],
+    expect: { text: AGENT_TEAMS_LEAD_READY },
+  },
+
+  // Second lead turn: one task for the dispatcher to hand to an idle teammate.
+  "agent-teams-lead-task": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("TaskCreate", { title: "e2e task", description: "Claimed by the dispatcher once a teammate is idle." })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_TASK_CREATED)]),
+    ],
+    expect: { text: AGENT_TEAMS_TASK_CREATED },
+  },
+
+  // Teammate long tool run (L1 real-pi tests: urgent end-to-end S14). A `sleep 30` the
+  // urgent abort must cut short, then the wake turn's closing text. Not a bare `sleep`:
+  // the teammate sleep-poll guard would refuse that.
+  "agent-teams-teammate-sleep": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 30; echo slept" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_TEAMMATE_ACK)]),
+    ],
+    expect: { text: AGENT_TEAMS_TEAMMATE_ACK },
+  },
+
+  // Teammate guard probe (L1 real-pi test: session replaced S87): one `git commit` the
+  // teammate git-write guard refuses; once the guard is dropped it only fails as "not a repository".
+  "agent-teams-guard-probe": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "git commit --allow-empty -m guard-probe" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_TEAMMATE_ACK)]),
+    ],
+    expect: { text: AGENT_TEAMS_TEAMMATE_ACK },
   },
 
   // Bridge-coalescing streaming fixtures (change:
@@ -834,6 +907,36 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "hello.txt" },
   },
 
+  // Assistant text linking TWO parent-checkout files by ABSOLUTE path: `hello.txt` (tracked, so it exists in a
+  // worktree too) and `parent-only-link.md` (created untracked in the parent by the spec, so no worktree copy).
+  // Drives the worktree link re-root e2e (D4): the first opens the worktree copy as a cwd-relative tab, the
+  // second falls back to the parent file as an absolute tab. See change: fix-file-link-editor-routing (#S65).
+  "text-worktree-links": {
+    script: [
+      fauxAssistantMessage([
+        fauxText("compare /fixtures/sample-git/hello.txt and /fixtures/sample-git/parent-only-link.md please"),
+      ]),
+    ],
+    expect: { text: "parent-only-link.md" },
+  },
+
+  // Assistant text linking five text docs OUTSIDE the session cwd, one directory each (a grant/denial subject is
+  // the directory, and the 120 s post-settle backoff would swallow a second prompt for the same one). The e2e
+  // specs create these under `/fixtures/__grant-e2e__/` (`lk-missing` is deliberately never created).
+  // See change: fix-file-link-editor-routing (#S54-#S58).
+  "text-outside-links": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "outside docs: /fixtures/__grant-e2e__/lk-deny/doc.md /fixtures/__grant-e2e__/lk-missing/missing.md " +
+            "/fixtures/__grant-e2e__/lk-write/doc.md /fixtures/__grant-e2e__/lk-readonly/doc.md " +
+            "/fixtures/__grant-e2e__/lk-revoke/doc.md end",
+        ),
+      ]),
+    ],
+    expect: { text: "lk-revoke" },
+  },
+
   // Same as `text-realfile`, but links the mermaid apply-fix markdown fixture so the
   // FilePreviewOverlay (md surface) opens on a broken diagram. See change:
   // add-preview-apply-fix-to-file.
@@ -856,6 +959,77 @@ export const SCENARIOS: Record<string, Scenario> = {
       ]),
     ],
     expect: { text: "src/example.ts" },
+  },
+
+  // rich-chat-links E2E scenarios (change: rich-chat-links, tasks 9.1-9.9). Every file below is a baked
+  // `docker/fixtures/sample-git` file (`packages/x/src/a.ts`, `mockups/board.html`, `rl-a|rl-b/sub/memo.md`).
+  //
+  // Web links: a docs URL (F6), a root URL (X12) and a `.test` host the harness frame-policy seam stubs as
+  // `allowed` (F10). One link per line so each is its own anchor.
+  "rich-links-web": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "Links:\n\n- docs https://example.com/docs\n\n- root https://example.com/\n\n- framed https://framed-allowed.test/page",
+        ),
+      ]),
+    ],
+    expect: { text: "Links:" },
+  },
+  // Bare PR URL (F11): the label shortens to `o/r#123`; the full URL must survive a copy.
+  "rich-links-pr": {
+    script: [fauxAssistantMessage([fauxText("https://github.com/o/r/pull/123")])],
+    expect: { text: "github.com" },
+  },
+  // Dead-link visibility (F7): one existing and one missing file in a finalized tool result.
+  "rich-links-states": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo packages/x/src/a.ts src/definitely-m$(echo issing).ts" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("states done")]),
+    ],
+    expect: { text: "states done" },
+  },
+  // Recovered link (F8): `src/a.ts` exists only under `packages/x`, which the command `cd`s into.
+  "rich-links-subdir": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "cd packages/x && ls src/*" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("subdir done")]),
+    ],
+    expect: { text: "subdir done" },
+  },
+  // HTML chevron (F9): an `.html` mention in assistant text.
+  "rich-links-html": {
+    script: [fauxAssistantMessage([fauxText("Open mockups/board.html to review.")])],
+    expect: { text: "board.html" },
+  },
+  // Picker (F12): `sub/memo.md` is tracked twice (`rl-a/sub/`, `rl-b/sub/`), so the mention matches two files.
+  "rich-links-picker": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "ls -d rl-*/sub/mem*.md >/dev/null; echo sub/mem$(echo o).md" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("picker done")]),
+    ],
+    expect: { text: "picker done" },
+  },
+  // Flush rate (P3): 30 finalized tool results x 20 distinct file mentions, then one STILL-RUNNING tool that
+  // has already streamed 20 more mentions (`rl-flush/running-f*`) and sleeps; the spec scrolls meanwhile.
+  "rich-links-flush": {
+    script: [
+      ...Array.from({ length: 30 }, (_, i) =>
+        // Non-empty text is a hard burst boundary: each result is its own collapsible row.
+        fauxAssistantMessage([fauxText(`batch ${i}`), fauxToolCall("bash", { command: `echo rl-flush/t${i}-f{1..20}.ts` })], {
+          stopReason: "toolUse",
+        }),
+      ),
+      fauxAssistantMessage([fauxText("running"), fauxToolCall("bash", { command: "echo rl-flush/running-f{1..20}.ts; sleep 90" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("flush done")]),
+    ],
+    expect: { text: "flush done" },
   },
 
   // Assistant text carrying a fenced mermaid diagram mixing default
@@ -1070,6 +1244,17 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "gmail_search" },
   },
+  // google-plugin: `gcal_calendars` leases a Google token over the private lane and lists the in-container fake's
+  // calendars. Drives the "built-in account still leases" check. See change: add-google-connect (test-plan #A13).
+  "google-calendars": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("gcal_calendars", { account: "builtin@fake.test" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("google calendars done")]),
+    ],
+    expect: { toolName: "gcal_calendars" },
+  },
   // Reads a file that REALLY exists in the sample-git fixture, so the
   // OpenFileButton → internal Monaco editor pane opens a path the server can
   // serve. Used by tests/e2e/editor-pane.spec.ts.
@@ -1137,6 +1322,24 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "read" },
   },
+  // Agent secret guards (change: harden-agent-tool-guards, tests/e2e/agent-secret-guards.spec.ts).
+  // Each scenario reads fixed `~/` paths (the paths need not exist: guard and gate decide on the
+  // path before any read) then a closing text so the script stays finite.
+  "tool-read-agent-models": readsThenText(["~/.pi/agent/models.json", "~/.pi/agent/models.json"], "agent models read done"),
+  "tool-read-agent-auth": readsThenText(["~/.pi/agent/auth.json"], "agent auth read done"),
+  "tool-read-credential-dirs": readsThenText(
+    ["~/.aws/credentials", "~/.netrc", "~/.config/google-chrome/Default/Cookies"],
+    "credential dirs read done",
+  ),
+  // The same other-project session file twice: `Allow once` must not carry to the repeat.
+  "tool-read-other-session-twice": readsThenText(
+    ["~/.pi/agent/sessions/--w-other--/a.jsonl", "~/.pi/agent/sessions/--w-other--/a.jsonl"],
+    "other session reads done",
+  ),
+  "tool-read-aws-then-outside": readsThenText(
+    ["~/.aws/credentials", "/srv/fixtures-outside/a.txt"],
+    "aws then outside done",
+  ),
   "tool-edit": toolScenario("edit", {
     // A file that REALLY exists in the sample-git fixture. The editor-pane
     // Changes rail renders its per-file rows inline in the DISK-backed file
@@ -1405,6 +1608,22 @@ export const SCENARIOS: Record<string, Scenario> = {
       (context: FauxContext) => fauxAssistantMessage([fauxText(`browser-show-in-pane: ${lastToolResultText(context).slice(0, 120)}`)]),
     ],
     expect: { text: "browser-show-in-pane:" },
+  },
+
+  // `[[faux:flow-open]] <flowName>` — the agent calls the flows plugin's REAL
+  // bridge tool `flow_open { flow }`, then echoes the tool result.
+  // See change: add-flow-open-tool (F8, F9).
+  "flow-open": {
+    script: [
+      (context: FauxContext) => {
+        const last = [...context.messages].reverse().find((m) => m.role === "user");
+        const text = (last?.content ?? []).map((c) => c.text ?? "").join(" ");
+        const flow = /\[\[faux:flow-open\]\]\s+(\S+)/.exec(text)?.[1] ?? "";
+        return fauxAssistantMessage([fauxToolCall("flow_open", { flow })], { stopReason: "toolUse" });
+      },
+      (context: FauxContext) => fauxAssistantMessage([fauxText(`flow-open: ${lastToolResultText(context).slice(0, 200)}`)]),
+    ],
+    expect: { text: "flow-open:" },
   },
 
   "tool-list-models": {
@@ -1882,7 +2101,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   },
 
   // Inner run for `subagent-long-stream-hold`: hold → stream → hold.
-  //  1. `sleep 40` — the window the L3 test restarts the dashboard in. After a
+  //  1. `sleep 90` — the window the L3 test restarts the dashboard in. After a
   //     restart the parent store is rebuilt from the bridge transcript, which
   //     carries no subagent stream, so streaming BEFORE the restart cannot fill
   //     the tail.
@@ -1894,7 +2113,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   // See change: fix-backfill-elides-live-tools (task 3.1).
   "subagent-long-stream-hold-inner": {
     script: [
-      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 40 && echo hold-one" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 90 && echo hold-one" })], { stopReason: "toolUse" }),
       ...buildStreamingBurst(10, 60).slice(0, -1),
       fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 90 && echo hold-two" })], { stopReason: "toolUse" }),
       fauxAssistantMessage([fauxText("long stream hold inner complete")]),
@@ -2268,6 +2487,28 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { toolName: "canvas" },
   },
 
+  // A mockup whose inline script fetches an origin outside the restricted egress allowance: the browser's CSP
+  // violation report must reach the preview's report-uri sink and surface as a "reported by this page" row.
+  // See change: fix-csp-report-delivery (F3).
+  "canvas-html-egress-report": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "mockups/egress-report/index.html",
+            content:
+              '<!doctype html><html><head><title>egress</title></head><body><h1>Egress report</h1>' +
+              '<script>fetch("https://example.invalid/x").catch(function () {});</script></body></html>\n',
+          }),
+          fauxToolCall("canvas", { target: { kind: "file", path: "mockups/egress-report/index.html" }, title: "Egress report" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("egress report mockup declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
   // A two-screen static mockup: the address bar navigates index.html → screens/b.html (F17).
   "canvas-html-screens": {
     script: [
@@ -2322,6 +2563,28 @@ export const SCENARIOS: Record<string, Scenario> = {
   "ask-select": askScenario("select", {
     title: "Choose one",
     options: ["alpha", "beta"],
+  }),
+  // Opted-in select whose caller also lists its own "Other (describe)" option: the
+  // inline Other row replaces it (#1116, fix-input-state-consistency).
+  "ask-select-own-other": askScenario("select", {
+    title: "Choose one",
+    options: ["alpha", "beta", "Other (describe)"],
+    allowOther: true,
+  }),
+  // ≥3 steps with a select that opts in to Other: batch-draft restore (#1117).
+  "ask-batch-steps": askScenario("batch", {
+    title: "Draft steps",
+    questions: [
+      { method: "input", title: "Step one" },
+      { method: "select", title: "Step two", options: ["red", "blue"], allowOther: true },
+      { method: "input", title: "Step three" },
+    ],
+  }),
+  // Opted-in select with ≥2 options: Other-text draft survives a session switch (#1117).
+  "ask-select-other": askScenario("select", {
+    title: "Pick or type",
+    options: ["alpha", "beta"],
+    allowOther: true,
   }),
   "ask-multiselect": askScenario("multiselect", {
     title: "Choose many",

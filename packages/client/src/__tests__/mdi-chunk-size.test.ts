@@ -136,7 +136,41 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // dialog's device-key row + companion checkbox, and the new en-source rows. +2,327 B gz measured locally against
 // the same develop base (620,962 -> 623,289 B). 609 KiB would leave ~327 B (below the ~570 B judged too thin
 // above), so 610 KiB (624,640 B, ~1.35 KB headroom). Smallest step with headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 610 * 1024;
+// fix-file-link-editor-routing (2026-11-21): 610 -> 611 KiB. Unavoidably eager: the unsaved-edits store
+// (`unsaved-store.ts`, called synchronously by `handleSelect` / pane close / LayoutModeSwitch before any lazy chunk
+// can load), the FileLink routing rewrite, and the en/hu/zh-CN catalog rows (dialog, Write badge, write prompt copy).
+// The dialog host is a lazy chunk. 624,927 B on CI, 287 B over the old cap; 611 KiB (625,664 B) leaves ~740 B for
+// CI's compressor variance. Smallest KiB step that clears it; not a general raise.
+// fix-input-state-consistency (2026-11-21): 611 -> 613 KiB. Unavoidably eager: the interactive renderers
+// (`Select`/`Multiselect`/`Input`/`Batch`) mount in ChatView on first paint and now restore/mirror their answer
+// draft, so the prompt-draft store (`prompt-draft-storage.ts`), its two hooks and the App-level sweep ride the
+// index chunk, plus the image-only-send guards. +1,950 B gz measured locally against the same develop base
+// (624,927 CI -> 626,877 B). 612 KiB (626,688 B) would still be 189 B short, so 613 KiB (627,712 B, ~835 B
+// headroom for CI's compressor variance). Smallest KiB step that clears it; not a general raise.
+// sidebar-folder-ux (2026-11-22): 613 -> 615 KiB. Unavoidably eager: the folder-card header lives in SessionList
+// (index chunk) and now carries the Remove-from-sidebar item, the live-session confirm dialog, the compact count
+// button and the Focus chip suppression. +~1.5 KB gz measured locally (626,877 B develop -> 628,405 B). 614 KiB
+// (628,736 B) would leave only ~330 B for CI's compressor variance, so 615 KiB (629,760 B, ~1.3 KB headroom).
+// Smallest KiB step with CI headroom; not a general raise.
+//
+// rich-chat-links (2026-11-23): 615 -> 624 KiB. Unavoidably eager: file/web link icons, provider classification,
+// the link-resolution provider/store and the web-page card ride the ChatView and preview shells that live in the
+// index chunk. +~9 KB gz measured locally (628,405 B -> 637,599 B). 624 KiB (638,976 B) leaves ~1.4 KB for CI's
+// compressor variance. Smallest KiB step with CI headroom; not a general raise.
+//
+// add-file-download (2026-11-24): 624 -> 626 KiB. Unavoidably eager: the row actions menu (EditorFileTree),
+// the Download item + hint (DocumentBar/MenuPopover) and the download helper ride the editor-pane shell that
+// lives in the index chunk. +~1.6 KB gz (CI: 637,599 B -> 639,186 B). 625 KiB (640,000 B) would leave only
+// ~800 B for CI's compressor variance, so 626 KiB (641,024 B, ~1.8 KB headroom). Smallest KiB step with CI
+// headroom; not a general raise.
+//
+// add-google-connect (2026-11-24): 626 -> 629 KiB. Unavoidably eager: the google plugin's i18n catalog (en +
+// zh-CN + hu, ~270 keys for the accounts page, connect dialog and setup wizard) ships with every plugin
+// catalog in the entry chunk, partly offset by the gmail catalog shrinking to its 4 pointer-notice keys; the
+// accounts UI itself is a lazy `import()` behind a thin wrapper (lazy-plugin-claims allow-list). 642,761 B on
+// CI, 1,737 B over the old cap; 628 KiB (643,072 B) would leave only ~300 B for CI's compressor variance, so
+// 629 KiB (644,096 B, ~1.3 KB headroom). Smallest KiB step with CI headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 629 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

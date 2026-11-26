@@ -15,11 +15,12 @@
  * Test hooks: SELECT_AFFECTED_TEST_THROW=1 throws before enumeration (test-plan X2);
  * SELECT_AFFECTED_DATA_DIR points the rule files at another directory.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { decide, isGatedSource, SHARD_COUNT } from "./test-selection/decide.mjs";
+import { decide, isBudgetFile, isGatedSource, SHARD_COUNT } from "./test-selection/decide.mjs";
 import { resolveDiff } from "./test-selection/git-diff.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -75,13 +76,28 @@ export function loadData(dir = DATA_DIR) {
 }
 
 /** Packaging-scenario files by plain source scan of the `scripts` project (no vitest needed). */
-function scanGatedFiles(root) {
+export function scanGatedFiles(root) {
   const dir = path.join(root, "scripts", "__tests__");
   try {
     return fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith(".test.mjs") && isGatedSource(fs.readFileSync(path.join(dir, f), "utf8")))
+      .filter((f) => f.endsWith(".test.mjs") && !isBudgetFile(f) && isGatedSource(fs.readFileSync(path.join(dir, f), "utf8")))
       .map((f) => `scripts/__tests__/${f}`)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Budget-lane files by filename scan of `git ls-files` (design.md D2): never from the vitest index,
+ * which excludes them. Sorted; a git failure yields [] (the nightly then has no assigned file list).
+ */
+export function scanBudgetFiles(root = process.cwd()) {
+  try {
+    return execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+      .split("\0")
+      .filter((f) => f && isBudgetFile(f))
       .sort();
   } catch {
     return [];
@@ -101,6 +117,7 @@ export function unenumeratedFull(reason, root = process.cwd()) {
     realProcess: [],
     ciScenarios: true,
     ciScenariosFiles: scanGatedFiles(root),
+    budgetFiles: scanBudgetFiles(root),
     counts: {},
     unmapped: [],
     leafErrors: [],
@@ -134,7 +151,7 @@ export function renderSummary(sel) {
     "",
     `**Reason:** ${sel.reason}`,
     "",
-    `Selected ${selectedCount} test file(s) · real-process ${sel.realProcess.length} · packaging scenarios ${sel.ciScenarios ? `on (${sel.ciScenariosFiles.length})` : "off"} · shard files ${sel.shards.map((s) => s.length).join("/")} · shard load (s) ${sel.shardLoads.join("/")}`,
+    `Selected ${selectedCount} test file(s) · real-process ${sel.realProcess.length} · packaging scenarios ${sel.ciScenarios ? `on (${sel.ciScenariosFiles.length})` : "off"} · budget ${(sel.budgetFiles ?? []).length} · shard files ${sel.shards.map((s) => s.length).join("/")} · shard load (s) ${sel.shardLoads.join("/")}`,
     "",
     "| layer | files |",
     "|---|---|",
@@ -193,6 +210,7 @@ export async function main(argv = process.argv.slice(2)) {
         index,
         data,
         timings: readJson(path.join(dataDir, "timings.json"), {}),
+        budgetFiles: scanBudgetFiles(args.cwd),
       });
       selection.enumerated = true;
       selection.base = diff.base ?? null;

@@ -9,19 +9,22 @@
  *
  * See change: scope-anchor-editor-pane-controls (D2, D3, D10, D11).
  */
-import { mdiCheck, mdiChevronRight, mdiDotsHorizontal, mdiRefresh } from "@mdi/js";
+import { mdiCheck, mdiChevronRight, mdiDotsHorizontal, mdiDownload, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
+import { dispatchPreview } from "../../lib/preview/preview-dispatch.js";
 import { copyText } from "../../lib/util/clipboard.js";
+import { useDownload } from "../preview/use-download.js";
+import { EmbeddedFromLabel } from "../preview/WebPagePreview.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { FileModeSwitcher } from "./file-handler/FileModeSwitcher.js";
 import type { FileHandlerClaim } from "./file-handler/file-handler-claims.js";
 import { MenuItem, MenuPopover } from "./MenuPopover.js";
 import { TabActions, type TabActionTarget } from "./TabActions.js";
 import { basename, tabLabelText } from "./tab-labels.js";
-import { isPseudoTabViewer } from "./viewer-kinds.js";
+import { isPseudoTabViewer, isSourceTabPath } from "./viewer-kinds.js";
 
 export interface DocumentBarProps {
   tab: OpenFile | null;
@@ -33,6 +36,8 @@ export interface DocumentBarProps {
   claims: readonly FileHandlerClaim[];
   selectedMode: string | undefined;
   outsideCwd: boolean;
+  /** The active tab has unsaved edits — Download saves the on-disk file, so it says so. */
+  dirty?: boolean;
   onSelectMode: (mode: string | undefined) => void;
   terminalTitle?: (id: string) => string | undefined;
   pluginLabel?: (path: string) => ReactNode;
@@ -132,6 +137,8 @@ function MoreMenu({
   narrow,
   systemOpen,
   platform,
+  dirty,
+  onDownload,
   onShowInTree,
   onClose,
 }: {
@@ -143,6 +150,8 @@ function MoreMenu({
   narrow: boolean;
   systemOpen: boolean;
   platform?: string;
+  dirty: boolean;
+  onDownload: () => void;
   onShowInTree: () => void;
   onClose: () => void;
 }) {
@@ -183,12 +192,38 @@ function MoreMenu({
         <MenuItem testId="doc-copy-rel" label={t("editor.copyRelativePath", undefined, "Copy relative path")} trailing={tick("rel")} onSelect={() => copy("rel", rel)} />
       )}
       <MenuItem testId="doc-copy-name" label={t("editor.copyFileName", undefined, "Copy file name")} trailing={tick("name")} onSelect={() => copy("name", basename(rel))} />
+      <MenuItem
+        testId="doc-download"
+        label={
+          <span className="inline-flex items-center gap-2">
+            <Icon path={mdiDownload} size={0.55} />
+            {t("common.download", undefined, "Download")}
+          </span>
+        }
+        hint={dirty ? t("editor.downloadUnsavedHint", undefined, "Unsaved changes not included") : undefined}
+        onSelect={() => {
+          onClose();
+          onDownload();
+        }}
+      />
     </MenuPopover>
   );
 }
 
+/** Owns the download toast tray so it outlives tab switches (every branch of the bar), not just the file bar. */
 export function DocumentBar(props: DocumentBarProps) {
+  const download = useDownload();
+  return (
+    <>
+      <DocumentBarBody {...props} download={download} />
+      {download.tray}
+    </>
+  );
+}
+
+function DocumentBarBody(props: DocumentBarProps & { download: ReturnType<typeof useDownload> }) {
   const { t } = useI18n();
+  const { download } = props;
   const { tab, cwd, narrow, systemOpen, platform, onOverlayChange } = props;
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLButtonElement>(null);
@@ -202,7 +237,8 @@ export function DocumentBar(props: DocumentBarProps) {
   if (!tab) return null;
 
   const frame = "flex min-h-8 shrink-0 items-center gap-1 border-b border-[var(--border-primary)] px-2";
-  const isFile = !isPseudoTabViewer(tab.viewer);
+  // A `source:<abs>` tab is a read-only view of a file, not the file itself: plain title, no breadcrumb / file actions.
+  const isFile = !isPseudoTabViewer(tab.viewer) && !isSourceTabPath(tab.path);
 
   if (tab.viewer === "url") {
     const url = tab.path.replace(/^url:/, "");
@@ -211,6 +247,7 @@ export function DocumentBar(props: DocumentBarProps) {
         <span className="min-w-0 flex-1 truncate px-1 text-xs text-[var(--text-secondary)]" title={url}>
           {url}
         </span>
+        {dispatchPreview({ kind: "url", url }) === "webpage" && <EmbeddedFromLabel url={url} />}
         <TabActions target={{ kind: "url", url }} systemOpen={systemOpen} platform={platform} />
       </div>
     );
@@ -220,6 +257,7 @@ export function DocumentBar(props: DocumentBarProps) {
     const text = tabLabelText(tab, {
       terminalTitle: props.terminalTitle,
       terminalFallback: t("terminal.terminal", undefined, "terminal"),
+      sourceLabel: t("editor.sourceTab", undefined, "source"),
     });
     return (
       <div data-testid="doc-bar" className={frame}>
@@ -289,6 +327,8 @@ export function DocumentBar(props: DocumentBarProps) {
           narrow={narrow}
           systemOpen={systemOpen}
           platform={platform}
+          dirty={!!props.dirty}
+          onDownload={() => void download.start({ cwd, path: tab.path }, props.outsideCwd)}
           onShowInTree={props.onShowInTree}
           onClose={() => setMoreOpen(false)}
         />

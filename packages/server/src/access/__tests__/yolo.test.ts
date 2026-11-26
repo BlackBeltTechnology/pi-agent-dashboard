@@ -2,8 +2,14 @@ import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { HeldAccessPlane } from "../access-plane.js";
+import { __resetPathDenials } from "../access-denials.js";
+import { __resetAccessGrants, listGrants } from "../access-grants.js";
+import { AccessPlaneRegistry, type HeldAccessPlane } from "../access-plane.js";
+import { evaluateContainment } from "../containment-gate.js";
+import { installGrantCoordinator } from "../denial-hold.js";
+import { GrantCoordinator } from "../grant-coordinator.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "../planes.js";
+import { __resetPromptChannels, GRANT_CHANNEL_HEADER, issuePromptChannel } from "../prompt-channel.js";
 import { __resetRefusalLedger, clearRefusal, isRefused, listRefusals, recordRefusal } from "../refusal-ledger.js";
 import { parseYoloEnv } from "../yolo-env.js";
 import { YOLO_DURATIONS_MS, YoloController } from "../yolo-session.js";
@@ -496,5 +502,105 @@ describe("agent-path refusals persist (test-plan #E17)", () => {
     );
     __resetRefusalLedger();
     expect(listRefusals()).toEqual([]);
+  });
+});
+
+// fix-file-link-editor-routing 3b (test-plan #S37): a filesystem WRITE hold is answered like a read hold.
+describe("YOLO write hold decision table (#S37)", () => {
+  const OUTSIDE_BASE = "outside";
+  let sent: unknown[];
+
+  function wire(y: YoloController): GrantCoordinator {
+    const planes = new AccessPlaneRegistry();
+    planes.register(createFilesystemPlane());
+    const c = new GrantCoordinator({
+      planes,
+      broadcast: (m) => sent.push(m),
+      hostGateMode: () => mode,
+      promptEnabled: () => true,
+      killSwitch: () => false,
+      operatorChannels: () => 1,
+      onTransition: () => {},
+      yolo: y,
+      recordRefusal: (plane, subject) => {
+        if (plane === "filesystem") recordRefusal(plane, subject);
+      },
+    });
+    installGrantCoordinator(c);
+    return c;
+  }
+
+  beforeEach(() => {
+    sent = [];
+    process.env.PI_ACCESS_GRANTS_STORE = path.join(tmp, "access-grants.json");
+    __resetAccessGrants();
+    __resetPathDenials();
+  });
+  afterEach(() => {
+    installGrantCoordinator(null);
+    __resetPromptChannels();
+    delete process.env.PI_ACCESS_GRANTS_STORE;
+    __resetAccessGrants();
+    __resetPathDenials();
+  });
+
+  type Cell = { yolo: "off" | "default-root" | "covering"; eligible: boolean; refused: boolean; expect: "auto" | "prompt" | "ineligible" | "refused" };
+  const cells: Cell[] = [
+    { yolo: "off", eligible: true, refused: false, expect: "prompt" },
+    { yolo: "default-root", eligible: true, refused: false, expect: "prompt" },
+    { yolo: "covering", eligible: true, refused: false, expect: "auto" },
+    { yolo: "covering", eligible: false, refused: false, expect: "ineligible" },
+    { yolo: "covering", eligible: true, refused: true, expect: "refused" },
+    { yolo: "off", eligible: false, refused: false, expect: "ineligible" },
+  ];
+
+  it.each(cells)("YOLO $yolo / eligible=$eligible / prior refusal=$refused → $expect", async (cell) => {
+    const session = mk("session");
+    const outside = mk(OUTSIDE_BASE, "dl");
+    const y = yolo();
+    if (cell.yolo === "default-root") await y.activate({ durationMs: 15 * MIN, base: session });
+    if (cell.yolo === "covering") await y.activate({ durationMs: 15 * MIN, base: outside });
+    if (cell.refused) recordRefusal("filesystem", outside);
+    const c = wire(y);
+
+    const hold = c.onDenial(
+      { plane: "filesystem", rawSubject: outside, origin: "s", channel: "sock-A", requestHoldsCapability: cell.eligible, action: "write" },
+      true,
+    );
+    if (cell.expect === "auto") {
+      expect(hold.held).toBe(false);
+      expect(await hold.result).toEqual({ kind: "allow", verdict: "allow-once", subject: outside });
+    } else if (cell.expect === "prompt") {
+      expect(hold.held).toBe(true); // prompted as if YOLO were inactive
+      expect(sent).toHaveLength(1);
+    } else if (cell.expect === "ineligible") {
+      expect(hold.held).toBe(false);
+      expect(await hold.result).toEqual({ kind: "deny", reason: "ineligible" });
+    } else {
+      expect(await hold.result).toEqual({ kind: "deny", reason: "refused-by-prior-refusal" });
+    }
+    expect(listGrants()).toEqual([]); // YOLO never records a grant
+    hold.abort();
+  });
+
+  it("an auto-allowed outside write is admitted ONCE: no grant persisted, and a later write re-evaluates", async () => {
+    const session = mk("session");
+    const outside = mk(OUTSIDE_BASE, "once");
+    const target = path.join(outside, "x.md");
+    fs.writeFileSync(target, "x");
+    const y = yolo();
+    await y.activate({ durationMs: 15 * MIN, base: outside });
+    wire(y);
+    const capability = issuePromptChannel("operator-sock");
+    const hold = { request: { headers: { [GRANT_CHANNEL_HEADER]: capability }, ip: "127.0.0.1", raw: {} }, reply: { raw: {} } } as never;
+
+    const first = await evaluateContainment(target, [session], { site: "t", action: "write", hold });
+    expect(first).toMatchObject({ allowed: true, viaGrant: true });
+    expect(listGrants()).toEqual([]);
+
+    // YOLO ends: the same write is no longer admitted (nothing persisted to admit it).
+    y.end();
+    const second = await evaluateContainment(target, [session], { site: "t", action: "write" });
+    expect(second.allowed).toBe(false);
   });
 });

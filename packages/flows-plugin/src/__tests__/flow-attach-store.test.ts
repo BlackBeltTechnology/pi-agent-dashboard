@@ -57,6 +57,17 @@ describe("flow-attach-store (E11)", () => {
     expect(s.getAttachment("L")).toEqual({ id: "l", name: "A", source: undefined, baselineStartedAt: null });
   });
 
+  it("E19: keeps a literal viewOnly:true, drops any other value, legacy unchanged (add-flow-open-tool)", async () => {
+    const put = (k: string, v: unknown) => localStorage.setItem(`dashboard:flow-attached:${k}`, JSON.stringify(v));
+    put("T", { id: "t", name: "x", baselineStartedAt: 1, viewOnly: true });
+    put("Y", { id: "y", name: "x", baselineStartedAt: 1, viewOnly: "yes" });
+    put("L", { id: "l", name: "x", baselineStartedAt: 1 });
+    const s = await freshStore();
+    expect(s.getAttachment("T")?.viewOnly).toBe(true);
+    expect(s.getAttachment("Y")).toEqual({ id: "y", name: "x", source: undefined, baselineStartedAt: 1 });
+    expect(s.getAttachment("L")).toEqual({ id: "l", name: "x", source: undefined, baselineStartedAt: 1 });
+  });
+
   it("resolveBaseline sets a null baseline only for the matching id", async () => {
     const s = await freshStore();
     s.setAttachment("S2", b);

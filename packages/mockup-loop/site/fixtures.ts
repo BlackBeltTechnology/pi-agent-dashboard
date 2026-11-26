@@ -5,6 +5,8 @@
 // fixtures. Interceptors are lazy-loaded optional peers.
 // See change: add-mock-site-exact-env (design D3).
 
+import { stripBase } from "./frame-env.ts";
+
 export interface FixtureRequest {
   method: string;
   url: URL;
@@ -56,7 +58,8 @@ export type Resolved =
 
 /** Decide how a request is answered (pure). */
 export function resolveRequest(fx: Fixtures, method: string, url: URL, origin: string): Resolved {
-  if (url.origin === origin && DEV_PATHS.test(url.pathname)) return { kind: "passthrough" };
+  // The base is stripped ONLY for the dev-path test: fixture matching below sees the raw path.
+  if (url.origin === origin && DEV_PATHS.test(stripBase(url.pathname))) return { kind: "passthrough" };
   const m = method.toUpperCase();
   for (const [key, handler] of Object.entries(fx.http ?? {})) {
     const sp = key.indexOf(" ");
@@ -99,7 +102,7 @@ export async function installFixtures(factory: () => Fixtures, onMissing: (m: { 
       const r = resolveRequest(fx, request.method, url, origin);
       if (r.kind === "passthrough") return;
       if (r.kind === "missing") {
-        onMissing({ method: request.method.toUpperCase(), path: url.pathname });
+        onMissing({ method: request.method.toUpperCase(), path: stripBase(url.pathname) });
         controller.respondWith(new Response(`no fixture for ${request.method} ${url.pathname}`, { status: 501 }));
         return;
       }
@@ -128,12 +131,12 @@ export async function installFixtures(factory: () => Fixtures, onMissing: (m: { 
       });
       return;
     }
-    const devSocket = protocols.some((p) => p.startsWith("vite-")) || (url.host === location.host && DEV_PATHS.test(url.pathname));
+    const devSocket = protocols.some((p) => p.startsWith("vite-")) || (url.host === location.host && DEV_PATHS.test(stripBase(url.pathname)));
     if (devSocket || (fx.passthrough ?? []).some((p) => (typeof p === "string" ? url.href.includes(p) : p.test(url.href)))) {
       server.connect();
       return;
     }
-    onMissing({ method: "WS", path: url.pathname });
+    onMissing({ method: "WS", path: stripBase(url.pathname) });
     client.close(4004, "no fixture");
   });
   ws.apply();

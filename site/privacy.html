@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>
+(function(){
+  var m='system';try{m=localStorage.getItem('pi-theme')||'system';}catch(e){}
+  var light=m==='light'||(m==='system'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches);
+  if(light)document.documentElement.setAttribute('data-theme','light');
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy Policy · PI Dashboard</title>
+<meta name="description" content="How pi-dashboard and pi-dashboard.dev handle your data, including Google user data.">
+<link rel="canonical" href="https://pi-dashboard.dev/privacy.html">
+<link rel="icon" href="/favicon.png">
+<style>
+:root{
+  --bg-primary:#0a0a0a;--bg-secondary:#141414;--bg-tertiary:#1e1e1e;
+  --text-primary:#e5e5e5;--text-secondary:#b0b0b0;
+  --accent:#3b82f6;--accent-text:#60a5fa;--border:#2a2a2a;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'SF Mono',Menlo,Monaco,'Cascadia Code',Consolas,monospace;
+  color-scheme:dark;
+}
+[data-theme="light"]{
+  --bg-primary:#ffffff;--bg-secondary:#fafafa;--bg-tertiary:#f0f0f0;
+  --text-primary:#1a1a1a;--text-secondary:#444444;
+  --accent:#2563eb;--accent-text:#1d4ed8;--border:#e0e0e0;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);font:16px/1.6 var(--sans)}
+main{max-width:46rem;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+nav a{color:var(--accent-text)}
+h1{font-size:2rem;line-height:1.2;margin:1.5rem 0 .5rem}
+h2{font-size:1.25rem;margin:2rem 0 .5rem}
+p,li{color:var(--text-secondary)}
+strong{color:var(--text-primary)}
+a{color:var(--accent-text)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code{font-family:var(--mono);font-size:.9em;background:var(--bg-tertiary);padding:.1em .3em;border-radius:4px}
+table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.95rem}
+th,td{border:1px solid var(--border);padding:.5rem .6rem;text-align:left;vertical-align:top;color:var(--text-secondary)}
+th{background:var(--bg-secondary);color:var(--text-primary)}
+.table-wrap{overflow-x:auto}
+.meta{font-size:.9rem}
+footer{border-top:1px solid var(--border);margin-top:3rem;padding-top:1rem;font-size:.9rem}
+footer a{margin-right:1rem}
+</style>
+</head>
+<body>
+<main>
+<nav><a href="/">← pi-dashboard.dev</a></nav>
+<h1>Privacy Policy — pi-dashboard</h1>
+<p class="meta">Effective date: [[YYYY-MM-DD]]<br>
+Operator: [[legal entity name, address, country]] (“we”, “us”).<br>
+Contact: <a href="mailto:privacy@pi-dashboard.dev">privacy@pi-dashboard.dev</a></p>
+
+<h2>1. What pi-dashboard is</h2>
+<p>pi-dashboard is open-source software that you install and run yourself (desktop app, npm package or Docker image). It lets you monitor and control AI coding-agent sessions and, if you choose, connect your Google account so the agent can work with the Google products you turn on (Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks, Contacts).</p>
+<p><strong>We do not operate a server that receives your Google data.</strong> When your dashboard runs on another computer, Google returns your browser once to a static page on pi-dashboard.dev (<code>https://pi-dashboard.dev/oauth/return.html</code>) that only hands a one-time sign-in code back to your dashboard in the same window, after you confirm the dashboard address; that code cannot be used without a secret held by your dashboard, and the page stores nothing. The static host may log the address of that page, including the one-time code in it. When you connect a Google account, the sign-in happens between your browser, Google and the pi-dashboard instance you run. Tokens and data stay on the machine(s) you control.</p>
+
+<h2>2. Google user data we access</h2>
+<p>Only when you connect a Google account, and only the permissions you grant:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Permission (scope)</th><th>What it allows</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td><code>openid</code>, <code>email</code></td><td>Your Google account id and verified email</td><td>Identifying which account is connected</td></tr>
+<tr><td><code>gmail.readonly</code></td><td>Read messages, threads, labels, attachments</td><td>Agent search/read tools you invoke</td></tr>
+<tr><td><code>gmail.compose</code></td><td>Create and send drafts</td><td>Drafts and sending you confirm</td></tr>
+<tr><td><code>gmail.modify</code></td><td>Change labels, archive, trash</td><td>Organizing mail you confirm</td></tr>
+<tr><td><code>gmail.settings.basic</code></td><td>Read and manage filters (opt-in)</td><td>Filter tools, only if you enable filters</td></tr>
+<tr><td><code>calendar.readonly</code> / <code>calendar.events</code></td><td>Read / change events</td><td>Calendar questions; events you confirm</td></tr>
+<tr><td><code>drive.file</code> / <code>drive.readonly</code> / <code>drive</code></td><td>App-created files / read all / change all</td><td>Finding, exporting and uploading files you ask for</td></tr>
+<tr><td><code>documents</code>, <code>spreadsheets</code>, <code>presentations</code> (and <code>.readonly</code>)</td><td>Read / edit Docs, Sheets, Slides</td><td>Reading and editing documents you point to</td></tr>
+<tr><td><code>tasks</code> (and <code>.readonly</code>)</td><td>Read / change tasks</td><td>Task tools</td></tr>
+<tr><td><code>contacts</code> (and <code>.readonly</code>)</td><td>Read / change contacts</td><td>Looking up and saving contacts</td></tr>
+</tbody></table></div>
+<p>Each product is off until you turn it on for an account, at a permission level you choose. Write actions require your confirmation in the dashboard.</p>
+
+<h2>3. How the data is used, stored and shared</h2>
+<ul>
+<li><strong>Stored</strong>: OAuth refresh/access tokens in the pi-dashboard credential store on your machine. Content the agent reads may appear in your local session history files on that machine.</li>
+<li><strong>Shared with your AI model provider</strong>: when you ask the agent to work with a Google product, the content it reads is sent to the AI model provider <em>you configured</em> (for example [[Anthropic, OpenAI, Google, a local model]]) to produce the answer. This happens only as part of the feature you invoked. That provider’s own terms and privacy policy apply.</li>
+<li><strong>Not shared with us</strong>: pi-dashboard.dev and its operators never receive your tokens, messages, files or account data.</li>
+<li><strong>Never</strong>: sold; used for advertising; used to train or improve generalized AI/ML models; transferred to data brokers.</li>
+</ul>
+
+<h2>4. Limited Use</h2>
+<p>The use of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+<h2>5. Retention and deletion</h2>
+<ul>
+<li>Disconnect an account in Settings → Google → Revoke: the token is revoked at Google and deleted locally.</li>
+<li>You can also revoke access at <a href="https://myaccount.google.com/permissions">https://myaccount.google.com/permissions</a>.</li>
+<li>Local session history is kept until you delete it; deleting the session files removes any message content stored in them.</li>
+</ul>
+
+<h2>6. Security</h2>
+<p>Tokens are held server-side in your dashboard and never sent to the browser UI or logged. Sign-in uses OAuth 2.0 with PKCE. The software undergoes an independent security assessment as required by Google for restricted scopes.</p>
+
+<h2>7. Website</h2>
+<p>pi-dashboard.dev is a static website. [[State whether any analytics/cookies are used; if none: “It sets no cookies and uses no analytics.”]] Hosting provider: [[GitHub Pages]].</p>
+
+<h2>8. Children</h2>
+<p>Not directed to children under 13 [[or 16 in the EEA]].</p>
+
+<h2>9. Your rights</h2>
+<p>[[GDPR/CCPA section as applicable: access, deletion, objection; note that we hold no Google user data, so requests concerning it are fulfilled by revoking access and deleting local files.]]</p>
+
+<h2>10. Changes</h2>
+<p>We will post changes here and update the effective date. If changes affect how Google user data is used, the dashboard will ask you to accept the updated disclosure before connecting again.</p>
+
+<footer><a href="/">Home</a><a href="/terms.html">Terms of Service</a><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard">GitHub</a></footer>
+</main>
+</body>
+</html>

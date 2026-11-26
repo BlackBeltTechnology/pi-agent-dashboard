@@ -31,6 +31,15 @@ function mk(id: string, over: Partial<DashboardSession> = {}): DashboardSession 
 }
 
 describe("classifyStatusLane", () => {
+  // See change: fix-ui-status-indicators (test-plan S11, S12).
+  it("a live errored (idle) session lands in the error lane", () => {
+    expect(classifyStatusLane(mk("a", { status: "idle" }), { hasError: true })).toBe("error");
+  });
+  it("an ended session with a stale error stays out of the error lane (ended bucket)", () => {
+    const lane = classifyStatusLane(mk("a", { status: "ended" }), { hasError: true });
+    expect(lane).not.toBe("error");
+    expect(lane).toBeNull();
+  });
   it("error wins over everything", () => {
     expect(classifyStatusLane(mk("a", { status: "streaming", currentTool: "ask_user" }), { hasError: true })).toBe("error");
   });

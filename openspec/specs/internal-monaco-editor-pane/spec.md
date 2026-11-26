@@ -558,49 +558,63 @@ Non-editable kinds (`.markdown`, `.xlsx`, `.docx`, `.eml`, …) SHALL have no bu
 - **WHEN** the user opens a `.xlsx`, `.docx`, or `.eml` file and no enabled plugin claims its extension
 - **THEN** only Preview is available (no Edit toggle)
 
-### Requirement: File-tree rows SHALL offer a copy-path popup
+### Requirement: File-tree rows SHALL offer a row actions menu
 
-Each file-tree rail row (both files and directories) SHALL expose a **copy
-affordance** that is hover-revealed: a copy glyph SHALL appear, flush-right on
-the row, when the row is hovered or its popup is open, and SHALL be otherwise
-visually unobtrusive.
+Each file-tree rail row (both files and directories) SHALL expose a **row actions
+glyph** that is hover-revealed: the glyph SHALL appear, flush-right on the row,
+when the row is hovered, focused-within, or its menu is open, and SHALL be
+otherwise visually unobtrusive. On devices without hover (`(hover: none)`) the
+glyph SHALL be always visible. The glyph SHALL be keyboard-focusable, labelled
+"Row actions", and expose `aria-haspopup="menu"` and `aria-expanded`. The menu
+SHALL follow the pane menu keyboard model (see `editor-pane-chrome`).
 
-Activating the copy glyph SHALL NOT open the file or expand/collapse the
-directory (the glyph's activation SHALL stop propagation to the row). Activating
-the glyph SHALL open a **popup menu anchored to the glyph** offering exactly
-three actions:
+Activating the glyph SHALL NOT open the file or expand/collapse the directory
+(the glyph's activation SHALL stop propagation to the row). Activating the glyph
+SHALL open a **popup menu anchored to the glyph**. The same menu SHALL also open,
+anchored to the row's glyph, on a secondary click (right-click) anywhere on the
+row — suppressing the browser's native context menu — and on the context-menu
+key or Shift+F10 while the row is focused. Opening the menu by these means SHALL
+NOT open the file or expand/collapse the directory. Escape SHALL return focus to
+the control that opened the menu: the glyph, or the row when opened from the row.
+
+The menu SHALL offer, in order:
 
 - **Copy full path** — the row's absolute path (`cwd` joined with the row's
   path relative to `cwd`).
 - **Copy relative path** — the row's path relative to the session `cwd`.
 - **Copy file name** — the row's basename.
+- **Download** — file rows only; SHALL save the file's on-disk bytes from
+  `GET /api/file/raw` in download mode (`download=1`) using the same hybrid
+  delivery as the document bar Download (see `editor-pane-chrome`). Directory
+  rows SHALL NOT offer Download. The tree SHALL NOT show an unsaved-changes hint.
 
-The popup SHALL display the target absolute path (truncated as needed) as a
-header so the action target is unambiguous. When the popup would overflow the
+The menu SHALL display the target absolute path (truncated as needed) as a
+header so the action target is unambiguous. When the menu would overflow the
 rail's bottom edge, it SHALL render above the glyph instead of below.
 
-Selecting an action SHALL copy the corresponding payload to the clipboard using
-`navigator.clipboard.writeText()`, SHALL show a transient ✓ confirmation, and
-SHALL then close the popup. When the Clipboard API is unavailable (e.g. a
+Selecting a copy action SHALL copy the corresponding payload to the clipboard
+using `navigator.clipboard.writeText()`, SHALL show a transient ✓ confirmation,
+and SHALL then close the menu. When the Clipboard API is unavailable (e.g. a
 non-secure context), the action SHALL fail silently without throwing, matching
-the existing `CopyButton` behavior.
+the existing `CopyButton` behavior. Selecting Download SHALL trigger the
+download and close the menu immediately.
 
-The popup SHALL be dismissable by clicking outside it, by scrolling the rail, and
+The menu SHALL be dismissable by clicking outside it, by scrolling the rail, and
 by pressing Escape.
 
 #### Scenario: Copy glyph is hover-revealed and does not open the file
 - **GIVEN** a file-tree row for `src/foo.ts`
 - **WHEN** the user hovers the row
-- **THEN** a copy glyph appears flush-right on the row
-- **WHEN** the user activates the copy glyph
-- **THEN** the copy-path popup opens
+- **THEN** a row actions glyph appears flush-right on the row
+- **WHEN** the user activates the glyph
+- **THEN** the row actions menu opens
 - **AND** `onOpenFile` is NOT invoked for `src/foo.ts`
 
 #### Scenario: Copy full path
 - **GIVEN** a session whose cwd is `/Users/u/proj` and a row for `src/foo.ts`
-- **WHEN** the user activates the copy glyph and selects **Copy full path**
+- **WHEN** the user opens the row actions menu and selects **Copy full path**
 - **THEN** `/Users/u/proj/src/foo.ts` SHALL be written to the clipboard
-- **AND** a ✓ confirmation SHALL show and the popup SHALL close
+- **AND** a ✓ confirmation SHALL show and the menu SHALL close
 
 #### Scenario: Copy relative path and file name
 - **GIVEN** a session whose cwd is `/Users/u/proj` and a row for `src/foo.ts`
@@ -611,19 +625,42 @@ by pressing Escape.
 
 #### Scenario: Directory rows offer the same copy actions
 - **GIVEN** a directory row for `.git`
-- **WHEN** the user activates its copy glyph and selects **Copy full path**
+- **WHEN** the user opens its row actions menu
+- **THEN** the three copy actions are offered and no Download item is rendered
+- **WHEN** the user selects **Copy full path**
 - **THEN** the directory's absolute path SHALL be copied
 - **AND** the directory SHALL NOT expand or collapse
 
+#### Scenario: Download a file from the tree
+- **GIVEN** a session whose cwd is `/Users/u/proj` and a row for `docs/report.pdf`
+- **WHEN** the user opens the row actions menu and selects **Download**
+- **THEN** a download of `/api/file/raw?cwd=%2FUsers%2Fu%2Fproj&path=docs%2Freport.pdf&download=1` is started
+- **AND** the menu closes and `onOpenFile` is NOT invoked
+
+#### Scenario: Right-click opens the same menu
+- **GIVEN** a file-tree row for `src/foo.ts`
+- **WHEN** the user right-clicks the row
+- **THEN** the browser's native context menu is suppressed and the row actions menu opens
+- **AND** `onOpenFile` is NOT invoked for `src/foo.ts`
+
+#### Scenario: Keyboard opens the menu
+- **GIVEN** the row for `src/foo.ts` has keyboard focus
+- **WHEN** the user presses Shift+F10 or the context-menu key
+- **THEN** the row actions menu opens
+
 #### Scenario: Popup dismissal
-- **GIVEN** an open copy-path popup
+- **GIVEN** an open row actions menu
 - **WHEN** the user clicks outside it, or scrolls the rail, or presses Escape
-- **THEN** the popup SHALL close without copying anything
+- **THEN** the menu SHALL close without copying or downloading anything
 
 #### Scenario: Clipboard unavailable
 - **GIVEN** a context where `navigator.clipboard` is undefined
 - **WHEN** the user selects any copy action
 - **THEN** the action SHALL fail silently without throwing
+
+#### Scenario: Glyph visible without hover
+- **GIVEN** a device whose primary pointer cannot hover
+- **THEN** every row's row actions glyph is visible without hovering, and tapping it opens the menu without opening the file
 
 ### Requirement: `/view` opens its target in the editor pane
 
@@ -891,3 +928,100 @@ name with an **Open archived copy** control.
 #### Scenario: Archived copy itself missing
 - **WHEN** the archived target path also returns 404
 - **THEN** its tab SHALL show only `File no longer exists: <archived path>`
+
+### Requirement: Files outside the session folder SHALL edit and save only through the path grant gate
+
+A tab outside the session cwd (opened by an absolute or `~/` link) SHALL read via `GET /api/file` under the usual containment and grant prompt, and SHALL offer the same Edit toggle as any tab. Saving SHALL be admitted only by the `scoped-markdown-editing` write-mode grant gate (a read grant does not admit it); a refused save SHALL show the error and keep the buffer. Such tabs are not watched for disk changes.
+
+#### Scenario: outside markdown keeps the Edit toggle
+- **GIVEN** cwd `/work/repo` and a granted tab for `/Users/u/Downloads/x.md`
+- **WHEN** the tab renders
+- **THEN** the Edit toggle SHALL be present
+
+#### Scenario: ungranted outside path shows the access notice
+- **GIVEN** an operator click opened `/Users/u/Downloads/x.md` and no grant covers it
+- **WHEN** the viewer loads
+- **THEN** the existing denial notice and grant prompt flow SHALL run, and no file bytes SHALL render before a grant
+
+#### Scenario: Denied outside save keeps the buffer
+- **GIVEN** an edited buffer for a tab outside the cwd whose write is not granted
+- **WHEN** the user saves and the server answers `403`
+- **THEN** the error SHALL be shown, the buffer SHALL stay dirty and the tab SHALL stay open
+
+#### Scenario: Granted outside save succeeds
+- **GIVEN** an edited buffer for `/Users/u/Downloads/x.md` and a write-mode grant covering `/Users/u/Downloads`
+- **WHEN** the user saves
+- **THEN** the file SHALL be written, the dirty indicator SHALL clear and a concurrent disk change SHALL still yield the `409` banner
+
+#### Scenario: inside-cwd markdown keeps Edit
+- **GIVEN** a tab for `docs/a.md` under the cwd
+- **WHEN** the tab renders
+- **THEN** the Edit toggle SHALL be present
+
+### Requirement: Leaving with an unsaved built-in buffer SHALL ask first
+
+When a built-in editable tab (`MarkdownViewer`, `EditablePreviewTab`) holds an unsaved buffer (`buffer !== content`), closing that tab, closing the editor pane, switching session from the sidebar, or unloading the page (`beforeunload`) SHALL first ask. A clean buffer SHALL leave without a prompt.
+
+#### Scenario: Dirty tab close asks
+- **GIVEN** a markdown tab in Edit mode with an unsaved buffer
+- **WHEN** the user closes the tab
+- **THEN** a Save / Discard / Cancel dialog SHALL appear and the tab SHALL stay open until a choice is made
+
+#### Scenario: Dirty session switch asks
+- **GIVEN** an unsaved buffer in session `a`
+- **WHEN** the user selects session `b` in the sidebar
+- **THEN** the dialog SHALL appear and navigation SHALL happen only after Save or Discard
+
+#### Scenario: Dirty pane close asks
+- **GIVEN** an unsaved buffer
+- **WHEN** the user presses the editor-pane close button
+- **THEN** the dialog SHALL appear before the pane closes
+
+#### Scenario: Clean buffer leaves silently
+- **GIVEN** a tab with no unsaved changes, including one just saved
+- **WHEN** the user closes the tab, closes the pane or switches session
+- **THEN** no dialog SHALL appear
+
+#### Scenario: Browser reload is warned
+- **GIVEN** an unsaved buffer
+- **WHEN** the page is about to unload
+- **THEN** a `beforeunload` handler SHALL be armed, and SHALL be removed once no buffer is unsaved
+
+### Requirement: The unsaved dialog SHALL offer Save, Discard and Cancel
+
+In-app leaves SHALL show Save / Discard / Cancel. Cancel keeps the tab and buffer; Discard proceeds and drops the buffer; Save writes through `POST /api/file/write` and proceeds only on success (a 409 shows `ChangedOnDiskBanner`, a 403 shows the error; neither proceeds).
+
+#### Scenario: One dialog lists every dirty tab
+- **GIVEN** two dirty built-in tabs in scope of one leave (pane close, session switch or layout switch)
+- **WHEN** the leave is attempted
+- **THEN** one dialog SHALL list both tabs; Save SHALL save them in order and proceed only if every save succeeds (a failing tab stops the sequence, keeps its buffer and shows its error, and tabs already saved stay saved); Discard SHALL drop all listed buffers; Cancel SHALL change nothing
+
+#### Scenario: An overlapping leave joins the open dialog
+- **GIVEN** the unsaved dialog is open from one leave attempt
+- **WHEN** a second leave is attempted (e.g. pane close while a session switch is pending)
+- **THEN** no second dialog SHALL stack; the second leave SHALL wait on the open dialog and receive the same verdict
+
+#### Scenario: Dialog keyboard and focus
+- **GIVEN** the unsaved dialog opens
+- **WHEN** it receives focus, then the user presses Escape or clicks the backdrop
+- **THEN** initial focus SHALL be on Cancel, Escape and a backdrop click SHALL both act as Cancel, and Enter SHALL NOT trigger Discard by default
+
+#### Scenario: Cancel keeps the buffer
+- **GIVEN** the dialog above
+- **WHEN** the user chooses Cancel
+- **THEN** the tab SHALL stay open with the buffer intact
+
+#### Scenario: Save persists then leaves
+- **GIVEN** the dialog above
+- **WHEN** the user chooses Save and the write succeeds
+- **THEN** the file SHALL be written with the loaded `mtime` and the tab SHALL close
+
+#### Scenario: Save conflict does not leave
+- **GIVEN** the dialog above and the file changed on disk
+- **WHEN** the user chooses Save and the server answers 409
+- **THEN** `ChangedOnDiskBanner` SHALL show and the tab SHALL stay open
+
+#### Scenario: Save refused by the grant gate does not leave
+- **GIVEN** the dialog above for a tab outside the cwd and no write grant
+- **WHEN** the user chooses Save and the server answers 403
+- **THEN** the error SHALL show, the tab SHALL stay open and the buffer SHALL be kept

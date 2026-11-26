@@ -26,6 +26,7 @@ import { dirname } from "../preview/resolve-local-image-src.js";
 import { useTrackedFileWrite } from "../split/tracked-file-write.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import type { ViewerProps } from "./types.js";
+import { useUnsavedBuffer } from "./use-unsaved-buffer.js";
 
 const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor.js").then((m) => ({ default: m.MarkdownEditor })),
@@ -42,7 +43,10 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
   const [buffer, setBuffer] = useState("");
   const [mtime, setMtime] = useState<number | null>(null);
   const [mode, setMode] = useState<"preview" | "edit">("preview");
+  // A LOAD error replaces the view; a SAVE error is a banner above it so the buffer survives
+  // a refused save (fix-file-link-editor-routing, tasks 3.36 / 3.44).
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState(false);
   // A refused / failed LOAD renders `DenialNotice`; save errors keep `error`.
@@ -59,6 +63,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
     let active = true;
     setContent(null);
     setError(null);
+    setSaveError(null);
     setLoadFailure(null);
     setConflict(false);
     denialFetch(asked ? eligibleFetch : previewFetch, url, asked ? false : optedOut)
@@ -89,28 +94,31 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
 
   const dirty = content !== null && buffer !== content;
 
-  const onSave = useCallback(async () => {
-    if (mtime === null || saving) return;
+  /** Resolves `true` only when the write succeeded (the leave guard proceeds on it). */
+  const onSave = useCallback(async (): Promise<boolean> => {
+    if (mtime === null || saving) return false;
     setSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       const res = await trackedWrite(path, { cwd, path, content: buffer, mtime });
-      const body = await res.json();
+      const body = await res.json().catch(() => ({}));
       if (res.status === 200 && body.success) {
         setContent(buffer);
         setMtime(body.data?.mtime ?? mtime);
         setConflict(false);
-      } else if (res.status === 409) {
-        setConflict(true);
-      } else {
-        setError(body.error ?? t("editor.saveFailed", { status: res.status }, "Save failed ({status})"));
+        return true;
       }
+      if (res.status === 409) setConflict(true);
+      else setSaveError(body.error ?? t("editor.saveFailed", { status: res.status }, "Save failed ({status})"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("common.networkError", undefined, "Network error"));
+      setSaveError(err instanceof Error ? err.message : t("common.networkError", undefined, "Network error"));
     } finally {
       setSaving(false);
     }
+    return false;
   }, [cwd, path, buffer, mtime, saving, trackedWrite]);
+  // Leaving with an unsaved buffer asks first (unsaved-store); Discard resets to the loaded text.
+  useUnsavedBuffer(path, dirty, onSave, () => setBuffer(content ?? ""));
 
   // Hook order: declared before any early return. Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
   const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);
@@ -164,7 +172,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
           <button
             type="button"
             data-testid="md-save-btn"
-            onClick={onSave}
+            onClick={() => void onSave()}
             disabled={!dirty || saving || mtime === null}
             className="flex items-center gap-1 rounded bg-[var(--accent-blue)] px-2 py-0.5 text-white disabled:opacity-40"
           >
@@ -173,6 +181,16 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
           </button>
         )}
       </div>
+
+      {saveError && (
+        <div
+          data-testid="md-save-error"
+          role="alert"
+          className="shrink-0 border-b border-[var(--border-primary)] px-3 py-1.5 text-xs text-[var(--accent-red-text)]"
+        >
+          {saveError}
+        </div>
+      )}
 
       {conflict && (
         <ChangedOnDiskBanner

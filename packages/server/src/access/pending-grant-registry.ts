@@ -65,11 +65,20 @@ export type FloodReason =
   | "concurrent-cap"
   | "channel-concurrent";
 
+/** What a filesystem denial was refused FOR. Absent = `"read"`. */
+type GrantAction = "read" | "write";
+
 /** The denial being recorded. `subject` is already plane-normalised. */
 export interface DenialInput {
   plane: AccessPlaneId;
   subject: string;
   mode: GrantSettlementMode;
+  /**
+   * `"write"` for a text-document write denial (filesystem plane); default `"read"`. Part of the
+   * entry key, so a read and a write denial for one directory never share an entry, a verdict or a
+   * backoff. See change: fix-file-link-editor-routing (D2).
+   */
+  action?: GrantAction;
   /**
    * Who is asking: the capability's socket id on a held plane, the remote
    * source on a deferred one. The per-channel bounds key on this.
@@ -89,6 +98,8 @@ export interface PendingGrant {
   plane: AccessPlaneId;
   subject: string;
   mode: GrantSettlementMode;
+  /** What the denial was refused for; the verdict's grant takes its mode from THIS, never from the answer. */
+  action: GrantAction;
   /** The creator's channel: owns the entry's capacity share, never moves. */
   channel: string;
   /**
@@ -145,6 +156,8 @@ export interface GrantTransition {
   plane: AccessPlaneId;
   subject: string;
   mode: GrantSettlementMode;
+  /** Present on every transition the registry emits; optional so a hand-built transition (tests, formatters) stays valid. */
+  action?: GrantAction;
   promptId?: string;
   reason?: PreconditionReason | FloodReason | RefusalReason | "unoffered-subject";
   verdict?: GrantVerdict;
@@ -182,10 +195,14 @@ export function formatTransition(t: GrantTransition): string {
         ? `settled:${t.verdict}`
         : t.transition;
   const store = t.store ? ` store=${t.store}` : "";
-  return `[access-grant] ${label} plane=${t.plane} subject=${JSON.stringify(t.subject)} mode=${t.mode}${store}`;
+  const action = t.action === "write" ? " action=write" : "";
+  return `[access-grant] ${label} plane=${t.plane} subject=${JSON.stringify(t.subject)} mode=${t.mode}${action}${store}`;
 }
 
 const keyOf = (plane: string, subject: string): string => `${plane}\u0000${subject}`;
+/** Entry + backoff key: `(plane, action, subject)`. Rate windows stay keyed by plane / channel. */
+const entryKeyOf = (plane: string, action: GrantAction, subject: string): string =>
+  `${plane}\u0000${action}\u0000${subject}`;
 
 export class PendingGrantRegistry {
   private readonly byId = new Map<string, PendingGrant>();
@@ -240,7 +257,8 @@ export class PendingGrantRegistry {
    */
   record(input: DenialInput, precondition: Precondition, now: number = Date.now()): RecordOutcome {
     this.expire(now);
-    const key = keyOf(input.plane, input.subject);
+    const action: GrantAction = input.action === "write" ? "write" : "read";
+    const key = entryKeyOf(input.plane, action, input.subject);
 
     const existingId = this.byKey.get(key);
     const existing = existingId ? this.byId.get(existingId) : undefined;
@@ -280,6 +298,7 @@ export class PendingGrantRegistry {
       plane: input.plane,
       subject: input.subject,
       mode: input.mode,
+      action,
       channel: input.channel,
       store: input.store,
       ancestors: [...(input.ancestors ?? [])],
@@ -370,7 +389,7 @@ export class PendingGrantRegistry {
     }
 
     this.remove(entry);
-    this.backoffUntil.set(keyOf(entry.plane, entry.subject), now + GRANT_BACKOFF_MS);
+    this.backoffUntil.set(entryKeyOf(entry.plane, entry.action, entry.subject), now + GRANT_BACKOFF_MS);
     this.settledIds.push(entry.promptId);
     if (this.settledIds.length > SETTLED_MEMORY) this.settledIds.shift();
     this.stats.settled += 1;
@@ -438,13 +457,20 @@ export class PendingGrantRegistry {
   private refuse(input: DenialInput, reason: RefusalReason): RecordOutcome {
     if (reason === "capacity") this.stats.degraded.capacity = (this.stats.degraded.capacity ?? 0) + 1;
     else this.stats.flooded[reason] = (this.stats.flooded[reason] ?? 0) + 1;
-    this.emit({ transition: "refused", plane: input.plane, subject: input.subject, mode: input.mode, reason });
+    this.emit({
+      transition: "refused",
+      plane: input.plane,
+      subject: input.subject,
+      mode: input.mode,
+      action: input.action === "write" ? "write" : "read",
+      reason,
+    });
     return { kind: "refused", reason };
   }
 
   private remove(entry: PendingGrant): void {
     this.byId.delete(entry.promptId);
-    const key = keyOf(entry.plane, entry.subject);
+    const key = entryKeyOf(entry.plane, entry.action, entry.subject);
     if (this.byKey.get(key) === entry.promptId) this.byKey.delete(key);
   }
 
@@ -497,6 +523,7 @@ export class PendingGrantRegistry {
       plane: entry.plane,
       subject: entry.subject,
       mode: entry.mode,
+      action: entry.action,
       promptId: entry.promptId,
       ...extra,
     });

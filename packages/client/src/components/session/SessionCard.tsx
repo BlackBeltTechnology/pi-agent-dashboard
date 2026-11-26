@@ -98,7 +98,10 @@ import { useSessionCardDragHandle } from "./SortableSessionCard.js";
 
 /**
  * The card's single activity slot. Precedence:
- * `resuming → ended → ask_user → retry → currentTool → streaming → idle`.
+ * `resuming → ended → ask_user → retry → currentTool → streaming → failed → idle`.
+ * `failed` (idle/active + `hasError`) replaces only the final `Idle` label:
+ * `lastError` persists across a continuation, so a live tool/thinking label is
+ * the more current fact. See change: fix-ui-status-indicators (D2).
  *
  * `retryAttempt` outranks `currentTool` and `streaming` because during a
  * backoff no tool is executing — printing "Thinking…" while pi sits in a retry
@@ -114,6 +117,7 @@ export function activityContent(
   // Plugin-agnostic via the `placement` primitive. See change:
   // fix-flows-plugin-polish (B1).
   hasWidgetBarPrompt: boolean,
+  hasError = false,
 ): React.ReactNode {
   if (session.resuming) {
     // Status colour on the SHAPE, never the word (D2b): `--status-working` is
@@ -157,6 +161,14 @@ export function activityContent(
     );
   }
 
+  if ((session.status === "idle" || session.status === "active") && hasError) {
+    return (
+      <span className="text-[var(--text-secondary)] truncate inline-flex items-center gap-0.5" data-testid="activity-failed">
+        <StatusGlyph status="error" path={statusShapeIcon.error as string} /> {i18nT("common.failed", undefined, "Failed")}
+      </span>
+    );
+  }
+
   if (session.status === "idle" || session.status === "active") {
     // Turn-finished passive state: distinct "Idle" label, never "Waiting for
     // input". See change: improve-dashboard-attention-routing.
@@ -171,8 +183,8 @@ export function activityContent(
  * `useHasWidgetBarPrompt` once and passes it down, so the status-row gate and
  * the indicator share one decision. See change: compact-session-card-header (D8).
  */
-export function ActivityIndicator({ session, retryAttempt, hasWidgetBarPrompt }: { session: DashboardSession; retryAttempt?: number; hasWidgetBarPrompt: boolean }) {
-  return <>{activityContent(session, retryAttempt, hasWidgetBarPrompt)}</>;
+export function ActivityIndicator({ session, retryAttempt, hasWidgetBarPrompt, hasError = false }: { session: DashboardSession; retryAttempt?: number; hasWidgetBarPrompt: boolean; hasError?: boolean }) {
+  return <>{activityContent(session, retryAttempt, hasWidgetBarPrompt, hasError)}</>;
 }
 
 /**
@@ -190,12 +202,13 @@ function StatusDot({ status }: { status: "working" | "needs-you" }) {
   );
 }
 
-function StatusGlyph({ status, path }: { status: "working" | "needs-you"; path: string }) {
+function StatusGlyph({ status, path }: { status: "working" | "needs-you" | "error"; path: string }) {
+  const tone = status === "working" ? "text-[var(--status-working)]" : status === "error" ? "text-[var(--status-error)]" : "text-[var(--status-needs-you)]";
   return (
     <span
       aria-hidden="true"
       data-status-dot={status}
-      className={`inline-flex flex-shrink-0 ${status === "working" ? "text-[var(--status-working)]" : "text-[var(--status-needs-you)]"}`}
+      className={`inline-flex flex-shrink-0 ${tone}`}
     >
       <Icon path={path} size={0.5} />
     </span>
@@ -471,7 +484,7 @@ export function TokenStats({ session }: { session: DashboardSession }) {
 
   return (
     <span className="text-[var(--text-tertiary)] whitespace-nowrap">
-      {formatTokens(session.tokensIn ?? 0)}↑ {formatTokens(session.tokensOut ?? 0)}↓
+      {formatTokens(session.tokensIn ?? 0)}↓ {formatTokens(session.tokensOut ?? 0)}↑
       {(session.cacheRead ?? 0) > 0 && (
         <span className="ml-1">R{formatTokens(session.cacheRead ?? 0)}</span>
       )}
@@ -512,10 +525,15 @@ export function GitInfo({ session }: { session: DashboardSession }) {
     >
       <WorktreePill session={session} />
       {session.gitBranchUrl ? (
-        <SafeLink href={session.gitBranchUrl} target="_blank" rel="noopener noreferrer" title={session.gitBranch} className="focus-ring text-[var(--link)] hover:underline grow basis-[6ch] min-w-0 truncate">
-          <Icon path={mdiSourceBranch} size={0.5} className="inline-block align-text-bottom mr-0.5" />
-          {session.gitBranch}
-        </SafeLink>
+        // Wrapper owns the slot sizing (no overflow rule → focus ring unclipped);
+        // the content-wide link owns the ellipsis, so free row space is not
+        // clickable. See change: narrow-branch-link-hit-area.
+        <span className="flex grow basis-[6ch] min-w-0">
+          <SafeLink href={session.gitBranchUrl} target="_blank" rel="noopener noreferrer" title={session.gitBranch} className="focus-ring text-[var(--link)] hover:underline min-w-0 truncate">
+            <Icon path={mdiSourceBranch} size={0.5} className="inline-block align-text-bottom mr-0.5" />
+            {session.gitBranch}
+          </SafeLink>
+        </span>
       ) : (
         <span title={session.gitBranch} className="grow basis-[6ch] min-w-0 truncate">
           <Icon path={mdiSourceBranch} size={0.5} className="inline-block align-text-bottom mr-0.5" />
@@ -1145,7 +1163,6 @@ export function SessionCard({
       openPr: () => { void import("../worktree/worktree-runners.js").then((m) => m.runWorktreeOpenPr(session.cwd)).then(toastOutcome); },
       openUrl: (url) => { openExternalUrl(url); },
       openCardSections: () => navigate(buildFolderSettingsUrl(sectionFolderPath, "cards")),
-      openCardDefaults: () => navigate("/settings/general"),
     };
     return {
       working,
@@ -1243,7 +1260,7 @@ export function SessionCard({
               {session.model}
             </span>
           )}
-          <ActivityIndicator session={session} retryAttempt={retryAttempt} hasWidgetBarPrompt={hasWidgetBarPrompt} />
+          <ActivityIndicator session={session} retryAttempt={retryAttempt} hasWidgetBarPrompt={hasWidgetBarPrompt} hasError={hasError} />
           <HostPressureIndicator session={session} now={hostNow} />
           <MovedBadge session={session} />
           <OriginDeviceChip session={session} />
@@ -1495,7 +1512,7 @@ export function SessionCard({
           +Session / +Worktree chips live in the session actions menu.
           See changes: add-session-actions-flyout, compact-session-card-header. */}
       {(() => {
-        const activityNode = activityContent(session, retryAttempt, hasWidgetBarPrompt);
+        const activityNode = activityContent(session, retryAttempt, hasWidgetBarPrompt, hasError);
         const pressure = hostPressureLevel(session, hostNow);
         if (activityNode == null && pressure == null) return null;
         return (

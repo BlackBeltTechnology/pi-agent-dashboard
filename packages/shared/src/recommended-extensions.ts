@@ -652,8 +652,9 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"from untrusted tool results (web pages, search, email), spotlights " +
 			"them as data, and asks for confirmation before sensitive tools " +
 			"(bash, *_send, *_delete, ...) once untrusted content entered the run. " +
-			"Active on install in strip mode; set mode: \"off\" to disable.",
-		status: "optional",
+			"Not installed by default; install to enable. Active on install in strip mode; " +
+			"a project's settings can only tighten it.",
+		status: "strongly-suggested",
 		unlocks: [
 			"Hidden prompt-injection payload removal in untrusted tool results",
 			"Confirmation gate on sensitive tools after untrusted content was read",

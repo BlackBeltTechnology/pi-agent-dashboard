@@ -1,17 +1,20 @@
 /**
  * Denial-path cost and leak checks (change: add-access-grant-dialog, tasks
- * 10.43, 10.44; test-plan #P3, #P4).
+ * 10.43, 10.44; test-plan #P3, #P4; #P4's RSS bound: ladder-perf.budget.test.ts).
  */
 import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __resetPathDenials } from "../access-denials.js";
+import { __resetAccessGrants, recordGrant } from "../access-grants.js";
 import {
   __resetCheckoutRootCache,
   CHECKOUT_ROOT_CACHE_MAX,
   CHECKOUT_ROOT_CACHE_TTL_MS,
   offeredAncestorLadder,
 } from "../ancestor-ladder.js";
+import { evaluateContainment } from "../containment-gate.js";
 import { PendingGrantRegistry } from "../pending-grant-registry.js";
 
 let home: string;
@@ -62,7 +65,7 @@ describe("#P3 ladder computation on the denial path", () => {
 });
 
 describe("#P4 registry does not leak across settled entries", () => {
-  it("10k prompt -> settle cycles: registry returns to baseline, RSS delta < 10 MB", () => {
+  it("10k prompt -> settle cycles: registry returns to baseline", () => {
     const reg = new PendingGrantRegistry({ onTransition: () => {} });
     const OK = { promptable: true } as const;
     const run = (n: number, t0: number) => {
@@ -79,11 +82,9 @@ describe("#P4 registry does not leak across settled entries", () => {
     };
     run(1000, 0); // warm up
     global.gc?.();
-    const rss0 = process.memoryUsage().rss;
     run(10_000, 1e12);
     global.gc?.();
     expect(reg.size).toBe(0);
-    expect(process.memoryUsage().rss - rss0).toBeLessThan(10 * 1024 * 1024);
   });
 });
 
@@ -139,5 +140,44 @@ describe("#P2 a denial flood from one capability (task 10.57)", () => {
     expect(entries.length).toBeLessThanOrEqual(GRANT_CHANNEL_MAX_ENTRIES);
     expect(coordinator.registry.snapshotStats().flooded["channel-share"] ?? 0).toBeGreaterThan(0);
     for (const h of holds) h.abort();
+  });
+});
+
+// fix-file-link-editor-routing 3b (test-plan #S52, G7): the write predicate inherits the read ladder's budget.
+describe("#S52 write-mode containment cost", () => {
+  afterEach(() => {
+    delete process.env.PI_ACCESS_GRANTS_STORE;
+    __resetAccessGrants();
+    __resetPathDenials();
+  });
+
+  it("evaluateContainment(action:'write') on a 12-deep path with 200 mixed grants: p95 < 5 ms over 1000 iterations", async () => {
+    process.env.PI_ACCESS_GRANTS_STORE = path.join(home, "grants.json");
+    __resetAccessGrants();
+    __resetPathDenials();
+    const cwd = path.join(home, "cwd");
+    fs.mkdirSync(cwd);
+    // 199 decoy grants (alternating read / write) + the covering write grant LAST (worst-case scan).
+    for (let i = 0; i < 199; i++) {
+      const d = path.join(home, "decoys", `g${i}`);
+      fs.mkdirSync(d, { recursive: true });
+      recordGrant({ subject: d, mode: i % 2 === 0 ? "write" : "read", now: 1000 + i });
+    }
+    const granted = path.join(home, "granted");
+    const deep = path.join(granted, ...Array.from({ length: 12 }, (_, i) => `d${i}`));
+    fs.mkdirSync(deep, { recursive: true });
+    const target = path.join(deep, "x.md");
+    fs.writeFileSync(target, "x");
+    recordGrant({ subject: granted, mode: "write", now: 9_999 });
+
+    expect((await evaluateContainment(target, [cwd], { site: "perf", action: "write" })).allowed).toBe(true); // warm
+    const t: number[] = [];
+    for (let i = 0; i < 1000; i++) {
+      const s = performance.now();
+      const d = await evaluateContainment(target, [cwd], { site: "perf", action: "write" });
+      t.push(performance.now() - s);
+      expect(d.allowed).toBe(true);
+    }
+    expect(p95(t)).toBeLessThan(5);
   });
 });

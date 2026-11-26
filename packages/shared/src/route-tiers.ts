@@ -85,8 +85,13 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // decouple-plugins-from-core: removes a plugin's whole trust entry; the matching POST also needs a genuinely local caller.
   { method: "DELETE", path: "/api/plugins/:id/trust", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/gmail/accounts/:sub", tier: "operate" },
+  // add-google-connect: Google accounts hold tokens + OAuth clients — every route is `operate`; the two OAuth
+  // callbacks accept a code only for a pending sign-in's own state (see `PUBLIC_PLUGIN_CALLBACK_PATHS`).
+  { method: "DELETE", path: "/api/plugins/google/accounts/:sub", tier: "operate" },
+  { method: "DELETE", path: "/api/plugins/google/clients/:id", tier: "operate" },
   // add-gmail-auto-setup: the automatic setup run drives the dedicated browser and stores a client secret, so every run route is `operate` (and genuinely-local on the plugin side).
   { method: "DELETE", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
+  { method: "DELETE", path: "/api/plugins/google/setup/run/:id", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/agents/:key/conversations/:c", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/personas/:key", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/projects/:id", tier: "operate" },
@@ -196,6 +201,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/paired-devices/revoked", tier: "operate" },
   { method: "GET", path: "/api/pi-core/changelog", tier: "observe" },
   { method: "GET", path: "/api/pi-core/versions", tier: "observe" },
+  // Agent teams read snapshots (see change: add-agent-teams-core).
+  { method: "GET", path: "/api/plugins/agent-teams/teams", tier: "observe" },
+  { method: "GET", path: "/api/plugins/agent-teams/teams/:id", tier: "observe" },
   // Runtime overlay (see change: electron-runtime-overlay-updates).
   { method: "GET", path: "/api/plugins/skill-atlas/graph", tier: "observe" },
   { method: "GET", path: "/api/plugins/team/agents", tier: "operate" },
@@ -241,8 +249,13 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // the global `flows.editFlow` default (PUT writes ~/.pi/agent/settings.json).
   { method: "GET", path: "/api/plugins/flows/edit-mode-default", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/edit-mode-state", tier: "observe" },
+  { method: "GET", path: "/api/plugins/gmail/accounts", tier: "operate" },
   { method: "GET", path: "/api/plugins/gmail/state", tier: "operate" },
+  { method: "GET", path: "/api/plugins/google/oauth/callback", tier: "operate" },
+  { method: "GET", path: "/api/plugins/google/oauth/remote-callback", tier: "operate" },
+  { method: "GET", path: "/api/plugins/google/state", tier: "operate" },
   { method: "GET", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
+  { method: "GET", path: "/api/plugins/google/setup/run/:id", tier: "operate" },
   // add-obs-studio-plugin: instance list + status are reads (never start OBS);
   // the screenshot (desktop / webcam pixels) and every toggle are `operate`,
   // and the plugin additionally requires `identity.hasOperateAuthority`.
@@ -310,6 +323,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PATCH", path: "/api/folders/goals/:id", tier: "control" },
   { method: "PATCH", path: "/api/openspec/groups/:id", tier: "control" },
   { method: "PATCH", path: "/api/plugins/gmail/accounts/:sub", tier: "operate" },
+  { method: "PATCH", path: "/api/plugins/google/accounts/:sub", tier: "operate" },
+  { method: "PATCH", path: "/api/plugins/google/clients/:id", tier: "operate" },
   { method: "PATCH", path: "/api/users/:id", tier: "operate" },
   { method: "PATCH", path: "/api/plugins/team/agents/:key/conversations/:c", tier: "operate" },
   { method: "PATCH", path: "/api/plugins/team/projects/:id", tier: "operate" },
@@ -337,9 +352,14 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/discover-servers", tier: "operate" },
   { method: "POST", path: "/api/electron/reextract", tier: "operate" },
   { method: "POST", path: "/api/file/resolve-mention", tier: "observe" },
+  // rich-chat-links: batch form of resolve-mention (same tier; admission + caps in the handler).
+  { method: "POST", path: "/api/file/resolve-mentions", tier: "observe" },
   { method: "POST", path: "/api/file/write", tier: "control" },
   // add-editor-pane-file-handlers: plugin file-handler binary save; same tier as the text write.
   { method: "POST", path: "/api/file/write-binary", tier: "control" },
+  // rich-chat-links: framing probe. First dashboard code that makes an outbound request on a click, so
+  // `control` (not `observe`); the handler additionally requires an own browser Origin and rate-limits.
+  { method: "POST", path: "/api/web/frame-policy", tier: "control" },
   { method: "POST", path: "/api/folders/goals", tier: "control" },
   { method: "POST", path: "/api/folders/goals/:id/sessions", tier: "control" },
   { method: "POST", path: "/api/git/checkout", tier: "control" },
@@ -359,6 +379,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/git/worktree/remove-batch", tier: "control" },
   { method: "POST", path: "/api/grammar/check", tier: "observe" },
   { method: "POST", path: "/api/kb/reindex", tier: "operate" },
+  { method: "POST", path: "/api/kb/reindex/cancel", tier: "operate" },
   { method: "POST", path: "/api/kb/source-trust", tier: "operate" },
   { method: "POST", path: "/api/known-servers", tier: "operate" },
   { method: "POST", path: "/api/known-servers/accept-move", tier: "operate" },
@@ -369,6 +390,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // is the exposure posture; `touch` extends only the caller's OWN token (minting principal).
   { method: "POST", path: "/api/live-server/:id/capability", tier: "observe" },
   { method: "POST", path: "/api/live-server/:id/touch", tier: "observe" },
+  // D9: reserve / release a stable tier-5 base for a loopback port. See change: serve-live-previews-on-capability-origin.
+  { method: "POST", path: "/api/live-server/preview-path", tier: "control" },
+  { method: "DELETE", path: "/api/live-server/preview-path/:pid", tier: "control" },
   // Egress state is private to the preview's owner: control tier AND the minting principal (handler).
   { method: "GET", path: "/api/live-server/:id/egress", tier: "control" },
   { method: "POST", path: "/api/live-server/:id/allow-once", tier: "control" },
@@ -466,6 +490,13 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/gmail/setup/run", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/setup/run/:id/continue", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/setup/run/:id/takeover", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/accounts", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/accounts/:sub/products", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/accounts/:sub/reauth", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/picker-token", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/setup/run", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/setup/run/:id/continue", tier: "operate" },
+  { method: "POST", path: "/api/plugins/google/setup/run/:id/takeover", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/flow/:flowId/input", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/radius/mcp", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/start", tier: "operate" },
@@ -548,6 +579,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/plugins/flows/edit-mode-default", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/client", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/setup", tier: "operate" },
+  { method: "PUT", path: "/api/plugins/google/clients", tier: "operate" },
+  { method: "PUT", path: "/api/plugins/google/disclosure", tier: "operate" },
   { method: "PUT", path: "/api/plugins/hermes-memory/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/context-mode-settings/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/team/personas/:key", tier: "operate" },

@@ -54,9 +54,17 @@ const DIRS = [path.resolve(here, ".."), path.resolve(here, "../../preview")];
 const EXEMPT_ROUTES = [
   /\/api\/file\/write/,
   /\/api\/diagram\/render/,
+  // WebPagePreview's frame-policy probe: a remote-origin policy check, not a file read
+  // (rich-chat-links D11/D12).
+  /\/api\/web\/frame-policy/,
   // TabActions' open-in-system / reveal POSTs: `allowGrant:false` routes that
   // mint no remedy and so can never raise the dialog.
   /fetch\(`\$\{getApiBase\(\)\}\$\{endpoint\}`/,
+  // preview/download.ts: an explicit user-initiated Download (More menu / tree row).
+  // It deliberately uses the global wrapper so an outside-cwd file may raise the
+  // grant prompt and a cross-origin base carries its bearer
+  // (add-file-download, design D3). Not a preview read.
+  /fetch\(url\)/,
 ];
 
 /**

@@ -69,7 +69,7 @@ When the gate is enabled, the system SHALL evaluate every `read`, `write` and `e
 
 ### Requirement: Session roots
 
-A session's roots SHALL be: its working directory and that directory's checkout root, resolved by the same rules file-read containment uses (the working directory alone when the checkout root cannot be determined within the bounded probe); the operating system temporary directory, for reads and writes; the pi agent directory, the directories of skills loaded into the session, and context files pi loaded for the session, for reads only; and every persisted directory grant in the path-grant store. A write whose target lies only within a read-only root SHALL be treated as outside the roots.
+A session's roots SHALL be: its working directory and that directory's checkout root, resolved by the same rules file-read containment uses (the working directory alone when the checkout root cannot be determined within the bounded probe); the operating system temporary directory, for reads and writes; the pi agent directory (except the paths named by the requirement "Some agent-directory paths are asked about even for reads"), the directories of skills loaded into the session, and context files pi loaded for the session, for reads only; and every persisted directory grant in the path-grant store. A write whose target lies only within a read-only root SHALL be treated as outside the roots.
 
 #### Scenario: Git checkout root is a root
 
@@ -131,7 +131,7 @@ An out-of-root call that is not answered by a live YOLO session SHALL raise a pr
 
 ### Requirement: Always allow requires a second deliberate step
 
-`Always allow <directory>` SHALL be offered only when the gated path's containing directory is grantable under the path-grant store's forbidden-subject rules and the attached dashboard has proven that it writes the same grant store the gate reads. That proof SHALL NOT be inferred from the dashboard URL's hostname; when it is absent (an older dashboard, no dashboard, or a different store), the prompt SHALL say the answer cannot be remembered. Choosing it SHALL raise a second confirmation naming the exact directory to be persisted and stating that it can be revoked in Settings ▸ Access. Only an explicit confirmation SHALL persist the grant. The directory SHALL be the gated file's containing directory (or the gated path itself when it is a directory); an ancestor of it SHALL NOT be offered. Cancelling the confirmation SHALL be treated as `Deny`.
+`Always allow <directory>` SHALL be offered only when the gated path's containing directory is grantable under the path-grant store's forbidden-subject rules and the attached dashboard has proven that it writes the same grant store the gate reads. That proof SHALL NOT be inferred from the dashboard URL's hostname; when it is absent (an older dashboard, no dashboard, or a different store), the prompt SHALL say the answer cannot be remembered. Choosing it SHALL raise a second confirmation naming the exact directory to be persisted and stating that it can be revoked in Settings ▸ Access. Only an explicit confirmation SHALL persist the grant. The directory SHALL be the gated file's containing directory (or the gated path itself when it is a directory); an ancestor of it SHALL NOT be offered. Cancelling the confirmation SHALL be treated as `Deny`. It SHALL NOT be offered for a path of the requirement "Some agent-directory paths are asked about even for reads", wherever its containing directory lies.
 
 #### Scenario: Confirmed always-allow persists and runs
 
@@ -178,11 +178,17 @@ An out-of-root call that is not answered by a live YOLO session SHALL raise a pr
 - **WHEN** the gate settles
 - **THEN** the call SHALL run once and the operator SHALL be told the grant was not saved
 
+#### Scenario: Not offered for the agent-directory carve-out
+
+- **GIVEN** `PI_CODING_AGENT_DIR` is `/srv/pi-agent`, whose containing directory is grantable
+- **WHEN** the agent reads `/srv/pi-agent/mcp.json`
+- **THEN** the prompt SHALL offer only `Allow once` and `Deny`
+
 ### Requirement: The gate fails closed
 
 The call SHALL be blocked, with a reason returned to the agent, when: the operator denies or dismisses the prompt; the operator chooses always-allow and then declines or dismisses the confirmation; the prompts are not settled within the configured timeout (default 120 seconds), which SHALL bound the first prompt and the confirmation together; no interactive UI is available to ask; a live YOLO session reports that the subject carries a remembered refusal; or the gate itself errors. A block reason SHALL be distinguishable by cause (denied, recently denied, timed out, no UI, refused by a remembered refusal under YOLO, error). A failure to obtain a YOLO answer from the dashboard server (error, timeout, disconnect, unsupported server) SHALL NOT count as the gate erroring: the gate SHALL continue with the ordinary prompt.
 
-After a call is blocked because the operator denied or dismissed it or it timed out, further gated calls in the same session whose target lies in the same containing directory (the direct parent of the canonical target, whether or not it exists yet) SHALL be blocked without a prompt for 120 seconds, with the reason `recently denied`. This suppression SHALL never allow a call, and SHALL take precedence over asking, including for targets in sensitive locations, and over asking the server for a YOLO answer.
+After a call is blocked because the operator denied or dismissed it or it timed out, further gated calls in the same session whose target lies in the same containing directory (the direct parent of the canonical target, whether or not it exists yet) SHALL be blocked without a prompt for 120 seconds, with the reason `recently denied`. This suppression SHALL never allow a call, and SHALL take precedence over asking, including for targets in sensitive locations. It SHALL also take precedence over asking the server for a YOLO answer, except for a grantable, non-sensitive target when a live YOLO session answers it (see the YOLO requirement); a timed-out prompt is overridable that way, and so is a Deny that left no remembered refusal (see the Deny requirement), but an operator Deny the server remembered is not (it answers `refused`).
 
 A target inside a sensitive location (a subject the path-grant store refuses together with its descendants, such as `~/.ssh`) SHALL still be asked about, SHALL be marked as sensitive in the prompt, and SHALL offer only `Allow once` and `Deny`.
 
@@ -257,6 +263,31 @@ A target inside a sensitive location (a subject the path-grant store refuses tog
 - **WHEN** obtaining the YOLO answer fails with an error
 - **THEN** the call SHALL NOT be blocked as an error and the ordinary prompt SHALL be shown
 
+#### Scenario: A recent timeout does not block a live YOLO session
+- **GIVEN** a prompt for `/w/other/a.txt` in session S timed out 30 seconds ago and an unscoped YOLO session is then activated
+- **WHEN** session S writes `/w/other/b.txt`
+- **THEN** the call SHALL proceed with a `yolo-allowed` record and no prompt
+
+#### Scenario: A recent Deny stays refused under YOLO
+- **GIVEN** the operator answered `Deny` for `/w/other/a.txt` in session S (reported and remembered by the server) and an unscoped YOLO session is then activated
+- **WHEN** session S writes `/w/other/b.txt` within 120 seconds
+- **THEN** the call SHALL be blocked as `yolo-refused`, not auto-allowed
+
+#### Scenario: A recent denial still blocks a sensitive target under YOLO
+- **GIVEN** the operator denied or timed out a prompt for a sensitive target and an unscoped YOLO session is live
+- **WHEN** the agent retries under the same directory within 120 seconds
+- **THEN** the call SHALL be blocked as recently denied and the server SHALL NOT be asked
+
+#### Scenario: A recent timeout still blocks an ungrantable subject under YOLO
+- **GIVEN** a prompt for a file directly in the home directory timed out and an unscoped YOLO session is live
+- **WHEN** the agent retries under the same directory within 120 seconds
+- **THEN** the call SHALL be blocked as recently denied and the server SHALL NOT be asked
+
+#### Scenario: A YOLO decline leaves the recent-denial suppression in force
+- **GIVEN** the operator denied a read of `/w/other/a.txt` in session S and a YOLO session is live whose scope does not contain `/w/other`
+- **WHEN** session S reads `/w/other/b.txt` within 120 seconds and the server answers neither auto-allow nor refused
+- **THEN** the call SHALL be blocked without a prompt with the reason `recently denied`
+
 ### Requirement: The gate is on by default and can be turned off
 
 The gate SHALL be enabled by default. A machine-level setting SHALL disable it, editable in Settings ▸ Security, and an environment variable SHALL override the setting for a process. When disabled, gated tools SHALL run exactly as without this capability. A setting change SHALL apply to running sessions from their next tool call.
@@ -296,7 +327,7 @@ An in-root decision SHALL NOT require a round trip to the dashboard server, and 
 ### Requirement: A live YOLO session answers the out-of-root prompt
 
 When an out-of-root `read`, `write` or `edit` call would raise a prompt, the gate
-SHALL first ask the dashboard server whether a live YOLO session answers it. If
+SHALL first ask (before the recent-denial suppression, for a grantable, non-sensitive target) the dashboard server whether a live YOLO session answers it. When the server does not answer auto-allow or refused (any other answer, an error, no answer, or the question not being asked), the recent-denial suppression SHALL then apply before the ordinary prompt; for a sensitive or ungrantable target it applies directly because the server is never asked. If
 the server answers auto-allow, the call SHALL proceed exactly once, with no
 prompt shown and nothing granted. If the server answers that the subject carries
 a remembered refusal, the call SHALL be blocked without a prompt and logged as
@@ -316,8 +347,6 @@ when:
 - the target is a sensitive location (credentials or the agent's own control
   plane) — the prompt with its sensitive warning SHALL still be raised;
 - the subject is ungrantable — today's behaviour SHALL apply;
-- access under the same subject was denied by the operator moments ago — the
-  call SHALL be blocked as recently denied;
 - no interactive UI is attached — the call SHALL be blocked as no-ui, since
   YOLO answers only what could have been asked.
 
@@ -357,7 +386,7 @@ prompted as usual.
 
 #### Scenario: A recent denial is not overridden
 
-- **GIVEN** an unscoped YOLO session is live and the operator denied access under a subject moments ago
+- **GIVEN** an unscoped YOLO session is live and the operator denied or timed out access under a sensitive or ungrantable subject moments ago
 - **WHEN** the agent retries a call under that subject
 - **THEN** the call SHALL be blocked as recently denied
 
@@ -418,7 +447,14 @@ the subject from the path and refuse the report when the result differs from
 the reported subject. A report that cannot be delivered or is refused SHALL NOT
 change the outcome of the denied call. A Deny given while the session's bridge is
 not connected to the dashboard is not remembered durably (the server never saw
-the prompt); the recent-denial suppression still applies.
+the prompt); the recent-denial suppression still applies to a retry made while the
+YOLO question cannot be asked (no connected, same-host, `path-yolo`-announcing
+server), but once the bridge has reconnected a live YOLO session MAY auto-allow a
+grantable, non-sensitive retry within the window, as for any unremembered Deny. Where the bridge is connected, a Deny that nevertheless left no
+remembered refusal (the report was lost or not persisted by the server, or the
+answer was a declined always-allow confirmation) is covered by the recent-denial
+suppression only against an ordinary prompt: a live YOLO session MAY auto-allow
+a later call under that directory within the suppression window.
 
 Every path the bridge sends to the server for a YOLO question or a refusal
 report SHALL be the gate's absolute canonical target; the server SHALL refuse a
@@ -454,6 +490,7 @@ non-absolute path.
 
 - **WHEN** the operator chooses always-allow and then declines the confirmation
 - **THEN** the call SHALL be blocked as denied and no remembered refusal SHALL be recorded
+- **AND** a live YOLO session MAY auto-allow a later call under that directory within 120 seconds
 
 #### Scenario: A report without an observed prompt is refused
 
@@ -465,3 +502,70 @@ non-absolute path.
 - **GIVEN** a remembered agent-path refusal for `/other/dir` and the recent-denial window has elapsed
 - **WHEN** the operator clears it on the Access surface and YOLO is live with scope containing `/other/dir`
 - **THEN** the next out-of-root call under `/other/dir` SHALL be auto-allowed
+
+#### Scenario: A Deny whose report is lost is overridable under YOLO
+
+- **GIVEN** the operator denied `/other/dir/a.txt` but the refusal report was lost or not persisted, and an unscoped YOLO session is live
+- **WHEN** the agent writes `/other/dir/b.txt` within 120 seconds
+- **THEN** the denied call SHALL have been blocked, and the later call MAY proceed as `yolo-allowed`
+
+#### Scenario: A Deny while the bridge is disconnected is suppressed while YOLO cannot be asked
+
+- **GIVEN** the session's bridge was not connected to the dashboard when the operator denied `/other/dir/a.txt`, and no live YOLO session can answer the retry (the YOLO link is still down)
+- **WHEN** the agent writes `/other/dir/b.txt` within 120 seconds
+- **THEN** the call SHALL be blocked without a prompt with the reason `recently denied`
+
+#### Scenario: A Deny while the bridge was disconnected is overridable once YOLO is live
+
+- **GIVEN** the session's bridge was not connected when the operator denied `/other/dir/a.txt`, and the bridge has since reconnected to a live, unscoped YOLO session
+- **WHEN** the agent writes `/other/dir/b.txt` (grantable, non-sensitive) within 120 seconds
+- **THEN** the call MAY proceed as `yolo-allowed`
+
+### Requirement: Some agent-directory paths are asked about even for reads
+
+A read of `<agentDir>/sessions` itself or `<agentDir>/sessions/**` (not the session's own session directory), `<agentDir>/models.json`, `<agentDir>/mcp.json` or a `<name>.*` sibling of either SHALL NOT be admitted by any root or grant. `<agentDir>` is each of `~/.pi/agent`, `PI_CODING_AGENT_DIR` (when set) and pi's reported agent directory (`path-gate/index.ts:132`). Such a read SHALL be asked about, marked sensitive wherever it lies, offering only `Allow once` and `Deny`.
+
+#### Scenario: Another project's session transcript is asked about
+- **GIVEN** a session whose working directory is `/w/repo`
+- **WHEN** the agent reads `~/.pi/agent/sessions/--w-other--/2026-10-30_abc.jsonl`
+- **THEN** the operator SHALL be asked first, with the location marked sensitive and no always-allow offered
+
+#### Scenario: The sessions directory itself is asked about
+- **WHEN** the agent lists or reads the directory `~/.pi/agent/sessions`
+- **THEN** the operator SHALL be asked first, with the location marked sensitive and no always-allow offered
+
+#### Scenario: The session's own session directory stays readable
+- **WHEN** the agent reads a file inside the session directory of its own session
+- **THEN** the tool SHALL run without a prompt
+
+#### Scenario: Provider and MCP configuration is asked about
+- **WHEN** the agent reads `~/.pi/agent/models.json` or `~/.pi/agent/mcp.json`
+- **THEN** the operator SHALL be asked first, and a denial SHALL block the read
+
+#### Scenario: Other agent-directory reads stay silent
+- **WHEN** the agent reads `~/.pi/agent/settings.json` or a loaded skill under `~/.pi/agent/skills/`
+- **THEN** the tool SHALL run without a prompt
+
+#### Scenario: Override directory is treated alike
+- **GIVEN** `PI_CODING_AGENT_DIR` is `/srv/pi-agent`
+- **WHEN** the agent reads `/srv/pi-agent/mcp.json`
+- **THEN** the operator SHALL be asked first and the prompt SHALL mark it sensitive
+
+#### Scenario: Both agent directories are covered when they differ
+- **GIVEN** `PI_CODING_AGENT_DIR` is `/srv/pi-agent` and pi reports a third agent directory
+- **WHEN** the agent reads `~/.pi/agent/mcp.json`, `/srv/pi-agent/mcp.json` or that third directory's `models.json`
+- **THEN** the operator SHALL be asked first for each
+
+#### Scenario: A workspace root above the agent directory does not admit it
+- **GIVEN** the session's working directory, or its checkout root, is `$HOME` or a dotfiles repository containing `~/.pi/agent`
+- **WHEN** the agent reads `~/.pi/agent/sessions/--w-other--/a.jsonl` or `~/.pi/agent/mcp.json`
+- **THEN** the operator SHALL be asked first, with the location marked sensitive
+
+#### Scenario: A persisted grant does not admit it
+- **GIVEN** the path-grant store holds a directory that contains `/srv/pi-agent`
+- **WHEN** the agent reads `/srv/pi-agent/models.json`
+- **THEN** the operator SHALL be asked first
+
+#### Scenario: No grant can be created for it
+- **WHEN** the operator is asked about `/srv/pi-agent/mcp.json` and the gate computes the offer
+- **THEN** the grant subject SHALL be treated as not grantable and no grant admission SHALL be attempted

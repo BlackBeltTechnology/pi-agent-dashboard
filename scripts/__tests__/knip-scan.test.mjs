@@ -1,5 +1,6 @@
 /**
- * Live Knip scan assertions (test-plan #G3, #G5, #G6, #D2, #D3, #P1).
+ * Live Knip scan assertions (test-plan #G3, #G5, #G6, #D2, #D3).
+ * The scan-time budget (#P1) lives in knip-scan.budget.test.mjs (budget lane).
  *
  * `ci`-level, behind RUN_CI_SCENARIOS=1 and run by `npm run test:ci-scenarios`
  * (ci.yml), following the precedent in dependency-declarations.test.mjs: this
@@ -24,10 +25,8 @@ const SCAN_TIMEOUT_MS = 180_000;
 describe.skipIf(!CI_SCENARIOS)("live knip scan", () => {
   let report;
   let unusedFiles;
-  let elapsedMs;
 
   beforeAll(() => {
-    const started = Date.now();
     let raw;
     try {
       // Non-zero exit is the normal state while the baseline is above zero.
@@ -40,7 +39,6 @@ describe.skipIf(!CI_SCENARIOS)("live knip scan", () => {
     } catch (err) {
       raw = err.stdout ?? "";
     }
-    elapsedMs = Date.now() - started;
     report = JSON.parse(raw);
     unusedFiles = new Set((report.issues ?? []).filter((e) => (e.files ?? []).length > 0).map((e) => e.file));
   }, SCAN_TIMEOUT_MS);
@@ -91,10 +89,6 @@ describe.skipIf(!CI_SCENARIOS)("live knip scan", () => {
       .filter((e) => exempt.test(e.file))
       .filter((e) => ["unlisted", "devDependencies", "dependencies", "binaries"].some((c) => (e[c] ?? []).length > 0));
     expect(offenders.map((o) => o.file)).toEqual([]);
-  });
-
-  it("#P1 completes within the 30s budget", () => {
-    expect(elapsedMs).toBeLessThan(30_000);
   });
 
   it("reports a count for every gated class", () => {

@@ -5,144 +5,6 @@ Let pi agents work with multiple Gmail accounts safely: guided OAuth client setu
 
 ## Requirements
 
-### Requirement: Guided OAuth client setup
-The plugin settings SHALL present a setup wizard that:
-- lets the user choose between creating a new Google Cloud project and using an existing one;
-- provides copyable commands to create a Google Cloud project (new-project path only), list the account's projects, and enable the Gmail API (both paths), plus, when an owner account is set, a copyable `gcloud auth login <email>` command with the note that it must be run once before the other commands;
-- links directly to the branding, audience and client-creation pages for the user's project;
-- explains the audience choice: Internal only when every account to be connected belongs to the project's Workspace organization, otherwise External with each account listed as a test user;
-- explains publishing: a published app's tokens do not expire after 7 days, an unverified app shows Google's unverified-app warning and admits at most 100 users, and accounts added while the app was in Testing need one re-authentication after publishing;
-- accepts an uploaded OAuth client JSON file;
-- runs a test sign-in.
-
-The plugin SHALL NOT execute cloud CLI commands. When the dedicated agent browser is available, the settings SHALL also offer "Set up automatically" (see gmail-auto-setup); the wizard SHALL accept a hand-off from it that opens a given step with the project id and owner account filled in. An uploaded client SHALL be accepted only if it is a Desktop (installed) client with a client id and secret.
-
-The project id field SHALL be validated when the user leaves the field; no validation error SHALL be shown while typing, and an error shown after leaving SHALL clear as soon as the value becomes valid. A value that is not a valid Google Cloud project id SHALL show an inline error; a value containing an uppercase letter or a space SHALL instead show an error explaining that the console shows a project *name* while the wizard needs the project *id*, with a link to the console's project list. Project-scoped console links and commands SHALL be offered only for a valid project id; while the id is empty or invalid they SHALL be replaced by a statement that a valid project id is needed, and the commands SHALL NOT be shown with a placeholder.
-
-The wizard SHALL offer an optional owner account (an email address). When set and valid, every console link (including the project-create and project-list links) SHALL carry an `authuser` query parameter set to that email (URL-encoded) and every `gcloud` command other than `gcloud auth login` SHALL carry `--account <email>`, so the console and CLI act as the account that owns the project. An invalid owner account SHALL show an inline error when the user leaves the field and SHALL NOT be applied to links or commands. Links and commands SHALL always reflect the current field values, valid or not, without waiting for the user to leave the field.
-
-The project id and owner account SHALL be saved on the dashboard server when the user leaves the field with a valid value, independently of the client upload; leaving a field empty SHALL clear the saved value. A valid project id typed but not yet saved SHALL be saved before an uploaded client is compared with it. Both values SHALL be restored when the settings are reopened. One project-id rule SHALL apply everywhere: an uploaded client's `project_id` that the rule rejects counts as absent. After a client JSON is uploaded, when the JSON's `project_id` differs from the saved project id, the settings SHALL show the mismatch, naming both ids, and offer to replace the saved id with the JSON's id. When no project id is saved, the JSON's `project_id` SHALL be saved as the project id. When the JSON has no usable `project_id`, no comparison is made. The upload itself SHALL still be accepted, except that replacing the client while accounts are connected stays refused as before.
-
-Because Google reports some sign-in errors on its own page without redirecting back, the settings SHALL, while a sign-in is waiting, offer a way to report the error code Google displayed. The selectable codes SHALL be a fixed list (at least `org_internal`, `access_denied`, `admin_policy_enforced`); selecting one SHALL cancel the waiting sign-in and show the plain-language fix for that code, opening the relevant wizard step when the fix is in the wizard. The reported code SHALL remain displayed after the cancelled sign-in settles. Every sign-in error SHALL be shown as a human-readable sentence; an unrecognised error SHALL get a generic sentence, never only a bare code.
-
-While a sign-in is waiting, the Gmail settings SHALL tell the user that Google shows the Gmail permission in one of two ways — as a checkbox that must be ticked, or on a second screen ("wants additional access") that must be accepted — and that finishing after the first screen only signs in. A sign-in whose grant lacks the level's Gmail permission SHALL be explained as the Gmail permission not being granted, naming both consent shapes and telling the user to remove the app's existing access at `myaccount.google.com/connections` before adding the account again.
-
-When setup is complete and the wizard is collapsed, its summary SHALL identify the configured client (its project when known, otherwise its client id) so the user can find the audience setting again.
-
-#### Scenario: Web client rejected
-- **WHEN** the user uploads a client JSON containing a `web` block instead of `installed`
-- **THEN** the upload is rejected with guidance to create a Desktop app client
-
-#### Scenario: Test sign-in failure maps to a fix
-- **WHEN** the test sign-in fails because the user is not an allowed test user
-- **THEN** the wizard points the user to the audience step and the test-users setting
-
-#### Scenario: Account from another Workspace org blocked by Internal audience
-- **WHEN** a sign-in is waiting and the user reports that Google showed `org_internal`
-- **THEN** the waiting sign-in is cancelled
-- **AND** the wizard opens on the audience step with guidance to switch the audience to External and add the account as a test user
-
-#### Scenario: Admin policy blocks the app
-- **WHEN** a sign-in is waiting and the user reports that Google showed `admin_policy_enforced`
-- **THEN** the waiting sign-in is cancelled
-- **AND** the settings explain that the account's Workspace admin must trust the OAuth client, showing the configured client id
-
-#### Scenario: Gmail permission left unticked
-- **WHEN** the user completes Google consent without granting the Gmail permission
-- **THEN** no account is stored
-- **AND** the settings say the Gmail permission was not granted, describe both the checkbox and the second-screen consent shapes, and point to `myaccount.google.com/connections` to remove the partial grant before retrying
-
-#### Scenario: Waiting sign-in tells the user to tick every permission
-- **WHEN** a sign-in is waiting for the user
-- **THEN** the Gmail settings show, next to the sign-in link, that the Gmail permission must be ticked or accepted on Google's second screen, and that the first screen alone only signs in
-
-#### Scenario: Cancel settling does not erase the reported code
-- **WHEN** the user reports `org_internal` and the cancelled sign-in then settles as cancelled
-- **THEN** the `org_internal` guidance and the highlighted audience step remain shown
-
-#### Scenario: Client without a project id
-- **WHEN** setup is complete with a client whose JSON had no project id
-- **THEN** the collapsed wizard summary shows the client id
-
-#### Scenario: Audience guidance mentions multiple organizations
-- **WHEN** the user views the audience step
-- **THEN** it states that Internal only admits accounts of the project's own Workspace organization
-
-#### Scenario: Display name typed instead of project id
-- **WHEN** the user types `PiDashboard` into the project id field and leaves it
-- **THEN** an inline error explains the difference between project name and project id and links to the console's project list
-- **AND** no console link carries `project=PiDashboard` and no `gcloud` command is shown with that value or a placeholder
-
-#### Scenario: Existing project path
-- **WHEN** the user chooses "use an existing project"
-- **THEN** the create-project link and command are hidden
-- **AND** a copyable `gcloud projects list` command and a link to the console's project list are shown
-
-#### Scenario: Owner account applied to links and commands
-- **WHEN** the project id is `pidashboard-510015` and the owner account is `csakany.robert@gmail.com`
-- **THEN** every console link carries `authuser` = `csakany.robert@gmail.com` and every project-scoped link carries `project` = `pidashboard-510015`
-- **AND** every `gcloud` command ends with `--account csakany.robert@gmail.com`
-- **AND** a copyable `gcloud auth login csakany.robert@gmail.com` is shown with the note to run it first
-
-#### Scenario: Invalid owner account not applied
-- **WHEN** the owner account field contains `robson@` and the user leaves it
-- **THEN** an inline error is shown and no link or command carries that value
-
-#### Scenario: Project id saved before upload
-- **WHEN** the user enters a valid project id, leaves the field, and reopens the settings without uploading a client
-- **THEN** the project id field shows the saved id
-
-#### Scenario: Uploaded client from another project
-- **WHEN** no account is connected, the saved project id is `pidashboard-510015`, and the user uploads a client JSON whose `project_id` is `other-project-123`
-- **THEN** the client is accepted
-- **AND** the settings show that the two ids differ, naming both, and offer to use `other-project-123`
-
-#### Scenario: Uploaded client adopted when no id was saved
-- **WHEN** no project id is saved and the user uploads a client JSON whose `project_id` is `pidashboard-510015`
-- **THEN** `pidashboard-510015` is saved as the project id and no mismatch is shown
-
-#### Scenario: Publishing guidance
-- **WHEN** the user views the audience step
-- **THEN** it states that publishing removes the 7-day token expiry, that an unverified app shows a warning and admits at most 100 users, and that accounts added during Testing need one re-authentication after publishing
-
-#### Scenario: Hand-off opens the wizard at a step
-
-- **WHEN** an automatic setup run ends with `handoff {step: "publish", wizardStep: 3}` for project `pi-dashboard-abc123`
-- **THEN** the wizard SHALL be expanded with step 3 carrying `aria-current="step"` and the project id field showing `pi-dashboard-abc123`
-
-### Requirement: Multi-account sign-in
-The plugin SHALL let the user add any number of Google accounts through the host OAuth flow, using the loopback redirect with a pasted-redirect fallback. Each account SHALL be identified by the provider-verified subject and shown with its verified email. Adding an account MAY carry an email address; when it does, the authorization request SHALL pass it as `login_hint` so Google preselects that account. When the configured client's audience is External or unknown, the waiting-sign-in notice SHALL also say that Google may show "Google hasn't verified this app" and that the user continues through Advanced. Signing in again with an existing account SHALL update that account rather than create a duplicate.
-
-#### Scenario: Two accounts coexist
-- **WHEN** the user signs in with `a@x.com` and then with `b@y.com`
-- **THEN** both accounts are listed with their own permission levels
-
-#### Scenario: Parallel additions do not cancel each other
-- **WHEN** the user starts adding two accounts in parallel
-- **THEN** both sign-ins can complete
-
-#### Scenario: Re-auth updates in place
-- **WHEN** the user re-authenticates `a@x.com`
-- **THEN** the account keeps its alias and no duplicate entry appears
-
-#### Scenario: Remote dashboard sign-in
-- **WHEN** the dashboard runs remotely and the user pastes the redirect URL from the browser's address bar
-- **THEN** the account is added
-
-#### Scenario: Unverified email refused
-- **WHEN** the identity token reports an unverified email
-- **THEN** the sign-in fails and no account is stored
-
-#### Scenario: Add account with an email hint
-
-- **WHEN** the user adds an account entering `robson@semmi.se`
-- **THEN** the authorization URL SHALL carry `login_hint=robson@semmi.se`
-
-#### Scenario: Invalid email hint
-
-- **WHEN** `POST /api/plugins/gmail/accounts` carries `email` that is not an email address or longer than 254 characters
-- **THEN** the response SHALL be 400 and no sign-in SHALL start
-
 ### Requirement: Per-account permission levels
 Each account SHALL have exactly one level:
 - `readonly` allows read operations;
@@ -171,7 +33,7 @@ Raising a level SHALL require a new consent requesting the full access of the ne
 - **AND** after a grant covering both, the account is at `send` with filters still on
 
 ### Requirement: Server-held refresh tokens and leases
-Refresh tokens SHALL remain in the dashboard server process and its credential store. Tools SHALL obtain short-lived access tokens per account and operation from the server. The server SHALL refuse a lease above the account's level. When a grant is no longer valid, the server SHALL mark the account as needing re-authentication and refuse leases for it.
+Refresh tokens SHALL remain in the dashboard server process and its credential store. Tools SHALL obtain short-lived access tokens per account and operation from the server. The server SHALL refuse a lease above the account's level. When a grant is no longer valid, the server SHALL mark the account as needing re-authentication and refuse leases for it. Lease and account-listing requests SHALL be served only to hub-local sessions; a remote-origin session SHALL be refused with `origin_denied`.
 
 #### Scenario: Tool never receives a refresh token
 - **WHEN** a tool obtains a lease
@@ -182,18 +44,22 @@ Refresh tokens SHALL remain in the dashboard server process and its credential s
 - **THEN** the account shows "Re-auth needed" (the settings status pill, `data-status="reauth_required"`) and tool calls for it fail with a re-auth error
 
 #### Scenario: Any session sees the same accounts
-- **WHEN** two pi sessions on the same dashboard lease the same account
+- **WHEN** two hub-local pi sessions on the same dashboard lease the same account
 - **THEN** both succeed within the account's level (accounts are user-global)
 
 #### Scenario: Concurrent refresh is single-flight
 - **WHEN** two tools need a refreshed token for the same account at the same time
 - **THEN** exactly one refresh request is sent to Google
 
+#### Scenario: Remote-origin session cannot lease
+- **WHEN** a session whose bridge was admitted as a paired device requests `gmail/lease` or `gmail/accounts`
+- **THEN** the reply SHALL be an `origin_denied` failure and no token or account SHALL be returned
+
 ### Requirement: Account-scoped tools
-The account-listing tool SHALL take no account and SHALL return aliases, emails, levels and statuses without marking them untrusted. Every other Gmail tool SHALL require an explicit account (alias or email), and there SHALL be no implicit default. An unknown or ambiguous account SHALL fail with an error listing the known accounts. Results containing mailbox content SHALL declare themselves untrusted.
+The account-listing tool SHALL take no account and SHALL return aliases, emails, levels and statuses without marking them untrusted, for hub-local sessions only (remote: `origin_denied`). Every other Gmail tool SHALL require an explicit account (alias or email), and there SHALL be no implicit default. An unknown or ambiguous account SHALL fail with an error listing the known accounts. Results containing mailbox content SHALL declare themselves untrusted.
 
 #### Scenario: Accounts can be discovered without naming one
-- **WHEN** `gmail_accounts` is called
+- **WHEN** `gmail_accounts` is called from a hub-local session
 - **THEN** it lists every connected account and its level, and the result is not marked untrusted
 
 #### Scenario: Ambiguous email requires an alias
@@ -207,6 +73,10 @@ The account-listing tool SHALL take no account and SHALL return aliases, emails,
 #### Scenario: Reads marked untrusted
 - **WHEN** `gmail_get` returns a message
 - **THEN** the result declares itself untrusted
+
+#### Scenario: A remote-origin session cannot list accounts
+- **WHEN** `gmail_accounts` is called from a session whose bridge was admitted as a paired device
+- **THEN** the call fails with `origin_denied` and no account, email or level is returned
 
 ### Requirement: Confirmed writes
 Every write operation (draft, send, reply, modify, trash, filter create, filter delete) SHALL ask the user to confirm. A message write SHALL show the account, recipients or targets, subject and a body preview; a label change or trash SHALL show the account and its targets; a filter create or delete SHALL show the account, the filter's exact criteria and actions, and that the filter applies to all future matching mail. The operation SHALL be blocked when no interactive UI is available. A denial, dismissal or confirmation timeout SHALL leave the mailbox unchanged.
@@ -238,17 +108,6 @@ Saving an attachment SHALL only write inside the session's working directory, af
 - **WHEN** the target directory inside the working directory is a symbolic link to a location outside it
 - **THEN** the call fails and nothing is written
 
-### Requirement: Revoke account
-Revoking an account SHALL require an explicit confirmation in the UI before any request is sent. Revoking SHALL attempt token revocation at Google and SHALL delete the local record even if revocation fails. The UI SHALL state whether remote revocation succeeded.
-
-#### Scenario: Offline revoke
-- **WHEN** the user confirms revoking an account while Google is unreachable
-- **THEN** the local record is deleted and the UI reports that remote revocation must be done manually
-
-#### Scenario: Revoke not confirmed
-- **WHEN** the user clicks Revoke and does not confirm
-- **THEN** no revoke request is sent and the account remains listed
-
 ### Requirement: Secrets never logged
 Tokens, client secrets, authorization codes and pasted redirect URLs SHALL NOT appear in server or bridge logs, in tool results, or in automatic-setup run views, hand-off reasons or browser audit entries. Any text the automatic setup logs SHALL have `GOCSPX-` secrets masked, and a client JSON it downloads SHALL be deleted after it is read. A failed sign-in SHALL be logged exactly once, as a warning carrying only a fixed, input-free error code; an error without such a code SHALL be logged with a generic code.
 
@@ -265,33 +124,6 @@ Tokens, client secrets, authorization codes and pasted redirect URLs SHALL NOT a
 
 - **WHEN** an automatic setup run fails after the creation dialog showed a secret `GOCSPX-abc`
 - **THEN** no log line SHALL contain `GOCSPX-abc` and any logged dialog text SHALL read `GOCSPX-***`
-
-### Requirement: Settings section is readable and guarded
-The Gmail settings section SHALL take every color from declared dashboard theme tokens so borders, status badges and errors render correctly in every named theme in light and dark mode; information text (labels, help, hints) SHALL use `--text-primary` or `--text-secondary`, never `--text-muted`. Account status SHALL be distinguishable by color and text: a severity pill reading "Connected" for `ok` and "Re-auth needed" for `reauth_required`, keeping `data-testid="gmail-account-status"` and its `data-status` value. Every interactive control SHALL show a visible keyboard focus indicator, and each account row SHALL name its controls after the account ("Alias for <email>", "Level for <email>", "Filters for <email>", "Revoke <email>"). Saving an alias SHALL report success or failure. The level choices SHALL each describe what the level allows, and the section SHALL keep stating that levels are enforced by the plugin rather than by Google and that any dashboard session can use every account within its level. The labelled inputs (project id, owner account, client upload, new account level) SHALL use the shared settings field components (`settings-panel`), the project id and owner account fields SHALL each carry a hint (what the value is and where to find it), and their validation errors SHALL be linked to the input by `aria-describedby`. "Add account" SHALL be the section's one primary button; while it is disabled, a text reason SHALL be shown and linked by `aria-describedby`. The add-account control SHALL state that accounts outside the project's Workspace organization need an External audience.
-
-#### Scenario: Undeclared theme token rejected
-- **WHEN** the section's source references a color custom property not declared by the dashboard theme
-- **THEN** the repository's theme-token check fails
-
-#### Scenario: Alias saved feedback
-- **WHEN** the user edits an alias and leaves the field
-- **THEN** the section reports that the alias was saved, or shows the reason it was not
-
-#### Scenario: Scope limit still stated
-- **WHEN** the user views the accounts list
-- **THEN** the section states that levels are enforced by the plugin, not by Google, and that any dashboard session can use every account within its level
-
-#### Scenario: Status is text, not colour alone
-- **WHEN** one account is `ok` and one is `reauth_required`
-- **THEN** their status pills read "Connected" and "Re-auth needed", with `data-status` `ok` and `reauth_required`
-
-#### Scenario: Disabled Add account explains itself
-- **WHEN** no OAuth client is configured
-- **THEN** "Add account" is disabled and its `aria-describedby` points at visible text saying when it becomes available
-
-#### Scenario: Field error is announced with its input
-- **WHEN** the project id field shows a validation error
-- **THEN** the input's `aria-describedby` references the visible error text
 
 ### Requirement: Actionable Gmail API errors
 When the Gmail API answers HTTP 403, a Gmail tool SHALL classify the failure from Google's machine-readable error reason only and SHALL NOT echo Google's free-text message. A disabled Gmail API SHALL fail with code `api_disabled` and a message naming the Google Cloud project number and the command or console page that enables the Gmail API. A token lacking the required Gmail scope SHALL fail with code `scope_insufficient` and tell the user to re-authenticate the account with every permission granted. Any other 403, or a 403 whose body cannot be parsed, SHALL keep failing with the generic `gmail_error` code. The project number SHALL be included only when it consists of digits; otherwise the `api_disabled` message SHALL omit it.
@@ -312,21 +144,6 @@ When the Gmail API answers HTTP 403, a Gmail tool SHALL classify the failure fro
 #### Scenario: Unknown or malformed 403
 - **WHEN** a Gmail tool call returns 403 with an unknown reason, a non-JSON body, or a body whose fields have unexpected types
 - **THEN** the tool fails with code `gmail_error` and the message contains none of the response body text
-
-### Requirement: Gmail setup wizard shows step progress and actionable errors
-The setup wizard SHALL number its steps with chips. The current step — the step the wizard highlights today, including the audience step it highlights after an `org_internal` report — SHALL carry `aria-current="step"`, and completed steps SHALL show a check. A failed sign-in SHALL render as a severity-error notice that names the cause and the wizard step that fixes it, keeping `gmail-flow-error` with its `data-step` and the error code. An invalid project id and a project-id mismatch after upload SHALL each render as an actionable notice in step 1 that says what to change, with test ids `gmail-project-error` and `gmail-project-mismatch` respectively. The section SHALL pass the contrast, size and focus probes in `{base,dark}`, `{base,light}` and `{nord,dark}` at 375, 768 and 1440 px in these states: loading, load error, not configured, invalid project id, project-id mismatch, configured with an `ok`, a `reauth_required` and a testing-mode account, client upload error, sign-in waiting, sign-in failed, alias error, and the automatic setup states: entry available, remote note, start form, run in progress, waiting for the user (sign-in and policy checkpoints), audience and links decisions, busy with takeover, and hand-off. Every existing `gmail-*` test id SHALL still render in its state.
-
-#### Scenario: Current step is marked
-- **WHEN** the client is not configured
-- **THEN** step 1 has `aria-current="step"` and no step shows a check
-
-#### Scenario: Probes pass in every state
-- **WHEN** the capture spec probes each listed state in every listed theme and width
-- **THEN** every contrast, size and focus failure list is empty
-
-#### Scenario: Project id mismatch is actionable
-- **WHEN** the uploaded client's project id differs from the saved one
-- **THEN** step 1 shows a notice naming both ids with a control that replaces the saved id with the client's id
 
 ### Requirement: Opt-in Gmail filter management
 Each account SHALL have a filters option, off by default and independent of its permission level. Turning it on SHALL require a new consent for the level's scopes plus `gmail.settings.basic`, unless the grant already covers both; a grant lacking either SHALL count as the Gmail permission not granted and SHALL NOT change the stored account. Turning it off SHALL take effect immediately. "Add account" for an existing account SHALL NOT change its filters option.
@@ -396,3 +213,46 @@ A create request SHALL carry at least one criterion whose value is non-empty aft
 #### Scenario: Unsafe or malformed filter refused
 - **WHEN** the agent asks to create a filter with an unsupported criteria key, no criteria, only blank or `*` criteria, no action, or an action adding `TRASH` or `SPAM`
 - **THEN** the call fails without contacting Google and without asking for confirmation
+
+### Requirement: Gmail accounts come from Google Connect
+When Google Connect is usable, Gmail accounts, OAuth clients, refresh tokens and sign-in SHALL be owned by it. A Gmail account SHALL be a Google Connect account with Gmail on, its Gmail permission level and filter option being the product's level and option. Gmail tools SHALL obtain tokens for such accounts through the `google` plugin's lease lane after the Gmail lease lane answers with a delegation. Gmail tool names, level and filter enforcement SHALL stay unchanged.
+
+#### Scenario: Gmail tools after the move
+- **WHEN** `a@x.com` has Gmail at level draft in Google accounts
+- **THEN** `gmail_accounts` lists it and `gmail_send` is refused as above its level
+
+### Requirement: Google Connect refusals reach Gmail tools as Gmail errors
+For product Gmail, Google Connect lease refusals SHALL use Gmail's existing codes and messages (level, filters, re-authentication, origin), plus: Gmail off → "Gmail is off for <email> in Settings → Google accounts"; built-in app or client unavailable → the existing `no_client` message.
+
+#### Scenario: Gmail turned off
+- **WHEN** Gmail is off for `a@x.com` and `gmail_search` runs for it
+- **THEN** the tool fails with "Gmail is off for a@x.com in Settings → Google accounts"
+
+### Requirement: Gmail works without Google Connect
+Gmail SHALL NOT require Google Connect to load. It SHALL use Google Connect only when an entry `google.connect` provided by the plugin `google` exists; otherwise it SHALL lease from its own stored data as before. Turning the `google` plugin on or off SHALL take effect after a server restart.
+
+#### Scenario: Google plugin disabled
+- **WHEN** the `google` plugin is disabled after migration
+- **THEN** Gmail tools keep working from the Gmail plugin's own stored data
+
+#### Scenario: Spoofed service ignored
+- **WHEN** another plugin provides `google.connect`
+- **THEN** Gmail ignores it
+
+### Requirement: Gmail settings point to Google accounts
+While Google Connect is usable, the Gmail settings section SHALL show a notice linking to Settings → Google accounts and Gmail's own account, client and setup REST routes SHALL answer `410` with error `moved`. While it is not usable, the section SHALL say to turn on Google accounts to manage Gmail accounts and those routes SHALL answer `503` with error `google_connect_unavailable`; Gmail tools keep working.
+
+#### Scenario: Old route after migration
+- **WHEN** a client calls `PUT /api/plugins/gmail/client` after migration
+- **THEN** the response is 410 `moved` and nothing is stored
+
+#### Scenario: Google accounts turned off
+- **WHEN** the `google` plugin is disabled and the user opens the Gmail settings
+- **THEN** the section says to turn on Google accounts, and `POST /api/plugins/gmail/accounts` answers 503 `google_connect_unavailable`
+
+### Requirement: Legacy Gmail data migrates
+On its first request after start while Google Connect is usable, the Gmail plugin SHALL hand its stored client and accounts to Google Connect, record that migration happened, and SHALL NOT delete its stored data. A failed hand-off SHALL be retried on the next start and SHALL leave Gmail tools working from the legacy data until it succeeds.
+
+#### Scenario: Migration retried
+- **WHEN** Google Connect refuses the import because its store is locked
+- **THEN** Gmail keeps leasing from its own data and retries the import on next start

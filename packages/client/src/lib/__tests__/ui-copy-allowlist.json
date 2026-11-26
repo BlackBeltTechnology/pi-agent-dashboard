@@ -162,7 +162,7 @@
       "reason": "internal: OS child-process failure detail (node spawn), wrapped by a user-facing message upstream"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "\" is already pending for another spawn",
       "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
     },
@@ -172,22 +172,37 @@
       "reason": "log-only: console/server log line, never rendered in the dashboard UI"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "[plugin-spawn] mode=",
       "reason": "log-only: console/server log line, never rendered in the dashboard UI"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
+      "text": "[plugin-spawn] plugin=",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
+      "text": "[plugin-spawn] worktree ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
+      "text": "[plugin-spawn] worktree failed plugin=",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "spawn not permitted for plugin \"",
       "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "spawn options must be an object",
       "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
     },
     {
-      "file": "packages/server/src/server.ts",
+      "file": "packages/server/src/spawn-process/plugin-spawn-worktree.ts",
       "text": "spawn options require a non-empty cwd",
       "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
     },
@@ -240,6 +255,61 @@
       "file": "packages/shared/src/platform/detached-spawn.ts",
       "text": "spawn failed: no PID",
       "reason": "internal: OS child-process failure detail (node spawn), wrapped by a user-facing message upstream"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/bridge/tools.ts",
+      "text": "Start a teammate as its own visible session. It sees ONLY the prompt you give here (not your conversation), so make the prompt self-contained. It returns at once with status \"spawning\"; the teammate begins when its session is ready and tells you when it is idle. Prefer 3-5 teammates in total: each costs roughly one extra full context per call. Do not spawn more than the work needs. The lead is the only git committer. ",
+      "reason": "agent-facing tool text: the model-facing description of the TeammateSpawn tool, never rendered as dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/driver.ts",
+      "text": "spawn failed",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/extension-points.ts",
+      "text": "a spawn contributor",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/extension-points.ts",
+      "text": "agent-teams: spawn contributor threw: ",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/extension-points.ts",
+      "text": "agent-teams: a spawn contributor tried to change cwd; ignored",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/ops.ts",
+      "text": "agent-teams: spawn of ",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/ops.ts",
+      "text": "spawn failed: ",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/spawn.ts",
+      "text": "the spawn prompt was not acknowledged",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/spawn.ts",
+      "text": "the spawn did not complete",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/spawn.ts",
+      "text": " has no spawning member ",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/spawn.ts",
+      "text": " did not reconnect after the server restart (respawn with resume:true)",
+      "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
     }
   ]
 }

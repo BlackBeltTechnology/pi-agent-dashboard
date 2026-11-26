@@ -5,9 +5,14 @@
 import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { startDownload } from "../../preview/download.js";
+import { UnsavedChangesHost } from "../UnsavedChangesHost.js";
+import { unregisterUnsaved, unsavedKey, unsavedStore } from "../unsaved-store.js";
 import { installMemoryStorage, mount, readPane, seedPane, stubFetch, stubResizeObserver, tab, treeVisibleKey } from "./chrome-harness.js";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
+// Delivery itself is covered in preview/__tests__/download.test.ts.
+vi.mock("../../preview/download.js", () => ({ startDownload: vi.fn(() => Promise.resolve()) }));
 vi.mock("../CappedViewer.js", async () => {
   const React = await import("react");
   return { CappedViewer: ({ path }: { path: string }) => React.createElement("div", { "data-testid": "capped-viewer" }, path) };
@@ -22,7 +27,9 @@ beforeEach(() => {
   installMemoryStorage();
   stubFetch();
 });
+const unsavedKeys: string[] = [];
 afterEach(() => {
+  for (const k of unsavedKeys.splice(0)) unregisterUnsaved(k);
   cleanup();
   globalThis.fetch = originalFetch;
   vi.restoreAllMocks();
@@ -181,6 +188,7 @@ describe("document bar (D2, D3, D10, D11)", () => {
     await settle();
     expect(within(screen.getByTestId("doc-bar")).getByTestId("tab-open-in-browser")).toBeTruthy();
     expect(screen.getByTestId("doc-bar").textContent).toContain("https://example.com/x");
+    expect(within(screen.getByTestId("doc-bar")).getByTestId("embedded-from").textContent).toBe("embedded from example.com");
     for (const [i, expected] of [[1, "a.ts"], [2, "preview"], [3, "zsh"]] as const) {
       fireEvent.click(screen.getAllByTestId("editor-tab")[i]);
       const bar = screen.getByTestId("doc-bar");
@@ -377,5 +385,149 @@ describe("document bar (D2, D3, D10, D11)", () => {
     expect(screen.getByTestId("doc-bar")).toBeTruthy();
     expect(screen.getByTestId("pane-bar")).toBeTruthy();
     expect(screen.getAllByTestId("editor-tab")).toHaveLength(2);
+  });
+});
+
+// fix-file-link-editor-routing 4.4 / 4.6 (S45 / S47): a dirty built-in buffer asks before its tab or the pane closes.
+describe("unsaved built-in buffer guards (S45, S47)", () => {
+  /** Register a dirty (or clean) built-in buffer for tab `path` of session s1. */
+  const buffer = (path: string, dirty = true) => {
+    const e = { label: path, dirty, save: vi.fn(async () => true), discard: vi.fn() };
+    const key = unsavedKey("s1", path);
+    unsavedKeys.push(key);
+    unsavedStore.registerUnsaved(key, e);
+    return e;
+  };
+  const paths = () => readPane("s1").openFiles.map((f) => f.path);
+  const mountPane = () => mount({ extra: <UnsavedChangesHost /> });
+
+  it("S45: ✕ on a clean tab closes at once, no dialog; on a dirty tab asks and the tab stays", async () => {
+    seedPane("s1", [tab("clean.md"), tab("dirty.md")], 0);
+    buffer("clean.md", false);
+    buffer("dirty.md");
+    mountPane();
+    fireEvent.click(screen.getByLabelText("Close clean.md"));
+    expect(screen.queryByTestId("unsaved-dialog")).toBeNull();
+    expect(paths()).toEqual(["dirty.md"]);
+    fireEvent.click(screen.getByLabelText("Close dirty.md"));
+    expect(await screen.findByTestId("unsaved-dialog")).toBeTruthy();
+    expect(paths()).toEqual(["dirty.md"]);
+  });
+
+  it("S45: the close-tab shortcut on a dirty active tab asks too", async () => {
+    seedPane("s1", [tab("dirty.md")], 0);
+    buffer("dirty.md");
+    mountPane();
+    fireEvent.keyDown(window, { key: "w", metaKey: true });
+    expect(await screen.findByTestId("unsaved-dialog")).toBeTruthy();
+    expect(paths()).toEqual(["dirty.md"]);
+  });
+
+  it("S45: Cancel keeps the tab; Discard closes it; Save writes then closes", async () => {
+    seedPane("s1", [tab("dirty.md")], 0);
+    const e = buffer("dirty.md");
+    mountPane();
+    fireEvent.click(screen.getByLabelText("Close dirty.md"));
+    fireEvent.click(await screen.findByTestId("unsaved-cancel"));
+    await waitFor(() => expect(screen.queryByTestId("unsaved-dialog")).toBeNull());
+    expect(paths()).toEqual(["dirty.md"]);
+    fireEvent.click(screen.getByLabelText("Close dirty.md"));
+    fireEvent.click(await screen.findByTestId("unsaved-save"));
+    await waitFor(() => expect(paths()).toEqual([]));
+    expect(e.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("S45: Discard closes the tab without saving", async () => {
+    seedPane("s1", [tab("dirty.md")], 0);
+    const e = buffer("dirty.md");
+    mountPane();
+    fireEvent.click(screen.getByLabelText("Close dirty.md"));
+    fireEvent.click(await screen.findByTestId("unsaved-discard"));
+    await waitFor(() => expect(paths()).toEqual([]));
+    expect(e.save).not.toHaveBeenCalled();
+  });
+
+  it("S47: pane ✕ with a dirty buffer asks before closing; Cancel leaves the layout; Discard closes", async () => {
+    seedPane("s1", [tab("dirty.md")], 0);
+    localStorage.setItem("pi-dashboard:split:s1", JSON.stringify({ mode: "split", ratio: 0.5, orientation: "h" }));
+    buffer("dirty.md");
+    mountPane();
+    const mode = () => JSON.parse(localStorage.getItem("pi-dashboard:split:s1") ?? "{}").mode;
+    fireEvent.click(screen.getByTestId("editor-pane-close"));
+    expect(await screen.findByTestId("unsaved-dialog")).toBeTruthy();
+    expect(mode()).toBe("split");
+    fireEvent.click(screen.getByTestId("unsaved-cancel"));
+    await waitFor(() => expect(screen.queryByTestId("unsaved-dialog")).toBeNull());
+    expect(mode()).toBe("split");
+    fireEvent.click(screen.getByTestId("editor-pane-close"));
+    fireEvent.click(await screen.findByTestId("unsaved-discard"));
+    await waitFor(() => expect(mode()).toBe("closed"));
+  });
+});
+
+// add-file-download: Download in the document bar's More menu (test-plan #F1–#F4).
+describe("document bar Download (add-file-download)", () => {
+  beforeEach(() => vi.mocked(startDownload).mockClear());
+
+  it("#F1 More → Download starts the download for the active tab and closes the menu", async () => {
+    seedPane("s1", [tab("notes/summary.md")], 0);
+    mount({ cwd: "/u/proj" });
+    await settle();
+    fireEvent.click(screen.getByTestId("doc-more-menu"));
+    fireEvent.click(screen.getByTestId("doc-download"));
+    expect(startDownload).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(startDownload).mock.calls[0]?.[0]).toEqual({ cwd: "/u/proj", path: "notes/summary.md" });
+    expect(vi.mocked(startDownload).mock.calls[0]?.[1]).toMatchObject({ outsideCwd: false });
+    expect(screen.queryByTestId("doc-more-menu-panel")).toBeNull();
+  });
+
+  it("#F2 the hint shows only for a dirty buffer; Download stays enabled", async () => {
+    const entry = { label: "d.md", dirty: true, save: vi.fn(async () => true), discard: vi.fn() };
+    const key = unsavedKey("s1", "d.md");
+    unsavedKeys.push(key);
+    unsavedStore.registerUnsaved(key, entry);
+    seedPane("s1", [tab("clean.md"), tab("d.md")], 0);
+    mount();
+    await settle();
+    fireEvent.click(screen.getByTestId("doc-more-menu"));
+    expect(screen.getByTestId("doc-download").textContent).not.toContain("Unsaved changes not included");
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(screen.getAllByTestId("editor-tab")[1]);
+    fireEvent.click(screen.getByTestId("doc-more-menu"));
+    const item = screen.getByTestId("doc-download") as HTMLButtonElement;
+    expect(item.disabled).toBe(false);
+    expect(item.textContent).toContain("Unsaved changes not included");
+  });
+
+  it("#F2b a buffer that turns dirty AFTER mount still shows the hint", async () => {
+    seedPane("s1", [tab("late.md")], 0);
+    mount();
+    await settle();
+    const key = unsavedKey("s1", "late.md");
+    unsavedKeys.push(key);
+    act(() => {
+      unsavedStore.registerUnsaved(key, { label: "late.md", dirty: true, save: vi.fn(async () => true), discard: vi.fn() });
+    });
+    fireEvent.click(screen.getByTestId("doc-more-menu"));
+    expect(screen.getByTestId("doc-download").textContent).toContain("Unsaved changes not included");
+  });
+
+  it("#F3 an outside-cwd tab downloads with outsideCwd:true", async () => {
+    seedPane("s1", [tab("/etc/hosts")], 0);
+    mount();
+    await settle();
+    fireEvent.click(screen.getByTestId("doc-more-menu"));
+    fireEvent.click(screen.getByTestId("doc-download"));
+    expect(vi.mocked(startDownload).mock.calls[0]?.[1]).toMatchObject({ outsideCwd: true });
+  });
+
+  it("#F4 url and terminal tabs have no Download", async () => {
+    seedPane("s1", [tab("url:https://example.com/x"), tab("term:t1")], 0);
+    mount({ terminals: [{ id: "t1", title: "zsh" }] });
+    await settle();
+    expect(screen.queryByTestId("doc-download")).toBeNull();
+    fireEvent.click(screen.getAllByTestId("editor-tab")[1]);
+    expect(screen.queryByTestId("doc-download")).toBeNull();
+    expect(screen.queryByTestId("doc-more-menu")).toBeNull();
   });
 });

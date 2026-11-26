@@ -27,8 +27,17 @@ function contentOf(json: Record<string, unknown> | null): string | null {
   return json?.success && typeof data?.content === "string" ? data.content : null;
 }
 
-/** Read a flow-related file's content; throws `Error(message)` on failure. */
-export async function fetchFlowFile(sessionId: string | undefined, filePath: string): Promise<string> {
+/**
+ * Read a flow-related file's content; throws `Error(message)` on failure.
+ * `noHostFallback`: plugin route only (a path-opened, view-only flow's files are
+ * admitted there and nowhere else). See change: add-flow-open-tool (D7).
+ */
+export async function fetchFlowFile(
+  sessionId: string | undefined,
+  filePath: string,
+  opts: { noHostFallback?: boolean } = {},
+): Promise<string> {
+  let pluginError: string | undefined;
   if (sessionId) {
     const url = `/api/plugins/flows/file?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(filePath)}`;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -37,13 +46,16 @@ export async function fetchFlowFile(sessionId: string | undefined, filePath: str
         const json = await readJson(r);
         const content = contentOf(json);
         if (content !== null) return content;
+        pluginError = typeof json?.error === "string" ? json.error : `HTTP ${r.status}`;
         if (r.status !== 409 || !json?.retry) break;
         await wait(RETRY_MS);
-      } catch {
+      } catch (err) {
+        pluginError = err instanceof Error ? err.message : String(err);
         break; // network / plugin unavailable → host fallback
       }
     }
   }
+  if (opts.noHostFallback) throw new Error(pluginError ?? "no session");
   const r = await fetch(`/api/pi-resource-file?path=${encodeURIComponent(filePath)}`);
   const json = await readJson(r);
   const content = contentOf(json);

@@ -18,7 +18,7 @@ Pull-only condensed map. Source: packages/extension/.pi/skills/pi-dashboard/refe
 - `GET /api/sessions` — list all; optional `?id=` (single value; exact or >= 8-char prefix, case-insensitive; repeated → 400). Fields: `uiUrl, diffUrl` (absolute browser links, never stored), `id, cwd, name?, source (tui|zed|tmux|dashboard|terminal|unknown), status (active|idle|streaming|ended), model?, thinkingLevel?, startedAt, endedAt?, tokensIn?, tokensOut?, cost?, currentTool?, gitBranch?, attachedProposal?, hidden?, activeFlowName?, flowStatus? (running|success|error|aborted), sessionFile?`.
 
 ## Session Control
-- `POST /api/session/:id/prompt` — `{ text (required), images? [{ type:"image", data, mimeType }] }`. 400 no text, 404, 502 no bridge.
+- `POST /api/session/:id/prompt` — `{ text (required), images? [{ type:"image", data, mimeType }], delivery? "steer"|"followUp" }`. `steer` = mid-turn (held, cancellable until hand-off); absent = followUp. ACP: steer queues as follow-up. Ordinary prompts only; slash commands run immediately, never held. Ex: `--data '{"text":"focus on X","delivery":"steer"}'`. 400 no text / bad delivery (checked before 404), 404, 502 no bridge.
 - `POST /api/session/:id/abort` — 200 / 404. `POST /api/session/:id/shutdown` — terminates pi process, not server.
 - `POST /api/session/:id/rename` — `{ name }`. 400 missing name, 404.
 - `POST /api/session/:id/hide` / `unhide` — 200 / 404.

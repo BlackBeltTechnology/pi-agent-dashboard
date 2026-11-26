@@ -7,7 +7,7 @@ TBD - created by archiving change add-access-grants-and-review. Update Purpose a
 
 ### Requirement: Persisted path-anchor grant store
 
-The system SHALL persist granted filesystem directories at `~/.pi/dashboard/access-grants.json`. Each entry SHALL record the granted directory subject, its scope, the time it was granted, and the origin that requested it. A missing or malformed store SHALL be treated as empty.
+The system SHALL persist granted filesystem directories at `~/.pi/dashboard/access-grants.json`. Each entry SHALL record the granted directory subject, its scope, the time it was granted, the origin that requested it and, optionally, an access `mode` of `"write"` (absent = read). A missing or malformed store SHALL be treated as empty.
 
 This store is deliberately richer than `worktree-init-trust.json`, which is a flat map of key to `true` carrying no subject, time, or origin — those three fields are required here because the Access tab must display them. Scope SHALL follow the existing `"session" | "project"` convention, where a session-scoped grant lives only in memory and does not survive a restart.
 
@@ -34,6 +34,18 @@ This store is deliberately richer than `worktree-init-trust.json`, which is a fl
 - **GIVEN** a subject was granted at session scope
 - **WHEN** the server restarts
 - **THEN** the grant SHALL no longer be in effect
+
+#### Scenario: A pre-change store loads as read-only grants
+
+- **GIVEN** a store written before write mode existed (no `mode` on any entry, `version: 1`)
+- **WHEN** it is loaded
+- **THEN** every grant SHALL be a read grant and the file SHALL NOT be rewritten
+
+#### Scenario: An unknown mode value loads as read
+
+- **GIVEN** a store entry whose `mode` is anything other than `"write"`
+- **WHEN** it is loaded
+- **THEN** it SHALL be treated as a read grant
 
 ### Requirement: Grant subject is a directory, stored as a real path
 
@@ -247,7 +259,7 @@ A grant request SHALL reference a recorded denial by its identifier, and the gra
 
 This binding applies to grant requests made through the dashboard's HTTP grant surfaces and dialog verdicts. A grant created from an agent path-gate verdict is instead bound as defined by the requirement "An agent path-gate verdict may create a grant bound to the gated path and its confirmation", because the gated call is observed by the session itself and produces no recorded HTTP denial. A grant created from an approved provisioning line is instead bound as defined by the requirement "A path grant may originate from an approved provisioning line", because it is created ahead of any denial. The forbidden-subject rules below apply to all three.
 
-The following SHALL be refused as grant subjects regardless of the denial that named them: the filesystem root, the user's home directory, `~/.ssh`, `~/.pi`, and the platform system directories (`/etc`, `/usr`, `/var`, `/Library` and their platform equivalents). Comparison SHALL be against **real paths**, because a system directory may be reached through a symlink (`/etc` resolves to `/private/etc` on macOS) and a home directory may itself be a symlink. The platform system directories SHALL be those of the running platform only: a system-directory literal of another platform SHALL NOT be resolved into a local path, and on Windows they SHALL be taken from the environment where set, so a system drive other than `C:` is covered. No entry outside this list SHALL be compared against.
+The following SHALL be refused as grant subjects regardless of the denial that named them: the filesystem root, the user's home directory, `~/.ssh`, `~/.pi`, the platform system directories (`/etc`, `/usr`, `/var`, `/Library` and their platform equivalents), and the credential directories of the requirement "Credential and browser-profile directories are sensitive grant subjects". Comparison SHALL be against **real paths**, because a system directory may be reached through a symlink (`/etc` resolves to `/private/etc` on macOS) and a home directory may itself be a symlink. The platform system directories SHALL be those of the running platform only: a system-directory literal of another platform SHALL NOT be resolved into a local path, and on Windows they SHALL be taken from the environment where set, so a system drive other than `C:` is covered. No entry outside this list and that requirement's list SHALL be compared against.
 
 The grant endpoint SHALL require authentication and SHALL NOT be invocable cross-origin.
 
@@ -583,13 +595,19 @@ A session-scoped grant SHALL carry the same four fields as a persisted one — s
 
 ### Requirement: Grants are revocable and revocation takes effect immediately
 
-The system SHALL support removing a grant. After revocation, paths that were allowed only by that grant SHALL be refused again without requiring a restart.
+The system SHALL support removing a grant, optionally by mode. After revocation, paths that were allowed only by that grant SHALL be refused again without requiring a restart. Revoking a subject without a mode SHALL remove every entry for it; revoking with `mode: "write"` SHALL remove only the write entry and leave a read entry for the same subject.
 
 #### Scenario: Revoked anchor stops admitting
 
 - **GIVEN** `/a/b` was granted and a read under it succeeds
 - **WHEN** the grant is revoked
 - **THEN** a subsequent read under `/a/b` SHALL be refused
+
+#### Scenario: Revoking only the write mode keeps the read grant
+
+- **GIVEN** `/a/b` has both a read grant and a write grant
+- **WHEN** the write grant is revoked with `mode: "write"`
+- **THEN** a write under `/a/b` SHALL prompt again and a read under `/a/b` SHALL still succeed
 
 ### Requirement: A path grant may originate from a verdict
 
@@ -784,3 +802,89 @@ A persisted path grant SHALL be creatable from a provisioning line the operator 
 
 - **WHEN** a provisioning line is rejected, its request expires, or its dialog is dismissed
 - **THEN** no grant SHALL be created for it
+
+### Requirement: A grant has an access mode and only a write grant admits writes
+
+A grant SHALL be a read grant unless it carries `mode: "write"`. A write grant SHALL admit reads and allowlisted text-document writes under its subtree; a read grant, provisioning and agent-prompt grants, and bound-checkout-root widening SHALL NOT admit a write outside the session cwd. The mode of a new grant SHALL be taken from the server-held denial that produced it, never from a client field.
+
+#### Scenario: Write grant also admits reads
+
+- **GIVEN** a write grant for `/a/b`
+- **WHEN** a read under `/a/b` is checked
+- **THEN** it SHALL be allowed
+
+#### Scenario: Read grant never admits a write
+
+- **GIVEN** a read grant for `/a/b`
+- **WHEN** an out-of-cwd text-document write under `/a/b` is checked
+- **THEN** it SHALL not be admitted by that grant
+
+#### Scenario: Client-supplied mode is ignored
+
+- **GIVEN** a grant request carrying `mode: "write"` bound to a read denial
+- **WHEN** the grant is recorded
+- **THEN** it SHALL be a read grant
+
+#### Scenario: A pre-change build reads a write grant as read
+
+- **GIVEN** a store with a write grant opened by a build that predates write mode
+- **WHEN** that build loads it
+- **THEN** it SHALL treat the entry as a read grant and preserve its `mode` field when it rewrites the store
+
+### Requirement: Credential and browser-profile directories are sensitive grant subjects
+
+`~/.aws`, `~/.config/gh`, `~/.gnupg`, `~/.kube`, `~/.docker`, the file `~/.netrc` and the user-data roots of Chrome, Chromium, Edge, Brave and Firefox on the running platform (list: design D7) SHALL be sensitive like `~/.ssh`: refused as grant, ladder-rung and YOLO subjects when equal to, inside or containing one, and marked sensitive at the agent path gate. One shared constant SHALL serve all consumers.
+
+#### Scenario: A grant for a cloud credential directory is refused
+- **WHEN** a grant is requested for `~/.aws` or any directory inside it
+- **THEN** the request SHALL be refused and no grant SHALL be recorded
+
+#### Scenario: A directory containing a credential directory is refused
+- **WHEN** a grant or YOLO root is requested for `~/.config`
+- **THEN** it SHALL be refused and nothing SHALL be recorded
+
+#### Scenario: A rung containing a credential directory is not offered
+- **GIVEN** a denial naming `~/.config/app/x`
+- **WHEN** the ancestor ladder is computed
+- **THEN** no rung SHALL equal, lie inside or contain `~/.config/gh`, and `~/.config/app` SHALL stay offerable
+
+#### Scenario: A browser profile is sensitive
+- **WHEN** the agent path gate asks about a file under the Chrome user-data directory of the platform
+- **THEN** the prompt SHALL mark the location sensitive and offer only `Allow once` and `Deny`
+
+#### Scenario: The netrc file is sensitive
+- **WHEN** the agent path gate asks about `~/.netrc`
+- **THEN** the prompt SHALL mark the location sensitive and offer no always-allow
+
+#### Scenario: Netrc siblings are not covered
+- **WHEN** the agent path gate asks about `~/.netrc.bak` or, on Windows, `_netrc`
+- **THEN** the prompt SHALL NOT mark the location sensitive
+
+### Requirement: A grant store write never discards an entry it does not admit
+
+A persisted grant that is now forbidden SHALL stop admitting, and any write to the grant store file SHALL preserve every entry the load did not admit verbatim, so reverting the build restores them. An unreadable store (invalid JSON, no `grants` array, `version` other than 1) SHALL be moved aside to `<file>.corrupt-<UTC timestamp>` before a record writes a fresh store; a file over 1 MiB SHALL NOT be loaded or rewritten.
+
+#### Scenario: A persisted grant that now matches is neither admitted nor lost
+- **GIVEN** the grant store file holds a grant for `~/.aws` written by an older build and one for `/w/other`
+- **WHEN** the store is loaded, a new grant is recorded and a grant is revoked
+- **THEN** `~/.aws` SHALL NOT admit any path, and the file SHALL still contain the `~/.aws` entry byte-for-byte after each write
+
+#### Scenario: Unrecognised entries survive a write
+- **GIVEN** the grant store file holds an entry this build does not accept
+- **WHEN** any grant is recorded or revoked
+- **THEN** that entry SHALL be preserved in the file verbatim
+
+#### Scenario: An unreadable store is moved aside, not overwritten
+- **GIVEN** the grant store file is invalid JSON or has `version: 2`
+- **WHEN** a grant is recorded
+- **THEN** the old file SHALL exist byte-for-byte as `<file>.corrupt-<timestamp>` and the store SHALL hold the new grant only
+
+#### Scenario: A revoke never rewrites an unreadable store
+- **GIVEN** the grant store file is invalid JSON
+- **WHEN** a grant is revoked
+- **THEN** nothing SHALL be written and the file SHALL be unchanged
+
+#### Scenario: An oversized store is not rewritten
+- **GIVEN** the grant store file is larger than 1 MiB
+- **WHEN** a grant is recorded
+- **THEN** the write SHALL fail, the file SHALL be unchanged and one line SHALL be logged

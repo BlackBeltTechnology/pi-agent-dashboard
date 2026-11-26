@@ -44,7 +44,9 @@ export default defineConfig({
   // See change: add-missing-ci-legs (#861, design D2).
   // tests/e2e/mock-site/** is owned by playwright.mock-site.config.ts (self-started
   // mock site, no harness). See change: add-live-component-mock-site.
-  testIgnore: ["**/helpers/__tests__/**", "tests/e2e/team/**", "tests/e2e/identity-matrix/**", "tests/e2e/mock-site/**"],
+  // tests/e2e/live-preview/** is owned by playwright.live-preview.config.ts (host-run isolated
+  // server, no harness). See change: serve-live-previews-on-capability-origin.
+  testIgnore: ["**/helpers/__tests__/**", "tests/e2e/team/**", "tests/e2e/identity-matrix/**", "tests/e2e/mock-site/**", "tests/e2e/live-preview/**"],
   // Container boot is slow; first run may build the image. Keep generous.
   timeout: 60_000,
   // NO `globalTimeout`. A committed wall-clock budget cannot cover 168 specs and

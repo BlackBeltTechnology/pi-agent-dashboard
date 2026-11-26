@@ -101,6 +101,12 @@ interface Props {
    * folder leaves that state. See change: add-focus-mode-and-card-block-toggles.
    */
   compact?: boolean;
+  /**
+   * Focus mode: the compact chip renders for NO rung (Focus is an explicit
+   * opt-in to a minimal sidebar). Only affects `compact`; the expanded banner
+   * is untouched. See change: sidebar-folder-ux.
+   */
+  suppressChip?: boolean;
 }
 
 /** Rung glyph — shared by the compact chip and the retrust / init-needed rows. */
@@ -127,18 +133,22 @@ export function FolderActionBanner({
   onInitializeProject,
   onStatusChange,
   compact = false,
+  suppressChip = false,
 }: Props) {
   const run = useInitRun(cwd);
   const rung = computeBannerRung(status, run, isProjectRoot);
   // Per-tab reveal for the compact chip; resets once the folder leaves the state.
   const [revealed, setRevealed] = useState(false);
   // Any change of state (incl. failed → retrust) re-collapses to the chip.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `rung` is the trigger, not a read value
+  // Entering Focus (chip suppressed) also drops a revealed banner, so nothing
+  // stale reappears when Focus turns off.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `rung`/`suppressChip` are triggers, not read values
   useEffect(() => {
     setRevealed(false);
-  }, [rung]);
+  }, [rung, suppressChip]);
 
   if (!rung) return null;
+  if (compact && suppressChip) return null;
 
   if (compact && !revealed) {
     return (

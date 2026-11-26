@@ -907,6 +907,49 @@ describe("CommandHandler", () => {
       expect(pi.sendUserMessage).not.toHaveBeenCalled();
     });
 
+    // test-plan #E11 — `/quit`, `/exit` and the server `{type:"shutdown"}` message all
+    // reach the one `shutdown` option (which runs `runBridgeShutdown`), once per input.
+    // See change: update-pi-core-1-6-adopt-apis.
+    it("E11: /quit, /exit and a server shutdown message call the shutdown option once each; near-misses do not", async () => {
+      const pi = createMockPi();
+      const shutdown = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { shutdown });
+      let calls = 0;
+      for (const msg of [
+        { type: "send_prompt", sessionId: "s1", text: "/quit" },
+        { type: "send_prompt", sessionId: "s1", text: "/exit" },
+        { type: "shutdown", sessionId: "s1" },
+      ] as ServerToExtensionMessage[]) {
+        await handler.handle(msg);
+        calls += 1;
+        expect(shutdown).toHaveBeenCalledTimes(calls);
+      }
+      for (const text of ["/quitx", "/exit now"]) {
+        await handler.handle({ type: "send_prompt", sessionId: "s1", text });
+      }
+      expect(shutdown).toHaveBeenCalledTimes(calls);
+    });
+    // test-plan #X3 — pi 1.5.1 refuses `ctx.reload()` while a response streams or a
+    // compaction runs; the bridge reports it as a `/reload` error, it never throws.
+    it("X3: a reload refused while streaming becomes one /reload error feedback carrying pi's message", async () => {
+      const pi = createMockPi();
+      const eventSink = vi.fn();
+      const reason = "Wait for the current response to finish before reloading.";
+      const reload = vi.fn(async () => {
+        throw new Error(reason);
+      });
+      const handler = createCommandHandler(pi as any, "s1", { reload, eventSink });
+      await expect(
+        handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" }),
+      ).resolves.not.toThrow();
+      const feedback = eventSink.mock.calls
+        .map((c) => c[0])
+        .filter((m: any) => m?.event?.eventType === "command_feedback")
+        .map((m: any) => m.event.data);
+      expect(feedback).toHaveLength(1);
+      expect(feedback[0]).toMatchObject({ command: "/reload", status: "error" });
+      expect(feedback[0].message).toContain(reason);
+    });
     it("should route /reload to reload callback", async () => {
       const pi = createMockPi();
       const reload = vi.fn(async () => ({ ok: true }) as const);
@@ -1102,6 +1145,23 @@ describe("CommandHandler", () => {
       }));
     });
 
+    // test-plan #X4 — pi 1.6.0 reports 128 + signal for a signal-terminated command, so a
+    // `!` command killed on timeout is a failing exit, no longer `0`.
+    // See change: update-pi-core-1-6-adopt-apis.
+    it("X4: a !command killed on timeout (pi 1.6 shape code 143) forwards a non-zero exitCode", async () => {
+      const pi = createMockPi();
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "", code: 143, killed: true, truncated: false });
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!sleep 5" });
+      const out = eventSink.mock.calls
+        .map((c) => c[0])
+        .filter((m: any) => m?.event?.eventType === "bash_output");
+      expect(out).toHaveLength(1);
+      expect(out[0].event.data.exitCode).toBe(143);
+      expect(out[0].event.data.exitCode).not.toBe(0);
+    });
     it("E65: a rejected exec forwards exitCode 1 with the error text", async () => {
       const pi = createMockPi();
       (pi as any).exec = vi.fn().mockRejectedValue(new Error("spawn failed"));
@@ -1285,6 +1345,18 @@ describe("parseSendPrompt", () => {
     expect(parseSendPrompt("/flows:delete my-flow")).toEqual({
       type: "slash",
       text: "/flows:delete my-flow",
+    });
+  });
+});
+
+// See change: fix-input-state-consistency (#1136) — an image-only Explore sends
+// the skill prefix + newline; the newline keeps it off the bare-slash route.
+describe("parseSendPrompt — image-only Explore prefix", () => {
+  it("S13: `/skill:openspec-explore\\n` is a passthrough, not a bare slash command", () => {
+    expect(parseSendPrompt("/skill:openspec-explore\n")).toEqual({ type: "passthrough", text: "/skill:openspec-explore\n" });
+    expect(parseSendPrompt("/skill:openspec-explore add-auth\n")).toEqual({
+      type: "passthrough",
+      text: "/skill:openspec-explore add-auth\n",
     });
   });
 });

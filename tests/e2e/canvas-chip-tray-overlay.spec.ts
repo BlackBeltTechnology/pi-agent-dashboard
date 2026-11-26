@@ -141,6 +141,39 @@ test.describe("canvas chip slot — in the chat column", () => {
     expect(await chipBottom(page)).toBeLessThanOrEqual((await composerStackTop(page)) + 0.5);
   });
 
+  // See change: fix-ui-status-indicators (D4; test-plan #S37).
+  test("#S37: the chip's left edge is the slot's left edge; the label is capped at 32ch; the address is never clipped", async ({
+    page,
+  }) => {
+    await openSessionWithServerChip(page, "canvas-declare-server-long");
+    await settled(page);
+    expect(await trayInSlot(page), "tray portaled into composer-stack-anchor").toBe(true);
+
+    const c = await chip(page).boundingBox();
+    const s = await slot(page).boundingBox();
+    expect(Boolean(c && s)).toBe(true);
+    expect(Math.abs((c?.x ?? 0) - (s?.x ?? 0)), "chip left edge == slot left edge").toBeLessThanOrEqual(1);
+
+    const label = page.getByTestId("canvas-server-chip-label");
+    const labelBox = await label.boundingBox();
+    const ch = await label.evaluate((el) => {
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+      probe.textContent = "0";
+      el.appendChild(probe);
+      const w = probe.getBoundingClientRect().width;
+      probe.remove();
+      return w;
+    });
+    expect(labelBox?.width ?? 0, "label capped at 32ch").toBeLessThanOrEqual(ch * 32 + 1);
+
+    const address = page.getByTestId("canvas-server-chip-address");
+    await expect(address).toContainText("127.0.0.1:");
+    const host = address.locator("span").first();
+    const clipped = await host.evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(clipped, "the 127.0.0.1:<port> part is fully visible").toBe(false);
+  });
+
   test("#E7: a live session has one slot, not aria-hidden; with the Settings overlay open it has none", async ({
     page,
   }) => {

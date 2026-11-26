@@ -11,13 +11,11 @@
  * See change: improve-content-editor (tree correctness #1, mime icons #2).
  */
 
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { fileKind, type ViewerKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
-import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiContentCopy, mdiFolderOutline } from "@mdi/js";
+import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiDotsHorizontal, mdiDownload, mdiFolderOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useEffect, useRef, useState } from "react";
-import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { fetchWithoutGrantPrompt } from "../../lib/access-grants/grant-channel.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
@@ -25,7 +23,9 @@ import { fileIcon } from "../../lib/preview/file-icon.js";
 import { logRejection } from "../../lib/report-error.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
+import { useDownload } from "../preview/use-download.js";
 import { CountBadges } from "../session/CountBadges.js";
+import { MenuItem, MenuPopover } from "./MenuPopover.js";
 
 interface EditorFileTreeProps {
   cwd: string;
@@ -90,64 +90,78 @@ const joinRel = (dir: string, name: string): string => (dir ? `${dir}/${name}` :
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 const baseName = (rel: string): string => rel.slice(rel.lastIndexOf("/") + 1);
 
-/** Gap between glyph and portaled popup (replaces the inline `mt-1`/`mb-1`). */
-const POPUP_GAP = 4;
+/** Starts a download of the file at `rel` (set once by `EditorFileTree`; rows are in-cwd). */
+const RowDownloadContext = createContext<(rel: string) => void>(() => {});
+
+/** Open/close state of one row's actions menu, shared by the row and its glyph. */
+function useRowMenu() {
+  const [shown, setShown] = useState<{ returnTo?: HTMLElement } | null>(null);
+  const glyphRef = useRef<HTMLButtonElement | null>(null);
+  return {
+    glyphRef,
+    isOpen: shown !== null,
+    returnTo: shown?.returnTo,
+    /** `returnTo` = element Escape refocuses (default: the glyph). */
+    show: (returnTo?: HTMLElement) => setShown({ returnTo }),
+    hide: () => setShown(null),
+    toggle: () => setShown((cur) => (cur ? null : {})),
+  };
+}
+type RowMenu = ReturnType<typeof useRowMenu>;
 
 /**
- * Hover-revealed copy affordance on a tree row. The glyph opens an anchored
- * popup offering full/relative/name copy actions. Clipboard writes are guarded
+ * Row-container handlers that open the actions menu: secondary click, and the
+ * `ContextMenu` key / Shift+F10 on the focused row button (mirrors
+ * `EditorTabs`). Events re-bubbling from the portaled menu are ignored.
+ */
+function rowMenuTriggers(menu: RowMenu) {
+  return {
+    onContextMenu: (e: React.MouseEvent<HTMLElement>) => {
+      if (!e.currentTarget.contains(e.target as Node)) return;
+      e.preventDefault();
+      menu.show();
+    },
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (!e.currentTarget.contains(e.target as Node)) return;
+      if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+        e.preventDefault();
+        menu.show(e.target as HTMLElement);
+      }
+    },
+  };
+}
+
+/**
+ * Row actions: a glyph (always visible on hover-less devices) opening a
+ * `MenuPopover` — full / relative / name copy, plus Download on file rows.
+ * The menu also opens from the row via `rowMenuTriggers`. It closes on any
+ * scroll (the rail scrolls under a fixed popup). Clipboard writes are guarded
  * (silent no-op when unavailable), matching `CopyButton`.
  *
- * The popup is portaled (`LayerPortal`) and `fixed`-positioned from the glyph's
- * viewport rect via `usePopoverFlip` (both axes), so the rail's `overflow-auto`
- * and EditorPane's `overflow-hidden` can no longer clip it (#728). It closes on
- * any scroll instead of tracking the trigger — equivalent anti-detach outcome
- * for a 3-item menu (overlay-layering spec).
+ * See change: add-file-download (replaces the copy-path popup).
  */
-function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
+function RowActionsMenu({ cwd, rel, isDir, menu }: { cwd: string; rel: string; isDir: boolean; menu: RowMenu }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
+  const download = useContext(RowDownloadContext);
   const [copied, setCopied] = useState<string | null>(null);
-  const glyphRef = useRef<HTMLButtonElement | null>(null);
-  const popupRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // No boundaryRef: the portal escapes the rail, so the viewport is the bound.
-  const { flipUp, maxWidth, anchorRight, triggerRect } = usePopoverFlip(glyphRef, {
-    open,
-    estimatedHeight: 110,
-    estimatedWidth: 220,
-    gap: POPUP_GAP,
-    minPopoverHeight: 0,
-  });
+  const { isOpen, hide } = menu;
 
   const close = () => {
-    setOpen(false);
+    hide();
     setCopied(null);
   };
 
   useEffect(() => {
-    if (!open) return;
-    const onDocMouseDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (!popupRef.current?.contains(t) && !glyphRef.current?.contains(t)) close();
+    if (!isOpen) return;
+    const onScroll = () => {
+      hide();
+      setCopied(null);
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        close();
-        glyphRef.current?.focus();
-      }
-    };
-    const onScroll = () => close();
-    document.addEventListener("mousedown", onDocMouseDown);
-    document.addEventListener("keydown", onKey);
     // Capture: catches scroll from the rail container (scroll does not bubble).
     window.addEventListener("scroll", onScroll, true);
-    return () => {
-      document.removeEventListener("mousedown", onDocMouseDown);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", onScroll, true);
-    };
-  }, [open]);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [isOpen, hide]);
 
   useEffect(
     () => () => {
@@ -155,15 +169,6 @@ function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
     },
     [],
   );
-
-  const toggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (open) {
-      close();
-      return;
-    }
-    setOpen(true);
-  };
 
   const doCopy = (key: string, payload: string) => {
     // copyText never rejects: an unavailable/denied clipboard fails silently,
@@ -180,64 +185,64 @@ function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
     { key: "rel", label: t("editor.copyRelativePath", undefined, "Copy relative path"), payload: rel },
     { key: "name", label: t("editor.copyFileName", undefined, "Copy file name"), payload: baseName(rel) },
   ];
+  const label = t("editor.rowActions", undefined, "Row actions");
+  const glyph = menu.glyphRef.current;
 
   return (
     <div className="relative flex-none">
       <button
         type="button"
-        ref={glyphRef}
-        aria-label={t("editor.copyPath", undefined, "Copy path")}
-        title={t("editor.copyPath", undefined, "Copy path")}
-        onClick={toggle}
+        ref={menu.glyphRef}
+        aria-label={label}
+        title={label}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isOpen) close();
+          else menu.toggle();
+        }}
         className={[
           "mr-1 rounded p-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-opacity",
-          open ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+          isOpen
+            ? "opacity-100"
+            : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
         ].join(" ")}
       >
-        <Icon path={mdiContentCopy} size={0.55} />
+        <Icon path={mdiDotsHorizontal} size={0.55} />
       </button>
-      {open && (
-        <LayerPortal>
+      {isOpen && glyph && (
+        <MenuPopover anchorEl={glyph} returnFocusTo={menu.returnTo} label={label} testId="tree-row-menu" onClose={close}>
           <div
-            ref={popupRef}
-            role="menu"
-            className="fixed z-popover min-w-[190px] overflow-hidden rounded border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-lg"
-            style={{
-              maxWidth,
-              // Hide the pre-measure frame so the panel never flashes at (0,0).
-              visibility: triggerRect ? "visible" : "hidden",
-              ...(triggerRect
-                ? flipUp
-                  ? { bottom: Math.round(window.innerHeight - triggerRect.top + POPUP_GAP) }
-                  : { top: Math.round(triggerRect.bottom + POPUP_GAP) }
-                : {}),
-              ...(triggerRect
-                ? anchorRight
-                  ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
-                  : { left: Math.max(0, Math.round(triggerRect.left)) }
-                : {}),
-            }}
+            className="truncate border-b border-[var(--border-primary)] px-3 py-1 text-[10px] text-[var(--text-tertiary)]"
+            title={abs}
           >
-            <div
-              className="truncate border-b border-[var(--border-primary)] px-2 py-1 text-[10px] text-[var(--text-tertiary)]"
-              title={abs}
-            >
-              {abs}
-            </div>
-            {items.map((it) => (
-              <button
-                type="button"
-                key={it.key}
-                role="menuitem"
-                onClick={() => doCopy(it.key, it.payload)}
-                className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-              >
-                <span>{it.label}</span>
-                {copied === it.key && <Icon path={mdiCheck} size={0.55} className="text-green-500" />}
-              </button>
-            ))}
+            {abs}
           </div>
-        </LayerPortal>
+          {items.map((it) => (
+            <MenuItem
+              key={it.key}
+              label={it.label}
+              onSelect={() => doCopy(it.key, it.payload)}
+              trailing={copied === it.key ? <Icon path={mdiCheck} size={0.55} className="text-green-500" /> : null}
+            />
+          ))}
+          {!isDir && (
+            <MenuItem
+              testId="tree-row-download"
+              label={
+                <span className="inline-flex items-center gap-2">
+                  <Icon path={mdiDownload} size={0.55} />
+                  {t("common.download", undefined, "Download")}
+                </span>
+              }
+              onSelect={() => {
+                close();
+                download(rel);
+              }}
+            />
+          )}
+        </MenuPopover>
       )}
     </div>
   );
@@ -253,6 +258,53 @@ async function listDir(cwd: string, relDir: string): Promise<DirEntry[]> {
     .then((r) => r.json())
     .then((b) => (b.success ? (b.data.entries as DirEntry[]) : []))
     .catch(() => [] as DirEntry[]);
+}
+
+/** A directory header row: toggle button + row actions (copy only; no download). */
+function DirRow({
+  cwd,
+  rel,
+  name,
+  pad,
+  open,
+  hasChanges,
+  onToggle,
+}: {
+  cwd: string;
+  rel: string;
+  name: string;
+  pad: number;
+  open: boolean;
+  hasChanges: boolean;
+  onToggle: () => void;
+}) {
+  const menu = useRowMenu();
+  return (
+    <div
+      data-row={rel}
+      className="group relative flex items-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+      {...rowMenuTriggers(menu)}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex min-w-0 flex-1 items-center gap-1 py-1 text-left text-xs"
+        style={{ paddingLeft: pad }}
+      >
+        <Icon path={open ? mdiChevronDown : mdiChevronRight} size={0.5} />
+        <Icon path={mdiFolderOutline} size={0.55} />
+        <span className="truncate">{name}</span>
+        {hasChanges && (
+          <span
+            data-testid="folder-dot"
+            className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-yellow-400"
+            title={i18nT("diff.dirHasChanges", undefined, "Contains changed files")}
+          />
+        )}
+      </button>
+      <RowActionsMenu cwd={cwd} rel={rel} isDir menu={menu} />
+    </div>
+  );
 }
 
 function TreeNode({
@@ -305,29 +357,15 @@ function TreeNode({
         if (entry.isDir) {
           return (
             <div key={rel}>
-              <div
-                data-row={rel}
-                className="group relative flex items-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-              >
-                <button
-                  type="button"
-                  onClick={() => onToggleRoot(rel)}
-                  className="flex min-w-0 flex-1 items-center gap-1 py-1 text-left text-xs"
-                  style={{ paddingLeft: pad }}
-                >
-                  <Icon path={open ? mdiChevronDown : mdiChevronRight} size={0.5} />
-                  <Icon path={mdiFolderOutline} size={0.55} />
-                  <span className="truncate">{entry.name}</span>
-                  {diffIndex.dirs.has(rel) && (
-                    <span
-                      data-testid="folder-dot"
-                      className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-yellow-400"
-                      title={i18nT("diff.dirHasChanges", undefined, "Contains changed files")}
-                    />
-                  )}
-                </button>
-                <RowCopyAffordance cwd={cwd} rel={rel} />
-              </div>
+              <DirRow
+                cwd={cwd}
+                rel={rel}
+                name={entry.name}
+                pad={pad}
+                open={open}
+                hasChanges={diffIndex.dirs.has(rel)}
+                onToggle={() => onToggleRoot(rel)}
+              />
               {open && (
                 <TreeNode
                   cwd={cwd}
@@ -392,6 +430,7 @@ function FileRow({
   onOpenDiff?: (relPath: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const menu = useRowMenu();
   const icon = fileIcon(name);
   const pad = depth * 12 + 8;
   const events = file?.changes ?? [];
@@ -405,6 +444,7 @@ function FileRow({
           "group relative flex items-center hover:bg-[var(--bg-hover)]",
           isActive ? "bg-[var(--bg-selected)]" : "",
         ].join(" ")}
+        {...rowMenuTriggers(menu)}
       >
         {hasHistory && (
           <button
@@ -451,7 +491,7 @@ function FileRow({
             {i18nT("diff.diff", undefined, "diff")}
           </button>
         )}
-        <RowCopyAffordance cwd={cwd} rel={rel} />
+        <RowActionsMenu cwd={cwd} rel={rel} isDir={false} menu={menu} />
       </div>
       {hasHistory &&
         expanded &&
@@ -518,7 +558,10 @@ export function EditorFileTree(props: EditorFileTreeProps) {
   const diff = useOptionalSessionDiff();
   const diffIndex = buildDiffIndex(diff?.data?.files ?? []);
   const otherChanges = diff?.data?.otherChanges ?? [];
+  const download = useDownload();
+  const startRowDownload = (rel: string) => void download.start({ cwd: props.cwd, path: rel }, false);
   return (
+    <RowDownloadContext.Provider value={startRowDownload}>
     <div
       data-file-rail=""
       className="h-full overflow-auto border-r border-[var(--border-primary)] bg-[var(--bg-secondary)]"
@@ -537,6 +580,8 @@ export function EditorFileTree(props: EditorFileTreeProps) {
       {!props.sessionOnly && (
         <OtherChangesGroup otherChanges={otherChanges} onOpenDiff={props.onOpenDiff} />
       )}
+      {download.tray}
     </div>
+    </RowDownloadContext.Provider>
   );
 }

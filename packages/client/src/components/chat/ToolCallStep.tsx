@@ -1,4 +1,5 @@
 import { type ClaimEntry, CurrentPluginLayer, forToolName, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { toolWorkdir } from "@blackbelt-technology/pi-dashboard-shared/tool-workdir.js";
 import { mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiClockOutline, mdiHelpCircleOutline, mdiLoading, mdiMinusCircleOutline, mdiStopCircleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useState } from "react";
@@ -208,6 +209,15 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   // supplies a ChatMotionContext). See change: add-fluid-chat-motion.
   const entering = useToolEntering(toolCallId) && !enterSuppressed;
   const completionCue = useCompletionCue(status);
+  // Link context for everything rendered in the body: the producing tool's working directory (D4) and whether its
+  // text has settled (D2). Returns `context` itself when nothing changes, so memoised renderers are unaffected.
+  // See change: rich-chat-links.
+  const toolCwd = toolWorkdir(toolName, args);
+  const linkSettled = status !== "running" && context.linkSettled !== false;
+  const linkContext = React.useMemo<ToolContext>(
+    () => (context.toolCwd === toolCwd && (context.linkSettled !== false) === linkSettled ? context : { ...context, toolCwd, linkSettled }),
+    [context, toolCwd, linkSettled],
+  );
   const hasImages = images && images.length > 0;
   // Supersede heal: this row was finalized locally because its real result was
   // unrecoverable but a later inference proved it finished. Badge it loudly so
@@ -401,7 +411,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                     status={status}
                     result={displayResult}
                     images={images}
-                    context={context}
+                    context={linkContext}
                     toolDetails={toolDetails}
                   />
                 </CurrentPluginLayer>
@@ -414,7 +424,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                 status={status}
                 result={displayResult}
                 images={images}
-                context={context}
+                context={linkContext}
                 toolDetails={toolDetails}
               />
             )}

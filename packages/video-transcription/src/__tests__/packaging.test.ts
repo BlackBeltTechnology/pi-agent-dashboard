@@ -25,9 +25,12 @@ describe("packaging", () => {
     expect(pkg.dependencies?.["sherpa-onnx-node"]).toBeUndefined();
   });
 
-  it("S2 registers both CLI bins", () => {
-    expect(pkg.bin?.["pi-voiceid"]).toBe("src/bin/voiceid.ts");
-    expect(pkg.bin?.["pi-transcribe"]).toBe("src/bin/transcribe.ts");
+  it("S2 registers both CLI bins via the tsx launchers", () => {
+    expect(pkg.bin?.["pi-voiceid"]).toBe("bin/pi-voiceid.mjs");
+    expect(pkg.bin?.["pi-transcribe"]).toBe("bin/pi-transcribe.mjs");
+    expect(pkg.files).toContain("bin/");
+    // The launchers resolve tsx at runtime, so it must ship as a real dependency.
+    expect(pkg.dependencies?.tsx).toBeDefined();
   });
 
   it("S4/5.4 the published files never include a model or voiceprint data", () => {

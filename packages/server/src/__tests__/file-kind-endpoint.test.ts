@@ -77,6 +77,14 @@ describe("GET /api/file — file-kind extension", () => {
     expect(body.data.size).toBe(20);
   });
 
+  it("returns content for an html file (read-only Source tab, rich-chat-links 7.4)", async () => {
+    await fsp.writeFile(path.join(tmp, "board.html"), "<h1>hi</h1>\n");
+    const res = await app.inject({ method: "GET", url: fileUrl(tmp, "board.html") });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data).toMatchObject({ type: "file", kind: "html", content: "<h1>hi</h1>\n" });
+  });
+
   it("GET mtime round-trips into POST /api/file/write (no false 409 on a fractional mtime)", async () => {
     const f = path.join(tmp, "doc.adoc");
     await fsp.writeFile(f, "= Title\n");

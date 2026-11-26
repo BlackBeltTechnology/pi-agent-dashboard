@@ -45,7 +45,7 @@ The mobile session card's rendered output SHALL NOT change. Shared components it
 - **AND** the mobile line-2 activity text and host-pressure indicator SHALL render the same text as before this change
 
 ### Requirement: Status row carries the activity indicator and host pressure
-The status row SHALL render the existing `ActivityIndicator` output (Resuming, ended reason, Needs you, Retry N, current tool, Thinking…, Idle) unchanged in content, plus `HostPressureIndicator` right-aligned. The activity container keeps its historic `data-testid="session-card-meta"`: it identifies the status row's activity container, not the meta row.
+The status row SHALL render the existing `ActivityIndicator` output (Resuming, ended reason, Needs you, Retry N, current tool, Thinking…, Failed, Idle) unchanged in content except that an idle/active session with an unresolved error reads `Failed` instead of `Idle` (`session-card-status`), plus `HostPressureIndicator` right-aligned. The activity container keeps its historic `data-testid="session-card-meta"`: it identifies the status row's activity container, not the meta row.
 
 The activity container SHALL be the shrinking element (`min-w-0`, clipped). The status row SHALL NOT wrap or overflow the card. Variants whose text can be long (current tool, Needs you, Retry) truncate with an ellipsis. The host-pressure indicator SHALL NOT shrink.
 
@@ -68,6 +68,9 @@ When both `ActivityIndicator` and `HostPressureIndicator` render nothing, the st
 #### Scenario: Host pressure appears without another update
 - **WHEN** a streaming session's last heartbeat ages past the host-pressure threshold and no session update arrives
 - **THEN** the status row SHALL show the host-pressure indicator within one clock tick (≤ 5 s)
+#### Scenario: Failed run shows in the status row
+- **WHEN** a desktop card renders a session with `status: "idle"`, no `currentTool` and `hasError` true
+- **THEN** the status row SHALL contain the text `Failed` and SHALL NOT contain `Idle`
 
 ### Requirement: Git row orders worktree first and truncates only the branch
 The git row SHALL render, in order: the `worktree` pill (when `session.gitWorktree` is set), the branch icon and branch text (link when `gitBranchUrl` is set), the PR status (when `gitPrNumber` is set), then the dirty / drift pill.
@@ -79,6 +82,8 @@ Only the branch text SHALL shrink (ellipsis, full name in `title`). The worktree
 The PR status SHALL reuse the PR-segment rendering previously shown in the worktree actions row: state glyph, `#N`, state word (`draft`, `open`, `merged` or `closed`) and, for an open non-draft PR, the checks summary. It links to `gitPrUrl` when known and keeps `data-testid="worktree-pr-segment"`. A legacy session carrying only `gitPrNumber` SHALL render `#N` alone. Its colours are unchanged from the worktree actions row.
 
 The missing-folder pill SHALL NOT render in the git row.
+
+When the branch renders as a link, the link element's box SHALL NOT extend beyond its own content: the branch icon and branch text, including the ellipsis when the text is truncated. Free row space that the branch slot leaves SHALL NOT be part of the link; a click there SHALL NOT open the branch URL and hovering it SHALL NOT show the branch `title`. The link SHALL keep its visible keyboard focus indicator. The 6-character minimum applies to the branch slot, not to the link: a branch shorter than 6 characters gives a link narrower than the slot. Bounding the link SHALL NOT change the slot's width, the branch truncation point, ellipsis, or `title`, or the position and wrapping of the trailing pills.
 
 #### Scenario: Worktree pill leads the git row
 - **WHEN** a desktop card renders a worktree session with `gitBranch: "os/feat-x"` and `gitPrNumber: 812`
@@ -102,6 +107,24 @@ The missing-folder pill SHALL NOT render in the git row.
 #### Scenario: Legacy PR number only
 - **WHEN** a session has `gitPrNumber: 5` and no `gitPrState`
 - **THEN** the git row SHALL show `#5` with no state word and no checks summary
+
+#### Scenario: Branch link is clickable only on its text
+- **WHEN** a desktop card 420 px wide renders a session with `gitBranch: "develop"`, a `gitBranchUrl`, and `gitStatus.dirtyCount: 5`
+- **THEN** the branch link element's right edge SHALL be within 1 px of the end of the rendered branch text
+- **AND** `[data-testid="git-dirty-pill"]` SHALL stay right-aligned in the git row, as before this change
+- **AND** the topmost element at a point midway between the branch text and the dirty pill SHALL NOT be, or be inside, any link or button below the card root
+- **AND** a click at that point SHALL select the session (card click) and SHALL NOT open a new tab
+
+#### Scenario: Long linked branch still ellipsizes inside the link
+- **WHEN** a desktop card 260 px wide renders a session with a 60-character `gitBranch` and a `gitBranchUrl`
+- **THEN** the branch text SHALL be ellipsized, keep at least 6 characters' width, and carry the full name in `title`
+- **AND** the link element SHALL span the full width of the branch slot (within 1 px), so the text truncates no earlier than the slot allows
+- **AND** the ellipsis SHALL be rendered inside the link element, so a click on it opens the branch URL
+
+#### Scenario: Focused branch link shows its focus ring
+- **WHEN** the branch link receives keyboard focus in a 260 px card with a 60-character branch
+- **THEN** the link SHALL show the standard focus ring (2 px outline)
+- **AND** no element between the link and the git row SHALL have a computed `overflow` other than `visible`
 
 ### Requirement: Meta row shows the model id with context and cost
 The meta row SHALL render the model label, then the existing `MovedBadge`, `OriginDeviceChip` and `DriverChip`. A flexible gap follows, then the context usage bar (when the `contextUsageBar` display preference is on) and the cost (when `cost > 0`).

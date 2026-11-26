@@ -286,6 +286,7 @@ export function DirectoryHomeView({
           commands={commands}
           commandsOrigin={commandsOrigin}
           onSend={onSend}
+          allowImageOnlySend={false}
           disabled={spawnInFlight}
           draft={draft}
           onDraftChange={setDraft}

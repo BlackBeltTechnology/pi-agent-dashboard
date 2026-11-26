@@ -125,6 +125,17 @@ describe("registry (#E1 #E3 #E4 #E26)", () => {
   });
 });
 
+describe("write-mode grants (fix-file-link-editor-routing)", () => {
+  it("a directory holding a read AND a write grant entry is ONE candidate", () => {
+    const d = mkdir("both");
+    const cfg = baseCfg();
+    cfg.sources.accessGrants = true;
+    // `listGrants()` returns one row per (subject, mode).
+    const { svc } = setup({}, { grants: [{ subject: d }, { subject: d }] }, cfg);
+    expect(svc.evaluate().candidates.filter((c) => c.sourceKind === "accessGrants")).toHaveLength(1);
+  });
+});
+
 describe("#E22 choice lifecycle", () => {
   it("choice survives the folder moving between workspaces; pre-existing pin has no choice", () => {
     const a = mkdir("a");

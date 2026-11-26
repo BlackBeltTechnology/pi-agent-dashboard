@@ -1,4 +1,4 @@
-# HTTP route inventory — core server (364 routes)
+# HTTP route inventory — core server (370 routes)
 > Evidence base: HEAD e54074304 · Parent chapter: [http-gates-and-routes.md](http-gates-and-routes.md) · Map index: [security-map.md](../security-map.md) · Register: [residual-risks.md](residual-risks.md)
 
 | Method | Path | Handler path:line | Required tier / per-route guard | Mutating | Danger class |
@@ -174,8 +174,8 @@
 | DELETE | `/api/access/refusals` | `packages/server/src/routes/access-prompt-routes.ts:249` | operate + `networkGuard` | Y | config |
 | GET | `/api/node/installs` | `packages/server/src/routes/node-runtime-routes.ts:101` | observe + `networkGuard` | N | info |
 | POST | `/api/node/installs/select` | `packages/server/src/routes/node-runtime-routes.ts:112` | operate + `networkGuard` | Y | exec/spawn |
-| GET | `/api/access/grants` | `packages/server/src/routes/access-routes.ts:159` | observe + `networkGuard` | N | info |
-| DELETE | `/api/access/grants` | `packages/server/src/routes/access-routes.ts:188` | operate + `networkGuard` | Y | config |
+| GET | `/api/access/grants` | `packages/server/src/routes/access-routes.ts:159` | observe + `networkGuard` | N | info; rows gain `mode` (`"write"`, omitted = read) |
+| DELETE | `/api/access/grants` | `packages/server/src/routes/access-routes.ts:188` | operate + `networkGuard` | Y | config; optional `mode`: omitted = all entries, `"write"`/`"read"` = that entry only, other = 400 |
 | DELETE | `/api/access/worktree-trust` | `packages/server/src/routes/access-routes.ts:218` | operate + `networkGuard` | Y | config |
 | DELETE | `/api/access/bypass-hosts` | `packages/server/src/routes/access-routes.ts:248` | operate + `networkGuard` | Y | config |
 | DELETE | `/api/access/trusted-network` | `packages/server/src/routes/access-routes.ts:276` | operate + `networkGuard` | Y | config |
@@ -255,6 +255,8 @@
 | GET | `/api/live-server/:id/egress` | `packages/server/src/routes/live-server-routes.ts:390` | control + `networkGuard` | N | info |
 | POST | `/api/live-server/:id/allow-once` | `packages/server/src/routes/live-server-routes.ts:415` | control + `networkGuard` | Y | state |
 | POST | `/api/live-server/:id/egress-grant-request` | `packages/server/src/routes/live-server-routes.ts:467` | control + `networkGuard` | Y | state |
+| POST | `/api/live-server/preview-path` | `packages/server/src/routes/live-server-routes.ts:515` | control + `networkGuard` | Y | state |
+| DELETE | `/api/live-server/preview-path/:pid` | `packages/server/src/routes/live-server-routes.ts:537` | control + `networkGuard` | Y | state |
 | GET | `/api/preferences/display` | `packages/server/src/routes/preferences-display-routes.ts:31` | observe + `networkGuard` | N | info |
 | PATCH | `/api/preferences/display` | `packages/server/src/routes/preferences-display-routes.ts:39` | control + `networkGuard` | Y | state |
 | GET | `/api/acp/agents` | `packages/server/src/routes/acp-routes.ts:15` | control | N | info |
@@ -269,11 +271,12 @@
 | POST | `/api/open-in-system` | `packages/server/src/routes/file-routes.ts:925` | operate + `networkGuard` | Y | exec/spawn |
 | POST | `/api/reveal-in-file-manager` | `packages/server/src/routes/file-routes.ts:931` | operate + `networkGuard` | Y | exec/spawn |
 | GET | `/api/file/tree` | `packages/server/src/routes/file-routes.ts:944` | observe + `networkGuard` | N | fs-read |
-| POST | `/api/file/write` | `packages/server/src/routes/file-routes.ts:1016` | control + `networkGuard` | Y | fs-write |
+| POST | `/api/file/write` | `packages/server/src/routes/file-routes.ts:1016` | control + `networkGuard` | Y | fs-write; outside-cwd allowlisted text doc → write-mode hold (prompt) |
 | GET | `/api/file/md-candidates` | `packages/server/src/routes/file-routes.ts:1052` | observe + `networkGuard` | N | fs-read |
 | GET | `/api/file/md-read` | `packages/server/src/routes/file-routes.ts:1077` | observe + `networkGuard` | N | fs-read |
 | GET | `/api/file/exists` | `packages/server/src/routes/file-routes.ts:1117` | observe + `networkGuard` | N | fs-read |
-| POST | `/api/file/resolve-mention` | `packages/server/src/routes/file-routes.ts:1204` | observe + `networkGuard` | Y | state |
+| POST | `/api/file/resolve-mention` | `packages/server/src/routes/file-routes.ts:1288` | observe + `networkGuard` | Y | state ∈ found, recovered, ambiguous, missing, gated; opt-in `recover:true` enables `toolCwd` (≤1024 chars, else 400) + tool-dir + fuzzy; `via` (tool-dir, fuzzy), `kind` (tilde, abs, relative, fuzzy), `candidates` (ambiguous, ≤10); `gated` → `outside:true` (no stat; echoes normalized candidate incl. expanded home) |
+| POST | `/api/file/resolve-mentions` | `packages/server/src/routes/file-routes.ts:1323` | observe + `networkGuard` | Y | state; batch `{cwd, items:[{mention, toolCwd?, reRooted?}]}`, always recovers; ≤200 items (rest `unknown`); body ≤512 KB (413); field >1024 chars → 400; 60/min/principal (429); `cwd` admitted once, containment re-run per item; `toolCwd`/`reRooted` untrusted hints; `gated`/`missing` → state only; out-of-scope → `gated` (no stat) |
 | GET | `/api/pinned-dirs` | `packages/server/src/routes/file-routes.ts:1226` | observe | N | info |
 | GET | `/api/favorite-models` | `packages/server/src/routes/file-routes.ts:1232` | observe | N | info |
 | GET | `/api/file/raw` | `packages/server/src/routes/file-routes.ts:1241` | observe + `networkGuard` | N | fs-read |
@@ -308,6 +311,10 @@
 | POST | `/api/pi/runtime` | `packages/server/src/routes/pi-runtime-routes.ts:112` | operate + `networkGuard` | Y | exec/spawn |
 | ALL | `/live/:id/*` | `packages/server/src/live-server/live-server-proxy.ts:304` | n/a | Y | proxy (live preview) |
 | ALL | `/live/:id` | `packages/server/src/live-server/live-server-proxy.ts:305` | n/a | Y | proxy (live preview) |
+| OPTIONS | `/preview/:pid/*` | `packages/server/src/server.ts:2438` | n/a (valid pid + `Origin: null` only) | N | info |
+| ALL | `/preview/:pid/*` | `packages/server/src/live-server/live-server-proxy.ts:417` | n/a (capability = pid) | Y | proxy (tier 5 preview) |
+| ALL | `/preview/:pid` | `packages/server/src/live-server/live-server-proxy.ts:418` | n/a (capability = pid) | Y | proxy (tier 5 preview) |
+| WS | `live_preview_accept` (message) | `packages/server/src/pairing/browser-gateway.ts:2588` | observe (`packages/shared/src/ws-message-tiers.ts:25`) | Y | state |
 | GET | `/api/services` | `packages/server/src/services/routes.ts:84` | observe + `read`=[networkGuard] | N | info |
 | GET | `/api/services/offers` | `packages/server/src/services/routes.ts:85` | observe + `read`=[networkGuard] | N | info |
 | GET | `/api/services/runtimes` | `packages/server/src/services/routes.ts:86` | observe + `read`=[networkGuard] | N | info |
@@ -367,3 +374,4 @@
 | POST | `/__pi/csp-report/:policy` | `packages/server/src/auth/csp-report-sink.ts:271` | n/a + `admit+screen` | Y | state |
 | POST | `/api/services/:id/heartbeat` | `packages/server/src/services/routes.ts:110` | operate + `write`=[networkGuard, mutationGuard] | Y | exec/spawn |
 | POST | `/api/services/:id/release` | `packages/server/src/services/routes.ts:110` | operate + `write`=[networkGuard, mutationGuard] | Y | exec/spawn |
+| POST | `/api/web/frame-policy` | `packages/server/src/routes/frame-policy-routes.ts:93` | control + `networkGuard` | Y | network-egress; CSRF: global mutation-origin gate (cross-site → 403), no own `Origin` → 400; body `{origin}` only (origin root only, path/query dropped, ≤512 chars, 2 KB body); `HEAD /` on origin; https:443 public unicast only, DNS pinned, vetted every hop, ≤3 requests, 5 s deadline, no cookies/`Authorization`; response bare `{verdict}` (allowed, refused, undetermined, ineligible); cache allowed/refused 10 min (undetermined never cached); 30/min/principal (429); 8 in flight (503) |

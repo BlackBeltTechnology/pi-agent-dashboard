@@ -1,0 +1,6 @@
+blocked_by:
+  - change: schedule-release-rehearsal
+    reason: "Adds a runtime-asset job to the nightly.yml that schedule-release-rehearsal schedules, reports (report.needs, nightly issue) and pins (safety contract, no concurrency, verify-publish gates no job)."
+related:
+  - stabilize-blocking-test-lanes
+  - fix-npm12-remote-tarball-install

@@ -50,7 +50,7 @@ export function detectCanvasIntent(
   if (typeof path !== "string" || path.length === 0) return null;
 
   const kind = rendererKindForPath(path);
-  if (kind === "fallback") return null; // support file / unknown ext
+  if (kind === "fallback" || kind === "webpage") return null; // support file / unknown ext (`webpage` is URL-only, never a file kind)
   // Registry gates DETECT only. Absent config = all-on default.
   if (!canvasTypes[kind]) return null;
 

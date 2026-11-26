@@ -387,7 +387,7 @@ flowchart TD
 
   subgraph AFTER["after merge / scheduled"]
     F["push develop → ci.yml re-runs<br/>+ <b>deploy-site.yml</b> build → deploy pages"]
-    G["<b>nightly.yml</b><br/>verdaccio verify-publish<br/>knip dead-code — REPORTING half<br/>electron · report"]
+    G["<b>nightly.yml</b> (04:13 UTC)<br/>verify-publish (npm@latest) · knip · install-load · electron · smoke · report"]
     H["release-cut skill → tag v&lt;x&gt;<br/>→ <b>publish.yml</b><br/>resolve · ci-checks · smoke · tag-and-push<br/>publish · electron · github-release<br/>→ sync-release-version.yml"]
   end
 

@@ -1,7 +1,8 @@
-import { isOtherAllowed } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
+import { isOtherAllowed, isOwnOtherOption } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
 import { mdiFormatListBulleted } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useState } from "react";
+import { useMemo, useState } from "react";
+import { usePromptDraft, usePromptDraftSync } from "../../hooks/usePromptDraft.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
@@ -10,15 +11,46 @@ import { OtherOption } from "./OtherOption.js";
 import { isCancelOption, parseOption } from "./parseOption.js";
 import type { InteractiveRendererProps } from "./types.js";
 
-export function SelectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
+/** Persisted Other-row state (the listed options answer immediately, so nothing else is drafted). */
+interface SelectDraft {
+  otherActive: boolean;
+  otherText: string;
+}
+
+function parseSelectDraft(raw: unknown): SelectDraft | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  return typeof r.otherActive === "boolean" && typeof r.otherText === "string"
+    ? { otherActive: r.otherActive, otherText: r.otherText }
+    : undefined;
+}
+
+/** The inline Other row's state, restored from / mirrored to the prompt draft. */
+function useOtherDraft(draftSession: string | undefined, requestId: string, otherAllowed: boolean) {
+  const draft = usePromptDraft(draftSession, requestId, parseSelectDraft);
+  // A restored Other row is ignored once the prompt no longer opts in.
+  const [otherActive, setOtherActive] = useState(otherAllowed && draft?.otherActive === true);
+  const [otherText, setOtherText] = useState(draft?.otherText ?? "");
+  const draftState = useMemo<SelectDraft>(() => ({ otherActive, otherText }), [otherActive, otherText]);
+  usePromptDraftSync(draftSession, requestId, draftState);
+  return { otherActive, setOtherActive, otherText, setOtherText };
+}
+
+/** Re-keyed per (session, prompt) so a reused element re-initialises from that prompt's draft. */
+export function SelectRenderer(props: InteractiveRendererProps) {
+  return <SelectRendererBody key={`${props.sessionId ?? ""}\u0000${props.requestId}`} {...props} />;
+}
+
+function SelectRendererBody({ params, status, result, onRespond, onCancel, sessionId, requestId }: InteractiveRendererProps) {
   const title = params.title as string;
   const message = params.message as string | undefined;
   // Non-string options are dropped (parseOption would throw on them). See change: add-ask-user-inline-other (X2).
-  const options = Array.isArray(params.options) ? params.options.filter((o): o is string => typeof o === "string") : [];
+  const stringOptions = Array.isArray(params.options) ? params.options.filter((o): o is string => typeof o === "string") : [];
   const selectedValue = (result as any)?.value as string | undefined;
-  const otherAllowed = isOtherAllowed({ allowOther: params.allowOther as boolean | undefined, options });
-  const [otherActive, setOtherActive] = useState(false);
-  const [otherText, setOtherText] = useState("");
+  const otherAllowed = isOtherAllowed({ allowOther: params.allowOther as boolean | undefined, options: stringOptions });
+  // The inline row replaces the caller's own "Other…" option. See change: fix-input-state-consistency (#1116).
+  const options = otherAllowed ? stringOptions.filter((o) => !isOwnOtherOption(o)) : stringOptions;
+  const { otherActive, setOtherActive, otherText, setOtherText } = useOtherDraft(status === "pending" ? sessionId : undefined, requestId, otherAllowed);
   const otherTrimmed = otherText.trim();
 
   if (status === "cancelled" || status === "dismissed") {

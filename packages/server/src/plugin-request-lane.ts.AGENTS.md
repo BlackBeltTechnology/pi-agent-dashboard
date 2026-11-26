@@ -1,0 +1,3 @@
+`plugin-request-lane.ts` — lane carries the SENDING socket's `origin` + `channel` (`handle(sessionId, msg, conn?)`, `conn` = gateway `GatewayConn`); `register(pluginId, type, handler, { hubLocalOnly })` refuses a session that is not hub-local AND locally admitted (`unix` | `local-proof` | `in-process`) with reply `origin_denied: <detail>` and a rate-limited `[plugin-request] origin_denied: <plugin>/<type> session=<id> origin=<hub|prefix|unknown> admission=<…>` line (never the payload). No `conn` / origin / channel fails closed for a hub-local-only handler. A handler returning a credential, secret or path-trusted value MUST register hub-local-only. `server.ts` forwards `conn` and `opts`.
+
+See change: harden-bridge-session-claim.

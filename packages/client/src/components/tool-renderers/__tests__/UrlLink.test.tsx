@@ -1,6 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
-import React from "react";
+import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LinkResolutionProvider } from "../../chat/LinkResolutionProvider.js";
 import { UrlLink } from "../UrlLink.js";
 
 // vi.hoisted so the mock (also hoisted) can reference the spy without a TDZ.
@@ -85,5 +86,87 @@ describe("UrlLink", () => {
     expect(a.getAttribute("target")).toBe("_blank");
     fireEvent.click(a);
     expect(openLiveTarget).not.toHaveBeenCalled();
+  });
+});
+
+describe("UrlLink provider icon and label (#E7)", () => {
+  const GH = "https://github.com/o/r/issues/7";
+  const inTranscript = (ui: React.ReactElement) => render(<LinkResolutionProvider>{ui}</LinkResolutionProvider>);
+
+  it("in the transcript a GitHub URL gets its icon, short label, data-copy-text and title", () => {
+    const { container } = inTranscript(<UrlLink href={GH}>{GH}</UrlLink>);
+    const a = container.querySelector("a")!;
+    expect(a.textContent).toBe("o/r#7");
+    expect(a.getAttribute("data-copy-text")).toBe(GH);
+    expect(a.getAttribute("title")).toBe(GH);
+    const icon = a.querySelector("svg[data-link-icon]")!;
+    expect(icon).not.toBeNull();
+    expect(icon.getAttribute("aria-hidden")).toBe("true");
+    expect(icon.textContent).toBe(""); // no text node: never reaches AT or a copied selection
+  });
+
+  it("in the transcript an unrecognised host gets the generic icon and keeps the full URL text", () => {
+    const url = "https://example.com/x";
+    const { container } = inTranscript(<UrlLink href={url}>{url}</UrlLink>);
+    const a = container.querySelector("a")!;
+    expect(a.textContent).toBe(url);
+    expect(a.querySelector("svg[data-link-icon]")).not.toBeNull();
+    expect(a.getAttribute("title")).toBe(url);
+  });
+
+  it("the github and generic icons differ", () => {
+    const gh = inTranscript(<UrlLink href={GH}>{GH}</UrlLink>).container.querySelector("path")!.getAttribute("d");
+    const generic = inTranscript(<UrlLink href="https://example.com/x">https://example.com/x</UrlLink>).container
+      .querySelector("path")!
+      .getAttribute("d");
+    expect(gh).not.toBe(generic);
+  });
+
+  it("outside the transcript the DOM is the pre-change one (no icon, no label, no copy/title attrs)", () => {
+    const { container } = render(<UrlLink href={GH}>{GH}</UrlLink>);
+    const a = container.querySelector("a")!;
+    expect(a.textContent).toBe(GH);
+    expect(a.querySelector("svg")).toBeNull();
+    expect(a.hasAttribute("data-copy-text")).toBe(false);
+    expect(a.hasAttribute("title")).toBe(false);
+  });
+
+  it("in the transcript a loopback URL keeps its URL text", () => {
+    const url = "http://localhost:5173/x";
+    const { container } = inTranscript(<UrlLink href={url}>{url}</UrlLink>);
+    expect(container.querySelector("a")!.textContent).toBe(url);
+  });
+
+  it("in the transcript author-written (non-URL) link text is kept", () => {
+    const { container } = inTranscript(<UrlLink href={GH}>the issue</UrlLink>);
+    const a = container.querySelector("a")!;
+    expect(a.textContent).toBe("the issue");
+    expect(a.hasAttribute("data-copy-text")).toBe(false);
+  });
+});
+
+describe("UrlLink transcript pill (render-web-links-as-pill)", () => {
+  const URL_LONG = "https://github.com/BlackBeltTechnology/pi-agent-dashboard/security/dependabot";
+  const inTranscript = (ui: React.ReactElement) => render(<LinkResolutionProvider>{ui}</LinkResolutionProvider>);
+
+  it("in the transcript the anchor is one no-wrap pill with an end-truncating label", () => {
+    const { container } = inTranscript(<UrlLink href={URL_LONG}>{URL_LONG}</UrlLink>);
+    const a = container.querySelector("a")!;
+    expect(a.className).toContain("whitespace-nowrap");
+    expect(a.className).toContain("inline-flex");
+    expect(a.className).toContain("rounded-full");
+    const label = a.querySelector("[data-web-link-label]") as HTMLElement;
+    expect(label).not.toBeNull();
+    expect(label.className).toContain("truncate");
+    expect(label.style.direction).toBe("");
+    expect(a.querySelector("svg[data-link-icon]")).not.toBeNull();
+    expect(a.getAttribute("title")).toBe(URL_LONG);
+  });
+
+  it("outside the transcript the anchor has no pill and no label span", () => {
+    const { container } = render(<UrlLink href={URL_LONG}>{URL_LONG}</UrlLink>);
+    const a = container.querySelector("a")!;
+    expect(a.className).not.toContain("rounded-full");
+    expect(a.querySelector("[data-web-link-label]")).toBeNull();
   });
 });

@@ -1,0 +1,69 @@
+name: Windows process identity (real processes + WSL)
+
+# A Windows pid is verified and killed by ONE PowerShell call (pinned process
+# handle + creation-time check + `taskkill /F /T`), and a WSL pid is verified and
+# killed by ONE `sh -c` inside its distribution. Neither can be asserted from a
+# Linux/macOS box, and a fake `exec` cannot prove the handle pin closes the pid
+# reuse window, so this leg runs the REAL helpers against REAL processes on
+# windows-latest, with a real WSL distribution.
+#
+# Deliberately NOT part of `ci.yml` (a cheap per-PR safety net on one runner):
+# like `ci-gateway-platform.yml` it runs on a dispatch and on pushes that touch
+# the process-identity code.
+#
+# W11: the gating pinned arm must see 0 pid reuse across 500 spawns; the unpinned
+# control arm is logged and does not gate (a probabilistic positive would flake).
+# See change: add-windows-process-identity.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "packages/shared/src/platform/process.ts"
+      - "packages/server/src/spawn-process/session-terminator.ts"
+      - "packages/server/src/spawn-process/restored-identity.ts"
+      - "packages/server/src/browser-handlers/session-action-handler.ts"
+      - "qa/tests/53-windows-process-identity.ps1"
+      - "qa/tests/45-windows-reclaim-refused.ps1"
+      - "qa/tests/lib/windows-process-identity-probe.ts"
+      - ".github/workflows/ci-windows-process-identity.yml"
+
+# Least-privilege default (pinned by workflow-token-cache-contract.test.ts).
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: process identity (windows-latest + WSL)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --config.engine-strict=false
+      # A real WSL distribution for the in-distribution probe/kill cases.
+      - uses: Vampire/setup-wsl@v7
+        with:
+          distribution: Ubuntu-22.04
+      - name: Process identity against real processes (E19-E59, P1, P5, P6)
+        shell: pwsh
+        env:
+          QA_REPO_ROOT: ${{ github.workspace }}
+          QA_WSL_DISTRO: Ubuntu-22.04
+        run: ./qa/tests/53-windows-process-identity.ps1
+      # E54: the unattended reclaim of a real node child is VERIFIED and kills
+      # (it used to be refused-identity).
+      - name: Windows reclaim is verified, not refused
+        shell: pwsh
+        env:
+          QA_REPO_ROOT: ${{ github.workspace }}
+        run: ./qa/tests/45-windows-reclaim-refused.ps1

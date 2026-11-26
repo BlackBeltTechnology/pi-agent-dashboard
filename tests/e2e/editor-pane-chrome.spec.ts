@@ -1,5 +1,9 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import type { Download } from "@playwright/test";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { launchFromNewTabMenu, robustClick, spawnFreshGitSession } from "./helpers/index.js";
+import { resolveContainer } from "./helpers/container-proc.js";
+import { chooseLayoutMode, FIXTURE_GIT, launchFromNewTabMenu, robustClick, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — editor-pane chrome: pane bar + document bar, Search in the rail,
 // bulk close and Search tabs (change: scope-anchor-editor-pane-controls,
@@ -178,5 +182,222 @@ test.describe("editor pane chrome", () => {
     await input.press("Enter");
     await expect(page.getByTestId("tab-search-popover")).toHaveCount(0);
     await expect(p.locator('[data-testid="editor-tab"][aria-selected="true"]')).toHaveAttribute("data-tab-path", "README.md");
+  });
+});
+
+// ── Unsaved built-in buffer guard (change: fix-file-link-editor-routing, test-plan #S59, #S60, #S62, #S79) ──
+// A buffer is "dirty" once typed into in Edit mode; every leave point (tab ✕, pane ✕, Chat segment, bulk close,
+// sidebar session switch) must ask Save / Discard / Cancel first. A `page.goto` reloads the page and drops the
+// buffer, so tabs are opened first and the dirty edit is made last. Scratch files are written out of band in
+// the harness container and removed again.
+const GUARD = ["guard-a.md", "guard-b.md", "guard-c.md"];
+const guardAbs = (rel: string) => `${FIXTURE_GIT}/${rel}`;
+function inBox(script: string): string {
+  return execFileSync("docker", ["exec", resolveContainer(), "sh", "-c", script], { encoding: "utf8" }).trim();
+}
+const readGuard = (rel: string): string => inBox(`cat ${JSON.stringify(guardAbs(rel))}`);
+
+test.describe("unsaved built-in buffer guard", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+    for (const f of GUARD) inBox(`printf %s DISK-${f} > ${JSON.stringify(guardAbs(f))} && chmod 666 ${JSON.stringify(guardAbs(f))}`);
+  });
+  test.afterEach(() => {
+    inBox(`rm -f ${GUARD.map((f) => JSON.stringify(guardAbs(f))).join(" ")}`);
+  });
+
+  const tabOf = (page: Page, rel: string) => pane(page).locator(`[data-testid="editor-tab"][data-tab-path="${rel}"]`);
+  const dialog = (page: Page) => page.getByTestId("unsaved-dialog");
+  const monaco = (page: Page) => page.locator(".monaco-editor").first();
+
+  /** Edit toggle + typed text: the active markdown tab is now dirty. */
+  async function dirtyActiveTab(page: Page, text: string): Promise<void> {
+    await page.getByTestId("md-edit-toggle").click();
+    await monaco(page).click();
+    await page.keyboard.type(text);
+    await expect(page.getByTestId("md-dirty-dot")).toBeVisible();
+  }
+  const closeTabX = (page: Page, rel: string) => tabOf(page, rel).getByRole("button").click();
+
+  test("S59: ✕ on a dirty tab asks; Cancel keeps text, Discard drops it, Save writes then closes; clean ✕ is silent", async ({ page }) => {
+    const sid = await sessionWithPane(page);
+    await openFile(page, sid, "guard-a.md");
+    await dirtyActiveTab(page, "TYPED-1");
+
+    await closeTabX(page, "guard-a.md");
+    await expect(dialog(page)).toBeVisible();
+    await page.getByTestId("unsaved-cancel").click();
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(tabOf(page, "guard-a.md")).toBeVisible();
+    await expect(monaco(page)).toContainText("TYPED-1");
+
+    await closeTabX(page, "guard-a.md");
+    await page.getByTestId("unsaved-discard").click();
+    await expect(tabOf(page, "guard-a.md")).toHaveCount(0);
+    expect(readGuard("guard-a.md")).not.toContain("TYPED-1");
+    await openFile(page, sid, "guard-a.md");
+    await expect(pane(page)).toContainText("DISK-guard-a.md", { timeout: 20_000 });
+
+    await dirtyActiveTab(page, "TYPED-2");
+    await closeTabX(page, "guard-a.md");
+    await page.getByTestId("unsaved-save").click();
+    await expect(tabOf(page, "guard-a.md")).toHaveCount(0, { timeout: 20_000 });
+    expect(readGuard("guard-a.md")).toContain("TYPED-2");
+
+    // A clean tab closes without a dialog — including one that was just saved via the toolbar.
+    await openFile(page, sid, "guard-a.md");
+    await dirtyActiveTab(page, "TYPED-3");
+    await page.getByTestId("md-save-btn").click();
+    await expect(page.getByTestId("md-dirty-dot")).toHaveCount(0, { timeout: 20_000 });
+    await closeTabX(page, "guard-a.md");
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(tabOf(page, "guard-a.md")).toHaveCount(0);
+  });
+
+  test("S60: sidebar session switch is held until Save/Discard; Cancel keeps the buffer; clean switches at once", async ({ page }) => {
+    const sid1 = await sessionWithPane(page);
+    const card2 = await spawnFreshGitSession(page);
+    const sid2 = await card2.getAttribute("data-session-id");
+    if (!sid2) throw new Error("second session has no id");
+    const card = (id: string) => page.locator(`[data-testid="session-card-desktop"][data-session-id="${id}"]`);
+
+    await openFile(page, sid1, "guard-a.md");
+    await dirtyActiveTab(page, "SWITCH-EDIT");
+    await card(sid2).click();
+    await expect(dialog(page)).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/session/${sid1}`));
+    await page.getByTestId("unsaved-cancel").click();
+    await expect(page).toHaveURL(new RegExp(`/session/${sid1}`));
+    await expect(monaco(page)).toContainText("SWITCH-EDIT");
+
+    await card(sid2).click();
+    await page.getByTestId("unsaved-discard").click();
+    await expect(page).toHaveURL(new RegExp(`/session/${sid2}`), { timeout: 20_000 });
+
+    // Clean buffer (back on session 1, nothing typed): switching is immediate.
+    await card(sid1).click();
+    await expect(page).toHaveURL(new RegExp(`/session/${sid1}`), { timeout: 20_000 });
+    await card(sid2).click();
+    await expect(page).toHaveURL(new RegExp(`/session/${sid2}`), { timeout: 20_000 });
+    await expect(dialog(page)).toHaveCount(0);
+    // The folder-pane variant of this guard is pinned at L1 (useSessionActions.no-focus.test.tsx): the store is page-level.
+  });
+
+  test("S62: pane ✕, the Chat segment and Close all ask when a buffer is dirty; Cancel leaves layout and tabs", async ({ page }) => {
+    const sid = await sessionWithPane(page);
+    await openFile(page, sid, "guard-b.md");
+    await openFile(page, sid, "guard-c.md");
+    await openFile(page, sid, "guard-a.md");
+    await dirtyActiveTab(page, "PANE-EDIT");
+    const p = pane(page);
+
+    await robustClick(page, "editor-pane-close");
+    await expect(dialog(page)).toBeVisible();
+    await page.getByTestId("unsaved-cancel").click();
+    await expect(p).toBeVisible();
+    await expect(p.getByRole("tab")).toHaveCount(3);
+
+    await chooseLayoutMode(page, "closed");
+    await expect(dialog(page)).toBeVisible();
+    await page.getByTestId("unsaved-cancel").click();
+    await expect(p).toBeVisible();
+    await expect(p.getByRole("tab")).toHaveCount(3);
+
+    await robustClick(page, "tab-search-toggle");
+    await page.getByTestId("tab-search-bulk-all").click();
+    const bulk = page.getByTestId("bulk-close-confirm");
+    await expect(bulk).toBeVisible();
+    await expect(bulk.getByTestId("bulk-close-list")).toContainText("guard-a.md");
+    await bulk.getByTestId("bulk-close-cancel").click();
+    await expect(p.getByRole("tab")).toHaveCount(3);
+    await expect(monaco(page)).toContainText("PANE-EDIT");
+  });
+
+  test("S79: the unsaved dialog focuses Cancel; Enter never discards; Escape / backdrop cancel; Tab reaches Discard and Save", async ({ page }) => {
+    const sid = await sessionWithPane(page);
+    await openFile(page, sid, "guard-a.md");
+    await dirtyActiveTab(page, "KEY-EDIT");
+
+    await closeTabX(page, "guard-a.md");
+    await expect(dialog(page)).toBeVisible();
+    await expect(page.getByTestId("unsaved-cancel")).toBeFocused();
+    await page.keyboard.press("Enter"); // activates the focused Cancel, never Discard
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(tabOf(page, "guard-a.md")).toBeVisible();
+    await expect(monaco(page)).toContainText("KEY-EDIT");
+
+    await closeTabX(page, "guard-a.md");
+    await expect(dialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(tabOf(page, "guard-a.md")).toBeVisible();
+    await expect(monaco(page)).toContainText("KEY-EDIT");
+
+    await closeTabX(page, "guard-a.md");
+    await expect(dialog(page)).toBeVisible();
+    await page.getByTestId("unsaved-dialog-overlay").click({ position: { x: 4, y: 4 } });
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(monaco(page)).toContainText("KEY-EDIT");
+
+    await closeTabX(page, "guard-a.md");
+    await expect(page.getByTestId("unsaved-cancel")).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByTestId("unsaved-discard")).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByTestId("unsaved-save")).toBeFocused();
+    await page.keyboard.press("Escape");
+  });
+});
+
+// ── File download (change: add-file-download, test-plan #F12, #F13) ──
+// The viewer More menu and the tree row menu both save the file under its
+// basename with the exact bytes. `hello.txt` is a fixture file with known content.
+test.describe("file download", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+  });
+
+  // Raw buffers (no trim, no UTF-8 decode): a lost trailing newline or changed byte must fail.
+  const expectedBytes = (): Buffer =>
+    execFileSync("docker", ["exec", resolveContainer(), "cat", `${FIXTURE_GIT}/hello.txt`]);
+
+  async function saved(download: Download): Promise<Buffer> {
+    const path = await download.path();
+    if (!path) throw new Error("download has no saved path");
+    return readFileSync(path);
+  }
+
+  /** Fresh session, split layout, file rail open — rows are opened by click (the `?file=` deep link is not needed here). */
+  async function sessionWithRail(page: Page): Promise<Locator> {
+    await sessionWithPane(page);
+    await chooseLayoutMode(page, "split");
+    const p = pane(page);
+    await expect(p).toBeVisible({ timeout: 20_000 });
+    await p.getByTestId("tree-toggle").click();
+    const row = p.locator('[data-row="hello.txt"]');
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    return row;
+  }
+
+  test("F12: viewer More → Download saves hello.txt with its exact content", async ({ page }) => {
+    const row = await sessionWithRail(page);
+    const p = pane(page);
+    await row.getByText("hello.txt").click();
+    await expect(p.locator('[data-testid="editor-tab"][data-tab-path="hello.txt"]')).toBeVisible({ timeout: 20_000 });
+    await p.getByTestId("doc-more-menu").click();
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("doc-download").click()]);
+    expect(download.suggestedFilename()).toBe("hello.txt");
+    expect((await saved(download)).equals(expectedBytes())).toBe(true);
+  });
+
+  test("F13: tree row right-click → Download saves the file and leaves the tabs unchanged", async ({ page }) => {
+    const row = await sessionWithRail(page);
+    const p = pane(page);
+    const tabsBefore = await p.getByTestId("editor-tab").count();
+    await row.click({ button: "right" });
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("tree-row-download").click()]);
+    expect(download.suggestedFilename()).toBe("hello.txt");
+    expect((await saved(download)).equals(expectedBytes())).toBe(true);
+    await expect(p.getByTestId("editor-tab")).toHaveCount(tabsBefore);
   });
 });

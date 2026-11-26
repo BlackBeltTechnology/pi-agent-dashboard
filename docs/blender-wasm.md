@@ -236,7 +236,9 @@ Registration:
 - Socket guard: `helpers/socket-guard.cjs` via `NODE_OPTIONS=--require`. Wraps `net` listen/connect, `dgram.createSocket`, `WebSocket`. Logs to `BLENDER_WASM_GUARD_LOG`. Proves no listener, no outbound.
 - `jspi-gate.test.ts`: Node 22 legs. Empty cache → `jspi-unavailable`, nothing downloaded.
 - `packaging.test.ts`: `npm pack` list + install tarball + `pi-blender status` without tsx.
-- Perf budget (real suites): warm boot ≤ 15 s, `blender_scene` ≤ 2 s, host RSS ≤ 2.5 GB.
+- Perf budget P1–P3: warm boot ≤ 15 s, `blender_scene` ≤ 2 s, host RSS ≤ 2.5 GB.
+- Lives in `real-binary.budget.test.ts`. Functional cases stay in `real-binary.test.ts`.
+- Runs only in nightly `budget` job, `ubuntu-latest`. Not on macOS or Windows (`blender-real` runs functional suites only).
 - CI (`.github/workflows/ci.yml` job `blender-real`): Node 24 matrix ubuntu/macos/windows. `BLENDER_WASM_E2E=1`. Cache keyed by OS + pin integrity. Runs only when diff touches `packages/blender`, `packages/shared`, ci.yml, lockfile.
 - Main CI Node 22: fakes + `jspi-gate` only.
 - Crash trigger: `os.abort()`.

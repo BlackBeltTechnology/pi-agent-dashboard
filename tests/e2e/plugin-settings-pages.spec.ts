@@ -1,4 +1,15 @@
 import { type APIRequestContext, expect, type Page, test } from "./fixtures.js";
+import {
+  accountRow,
+  addOwnClient,
+  collectConsoleErrors,
+  containerId,
+  googleState,
+  openGoogleSettings,
+  resetGoogle,
+  seedAccount,
+  seedLocalBuiltinAccount,
+} from "./helpers/google-connect.js";
 import { gotoDashboard } from "./helpers/index.js";
 
 /**
@@ -406,4 +417,180 @@ test.describe("plugin settings pages (L3)", () => {
     await expect(rail.getByTestId(`nav-plugin-${DIRTY_PLUGIN}`)).toBeVisible();
     await expect(page.getByTestId(DIRTY_FIELD)).toHaveValue(edited);
   });
+});
+
+/**
+ * L3 — Settings → Google accounts (change: add-google-connect; test-plan #B65, #B52, #B103). Real server, real
+ * client, in-container fake Google. The harness browser is a REMOTE peer, so the built-in app on offer is the
+ * `builtin-remote` placeholder (`PI_E2E_GOOGLE_BUILTIN=1`, docker/test-up.sh).
+ */
+test.describe("google accounts settings (L3)", () => {
+  let cid = "";
+  test.beforeAll(() => {
+    cid = containerId(); // lazily: `playwright test --list` loads this file without a harness
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("dashboard:settings-plugins-expanded", "true"));
+    await gotoDashboard(page);
+    await resetGoogle(page.request, cid);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await resetGoogle(page.request, cid);
+  });
+
+  // (test-plan #B65) — the page renders what `GET state` says.
+  test("B65: Settings → Google accounts lists both seeded accounts and matches GET /state", async ({ page }) => {
+    const client = await addOwnClient(page.request);
+    await seedAccount(page.request, cid, "one@fake.test", client);
+    await seedAccount(page.request, cid, "two@fake.test", client);
+    const errors = collectConsoleErrors(page);
+
+    await openGoogleSettings(page);
+    await expect(page.getByTestId("google-accounts")).toBeVisible();
+    const rows = page.getByTestId("google-account-row");
+    await expect(rows).toHaveCount(2);
+    await expect(accountRow(page, "one@fake.test")).toBeVisible();
+    await expect(accountRow(page, "two@fake.test")).toBeVisible();
+
+    const state = await googleState(page.request);
+    expect(state.accounts.map((a) => a.email).sort()).toEqual(["one@fake.test", "two@fake.test"]);
+    const shown = await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-email")).sort());
+    expect(shown).toEqual(state.accounts.map((a) => a.email).sort());
+    expect(errors, errors.join("\n")).toEqual([]);
+  });
+
+  // (test-plan #A50) — "Connect another Google account" with the built-in app. The harness browser is a REMOTE
+  // peer (the remote built-in cannot offer Gmail and no click path reaches a local connect), so the dialog click
+  // path is L1 (connect-dialog.test.tsx #A50). Here the connect is driven through the LOCAL-peer API from inside the
+  // container (what a local browser's dialog would POST), then the rendered accounts page is asserted.
+  test("A50: a third built-in account (Gmail read + Drive files) joins two others and is listed; no email or client field", async ({ page }) => {
+    await seedLocalBuiltinAccount(page.request, cid, "one@fake.test");
+    await seedLocalBuiltinAccount(page.request, cid, "two@fake.test");
+    await seedLocalBuiltinAccount(page.request, cid, "someone@gmail.com", { gmail: { level: "readonly" }, drive: { level: "files" } });
+    const errors = collectConsoleErrors(page);
+
+    await openGoogleSettings(page);
+    await expect(page.getByTestId("google-account-row")).toHaveCount(3);
+    const third = accountRow(page, "someone@gmail.com");
+    await expect(third).toBeVisible();
+    await third.getByTestId("google-account-toggle").click();
+    await expect(third.getByTestId("google-level-gmail")).toHaveValue("readonly");
+    await expect(third.getByTestId("google-level-drive")).toHaveValue("files");
+    await expect(third.getByTestId("google-level-calendar")).toHaveValue("off");
+    const state = await googleState(page.request);
+    expect(state.accounts.map((a) => a.email).sort()).toEqual(["one@fake.test", "someone@gmail.com", "two@fake.test"]);
+
+    // The dialog never asks who: no email field, no client selector (no organisation client exists here).
+    await page.getByTestId("google-connect").click();
+    const dialog = page.getByTestId("google-connect-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("google-work-email")).toHaveCount(0);
+    await expect(dialog.getByTestId("google-signin-with")).toHaveCount(0);
+    await expect(dialog.locator('input[type="email"], input[type="text"], select')).toHaveCount(0);
+    expect(errors, errors.join("\n")).toEqual([]);
+  });
+
+  // (test-plan #B52) — disclosure lines + privacy link are reachable without a mouse and never collapsed.
+  test("B52: the data-use lines are visible, the privacy link is keyboard-reachable and opens noopener", async ({ page }) => {
+    await openGoogleSettings(page);
+    await page.getByTestId("google-connect").click();
+    const dialog = page.getByTestId("google-connect-dialog");
+    await expect(dialog).toBeVisible();
+
+    const disclosure = dialog.getByTestId("google-disclosure");
+    await expect(disclosure).toBeVisible();
+    for (const n of [1, 2, 3]) await expect(dialog.getByTestId(`google-disclosure-line-${n}`)).toBeVisible();
+    // Not inside a collapsed element: no `aria-expanded="false"` ancestor and no closed <details>.
+    expect(await disclosure.evaluate((el) => el.closest('[aria-expanded="false"], details:not([open])') === null)).toBe(true);
+
+    const link = dialog.getByTestId("google-privacy-link");
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(link).toHaveAttribute("rel", /noopener/);
+    await expect(link).toHaveAccessibleName(/privacy/i);
+    // Keyboard reachability: Tab from the top of the dialog reaches the link (real key presses, no pointer).
+    await dialog.getByRole("button", { name: /close/i }).first().focus();
+    let reached = false;
+    for (let i = 0; i < 40 && !reached; i++) {
+      await page.keyboard.press("Tab");
+      reached = await link.evaluate((el) => el === document.activeElement);
+    }
+    expect(reached).toBe(true);
+  });
+
+  // (test-plan #B103) — visible focus + theme tokens in both themes.
+  for (const theme of ["light", "dark"] as const) {
+    test(`B103: every control shows a visible focus indicator and token colours (${theme})`, async ({ page }) => {
+      const client = await addOwnClient(page.request);
+      await seedAccount(page.request, cid, "focus@fake.test", client);
+      await page.addInitScript((t) => localStorage.setItem("dashboard:theme", t), theme);
+      await openGoogleSettings(page);
+      expect(await page.evaluate(() => document.documentElement.getAttribute("data-theme") ?? "dark")).toBe(theme);
+
+      const section = page.getByTestId("google-settings");
+      // The account card is a fold-out: open it so its level selects and filter checkbox are part of the walk.
+      await accountRow(page, "focus@fake.test").getByTestId("google-account-toggle").click();
+      await expect(section.getByTestId("google-level-calendar")).toBeVisible();
+      // Walk the section with the keyboard (real Tab presses, so :focus-visible applies) and measure each stop.
+      const first = section.locator("button:visible, select:visible, input:visible, a[href]:visible").first();
+      await first.focus();
+      // A scripted focus() after a mouse click is not :focus-visible; switch to keyboard modality first.
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      const seen = new Set<string>();
+      const bad: string[] = [];
+      for (let i = 0; i < 60; i++) {
+        const r = await page.evaluate(() => {
+          const el = document.activeElement as HTMLElement | null;
+          const sec = document.querySelector('[data-testid="google-settings"]');
+          if (!el || !sec || !sec.contains(el)) return null;
+          const s = getComputedStyle(el);
+          const bg = (() => {
+            for (let e: Element | null = el; e; e = e.parentElement) {
+              const b = getComputedStyle(e).backgroundColor;
+              if (b !== "rgba(0, 0, 0, 0)" && b !== "transparent") return b;
+            }
+            return "rgb(255, 255, 255)";
+          })();
+          const path: string[] = [];
+          for (let e: Element | null = el; e && e !== sec; e = e.parentElement) path.unshift(`${e.tagName}${e.getAttribute("data-testid") ? `[${e.getAttribute("data-testid")}]` : ""}`);
+          return {
+            id: path.join(">") + (el.getAttribute("aria-label") ?? el.textContent?.slice(0, 20) ?? ""),
+            ring: (s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0) || s.boxShadow !== "none",
+            fg: s.color,
+            bg,
+          };
+        });
+        if (r === null) {
+          if (i === 0) await page.keyboard.press("Tab");
+          else break;
+          continue;
+        }
+        if (!seen.has(r.id)) {
+          seen.add(r.id);
+          if (!r.ring) bad.push(`${r.id}: no focus ring`);
+          if (r.fg === r.bg) bad.push(`${r.id}: text colour equals its background (${r.fg})`);
+        }
+        await page.keyboard.press("Tab");
+      }
+      expect(seen.size).toBeGreaterThan(4);
+      expect(bad, bad.join("\n")).toEqual([]);
+
+      // Computed text colours are the theme tokens, not literals.
+      const tokens = await page.evaluate(() => {
+        const probe = (v: string) => {
+          const d = document.createElement("span");
+          d.style.color = `var(${v})`;
+          document.body.appendChild(d);
+          const c = getComputedStyle(d).color;
+          d.remove();
+          return c;
+        };
+        const title = document.getElementById("google-settings-title");
+        return { title: title ? getComputedStyle(title).color : null, primary: probe("--text-primary") };
+      });
+      expect(tokens.title).toBe(tokens.primary);
+    });
+  }
 });

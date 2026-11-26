@@ -1,0 +1,3 @@
+# rich-links-web.spec.ts — index
+
+Playwright E2E for rendered web links (change: rich-chat-links, test-plan F6/F10/F11/X12). Scenarios `rich-links-web` / `rich-links-pr` (qa/fixtures/faux-scenarios.ts). F6: plain click → `url:` tab, modifier-click → new browser page, tab count unchanged. F10: `https://framed-allowed.test` (harness frame-policy verdict seam `PI_E2E_FRAME_POLICY_VERDICTS`, virtual HTTPS origin via `context.route`) → sandboxed frame: popup blocked, opaque origin `"null"`, `parent.document` throws, dashboard URL unchanged. F11: copy of a shortened `o/r#123` label yields the full URL. X12: probe route 404 → card with "Open in browser", no embed/iframe.

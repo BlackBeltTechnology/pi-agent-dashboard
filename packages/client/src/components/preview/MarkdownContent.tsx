@@ -5,6 +5,7 @@ import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
+import { classifyLink } from "../../lib/chat/classify-link.js";
 import { tokenize } from "../../lib/chat/linkify-tool-output.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MARKDOWN_REMARK_PLUGINS } from "../../lib/preview/markdown-remark-plugins.js";
@@ -15,10 +16,12 @@ import { parseOrdinalStamp, remarkMermaidOrdinal } from "../../lib/preview/remar
 import { wrapAsciiTables } from "../../lib/preview/wrap-ascii-tables.js";
 import { useSessionAssets } from "../../lib/session/SessionAssetsContext.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
-import { useLoopbackLinkOpen } from "../../lib/use-loopback-link-open.js";
+import { useWebLinkOpen } from "../../lib/use-web-link-open.js";
+import { useInTranscript } from "../chat/LinkResolutionProvider.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
+import { WebLinkBody, webLinkClass } from "../tool-renderers/link-pill.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 import { UrlLink } from "../tool-renderers/UrlLink.js";
 import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperties.js";
@@ -28,6 +31,7 @@ import { MarkupRepairBanner } from "./MarkupRepairBanner.js";
 import { MermaidBlock } from "./MermaidBlock.js";
 import { MARKDOWN_SCHEMA, safeUrlTransform } from "./markdown-sanitize.js";
 import { type ImageBase, resolveLocalImageSrc } from "./resolve-local-image-src.js";
+import { resolveRelativeMention } from "./resolve-relative-link.js";
 
 interface Props {
   content: string;
@@ -94,7 +98,7 @@ function renderInlineString(text: string, context: ToolContext, keyPrefix: strin
   return tokenize(text).map((tok, i) => {
     const key = `${keyPrefix}-${i}`;
     if (tok.kind === "text") return <React.Fragment key={key}>{tok.text}</React.Fragment>;
-    if (tok.kind === "url") return <UrlLink key={key} href={tok.text}>{tok.text}</UrlLink>;
+    if (tok.kind === "url") return <UrlLink key={key} href={tok.text} context={context}>{tok.text}</UrlLink>;
     // Injected rather than imported — see `FileLinkRenderer` (D4b). Callers only
     // reach here when `context.fileLink` is present (the linkification gate).
     const renderFileLink = context.fileLink;
@@ -256,7 +260,8 @@ type MarkdownRenderContextValue = {
   staticSource: boolean;
   toolContext?: ToolContext;
   syntaxStyle: ReturnType<typeof getSyntaxTheme>;
-  onLoopbackClick: (event: React.MouseEvent, href: string) => void;
+  /** Plain-click routing of a web link into the editor pane (`useWebLinkOpen`). */
+  onWebClick: (event: React.MouseEvent, href: string) => void;
 };
 
 /**
@@ -270,7 +275,7 @@ const DEFAULT_MARKDOWN_RENDER_CONTEXT: MarkdownRenderContextValue = {
   staticSource: false,
   toolContext: undefined,
   syntaxStyle: getSyntaxTheme("dark"),
-  onLoopbackClick: () => {},
+  onWebClick: () => {},
 };
 
 const MarkdownRenderContext = React.createContext<MarkdownRenderContextValue>(
@@ -577,28 +582,56 @@ function MarkdownTable({ children }: { children?: React.ReactNode }) {
   );
 }
 
+const HTTP_HREF = /^https?:\/\//i;
+
+/** Transcript http(s) anchors get a provider classification; an autolink (text = URL) is shortened to its label. */
+function classifyWebAnchor(href: string, children: React.ReactNode, inTranscript: boolean) {
+  const rich = inTranscript && HTTP_HREF.test(href) ? classifyLink(href) : null;
+  const autolink = rich !== null && React.Children.toArray(children).join("") === href && rich.label !== href;
+  return { rich, autolink };
+}
+
+/**
+ * Anchor renderer (rich-chat-links D7):
+ *  - a relative href with a known base (`ImageBase` in a file preview, else the transcript `ToolContext.cwd`) and a
+ *    `context.fileLink` renders as a file link that keeps the author's text;
+ *  - an http(s) href gets the provider icon in the transcript (short label only for an autolink) and the web hook;
+ *  - everything else (`#…`, `/…`, `//…`, other schemes) is the plain anchor as before.
+ */
 function MarkdownAnchor({ node: _node, href, children, ...props }: React.ComponentPropsWithoutRef<"a"> & MarkdownNodeProps) {
-  const { onLoopbackClick } = useMarkdownRenderContext();
+  const { onWebClick, toolContext } = useMarkdownRenderContext();
+  const imageBase = useImageBase();
+  const inTranscript = useInTranscript();
   // `safeUrlTransform` blanks a dropped scheme to "": an `<a href="">` would
   // reload the dashboard, so render an inert, unstyled anchor instead.
   // See change: sanitize-untrusted-rendered-content.
   if (!href) {
     return <a {...props}>{children}</a>;
   }
+  const renderFileLink = toolContext?.fileLink;
+  const base = imageBase ?? (toolContext?.cwd ? { cwd: toolContext.cwd, dir: "" } : null);
+  const mention = renderFileLink && base ? resolveRelativeMention(href, base) : null;
+  if (renderFileLink && toolContext && mention) {
+    return <>{renderFileLink({ path: mention.path, line: mention.line, absolute: mention.absolute, context: toolContext, children })}</>;
+  }
   const external = isExternalHref(href);
+  const { rich, autolink } = classifyWebAnchor(href, children, inTranscript);
   return (
     <a
       // client-sinks: allow — href already passed safeUrlTransform (markdown protocol set, spec client-untrusted-content-sanitization)
       href={href}
-      className="text-blue-400 hover:underline"
+      // In the transcript a web anchor is a no-wrap pill (render-web-links-as-pill D1).
+      className={webLinkClass(rich !== null, "text-blue-400 hover:underline")}
       {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      // Loopback links route into the internal live-server split
-      // viewer on a plain click; modifier/middle-click and the
-      // no-context fallback keep the native target="_blank" tab.
-      onClick={(event) => onLoopbackClick(event, href)}
+      // Loopback links route into the internal live-server split viewer on a plain click, and so do other web
+      // links of the pane's own session (as `url:` tabs); modifier/middle-click and the no-context fallback keep
+      // the native target="_blank" tab.
+      onClick={(event) => onWebClick(event, href)}
+      {...(rich ? { title: href, "aria-description": href } : {})}
+      {...(autolink ? { "data-copy-text": href } : {})}
       {...props}
     >
-      {children}
+      {rich ? <WebLinkBody icon={rich.icon}>{autolink ? rich.label : children}</WebLinkBody> : children}
     </a>
   );
 }
@@ -662,7 +695,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
     [mathEngine],
   );
   const containerRef = useRef<HTMLDivElement>(null);
-  const onLoopbackClick = useLoopbackLinkOpen();
+  const onWebClick = useWebLinkOpen(context);
   const { resolved: theme, themeName } = useThemeContext();
   const syntaxStyle = useMemo(() => getSyntaxTheme(theme, themeName), [theme, themeName]);
 
@@ -687,8 +720,8 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
   // being re-created per render, so an unchanged markdown tree keeps its DOM
   // node identity — and any Selection anchored in it — across re-renders.
   const markdownRenderContext = useMemo(
-    () => ({ content: processedContent, staticSource, toolContext: context, syntaxStyle, onLoopbackClick }),
-    [processedContent, staticSource, context, syntaxStyle, onLoopbackClick],
+    () => ({ content: processedContent, staticSource, toolContext: context, syntaxStyle, onWebClick }),
+    [processedContent, staticSource, context, syntaxStyle, onWebClick],
   );
 
   return (

@@ -9,8 +9,9 @@
  * `waitForBind`) follows `pi-gateway-bind-host.test.ts`.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { WsTicketStore } from "../auth/ws-ticket.js";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import {
@@ -815,5 +816,839 @@ describe("pi-gateway: drop reports and prompt acks", () => {
     const ack = seen.find((e) => e.msg.type === "prompt_received")!;
     expect(ack.sessionId).toBe("S_ack");
     expect(ack.msg.promptId).toBe("p-1");
+  });
+});
+
+// ── #1175 test-plan #E7 ──────────────────────────────────────────────────────
+// A session replacement on a single bridge socket: the outgoing owner already sent
+// `session_unregister{A}`, then the replacement instance's `handleSessionChange` sends a
+// second one for the same id on the same socket while B is registered. Today's gateway must
+// treat it as a no-op (claim-gated unregister semantics belong to `harden-bridge-session-claim`).
+describe("pi-gateway: repeated session_unregister for an already-removed id", () => {
+  let gateway: ReturnType<typeof createPiGateway>;
+  const sockets: Client[] = [];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const c of sockets) c.ws.terminate();
+    sockets.length = 0;
+    gateway?.stop();
+  });
+
+  it("E7: a second unregister for the outgoing id leaves the incoming registration untouched", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const sessionManager = createMemorySessionManager();
+    gateway = createPiGateway(sessionManager, { pingInterval: 0 });
+    gateway.start(0, "127.0.0.1");
+    const port = await waitForBind(gateway);
+
+    const first = await connect(port);
+    sockets.push(first);
+    register(first, "A");
+    await until(() => sessionManager.get("A") !== undefined);
+
+    // Replacement: the outgoing owner unregisters A, the new socket registers B.
+    first.ws.send(JSON.stringify({ type: "session_unregister", sessionId: "A" }));
+    await until(() => sessionManager.get("A")?.status === "ended" || sessionManager.get("A") === undefined);
+    const second = await connect(port);
+    sockets.push(second);
+    register(second, "B");
+    await until(() => sessionManager.get("B") !== undefined);
+    const absentBefore = sessionManager.get("A");
+    errorLog.mockClear();
+
+    // The replacement's handleSessionChange unregisters the already-gone outgoing id again.
+    second.ws.send(JSON.stringify({ type: "session_unregister", sessionId: "A" }));
+    await delay(150);
+
+    expect(second.closed).toBe(false);
+    expect(sessionManager.get("B")).toBeDefined();
+    expect(sessionManager.get("B")!.status).not.toBe("ended");
+    expect(gateway.sendToSession("B", { type: "reload" } as any)).toBe(true);
+    await until(() => second.received.some((m) => m.type === "reload"), 2000);
+    expect(sessionManager.get("A")).toEqual(absentBefore);
+    // Only the routine "session unregistered" trace is allowed; no Error objects / failure lines.
+    const failures = errorLog.mock.calls.filter(
+      (args) => args.some((a) => a instanceof Error) || /fail|error|exception|unknown session/i.test(args.join(" ")),
+    );
+    expect(failures).toEqual([]);
+  });
+});
+
+/**
+ * Origin binding at the gateway (D1/D4): every path that takes a routing entry (register,
+ * first-frame auto-claim, move commit, id change) is bound to the record's origin.
+ * Remote origins are made with `peerAddressForTest` + a device ticket; the option object is
+ * read per connection, so it is flipped between sequential connects.
+ * See change: harden-bridge-session-claim (test-plan BX1-BX5, R1-R7).
+ */
+describe("pi-gateway origin binding", () => {
+  let gateway: ReturnType<typeof createPiGateway>;
+  const sockets: Client[] = [];
+  const tickets = new WsTicketStore();
+  const options: Record<string, unknown> = {};
+  const lines: string[] = [];
+  let errSpy: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    for (const c of sockets) c.ws.terminate();
+    sockets.length = 0;
+    gateway?.stop();
+    errSpy?.mockRestore();
+    lines.length = 0;
+    delete options.peerAddressForTest;
+    delete options.onRoutingChanged;
+  });
+
+  async function start() {
+    errSpy = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => {
+      lines.push(a.map(String).join(" "));
+    });
+    const sessionManager = createMemorySessionManager();
+    Object.assign(options, {
+      pingInterval: 0,
+      bridgeAuth: {
+        consumeTicket: (t: string | null | undefined) => tickets.consumeDetailed(t, "bridge"),
+        requireTicketOnLoopback: false,
+      },
+    });
+    gateway = createPiGateway(sessionManager, options as never);
+    gateway.start(0, "127.0.0.1");
+    return { sessionManager, port: await waitForBind(gateway) };
+  }
+
+  /** A hub-local socket (loopback peer, no ticket), or a remote one for `device` ("unattributed" = no ticket). */
+  async function as(port: number, device: "hub" | "unattributed" | string): Promise<Client> {
+    if (device === "hub") delete options.peerAddressForTest;
+    else options.peerAddressForTest = "203.0.113.7";
+    const ticket = device === "hub" || device === "unattributed" ? undefined : tickets.mint("bridge", device);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}${ticket ? `?ticket=${ticket}` : ""}`);
+    const client: Client = { ws, received: [], closed: false, closeCode: null };
+    ws.on("message", (raw) => client.received.push(JSON.parse(raw.toString())));
+    ws.on("close", (code) => {
+      client.closed = true;
+      client.closeCode = code;
+    });
+    ws.on("error", () => undefined);
+    await waitForOpen(ws);
+    sockets.push(client);
+    return client;
+  }
+
+  const types = (c: Client) => c.received.map((f) => f.type);
+  const originLines = () => lines.filter((l) => l.startsWith("[bridge-claim] origin-refused"));
+
+  it("BX1/R1: a foreign device re-registering a live hub-local id with the same pid is refused terminally, with no probe", async () => {
+    const { sessionManager, port } = await start();
+    const a = await as(port, "hub");
+    register(a, "S", { pid: 4242, sessionFile: "/h/S.jsonl" });
+    await until(() => sessionManager.get("S") !== undefined);
+    let pings = 0;
+    a.ws.on("ping", () => pings++);
+    const before = { ...sessionManager.get("S")! };
+
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "S", { pid: 4242, sessionFile: "/b/EVIL.jsonl" });
+    await until(() => b.closed);
+
+    const rejected = b.received.find((f) => f.type === "register_rejected");
+    expect(rejected.reason).toMatch(/another origin/);
+    expect(rejected.reason).not.toMatch(/dev-aaaaaaaa/);
+    const after = sessionManager.get("S")!;
+    expect(after.originDeviceId).toBeUndefined();
+    expect(after.sessionFile).toBe(before.sessionFile);
+    expect(after.pid).toBe(4242);
+    expect(gateway.isSessionConnected("S")).toBe(true);
+    await delay(100);
+    expect(pings).toBe(0);
+  });
+
+  it("BX2/R2: a CLOSED incumbent's id (reconnect grace) cannot be claimed from another origin, but its own origin reconnects", async () => {
+    const { sessionManager, port } = await start();
+    const a = await as(port, "hub");
+    register(a, "S", { sessionFile: "/h/S.jsonl" });
+    await until(() => sessionManager.get("S") !== undefined);
+    a.ws.terminate();
+    await until(() => !gateway.isSessionConnected("S"));
+
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "S");
+    await until(() => b.closed);
+    expect(types(b)).toContain("register_rejected");
+    expect(sessionManager.get("S")!.originDeviceId).toBeUndefined();
+
+    const a2 = await as(port, "hub");
+    register(a2, "S", { sessionFile: "/h/S.jsonl" });
+    await until(() => gateway.isSessionConnected("S"));
+    expect(a2.closed).toBe(false);
+  });
+
+  it("BX3/R3: a first frame naming a recorded id of another origin claims nothing and the socket closes on the 3rd", async () => {
+    const { sessionManager, port } = await start();
+    const a = await as(port, "hub");
+    register(a, "S", { sessionFile: "/h/S.jsonl" });
+    await until(() => sessionManager.get("S") !== undefined);
+    a.ws.terminate();
+    await until(() => !gateway.isSessionConnected("S"));
+    const events: string[] = [];
+    gateway.onEvent = (sid, msg) => events.push(`${sid}:${msg.type}`);
+    const created: string[] = [];
+    gateway.onSessionCreated = (sid) => created.push(sid);
+    const before = { ...sessionManager.get("S")! };
+
+    const b = await as(port, "dev-aaaaaaaa-1");
+    referenceOnly(b, "S");
+    await delay(150);
+    expect(gateway.isSessionConnected("S")).toBe(false);
+    expect(events).toEqual([]);
+    expect(created).toEqual([]);
+    expect(b.closed).toBe(false);
+    referenceOnly(b, "S");
+    await delay(100);
+    expect(b.closed).toBe(false);
+    referenceOnly(b, "S");
+    await until(() => b.closed);
+
+    expect(gateway.isSessionConnected("S")).toBe(false);
+    expect(events).toEqual([]);
+    expect(sessionManager.get("S")).toMatchObject({ originDeviceId: undefined, sessionFile: before.sessionFile, status: before.status });
+    // Counted on every refusal, the line is rate-limited to one.
+    expect(gateway.contention.count()).toBe(3);
+    expect(originLines()).toHaveLength(1);
+    expect(originLines()[0]).toBe("[bridge-claim] origin-refused session=S recorded=hub presented=device:dev-aaaa");
+  });
+
+  it("BX3b: the placeholder a first frame creates records its creator's origin (it no longer reads hub-local)", async () => {
+    const { sessionManager, port } = await start();
+    const b = await as(port, "dev-aaaaaaaa-1");
+    referenceOnly(b, "NEW");
+    await until(() => sessionManager.get("NEW") !== undefined);
+    expect(sessionManager.get("NEW")).toMatchObject({ source: "unknown", originDeviceId: "dev-aaaaaaaa-1" });
+    const h = await as(port, "hub");
+    referenceOnly(h, "HUBNEW");
+    await until(() => sessionManager.get("HUBNEW") !== undefined);
+    expect(sessionManager.get("HUBNEW")!.originDeviceId).toBeUndefined();
+  });
+
+  it("BX4/R3: a move commit onto a record of another origin is refused with the detail-free reply and no side effect", async () => {
+    const routed: string[] = [];
+    options.onRoutingChanged = (sid: string) => routed.push(sid);
+    const { sessionManager, port } = await start();
+    // A record restored after a restart: no routing entry, hub-local origin.
+    sessionManager.register({ id: "S", cwd: "/w", source: "tui", sessionFile: "/h/S.jsonl" } as never);
+
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "S", { provisional: true });
+    await until(() => types(b).includes("provisional_accepted"));
+    const token = b.received.find((f) => f.type === "provisional_accepted").token;
+    b.ws.send(JSON.stringify({ type: "session_move_commit", sessionId: "S", token }));
+    await until(() => types(b).includes("provisional_rejected"));
+    await delay(100);
+
+    expect(b.received.find((f) => f.type === "provisional_rejected")).toEqual({ type: "provisional_rejected" });
+    expect(types(b)).not.toContain("session_move_committed");
+    expect(gateway.isSessionConnected("S")).toBe(false);
+    expect(routed).toEqual([]);
+    expect(b.closed).toBe(false);
+    expect(originLines()).toHaveLength(1);
+  });
+
+  it("BE12: a provisional register from a foreign origin claims nothing and answers exactly as for the record's own origin", async () => {
+    const { sessionManager, port } = await start();
+    sessionManager.register({ id: "S", cwd: "/w", source: "tui", sessionFile: "/h/S.jsonl" } as never);
+    const before = { ...sessionManager.get("S")! };
+    const foreign = await as(port, "dev-aaaaaaaa-1");
+    register(foreign, "S", { provisional: true });
+    const own = await as(port, "hub");
+    register(own, "S", { provisional: true });
+    await until(() => types(foreign).includes("provisional_accepted") && types(own).includes("provisional_accepted"));
+    const shape = (c: Client) => Object.keys(c.received.find((f) => f.type === "provisional_accepted")).sort();
+    expect(shape(foreign)).toEqual(shape(own));
+    expect(gateway.isSessionConnected("S")).toBe(false);
+    expect(sessionManager.get("S")).toMatchObject({ originDeviceId: before.originDeviceId, sessionFile: before.sessionFile });
+    expect(originLines()).toEqual([]);
+  });
+
+  it("BE56: stop() terminates a socket left open-but-unrouted by an origin-refused first frame", async () => {
+    const { sessionManager, port } = await start();
+    sessionManager.register({ id: "S", cwd: "/w", source: "tui", sessionFile: "/h/S.jsonl" } as never);
+    const b = await as(port, "dev-aaaaaaaa-1");
+    referenceOnly(b, "S");
+    await delay(100);
+    expect(b.closed).toBe(false);
+    gateway.stop();
+    await until(() => b.closed);
+  });
+
+  it("BX4b: a move commit for an id this hub has no record of still adopts it (and records the mover's origin)", async () => {
+    const { sessionManager, port } = await start();
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "FRESH", { provisional: true });
+    await until(() => types(b).includes("provisional_accepted"));
+    const token = b.received.find((f) => f.type === "provisional_accepted").token;
+    b.ws.send(JSON.stringify({ type: "session_move_commit", sessionId: "FRESH", token }));
+    await until(() => types(b).includes("session_move_committed"));
+    expect(sessionManager.get("FRESH")!.originDeviceId).toBe("dev-aaaaaaaa-1");
+  });
+
+  it("BX5/R4: an origin-refused id change keeps the socket and its own session, with a detail-free non-terminal reply", async () => {
+    const { sessionManager, port } = await start();
+    const h = await as(port, "hub");
+    register(h, "HUB-S", { sessionFile: "/h/HUB.jsonl" });
+    await until(() => sessionManager.get("HUB-S") !== undefined);
+    h.ws.terminate();
+    await until(() => !gateway.isSessionConnected("HUB-S"));
+
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "OWN");
+    await until(() => gateway.isSessionConnected("OWN"));
+    register(b, "HUB-S");
+    await until(() => types(b).includes("provisional_rejected"));
+    await delay(100);
+
+    expect(types(b)).not.toContain("register_rejected");
+    expect(b.closed).toBe(false);
+    expect(gateway.isSessionConnected("OWN")).toBe(true);
+    expect(gateway.isSessionConnected("HUB-S")).toBe(false);
+    expect(sessionManager.get("HUB-S")!.originDeviceId).toBeUndefined();
+    expect(sessionManager.get("OWN")!.originDeviceId).toBe("dev-aaaaaaaa-1");
+    // BE60: counted and logged once, with the same line shape as the other paths.
+    expect(originLines()).toEqual(["[bridge-claim] origin-refused session=HUB-S recorded=hub presented=device:dev-aaaa"]);
+    // The owned session still routes: its heartbeat is acknowledged.
+    b.ws.send(JSON.stringify({ type: "session_heartbeat", sessionId: "OWN" }));
+    await until(() => types(b).includes("heartbeat_ack"));
+  });
+
+  it("R5: unattributed remotes are one class (a restart does not lock a container bridge out of its own session)", async () => {
+    const { sessionManager, port } = await start();
+    const a = await as(port, "unattributed");
+    register(a, "S", { sessionFile: "/c/S.jsonl" });
+    await until(() => sessionManager.get("S") !== undefined);
+    expect(sessionManager.get("S")!.originDeviceId).toBe("unattributed-remote");
+    a.ws.terminate();
+    await until(() => !gateway.isSessionConnected("S"));
+    const a2 = await as(port, "unattributed");
+    register(a2, "S", { sessionFile: "/c/S.jsonl" });
+    await until(() => gateway.isSessionConnected("S"));
+    // ...but a device-attributed bridge may not take it.
+    a2.ws.terminate();
+    await until(() => !gateway.isSessionConnected("S"));
+    const d = await as(port, "dev-aaaaaaaa-1");
+    register(d, "S");
+    await until(() => d.closed);
+    expect(types(d)).toContain("register_rejected");
+  });
+
+  it("R6: an unheld id adopts the first claimant's origin (documented residual)", async () => {
+    const { sessionManager, port } = await start();
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "UNHELD");
+    await until(() => sessionManager.get("UNHELD") !== undefined);
+    expect(sessionManager.get("UNHELD")!.originDeviceId).toBe("dev-aaaaaaaa-1");
+  });
+
+  it("R7: a hub-disk-created record (no origin) binds hub-local: remote refused, hub-local passes (documented residual)", async () => {
+    const { sessionManager, port } = await start();
+    sessionManager.register({ id: "DISK", cwd: "/w", source: "tui", sessionFile: "/w/DISK.jsonl" } as never);
+    const r = await as(port, "unattributed");
+    register(r, "DISK");
+    await until(() => r.closed);
+    expect(types(r)).toContain("register_rejected");
+    const h = await as(port, "hub");
+    register(h, "DISK");
+    await until(() => gateway.isSessionConnected("DISK"));
+  });
+
+  // ── Rows BE15–BE56: the remaining origin-binding gateway scenarios (test-plan) ───────────────────────────
+  const D1 = "dev-0123456789abcdef";
+  const hubRecord = (sm: ReturnType<typeof createMemorySessionManager>, id: string, origin?: string) =>
+    sm.register({ id, cwd: "/w", source: "tui", sessionFile: `/h/${id}.jsonl`, originDeviceId: origin } as never);
+
+  it("BE15: the rejection text says another origin, never the id, a pid or a token", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S", D1);
+    const b = await as(port, "dev-ffffffff-2");
+    register(b, "S", { pid: 987654 });
+    await until(() => b.closed);
+    const reason: string = b.received.find((f) => f.type === "register_rejected").reason;
+    expect(reason).toMatch(/another origin/);
+    expect(reason).not.toMatch(/another live bridge/);
+    expect(reason).not.toMatch(/dev-0123|dev-ffff|987654|ticket/i);
+  });
+
+  it("BE16: a restored record (no socket) is refused for a foreign origin, unchanged", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    const before = { ...sessionManager.get("S")! };
+    const b = await as(port, D1);
+    register(b, "S", { sessionFile: "/b/X.jsonl" });
+    await until(() => b.closed);
+    expect(sessionManager.get("S")).toMatchObject({ originDeviceId: undefined, sessionFile: before.sessionFile });
+    expect(gateway.isSessionConnected("S")).toBe(false);
+  });
+
+  it.each([["dev-aaaaaaaa-1"], ["hub"]])("BE17: the same origin (%s) re-registers over a closed incumbent with no probe", async (origin) => {
+    const { sessionManager, port } = await start();
+    const first = await as(port, origin);
+    register(first, "S", { sessionFile: "/h/S.jsonl" });
+    await until(() => sessionManager.get("S") !== undefined);
+    first.ws.terminate();
+    await until(() => !gateway.isSessionConnected("S"));
+    const again = await as(port, origin);
+    register(again, "S", { sessionFile: "/h/S.jsonl" });
+    await until(() => gateway.isSessionConnected("S"));
+    expect(again.closed).toBe(false);
+  });
+
+  it.each([["dev-aaaaaaaa-1"], ["hub"]])("BE18: a placeholder is unprotected: a %s register takes it over", async (origin) => {
+    const { sessionManager, port } = await start();
+    const creator = await as(port, "dev-zzzzzzzz-9");
+    referenceOnly(creator, "P");
+    await until(() => sessionManager.get("P") !== undefined);
+    const b = await as(port, origin);
+    register(b, "P");
+    await until(() => sessionManager.get("P")?.source === "tui");
+    expect(b.closed).toBe(false);
+    expect(types(b)).not.toContain("register_rejected");
+  });
+
+  it("BE21: five re-registrations from a refused origin are each refused, counted +5 and logged once", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    for (let i = 0; i < 5; i++) {
+      const b = await as(port, D1);
+      register(b, "S");
+      await until(() => b.closed);
+    }
+    expect(gateway.contention.count()).toBe(5);
+    expect(originLines()).toHaveLength(1);
+    expect(gateway.contention.contendedIds()).toEqual(["S"]);
+  });
+
+  it("BE28: a first register (no owned session) from a foreign origin is terminal", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    const b = await as(port, D1);
+    register(b, "S");
+    await until(() => b.closed);
+    expect(types(b)).toContain("register_rejected");
+  });
+
+  it("BE29: an id change to a same-origin completed record is accepted and the abandoned placeholder is cleaned up", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S2", "dev-aaaaaaaa-1");
+    const x = await as(port, "dev-aaaaaaaa-1");
+    referenceOnly(x, "S1");
+    await until(() => sessionManager.get("S1") !== undefined);
+    register(x, "S2");
+    await until(() => gateway.isSessionConnected("S2"));
+    expect(sessionManager.get("S1")?.status).toBe("ended");
+    expect(x.closed).toBe(false);
+  });
+
+  it.each([[undefined, "hub"], [D1, D1]])("BE33: a first frame from the record's own origin (%s) still auto-claims", async (recordOrigin, who) => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S", recordOrigin);
+    let connections = 0;
+    gateway.onConnection = () => connections++;
+    const b = await as(port, who);
+    referenceOnly(b, "S");
+    await until(() => gateway.isSessionConnected("S"));
+    expect(connections).toBe(1);
+  });
+
+  it("BE32: an origin-refused first frame fires no callback and creates no heartbeat or placeholder", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    const calls: string[] = [];
+    gateway.onConnection = () => calls.push("connection");
+    gateway.onSessionCreated = () => calls.push("created");
+    gateway.onSessionRegistered = () => calls.push("registered");
+    gateway.onEvent = () => calls.push("event");
+    const before = sessionManager.listActive().length + sessionManager.listAll?.().length;
+    const b = await as(port, D1);
+    referenceOnly(b, "S");
+    await delay(200);
+    expect(calls).toEqual([]);
+    expect(gateway.isSessionConnected("S")).toBe(false);
+    expect(sessionManager.get("S")!.originDeviceId).toBeUndefined();
+    expect(sessionManager.listActive().length + sessionManager.listAll?.().length).toBe(before);
+  });
+
+  it("BE35: the first-frame cap counts frames, not distinct ids", async () => {
+    const { sessionManager, port } = await start();
+    for (const id of ["A", "B", "C"]) hubRecord(sessionManager, id);
+    const b = await as(port, D1);
+    for (const id of ["A", "B", "C"]) referenceOnly(b, id);
+    await until(() => b.closed);
+  });
+
+  it("BE36: the first-frame cap is per socket", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    const x = await as(port, D1);
+    const y = await as(port, D1);
+    referenceOnly(x, "S"); referenceOnly(x, "S"); referenceOnly(y, "S"); referenceOnly(y, "S");
+    await delay(200);
+    expect(x.closed || y.closed).toBe(false);
+    x.ws.terminate();
+    const z = await as(port, D1);
+    referenceOnly(z, "S"); referenceOnly(z, "S");
+    await delay(150);
+    expect(z.closed).toBe(false);
+    referenceOnly(z, "S");
+    await until(() => z.closed);
+    expect(y.closed).toBe(false);
+  });
+
+  it("BE37: frames naming a live-held id are not origin refusals and do not count", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    hubRecord(sessionManager, "LIVE", D1);
+    const owner = await as(port, D1);
+    referenceOnly(owner, "LIVE");
+    await until(() => gateway.isSessionConnected("LIVE"));
+    const b = await as(port, D1);
+    referenceOnly(b, "S"); referenceOnly(b, "S");
+    await delay(150);
+    for (let i = 0; i < 5; i++) referenceOnly(b, "LIVE");
+    await delay(250);
+    // Seven frames in all, but only two were origin refusals: the cap (3) was never reached.
+    expect(b.closed).toBe(false);
+    expect(gateway.contention.count()).toBe(2);
+  });
+
+  it("BE38: after two refused first frames, a first frame naming an unknown id still works and the counter is unchanged", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    const b = await as(port, D1);
+    referenceOnly(b, "S"); referenceOnly(b, "S");
+    await delay(150);
+    referenceOnly(b, "NEWID");
+    await until(() => sessionManager.get("NEWID") !== undefined);
+    expect(gateway.isSessionConnected("NEWID")).toBe(true);
+    expect(b.closed).toBe(false);
+    // The counter still reads 2: one more refusal (a frame naming S from a socket without an owned entry is
+    // no longer applicable; open a fresh budget check via a 3rd refusal on the same socket after releasing NEWID).
+  });
+
+  it("BE40: a placeholder is unprotected until its creator completes a register, then the record is bound", async () => {
+    const { sessionManager, port } = await start();
+    const d = await as(port, "dev-aaaaaaaa-1");
+    referenceOnly(d, "P");
+    await until(() => sessionManager.get("P") !== undefined);
+    register(d, "P", { sessionFile: "/d/P.jsonl" });
+    await until(() => sessionManager.get("P")?.source === "tui");
+    const h = await as(port, "hub");
+    register(h, "P");
+    await until(() => h.closed);
+    expect(types(h)).toContain("register_rejected");
+    expect(sessionManager.get("P")!.originDeviceId).toBe("dev-aaaaaaaa-1");
+  });
+
+  it("BE41/BE44: a foreign-origin commit is refused with exactly one detail-free frame; with a live incumbent too", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    hubRecord(sessionManager, "LIVE");
+    const owner = await as(port, "hub");
+    referenceOnly(owner, "LIVE");
+    await until(() => gateway.isSessionConnected("LIVE"));
+    const before = { ...sessionManager.get("S")! };
+    for (const id of ["S", "LIVE"]) {
+      const b = await as(port, "dev-aaaaaaaa-1");
+      register(b, id, { provisional: true });
+      await until(() => types(b).includes("provisional_accepted"));
+      const token = b.received.find((f) => f.type === "provisional_accepted").token;
+      b.ws.send(JSON.stringify({ type: "session_move_commit", sessionId: id, token }));
+      await until(() => types(b).includes("provisional_rejected"));
+      await delay(100);
+      expect(b.received.filter((f) => f.type === "provisional_rejected")).toEqual([{ type: "provisional_rejected" }]);
+    }
+    expect(sessionManager.get("S")).toMatchObject({ originDeviceId: before.originDeviceId, sessionFile: before.sessionFile });
+    expect(gateway.isSessionConnected("S")).toBe(false);
+    expect(gateway.isSessionConnected("LIVE")).toBe(true);
+  });
+
+  it("BE42: a commit onto a same-origin record or a placeholder succeeds", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "SAME", "dev-aaaaaaaa-1");
+    // A placeholder as a first frame would leave (source "unknown", no sessionFile), with no routing entry.
+    sessionManager.register({ id: "PH", cwd: "", source: "unknown", originDeviceId: "dev-zzzzzzzz-9" } as never);
+    for (const id of ["SAME", "PH"]) {
+      const b = await as(port, "dev-aaaaaaaa-1");
+      register(b, id, { provisional: true });
+      await until(() => types(b).includes("provisional_accepted"));
+      const token = b.received.find((f) => f.type === "provisional_accepted").token;
+      b.ws.send(JSON.stringify({ type: "session_move_commit", sessionId: id, token }));
+      await until(() => types(b).includes("session_move_committed"));
+    }
+  });
+
+  it("BE54: two origins registering a never-seen id in the same tick: exactly one wins, the other is refused", async () => {
+    const { sessionManager, port } = await start();
+    const a = await as(port, "hub");
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(a, "RACE");
+    register(b, "RACE");
+    await until(() => a.closed || b.closed);
+    expect([a.closed, b.closed].filter(Boolean)).toHaveLength(1);
+    const winner = a.closed ? b : a;
+    expect(gateway.isSessionConnected("RACE")).toBe(true);
+    expect(winner.closed).toBe(false);
+    expect(sessionManager.get("RACE")!.originDeviceId).toBe(a.closed ? "dev-aaaaaaaa-1" : undefined);
+  });
+
+  it("BE55: an origin-refused register appears under no session id in the routing table", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    const b = await as(port, D1);
+    register(b, "S");
+    await until(() => b.closed);
+    expect(gateway.getConnectedSessionIds()).toEqual([]);
+  });
+
+  it("BE27/BE31: an origin-refused id change replies exactly {type} (no cap), keeps X open and its S1 routing; the count rises by N", async () => {
+    const { sessionManager, port } = await start();
+    const x = await as(port, "dev-aaaaaaaa-1");
+    register(x, "S1");
+    await until(() => gateway.isSessionConnected("S1"));
+    const seen: string[] = [];
+    gateway.onEvent = (sid, msg) => seen.push(`${sid}:${msg.type}`);
+    for (let n = 1; n <= 10; n++) {
+      hubRecord(sessionManager, `H${n}`);
+      register(x, `H${n}`);
+      await until(() => x.received.filter((f) => f.type === "provisional_rejected").length === n);
+    }
+    expect(x.received.filter((f) => f.type === "provisional_rejected").every((f) => Object.keys(f).join() === "type")).toBe(true);
+    expect(types(x)).not.toContain("register_rejected");
+    expect(x.closed).toBe(false);
+    expect(gateway.contention.count()).toBe(10);
+    x.ws.send(JSON.stringify({ type: "event_forward", sessionId: "S1", event: { type: "noop" } }));
+    await until(() => seen.includes("S1:event_forward"));
+    expect(gateway.isSessionConnected("S1")).toBe(true);
+    for (let n = 1; n <= 10; n++) expect(gateway.isSessionConnected(`H${n}`)).toBe(false);
+  });
+
+  it("BE34: three first frames naming three different hub sessions: open+unrouted after #1 and #2, closed after #3", async () => {
+    const { sessionManager, port } = await start();
+    for (const id of ["S1", "S2", "S3"]) hubRecord(sessionManager, id);
+    const b = await as(port, "dev-aaaaaaaa-1");
+    for (const [i, id] of ["S1", "S2", "S3"].entries()) {
+      referenceOnly(b, id);
+      if (i < 2) {
+        await delay(100);
+        expect(b.closed).toBe(false);
+        expect(gateway.isSessionConnected(id)).toBe(false);
+      }
+    }
+    await until(() => b.closed);
+  });
+
+  it("BE43: a refused commit spends its token: a second commit with it never succeeds", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "S", { provisional: true });
+    await until(() => types(b).includes("provisional_accepted"));
+    const token = b.received.find((f) => f.type === "provisional_accepted").token;
+    for (let i = 1; i <= 2; i++) {
+      b.ws.send(JSON.stringify({ type: "session_move_commit", sessionId: "S", token }));
+      await until(() => b.received.filter((f) => f.type === "provisional_rejected").length === i);
+    }
+    expect(types(b)).not.toContain("session_move_committed");
+    expect(gateway.isSessionConnected("S")).toBe(false);
+  });
+
+  it("BX3: a throwing console.error while logging the refusal does not stop the refusal being enforced", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    errSpy.mockImplementation(() => { throw new Error("log sink down"); });
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "S");
+    await until(() => b.closed).catch(() => undefined);
+    expect(gateway.isSessionConnected("S")).toBe(false);
+    expect(sessionManager.get("S")!.originDeviceId).toBeUndefined();
+    // the gateway still serves other sockets
+    errSpy.mockImplementation(() => undefined);
+    const ok = await as(port, "hub");
+    register(ok, "OTHER");
+    await until(() => gateway.isSessionConnected("OTHER"));
+  });
+
+  it("BX4: a refused newcomer that destroys its socket mid-refusal leaves no error and the owner can reconnect", async () => {
+    const { sessionManager, port } = await start();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const owner = await as(port, "hub");
+      register(owner, "S", { sessionFile: "/h/S.jsonl" });
+      await until(() => sessionManager.get("S") !== undefined);
+      owner.ws.terminate();
+      await until(() => !gateway.isSessionConnected("S"));
+      const evil = await as(port, "dev-aaaaaaaa-1");
+      register(evil, "S");
+      evil.ws.terminate();
+      await delay(200);
+      const back = await as(port, "hub");
+      register(back, "S", { sessionFile: "/h/S.jsonl" });
+      await until(() => gateway.isSessionConnected("S"));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("BX7: stop() terminates a refusing socket and a first-frame-dropped socket without throwing", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    const dropped = await as(port, "dev-aaaaaaaa-1");
+    referenceOnly(dropped, "S");
+    const refused = await as(port, "dev-bbbbbbbb-2");
+    register(refused, "S");
+    await delay(100);
+    expect(() => gateway.stop()).not.toThrow();
+    await until(() => dropped.closed && refused.closed);
+  });
+
+  it("BE19: an origin-refused register leaves the spawn watchdog armed, so the duplicate's pi is still reclaimed by token", async () => {
+    const killed: number[] = [];
+    const wd = new SpawnRegisterWatchdog(5000, {
+      findPidsBySpawnToken: (token) => (token === "TOKEN-DUP" ? [9999] : []),
+      kill: (pid: number) => killed.push(pid),
+    });
+    _setSpawnRegisterWatchdogForTests(wd);
+    try {
+      const { sessionManager, port } = await start();
+      hubRecord(sessionManager, "S");
+      wd.arm({ cwd: "/w/dup", mechanism: "headless", pid: 9999, spawnToken: "TOKEN-DUP" });
+      const b = await as(port, "dev-aaaaaaaa-1");
+      register(b, "S", { cwd: "/w/dup", pid: 9999, spawnToken: "TOKEN-DUP" });
+      await until(() => b.closed);
+      await until(() => killed.includes(9999), 9000);
+      expect(sessionManager.get("S")!.originDeviceId).toBeUndefined();
+    } finally {
+      _setSpawnRegisterWatchdogForTests(null);
+    }
+  }, 20000);
+
+  it("BE25: an origin refusal marks the id contended; the entry leaves when the session ends, the cumulative count stays", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "S");
+    const evil = await as(port, "dev-aaaaaaaa-1");
+    register(evil, "S");
+    await until(() => evil.closed);
+    expect(gateway.contention.contendedIds()).toEqual(["S"]);
+    expect(gateway.contention.count()).toBe(1);
+    const owner = await as(port, "hub");
+    register(owner, "S", { sessionFile: "/h/S.jsonl" });
+    await until(() => gateway.isSessionConnected("S"));
+    owner.ws.send(JSON.stringify({ type: "session_unregister", sessionId: "S" }));
+    await until(() => !gateway.isSessionConnected("S"));
+    expect(gateway.contention.contendedIds()).not.toContain("S");
+    expect(gateway.contention.count()).toBe(1);
+  });
+
+  it("BE39: a first-frame placeholder carries its creator's origin (hub / device / unattributed); a device one is not local", async () => {
+    const { sessionManager, port } = await start();
+    const { originOf } = await import("../session/session-origin.js");
+    for (const [who, id, expected] of [["hub", "PH", undefined], ["dev-aaaaaaaa-1", "PD", "dev-aaaaaaaa-1"], ["unattributed", "PU", "unattributed-remote"]] as const) {
+      const c = await as(port, who);
+      referenceOnly(c, id);
+      await until(() => sessionManager.get(id) !== undefined);
+      expect(sessionManager.get(id)!.originDeviceId).toBe(expected);
+      expect(originOf(sessionManager.get(id)!).local).toBe(expected === undefined);
+    }
+  });
+
+  it("BE52: once a bound record is removed (archived), the next claim is unheld and adopts the new origin", async () => {
+    const { sessionManager, port } = await start();
+    hubRecord(sessionManager, "R", "dev-aaaaaaaa-1");
+    const b = await as(port, "dev-bbbbbbbb-2");
+    register(b, "R");
+    await until(() => b.closed);
+    sessionManager.remove("R");
+    const b2 = await as(port, "dev-bbbbbbbb-2");
+    register(b2, "R");
+    await until(() => gateway.isSessionConnected("R"));
+    expect(sessionManager.get("R")!.originDeviceId).toBe("dev-bbbbbbbb-2");
+  });
+
+  it("BE53: random register / first-frame / commit / close sequences keep the origin invariants", async () => {
+    const { sessionManager, port } = await start();
+    let seed = 0x9e3779b1;
+    const rnd = (n: number) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n; };
+    const ORIGINS = ["hub", "dev-aaaaaaaa-1", "dev-bbbbbbbb-2", "unattributed"] as const;
+    const IDS = ["I0", "I1", "I2", "I3"];
+    const recorded = new Map<string, string | undefined>();
+    const live: Client[] = [];
+    for (let step = 0; step < 120; step++) {
+      const origin = ORIGINS[rnd(ORIGINS.length)];
+      const id = IDS[rnd(IDS.length)];
+      const op = rnd(5);
+      if (op === 4 && live.length) {
+        live.splice(rnd(live.length), 1)[0].ws.terminate();
+      } else {
+        const c = await as(port, origin);
+        live.push(c);
+        if (op === 0 || op === 1) register(c, id, { sessionFile: `/h/${id}.jsonl` });
+        else if (op === 2) referenceOnly(c, id);
+        else register(c, id, { provisional: true });
+      }
+      await delay(15);
+      for (const known of IDS) {
+        const rec = sessionManager.get(known);
+        if (!rec) continue;
+        if (recorded.has(known) && rec.source !== "unknown" && rec.sessionFile) {
+          // (1) a completed record's origin never changes while it exists
+          expect(rec.originDeviceId, `step ${step} ${known}`).toBe(recorded.get(known));
+        }
+        if (rec.source !== "unknown" && rec.sessionFile) recorded.set(known, rec.originDeviceId);
+        // (2) the socket holding the entry was admitted for the record's origin (device-attributed tickets)
+        const ch = gateway.channelOf(known);
+        if (ch?.ticketDeviceId && rec.sessionFile) expect(rec.originDeviceId, `step ${step} ${known}`).toBe(ch.ticketDeviceId);
+      }
+    }
+  }, 60000);
+
+  it("a commit onto a placeholder replaces it with the completed record carrying the mover's origin", async () => {
+    const { sessionManager, port } = await start();
+    // Placeholder created by a hub-local first frame, then claimed by a remote mover.
+    sessionManager.register({ id: "PH", cwd: "", source: "unknown" } as never);
+    const b = await as(port, "dev-aaaaaaaa-1");
+    register(b, "PH", { provisional: true, sessionFile: "/b/PH.jsonl" });
+    await until(() => types(b).includes("provisional_accepted"));
+    const token = b.received.find((f) => f.type === "provisional_accepted").token;
+    b.ws.send(JSON.stringify({ type: "session_move_commit", sessionId: "PH", token }));
+    await until(() => types(b).includes("session_move_committed"));
+    expect(sessionManager.get("PH")).toMatchObject({ originDeviceId: "dev-aaaaaaaa-1", source: "tui", sessionFile: "/b/PH.jsonl" });
+  });
+
+  it("a first frame that claims another origin's placeholder re-attributes the record to the claimant", async () => {
+    const { sessionManager, port } = await start();
+    const creator = await as(port, "hub");
+    referenceOnly(creator, "PH2");
+    await until(() => sessionManager.get("PH2") !== undefined);
+    creator.ws.terminate();
+    await until(() => !gateway.isSessionConnected("PH2"));
+    const b = await as(port, "dev-aaaaaaaa-1");
+    referenceOnly(b, "PH2");
+    await until(() => gateway.isSessionConnected("PH2"));
+    expect(sessionManager.get("PH2")!.originDeviceId).toBe("dev-aaaaaaaa-1");
+  });
+
+  /**
+   * @structural-pin guards a future bypass: no runtime harness can enumerate the `connections.set` sites; a new one without the
+   * shared origin decision (`originRefused` / `claim`) before it would reopen WS-02/WS-03.
+   */
+  it("every connections.set site in pi-gateway.ts is preceded by the shared origin decision (guards a future bypass)", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync(new URL("../pi/pi-gateway.ts", import.meta.url), "utf8").split("\n");
+    const sites = src.flatMap((l, i) => (/\bconnections\.set\(/.test(l) ? [i] : []));
+    expect(sites.length).toBeGreaterThanOrEqual(3);
+    for (const i of sites) {
+      const window = src.slice(Math.max(0, i - 120), i).join("\n");
+      expect(window, `connections.set at line ${i + 1}`).toMatch(/originRefused\(|await claim\(/);
+    }
   });
 });

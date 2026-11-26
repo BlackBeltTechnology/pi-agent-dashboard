@@ -22,6 +22,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { fetchAccessPrompts } from "../../lib/access-grants/access-prompts-api.js";
 import { clearGrantChannel, setGrantChannel } from "../../lib/access-grants/grant-channel.js";
 import { type GrantPromptStore, grantPromptStore } from "../../lib/access-grants/grant-prompt-store.js";
+import { notifyAccessGrantsChanged } from "../../lib/chat/link-resolution-store.js";
 import { GrantPromptDialog } from "./GrantPromptDialog.js";
 
 export interface GrantPromptHostProps {
@@ -126,6 +127,7 @@ export function GrantPromptHost({
           verdict,
           ...(piTrust === undefined ? {} : { piTrust }),
         });
+        notifyAccessGrantsChanged(); // transcript links re-resolve against the new grants (rich-chat-links D2)
       }}
     />
   );

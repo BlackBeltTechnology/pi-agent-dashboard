@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { hasRouteTier, routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +21,6 @@ import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { createMutationOriginGate } from "../auth/mutation-origin-gate.js";
 import { createRouteTierGate, type TierRefusal } from "../auth/route-tier-gate.js";
 import { admissionTrustedNetworks } from "../auth/trust-mode.js";
-import { hasRouteTier, routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { registerBearerRotateRoute } from "../routes/pairing-routes.js";
 import { registerPluginRuntimeClientRoutes } from "../routes/plugin-runtime-client-routes.js";
@@ -106,6 +106,15 @@ async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Prom
   // The REAL rotate route (tier observe; bearer-only auth). See change: harden-auth-credentials (AE50).
   registerBearerRotateRoute(app, { registry: reg });
   app.post("/api/fixture", async () => ({ success: true }));
+  // Stand-ins for the kb plugin's reindex routes (real handlers live in kb-plugin; the gate is what is under test).
+  app.post("/api/kb/reindex", async () => ({ status: "running" }));
+  // Stand-in for the batch mention resolver (real handler in file-routes; its admission is covered by
+  // resolve-mention-endpoint.test.ts — the tier gate is what is under test). Change: rich-chat-links.
+  app.post("/api/file/resolve-mentions", async () => ({ success: true }));
+  app.post("/api/kb/reindex/cancel", async () => ({ cancelled: false }));
+  // Stand-in for the framing probe (real handler in frame-policy-routes, covered by frame-policy-route.test.ts —
+  // the tier gate is what is under test). Change: rich-chat-links.
+  app.post("/api/web/frame-policy", async () => ({ verdict: "ineligible" }));
   // Live-preview HTTP proxy patterns (live-server-proxy.ts). See change: add-passkey-user-auth.
   app.all("/live/:id/*", async () => ({ ok: true }));
   app.all("/live/:id", async () => ({ ok: true }));
@@ -559,5 +568,96 @@ describe("E12 — device-check routes are observe, ceremony routes keep operate"
   it("an unlisted route still defaults to operate", () => {
     expect(hasRouteTier("POST", "/api/pair/not-a-route")).toBe(false);
     expect(routeTier("POST", "/api/pair/not-a-route")).toBe("operate");
+  });
+});
+
+describe("S40 — POST /api/kb/reindex/cancel is an explicit operate-tier row (throttle-kb-reindex)", () => {
+  const REMOTE = "203.0.113.9";
+
+  it("is listed (not the fail-closed default) at the same tier as /api/kb/reindex", () => {
+    expect(hasRouteTier("POST", "/api/kb/reindex/cancel")).toBe(true);
+    expect(routeTier("POST", "/api/kb/reindex/cancel")).toBe("operate");
+    expect(routeTier("POST", "/api/kb/reindex/cancel")).toBe(routeTier("POST", "/api/kb/reindex"));
+  });
+
+  it("a sub-operate caller is denied exactly like /api/kb/reindex; operate passes", async () => {
+    const { app, tokens } = await mkApp();
+    const call = (url: string, tier: "observe" | "control" | "operate") =>
+      app.inject({ method: "POST", url, remoteAddress: REMOTE, headers: bearer(tokens[tier]) });
+    for (const tier of ["observe", "control"] as const) {
+      const cancel = await call("/api/kb/reindex/cancel", tier);
+      const reindex = await call("/api/kb/reindex", tier);
+      expect(cancel.statusCode, `${tier} cancel`).toBe(403);
+      expect(cancel.statusCode).toBe(reindex.statusCode);
+      expect(cancel.headers["www-authenticate"]).toBe(reindex.headers["www-authenticate"]);
+    }
+    expect((await call("/api/kb/reindex/cancel", "operate")).statusCode).toBe(200);
+  });
+});
+
+describe("E21 — POST /api/file/resolve-mentions tier (rich-chat-links)", () => {
+  const REMOTE = "203.0.113.5";
+
+  it("is listed at tier observe, like the single route", () => {
+    expect(hasRouteTier("POST", "/api/file/resolve-mentions")).toBe(true);
+    expect(routeTier("POST", "/api/file/resolve-mentions")).toBe("observe");
+    expect(routeTier("POST", "/api/file/resolve-mentions")).toBe(routeTier("POST", "/api/file/resolve-mention"));
+  });
+
+  it("an observe-tier bearer is allowed off-host", async () => {
+    const { app, tokens } = await mkApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/file/resolve-mentions",
+      remoteAddress: REMOTE,
+      headers: bearer(tokens.observe),
+      payload: { cwd: "/x", items: [] },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("an unauthenticated remote request is refused by the existing gate", async () => {
+    const { app } = await mkApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/file/resolve-mentions",
+      remoteAddress: REMOTE,
+      payload: { cwd: "/x", items: [] },
+    });
+    expect([401, 403]).toContain(res.statusCode);
+  });
+});
+
+describe("X8 — POST /api/web/frame-policy tier (rich-chat-links)", () => {
+  const REMOTE = "203.0.113.5";
+  const probe = (headers: Record<string, string>) => ({
+    method: "POST" as const,
+    url: "/api/web/frame-policy",
+    remoteAddress: REMOTE,
+    headers,
+    payload: { origin: "https://example.com" },
+  });
+
+  it("is listed at tier control", () => {
+    expect(hasRouteTier("POST", "/api/web/frame-policy")).toBe(true);
+    expect(routeTier("POST", "/api/web/frame-policy")).toBe("control");
+  });
+
+  it("an observe-tier bearer is refused 403 (an outbound request needs control)", async () => {
+    const { app, tokens } = await mkApp();
+    const res = await app.inject(probe(bearer(tokens.observe)));
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("a control-tier bearer proceeds", async () => {
+    const { app, tokens } = await mkApp();
+    const res = await app.inject(probe(bearer(tokens.control)));
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("an unauthenticated remote request is refused", async () => {
+    const { app } = await mkApp();
+    const res = await app.inject(probe({}));
+    expect([401, 403]).toContain(res.statusCode);
   });
 });

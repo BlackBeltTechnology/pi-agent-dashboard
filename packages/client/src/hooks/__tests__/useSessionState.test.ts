@@ -305,3 +305,21 @@ describe("interactive request carry across resets (fix-pending-prompt-lost-on-re
     expect(out.state.messages).toEqual([]);
   });
 });
+
+// See change: fix-input-state-consistency (#1117, S36): the chat card's `requestId`
+// IS the PromptBus `promptId` — the same id the question store keys its row on
+// (`QuestionRow.promptId`, pinned server-side by question-store.test "S35"), so the
+// card and the dialog derive the SAME draft key. Fails if either side re-keys.
+describe("chat requestId ≡ PromptBus promptId (S36)", () => {
+  it("a prompt_request keys its interactive request by promptId, and the draft key is built from it", () => {
+    const acc = applySessionMessage(createSessionAccumulator(), {
+      type: "prompt_request",
+      sessionId: SID,
+      promptId: "p1",
+      prompt: { question: "Pick", type: "select", options: ["a", "b"] },
+      component: { type: "select", props: {} },
+      placement: "inline",
+    } as ServerToBrowserMessage);
+    expect(acc.state.interactiveRequests.map((r) => r.requestId)).toEqual(["p1"]);
+  });
+});

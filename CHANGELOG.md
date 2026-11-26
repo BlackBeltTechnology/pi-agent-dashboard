@@ -10,6 +10,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CSP violation reports now reach the dashboard on plain-http installs.** Chromium and Firefox dropped every report while the policy carried `report-to` + `Reporting-Endpoints`, so the `/api/health` `cspReports` counters stayed at zero. Dashboard and live-preview policies now use `report-uri` only.
+
 ### Added
 
 - **Default model can follow a role.** Settings › Sessions › Default model has Models | Roles tabs; picking a role saves `@role` and new sessions start on whatever that role resolves to in the active preset, so loading another preset changes the next new session's model with no Settings edit. The thinking level adopts the role's level until you pick one. A hint names the active preset and resolved model; an unassigned role warns and new sessions fall back to pi's own default. pi's `settings.json` default is re-mirrored when the role's resolution changes. Rollback: re-pick a concrete default model before downgrading.
@@ -23,10 +27,17 @@ see [`docs/release-process.md`](docs/release-process.md).
 - New flows plugin route `POST /api/plugins/flows/control { sessionId, action, flowName?, task?, enabled? }` (operate). Actions: `flow.abort`, `flow.toggle-autonomous`, `flow.dismiss-summary`, `flow.run`, `flow.delete`, `flow.set-edit-mode`. MCP tool `flows_control`.
 - Plugins can declare the persisted session entries they own (`pi-dashboard-plugin.replayEntryTypes`); the dashboard replays them on reload and never shows them as generic custom rows. `/api/health` gains `pluginEntries` (declared replay types, replayed plugin entries, rejected plugin actions).
 - **"Turn on / Turn off edit mode for this project"** in the session actions menu (flows). It is the only way the dashboard changes a repo's flows edit mode: pi-flows writes `flows.editFlow` to that repo's `.pi/settings.json`, and the project value then overrides the global default. Every session in the same folder updates.
+- **Google accounts (Google Connect)** — new `@blackbelt-technology/pi-dashboard-google-plugin`: one place (**Settings → Google accounts**) for Google OAuth clients, accounts, per-product grants and server-side token leases. Built-in pi-dashboard.dev app (ships empty until Google verification) or your own Desktop/Web clients linked to email domains; local, paste, own-callback and return-page sign-in paths. Set `PI_GOOGLE_DEFAULT_CLIENTS=off` on server deployments to disable the built-in app (`PI_GOOGLE_REMOTE_RETURN=off` disables return-page sign-in).
+- **New agent tools** for Calendar (`gcal_*`), Drive (`gdrive_*`), Docs (`gdocs_*`), Sheets (`gsheets_*`), Slides (`gslides_*`), Tasks (`gtasks_*`) and Contacts (`gcontacts_*`), all taking an `account` argument, confirmed on write, with bounded 429/5xx backoff and classified 403s (`api_disabled`, `scope_insufficient`).
+- **pi-dashboard.dev site pages for Google verification:** `privacy.html`, `terms.html` (text pending legal review) and the static OAuth return page `oauth/return.html` (meta-CSP pinned by sha256; never stores tokens).
 
 ### Changed
 
-- **BREAKING: pi 1.5.0 is the new floor** (`piCompatibility.minimum` = `recommended` = `1.5.0`; every `@earendil-works` pi peer `>=1.5.0`, optional). A session on an older pi shows the below-floor warning: update with `npm install -g @earendil-works/pi-coding-agent@1.5.0`. The Docker image installs pi 1.5.0.
+- **BREAKING: pi 1.6.0 is the new floor and lockstep pin** (`piCompatibility.minimum` = `recommended` = `1.6.0`; every `@earendil-works` pi peer `>=1.6.0`, optional; devDeps `^1.6.0`). A session on pi below 1.6.0 shows the below-floor warning: update with `npm install -g @earendil-works/pi-coding-agent@1.6.0`. The Docker image installs pi 1.6.0.
+- **`cacheWarming` defaults to `"idle"`.** Unset dashboard setting now means `"idle"` (pi 1.5.1 default). Stored `"streaming"` stays valid.
+- **`!` command killed on timeout reports exit code 143.** pi 1.6.0 `pi.exec` returns 128+signal; was 0. Killed `!` commands now show as failed.
+- **Bulk `/reload` of a busy session is refused.** pi refuses `/reload` while the session streams or compacts: "Wait for the current response to finish before reloading." Shown as a `/reload` error.
+- **Bridge shutdown fallback 500 ms → 5 s.** `BRIDGE_SHUTDOWN_FALLBACK_MS` = 5000 so pi finishes its credential write before forced exit. Residual risks: `docs/architecture.md` § "Bridge shutdown fallback".
 - **Project trust follows pi 1.5's order.** A recorded `trust.json` entry (yes or no) now decides before implicit trust, also for a folder with no trust-requiring project resources; dashboard trust and `defaultProjectTrust` apply only to folders that have such resources. Recorded entries match as pi's `pathsEqual` does (resolved; case-insensitive on Windows) in the bridge's recorded-entry check, the resource toggle's own-folder check and the remote-trust digest's user-skills exclusion, so a refusal saved under different casing or a non-normalised key is no longer overridden.
 - **Settings form accepts `"disabled"` for `httpIdleTimeoutMs` and `websocketConnectTimeoutMs`.** A stored `"disabled"` (any casing, as pi parses it) shows as `0` and is kept unless you edit the row. `extensionChangelogVersions` (written by pi) joins the read-only managed list.
 - **`mcp.json` with a UTF-8 BOM is read like pi 1.4+ reads it**: the MCP page, the config writer, the Radius MCP offer and the blender / craft-apps `mcp --register` no longer report such a file as invalid JSON.
@@ -49,15 +60,87 @@ see [`docs/release-process.md`](docs/release-process.md).
 - **New / Edit…** now follows the session's effective edit mode (project value, else the global value).
 - Repos that already got `flows.editFlow` from the old behaviour keep it, and it overrides the global toggle. To follow the global value again, delete the `flows.editFlow` key from that repo's `.pi/settings.json`.
 - Upgrade pi-flows to **0.8.1 or later** (`pi install npm:@blackbelt-technology/pi-flows`). Older versions still write `.pi/skills/manage-flows/SKILL.md` into each repo at session start.
+- **Gmail now runs on Google Connect.** On the first start after upgrading, the legacy Gmail client and accounts are imported once into Google accounts (client "Gmail client (migrated)"; levels, aliases, filters and tokens kept; a disconnected account is never re-imported). The Gmail-only setup wizard is gone — set up and manage accounts in **Settings → Google accounts**. If the Google accounts plugin is disabled, Gmail tools stop and Gmail settings say "Turn on Google accounts to manage Gmail accounts".
+- **BREAKING (REST): Gmail management routes moved.** While Google accounts is usable, every one of `PUT /api/plugins/gmail/client`, `PUT …/setup`, `GET|POST …/accounts`, `PATCH|DELETE …/accounts/:sub`, `POST …/accounts/:sub/level`, `POST …/accounts/:sub/reauth`, `POST …/accounts/:sub/filters`, `POST …/setup/run`, `GET|DELETE …/setup/run/:id`, `POST …/setup/run/:id/continue` and `POST …/setup/run/:id/takeover` answers `410 {"error":"moved"}`; while it is off they answer `503 {"error":"google_connect_unavailable"}`. `GET …/state` reports `{moved:true}`. Use the Google plugin's routes instead.
+- **Rollback limits (Gmail):** rolling back to the previous build keeps Gmail working only for accounts whose legacy token is still valid. It does not cover accounts first connected after the migration, accounts re-signed after `reauth_required`, accounts whose access was removed at Google, or Google invalidating older refresh tokens when it issues new ones. Levels, aliases and filters changed after migration are not written back.
 
 ### Fixed
 
+- **kb: search-hit parents and unknown sections.** A markdown hit's `parent` is now its direct enclosing heading, or absent when that heading has no chunk of its own — it no longer names a sibling or the section itself, and the `child_of` graph edges follow. `SCHEMA_VERSION` 3 → 4: every index re-chunks once on the first pass after upgrade. `kb_get` / `kb get` with a found path but an unknown section prints `(section not found: <section> in <path> — sections:)` plus up to 50 of the file's heading paths instead of `(not found: <path>)`. **Public type:** `FetchResult` gains a `section-missing` variant and `FetchStore` gains a required `getChunks(root, path)`; custom stores and exhaustive switches must add them.
 - **`!`, `!!` and slash-exec commands report their real exit status.** The bridge read a field pi's `exec` result does not have, so every failed command (and, on pi 1.5, a run cut off at the output cap) was reported with exit code `0`.
 - **pi-flows agent steps on Anthropic models no longer bill as extra usage with the Claude subscription compat switch on.** pi-flows builds agents without loading your installed packages, so the flows plugin again hands the compat rewrite to every flow agent through pi-flows' agent-extension hook.
 - **Claude subscription compat now covers sessions that were already open.** pi 1.4 sends a session's first system prompt as Anthropic's `system` field for the whole session, so turning the switch on did not fix sessions started before it, and their requests kept failing with "You're out of extra usage". The rewrite now also applies to each outgoing Anthropic request.
 - **Upgrades keep Claude subscription billing working.** On the first start after upgrading, the compat switch turns on by itself when `~/.pi/agent/auth.json` already holds an `anthropic` credential, and off when it doesn't. The choice is saved once and never overrides a later change. New installs stay off and are asked at their first Anthropic sign-in.
 
 ### Security
+
+- **Bridge session claims are bound to the session's recorded origin (WS-02, WS-03).** A claim on any
+  non-placeholder session record (every status: live, in reconnect grace, ended, restored) from a different
+  origin is refused with a terminal `origin-mismatch` before the unheld / closed / placeholder / same-pid rules,
+  on every path that takes a routing entry: register, first-frame auto-claim and the session-move commit. A
+  refused first frame or move commit has none of a refused register's side effects; an id change refused for
+  origin keeps the socket and its own session. The first-frame placeholder records its creator's origin, and a
+  `sessions_list` history record is seeded with (and rewritten only by) the reporting socket's origin. One
+  rate-limited line per refusal: `[bridge-claim] origin-refused session=<id> recorded=<class> presented=<class>`
+  (counted in `/api/health` `bridgeContentionCount`; no pids, no full device id).
+  - **BREAKING:** a session id recorded for one origin cannot be re-registered from another until the record is
+    archived or removed (a transcript copied to another machine and resumed under the same id; a device
+    re-paired after revoke). The refusal names the reason.
+  - **BREAKING:** records the hub creates from its own disk (bootstrap, directory scan, scanner) bind as
+    hub-local, so a remote-attributed bridge on the same host or a shared/synced `HOME` resuming such a session is
+    refused; archive the record or fork the session from the hub.
+- **The plugin request lane carries the sender's origin and channel, and credential handlers opt in (WS-05).**
+  A `plugin_request` is attributed only to the socket that owns its session. Handlers receive
+  `{ sessionId, origin, channel }`; `registerPiRequestHandler(type, handler, { hubLocalOnly: true })` makes the
+  host refuse a session that is not hub-local and locally admitted (`unix` / `local-proof` / in-process) with
+  `origin_denied: …`. `gmail/lease`, `gmail/accounts` and the flows file report register hub-local-only;
+  the `browser/*` and craft-web handlers are deferred (register row WS-05b).
+  - **BREAKING:** remote sessions (a paired device, or `grace` / `legacy-token` / `local-ticket` /
+    `device-ticket` admissions) lose Gmail (`gmail_accounts` lists nothing) until they reconnect hub-local.
+  - **BREAKING:** flow-file previews for remote sessions disappear (they read the hub's same-path file and never
+    worked correctly).
+- **Bridge-ticket mint enforces `operate` itself (D2).** `decideBridgeTicketMint` reads the bearer's tier; a
+  below-operate bearer falls through to the genuinely-local branch or is refused. The `/api/ws-ticket` route
+  tier is unchanged.
+  - **BREAKING:** an `observe` / `control` device of a `legacy`-mode trusted network can no longer mint a bridge
+    ticket.
+- **BREAKING — agent reads of pi provider secrets are blocked, other pi state asks (TOOL-04).** The credential guard now
+  hard-blocks every agent tool on `~/.pi/agent/{auth,mcp-auth,providers}.json` and `system-one/auth.json` (and the same
+  files under `PI_CODING_AGENT_DIR`, `<name>.*` siblings, symlinks) with no operator override. An agent `read` of
+  `models.json`, `mcp.json` and another project's `sessions/**` transcripts now asks (`Allow once` / `Deny` only, marked
+  sensitive, never `Always allow`); a session without a UI is blocked. The session's own session dir, skills, prompts and
+  `settings.json` stay silent. Legacy plain keys in `settings.json` remain a residual (see `pi-legacy-credentials`).
+- **BREAKING — a dashboard spawn no longer auto-trusts a folder dashboard trust does not cover (TOOL-08).** A session
+  started (UI, MCP `spawn_session`, REST, WebSocket, automation, goal, `/new`, worktree) into an unpinned, non-workspace,
+  ungranted folder runs without its project `.pi/` resources (extensions, skills, MCP) unless pi's `trust.json` or
+  `defaultProjectTrust: "always"` trusts it. **Remedy:** pin the folder, add it to a workspace, or record trust with
+  `/trust` in a terminal pi. `piTrustMirror.enabled: false` now also disables the activation-cwd auto-trust. A folder
+  you pinned, added to a workspace or granted stays trusted for every spawner (a clone inside a pinned folder included).
+- **BREAKING — credential directories and browser profiles cannot be granted or YOLO-admitted (TOOL-05).** `~/.aws`,
+  `~/.config/gh`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.netrc` and the Chrome / Chromium / Edge / Brave / Firefox user-data
+  roots are sensitive everywhere the shared list is used: no `Always allow`, no grant, no ladder rung, no YOLO auto-allow
+  (operator-activated unscoped YOLO now asks for them). A directory that contains one (`~/.config`, macOS
+  `~/Library/Application Support`, Windows `%LOCALAPPDATA%`) is no longer a grant / YOLO root or ladder rung; persisted
+  grants that now match are not admitted but are kept in the store file (a rollback restores them). Non-local file browse
+  of those directories is refused, and `~/.config`-like roots outside `$HOME` stop being shared browse roots. A grant store
+  that is invalid or written by a newer build is moved aside to `<file>.corrupt-<UTC ts>` on the next grant; a store over
+  1 MiB is neither loaded nor rewritten. Residual: only the exact `~/.netrc` (not `~/.netrc.*` or Windows `_netrc`) and no
+  snap / flatpak profile locations.
+- **BREAKING — a project's settings can no longer lower the untrusted-content guard (TOOL-09).** In
+  `@blackbelt-technology/pi-untrusted-content-guard` the project `.pi/settings.json` layer is tighten-only: `mode` can
+  only rise (`off < warn < strip < block`), `untrustedTools` / `sensitiveTools` are unioned, `taintScope` can only become
+  `session`, `allowHosts` is ignored, `preset: "strict"` is honoured. Each ignored lowering logs one line (field name
+  only). The guard is now **strongly suggested** in the recommended-extensions list but is still not installed by default.
+  Still open: non-default taint sources, ungated sinks (`write`, `edit`, `read`, MCP control tools), any-input taint reset
+  in `run` scope, unattributed `selfConfirming`.
+- **BREAKING — a custom chat `guardExtension` must announce readiness (TOOL-07).** The chat-gateway guard announces
+  `chat_gateway_guard_ready` (with the spawn's token) at `session_start`; the gateway delivers the triggering message
+  through `send_prompt` only after the announcement from the session the spawn resolved to, and ends a session whose guard
+  does not announce within 30 s ("session refused: its tool guard did not start"). A host without plugin-message handlers
+  refuses guarded chat spawns instead of starting an unverified session. No `toolPolicy` still means the full tool set
+  (documented). A second message while a guarded spawn awaits readiness is answered "A session is already starting for
+  this channel".
+- Documented, no code change: guard self-disable through `bash` (TOOL-03) adds no capability while `bash` is ungated.
 
 - **BREAKING — pi-agent credential files are always refused (DEP-01).** `~/.pi/agent/auth.json`, `mcp-auth.json`,
   `providers.json`, `plugin-credentials.json`, `models.json`, `mcp.json` and `system-one/auth.json` (plus same-dir

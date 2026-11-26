@@ -1,8 +1,8 @@
 /**
  * Validate an uploaded `client_secret_*.json` (design D7 step 5). Only a
  * Desktop client (`installed` block) is accepted; a `web` block is rejected with
- * step-4 guidance. Pure — used by the wizard (instant feedback) AND the server
- * route (authoritative). See change: add-gmail-plugin.
+ * step-4 guidance. Pure. The setup wizard now lives in the Google accounts plugin
+ * (Settings → Google accounts). See change: add-gmail-plugin.
  */
 
 import { PROJECT_ID_RE } from "./setup.js";

@@ -28,17 +28,22 @@
  *
  * Strict policy (S3b): identical to the baseline except `script-src 'self' 'nonce-<n>'` (no
  * `'unsafe-inline'`/`'unsafe-eval'`). `report` mode emits baseline + strict as two Report-Only headers;
- * `enforce` emits strict enforcing only. Each carries `report-uri`/`report-to` for its own label (the TT-only
- * header: `trusted-types`) plus a `Reporting-Endpoints` header. The nonce is minted per HTML response by
+ * `enforce` emits strict enforcing only. Each carries `report-uri` for its own label (the TT-only
+ * header: `trusted-types`); never `report-to` / `Reporting-Endpoints` (Chromium and Firefox never deliver
+ * those on plain http, and `report-to` suppresses `report-uri`). The nonce is minted per HTML response by
  * `cspNonceFor(reply)` (memoized; non-HTML responses carry none). A response proxied to Vite
  * (`markViteProxied`) is a dev response: baseline only (legacy `script-src`), no strict, no nonce, no report
- * destination. Default mode stays `report`. See change: harden-cors-and-csp-reporting (D9, D10).
+ * destination. Default mode stays `report`. See change: harden-cors-and-csp-reporting (D9, D10), fix-csp-report-delivery (D1).
  *
  * See change: improve-content-editor (baseline CSP §7).
  */
 import { randomBytes } from "node:crypto";
+import { isIP } from "node:net";
+import type { ResolvedPreviewOrigins } from "@blackbelt-technology/pi-dashboard-shared/preview-origins.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { type CspReportPolicy, cspReportEndpointName, cspReportPath } from "./csp-report-paths.js";
+import { getResolvedPreviewOrigins } from "../config-snapshot.js";
+import { splitHostHeader } from "../live-server/preview-origin.js";
+import { type CspReportPolicy, cspReportPath } from "./csp-report-paths.js";
 
 // One resolver for the server and the dev plugin; re-exported so the server's callers keep one import site.
 export { resolveTrustedTypesMode } from "@blackbelt-technology/pi-dashboard-shared/trusted-types-mode.js";
@@ -46,7 +51,7 @@ export { resolveTrustedTypesMode } from "@blackbelt-technology/pi-dashboard-shar
 export type CspMode = "off" | "report" | "enforce";
 
 /** Prefixes served by a reverse proxy / sandbox — never stamp our CSP on them. */
-const SKIP_PREFIXES = ["/live/"];
+const SKIP_PREFIXES = ["/live/", "/preview/"];
 
 /**
  * Baseline directives. `script-src`/`style-src` keep `'unsafe-inline'` (Vite +
@@ -56,7 +61,7 @@ const SKIP_PREFIXES = ["/live/"];
  * `worker-src 'self' blob:` keeps Monaco/pdfjs workers alive. `connect-src`
  * allows same-origin + WebSocket (dashboard `/ws`, Vite HMR, zrok wss).
  */
-function directives(scriptSrc: string): string {
+function directives(scriptSrc: string, previewFrames: readonly string[] = []): string {
   return [
     "default-src 'self'",
     scriptSrc,
@@ -65,7 +70,10 @@ function directives(scriptSrc: string): string {
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "connect-src 'self' ws: wss:",
-    "frame-src 'self'",
+    // `https:` for operator-gated web-page previews (opaque sandbox) and the fixed YouTube embed.
+    // Untrusted HTML cannot create frames (markdown schema + DOMPurify drop `<iframe>`); http:/data:/blob:/* stay blocked.
+    // See change: rich-chat-links (D13).
+    ["frame-src 'self' https:", ...previewFrames].join(" "),
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'self'",
@@ -73,13 +81,53 @@ function directives(scriptSrc: string): string {
 }
 
 /** The `baseline` policy (legacy `script-src`). */
-export function buildCsp(): string {
-  return directives("script-src 'self' 'unsafe-inline' 'unsafe-eval'");
+export function buildCsp(previewFrames: readonly string[] = []): string {
+  return directives("script-src 'self' 'unsafe-inline' 'unsafe-eval'", previewFrames);
 }
 
 /** The `strict` policy: `script-src 'self'` plus the response nonce when there is one (HTML only). */
-export function buildStrictCsp(nonce?: string): string {
-  return directives(nonce ? `script-src 'self' 'nonce-${nonce}'` : "script-src 'self'");
+export function buildStrictCsp(nonce?: string, previewFrames: readonly string[] = []): string {
+  return directives(nonce ? `script-src 'self' 'nonce-${nonce}'` : "script-src 'self'", previewFrames);
+}
+
+/**
+ * The live-preview frame sources the dashboard page may embed, built per request from the page's `Host` (D6).
+ * `<HostPort>` = the Host's port, else the accepting socket's port, elided when it is the http default, so the
+ * frame source equals the minted origin (D1). Never `:*` except the tier-3 IP entry; never an IPv6 entry; never a
+ * bare scheme source. Pure.
+ */
+export function previewFrameSources(
+  hostHeader: string | undefined,
+  socketPort: number | undefined,
+  resolvedIn?: ResolvedPreviewOrigins,
+): string[] {
+  const resolved = readResolved(resolvedIn);
+  if (!resolved?.enabled) return [];
+  const host = splitHostHeader(hostHeader);
+  if (!host || !/^[a-z0-9.-]+$/.test(host.hostname)) return []; // malformed or IPv6 literal: CSP has no form for it
+  const portPart = portSuffix(host.port ?? socketPort);
+  const out = [`http://*.localhost${portPart}`];
+  if (isIP(host.hostname) === 4) {
+    if (resolved.ipDnsSuffix) out.push(`http://*.${host.hostname.replaceAll(".", "-")}.${resolved.ipDnsSuffix}${portPart}`);
+    if (resolved.pool) out.push(`http://${host.hostname}:*`);
+  }
+  const wc = resolved.wildcard;
+  if (wc?.scheme === "http") out.push(`http://*.${wc.suffix}${portSuffix(wc.port)}`);
+  return out;
+}
+
+/** `:<port>`, elided when absent or the http default. */
+const portSuffix = (port: number | undefined): string => (port === undefined || port === 80 ? "" : `:${port}`);
+
+/** The resolved config, or `undefined` when the read fails: a failing read must not fail the page (degrades to `'self' https:`). */
+function readResolved(given: ResolvedPreviewOrigins | undefined): ResolvedPreviewOrigins | undefined {
+  if (given) return given;
+  try {
+    return getResolvedPreviewOrigins();
+  } catch (err) {
+    console.error("[csp] preview frame-src unavailable:", err);
+    return undefined;
+  }
 }
 
 export function resolveCspMode(raw: string | undefined): CspMode {
@@ -114,7 +162,7 @@ const headerFor = (mode: CspMode) => (mode === "enforce" ? EN : RO);
 type Plan = Map<string, Array<{ value: string; label?: CspReportPolicy }>>;
 
 /** Header kind → policy values for one response. `label` = report destination (absent in dev / for nothing). */
-function plan(mode: CspMode, ttMode: CspMode, dev: boolean, nonce: string | undefined): Plan {
+function plan(mode: CspMode, ttMode: CspMode, dev: boolean, nonce: string | undefined, frames: readonly string[]): Plan {
   const out: Plan = new Map();
   const add = (kind: string, value: string, label?: CspReportPolicy) => {
     const list = out.get(kind) ?? [];
@@ -123,12 +171,12 @@ function plan(mode: CspMode, ttMode: CspMode, dev: boolean, nonce: string | unde
   };
   const tt = (on: boolean) => (on ? `; ${TRUSTED_TYPES_DIRECTIVE}` : "");
   if (mode === "report") {
-    add(RO, buildCsp() + tt(ttMode === mode), "baseline");
-    if (!dev) add(RO, buildStrictCsp(nonce), "strict");
+    add(RO, buildCsp(frames) + tt(ttMode === mode), "baseline");
+    if (!dev) add(RO, buildStrictCsp(nonce, frames), "strict");
   } else if (mode === "enforce") {
     // dev: the baseline policy enforcing (legacy dev `script-src`); production: the strict policy.
-    if (dev) add(EN, buildCsp() + tt(ttMode === mode), "baseline");
-    else add(EN, buildStrictCsp(nonce) + tt(ttMode === mode), "strict");
+    if (dev) add(EN, buildCsp(frames) + tt(ttMode === mode), "baseline");
+    else add(EN, buildStrictCsp(nonce, frames) + tt(ttMode === mode), "strict");
   }
   if (ttMode !== "off" && ttMode !== mode) add(headerFor(ttMode), TRUSTED_TYPES_DIRECTIVE, "trusted-types");
   return out;
@@ -145,19 +193,12 @@ export function registerCsp(fastify: FastifyInstance, mode: CspMode, ttMode: Csp
     const url = request.url;
     if (SKIP_PREFIXES.some((p) => url.startsWith(p))) return payload;
     const dev = viteProxied.has(reply);
-    const used = new Set<CspReportPolicy>();
     // Each header kind is added only when absent (a route-level policy stands).
-    for (const [kind, entries] of plan(mode, ttMode, dev, nonces.get(reply))) {
+    const frames = previewFrameSources(request.headers.host, request.raw.socket?.localPort);
+    for (const [kind, entries] of plan(mode, ttMode, dev, nonces.get(reply), frames)) {
       if (reply.getHeader(kind)) continue;
-      const values = entries.map(({ value, label }) => {
-        if (!label) return value;
-        used.add(label);
-        return `${value}; report-uri ${cspReportPath(label)}; report-to ${cspReportEndpointName(label)}`;
-      });
+      const values = entries.map(({ value, label }) => (label ? `${value}; report-uri ${cspReportPath(label)}` : value));
       reply.header(kind, values.length === 1 ? values[0] : values);
-    }
-    if (used.size > 0 && !reply.getHeader("reporting-endpoints")) {
-      reply.header("reporting-endpoints", [...used].map((l) => `${cspReportEndpointName(l)}="${cspReportPath(l)}"`).join(", "));
     }
     return payload;
   });

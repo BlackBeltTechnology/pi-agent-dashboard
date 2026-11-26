@@ -86,6 +86,7 @@ import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
 import { CustomEntryRow } from "./CustomEntryRow.js";
 import { HistoryGapDivider } from "./HistoryGapDivider.js";
+import { TranscriptLinkScope } from "./LinkResolutionProvider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { MultiAskPanel } from "./MultiAskPanel.js";
 import { OwnedEventGroupCard } from "./OwnedEventGroupCard.js";
@@ -100,6 +101,12 @@ interface Props {
   sessionId?: string;
   state: SessionState;
   toolContext: ToolContext;
+  /**
+   * Pre-confirm file links in this transcript (icon slot, found/missing/gated state, batched resolution).
+   * Only the dashboard `App` sets it; the `ui:chat-view` plugin primitive and dialogs leave it off and render
+   * links as before. See change: rich-chat-links (D1).
+   */
+  transcriptLinks?: boolean;
   // onCancelPending removed — pi exposes no queue-mutation API, so the
   // cancel-pending callback was always a shadow-only lie. See change:
   // honest-mid-turn-queue-surface.
@@ -383,14 +390,16 @@ function MessageBubble({ content, className, timestamp, entryId, onFork, context
   );
 }
 
-function InteractiveUiCard({ request, onRespondToUi }: {
+function InteractiveUiCard({ request, sessionId, onRespondToUi }: {
   request: InteractiveUiRequest;
+  sessionId?: string;
   onRespondToUi?: (requestId: string, result?: unknown, cancelled?: boolean) => void;
 }) {
   const Renderer = getInteractiveRenderer(request.method);
   const card = (
     <Renderer
       requestId={request.requestId}
+      sessionId={sessionId}
       method={request.method}
       params={request.params}
       status={request.status}
@@ -480,7 +489,7 @@ export interface ChatViewHandle {
   scrollToTool: (toolCallId: string) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onRetryPendingPrompt, onForkPendingPrompt, onCloseInlineTerminal, pendingSteering, onCancelSteer, onClearSteers, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking, historyPhase, historyStartedAt, onRetryHistory }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, transcriptLinks, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onRetryPendingPrompt, onForkPendingPrompt, onCloseInlineTerminal, pendingSteering, onCancelSteer, onClearSteers, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking, historyPhase, historyStartedAt, onRetryHistory }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -490,6 +499,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // an inline merge would hand it a fresh `context` reference on every render
   // and defeat the memo. See change: cleanup-import-cycles (D4b).
   const toolContext = useMemo(() => withDefaultFileLink(suppliedToolContext), [suppliedToolContext]);
+  // Link pre-confirmation (rich-chat-links): streaming text is never "settled", and every finished tool call of the
+  // session can have created / deleted files, so the provider drops the session's cached link states when it grows.
+  const streamingToolContext = useMemo<ToolContext>(() => ({ ...toolContext, linkSettled: false }), [toolContext]);
+  const toolCompletions = useMemo(
+    () => (transcriptLinks ? state.messages.reduce((n, m) => (m.toolStatus && m.toolStatus !== "running" ? n + 1 : n), 0) : 0),
+    [transcriptLinks, state.messages],
+  );
   // Show-delay for the replay-in-flight pill: paint only once the flag has
   // been true for REPLAY_PILL_DELAY_MS, so a fast replay never flashes an
   // indicator. Deliberately NOT conditioned on replay-cache state.
@@ -2228,6 +2244,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // Key by sessionId so switching sessions (ChatView is reused, not remounted)
     // resets the hoisted preview — a preview open in session A never leaks into B.
     <FilePreviewProvider key={sessionId}>
+    {/* The link provider wraps the transcript only: `FilePreviewHost` below (and every overlay) stays outside it. */}
+    <TranscriptLinkScope enabled={transcriptLinks} sessionId={toolContext.sessionId ?? sessionId} toolCompletions={toolCompletions}>
     <div
       style={{
         flex: `${CHAT_TRANSCRIPT_WEIGHT} ${CHAT_TRANSCRIPT_WEIGHT} ${CHAT_TRANSCRIPT_FLOOR}px`,
@@ -2529,6 +2547,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             <InteractiveUiCard
               key={msg.id}
               request={request}
+              sessionId={sessionId}
               onRespondToUi={onRespondToUi}
             />
           );
@@ -2620,11 +2639,11 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                 {tailBlocks.map((block, i) => (
                   // Index keys are stable: blocks only append, and a completed block's text never changes.
                   // biome-ignore lint/suspicious/noArrayIndexKey: append-only parser blocks
-                  <MarkdownContent key={i} content={block} context={toolContext} />
+                  <MarkdownContent key={i} content={block} context={streamingToolContext} />
                 ))}
               </div>
             ) : (
-              <MarkdownContent content={streamingTailText} context={toolContext} />
+              <MarkdownContent content={streamingTailText} context={streamingToolContext} />
             )}
             {trailingEdgeOn && <TrailingEdge text={revealedTail} revealing={revealedTail.length < state.streamingText.length} />}
             {state.streamingText && (
@@ -2667,7 +2686,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           Hidden inline (isRowVisible) while pending; reappears inline as an
           answered/history card once resolved. See change:
           surface-concurrent-ask-user-prompts. */}
-      <MultiAskPanel requests={pendingFreeFloating} onRespondToUi={onRespondToUi} />
+      <MultiAskPanel requests={pendingFreeFloating} sessionId={sessionId} onRespondToUi={onRespondToUi} />
 
       {/* Optimistic pending-prompt card (idle-scoped). Re-wired write site in
           useSessionActions.handleSend / handleSendPromptToSession. Two progress
@@ -2684,7 +2703,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             )}
             <div className="flex items-start gap-2">
               <div className="flex-1">
-                <MarkdownContent content={state.pendingPrompt.text} />
+                {state.pendingPrompt.text && <MarkdownContent content={state.pendingPrompt.text} />}
               </div>
               <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
                 {state.pendingPrompt.status === "sending" ? (
@@ -2928,6 +2947,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       </button>
     )}
     </div>
+    </TranscriptLinkScope>
     <FilePreviewHost />
     </FilePreviewProvider>
   );

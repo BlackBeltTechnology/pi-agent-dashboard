@@ -212,6 +212,13 @@ describe("OpenSpecBoardView", () => {
     expect(card.className).toContain("active:cursor-grabbing");
   });
 
+  it("session row shows tokens as `in↓ out↑` then cost (D1, test-plan #S17)", () => {
+    render(<OpenSpecBoardView {...props({ sessions: [makeSession({ tokensIn: 48000, tokensOut: 12000, cost: 0.41 })] })} />);
+    const row = screen.getByTestId("board-session-row");
+    expect(row.textContent).toContain("48k↓ 12k↑");
+    expect(row.textContent).not.toContain("48k↑");
+  });
+
   it("clicking a session row navigates to the session", () => {
     const p = props();
     render(<OpenSpecBoardView {...p} />);

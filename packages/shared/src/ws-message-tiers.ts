@@ -21,7 +21,11 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   browser_relay_subscribe: "observe",
   browser_relay_unsubscribe: "observe",
   fetch_content: "observe",
+  // Ack of a flows-plugin `flows_open` pin: stores nothing server-side, so a
+  // read-only viewer is counted too. See change: add-flow-open-tool.
+  flows_open_ack: "observe",
   history_backfill: "observe",
+  live_preview_accept: "observe",
   list_files: "observe",
   list_sessions: "observe",
   openspec_get: "observe",
@@ -62,6 +66,10 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   pin_directory: "control",
   promote_followup_entry: "control",
   prompt_response: "control",
+  sudo_credential_cancel: "control",
+  sudo_credential_forget: "control",
+  sudo_credential_response: "control",
+  sudo_credential_shown: "control",
   recovery_dismiss: "control",
   remove_folder_from_workspace: "control",
   remove_followup_entry: "control",

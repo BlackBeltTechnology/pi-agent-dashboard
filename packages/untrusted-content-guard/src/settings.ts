@@ -4,9 +4,18 @@
  * project `.pi/settings.json` — the latter ONLY when the project is trusted, so
  * an untrusted repository cannot switch the guard off.
  *
- * Precedence: defaults ← global ← project (field-wise). `preset: "strict"` then
+ * Precedence: defaults ← global (field-wise, `resolveSettings`). `preset: "strict"` then
  * adds `write`/`edit` to `sensitiveTools` and sets `taintScope: "session"`
  * unless `taintScope` was set explicitly.
+ *
+ * The PROJECT layer can only TIGHTEN (`applyProjectLayer`): `mode` may rise along
+ * `off < warn < strip < block`, never fall; `untrustedTools` / `sensitiveTools` are unioned;
+ * `taintScope` may become `session`; `allowHosts` is ignored; a project `preset: "strict"` is honoured
+ * (it only tightens). A trusted project (which TOOL-08 can hand out) therefore cannot switch the guard
+ * off or relax it. An ignored field that would have lowered / relaxed the effective settings logs one
+ * line naming the field (never the value) per `loadSettings` call. The global layer is operator-owned
+ * and unchanged.
+ * See change: harden-agent-tool-guards (D4).
  */
 
 import * as fs from "node:fs";
@@ -82,6 +91,44 @@ export function resolveSettings(...layers: unknown[]): GuardSettings {
   return settings;
 }
 
+const MODE_RANK: Record<GuardMode, number> = { off: 0, warn: 1, strip: 2, block: 3 };
+
+/** `base` then `extra`, deduplicated, globs kept verbatim. */
+function union(base: readonly string[], extra: readonly string[] | undefined): string[] {
+  return [...new Set([...base, ...(extra ?? [])])];
+}
+
+/**
+ * Apply a project's raw `untrusted-content-guard` object onto the already-resolved global settings,
+ * tighten-only. `ignored` receives the NAME of each field that was dropped because it would have
+ * lowered or relaxed the effective settings (never its value); no-ops and invalid values are silent.
+ */
+export function applyProjectLayer(base: GuardSettings, rawProject: unknown, ignored: (field: string) => void = () => {}): GuardSettings {
+  const project = sanitize(rawProject);
+  const out: GuardSettings = {
+    ...base,
+    untrustedTools: union(base.untrustedTools, project.untrustedTools),
+    sensitiveTools: union(base.sensitiveTools, project.sensitiveTools),
+    allowHosts: [...base.allowHosts],
+  };
+  if (project.mode !== undefined) {
+    if (MODE_RANK[project.mode] > MODE_RANK[out.mode]) out.mode = project.mode;
+    else if (MODE_RANK[project.mode] < MODE_RANK[out.mode]) ignored("mode");
+  }
+  // `preset: "strict"` only tightens: write/edit become sensitive and the taint scope session-wide.
+  if (project.preset === "strict") {
+    out.preset = "strict";
+    out.sensitiveTools = union(out.sensitiveTools, ["write", "edit"]);
+    out.taintScope = "session";
+  }
+  if (project.taintScope !== undefined) {
+    if (project.taintScope === "session") out.taintScope = "session";
+    else if (out.taintScope === "session") ignored("taintScope");
+  }
+  if (project.allowHosts && project.allowHosts.length > 0) ignored("allowHosts");
+  return out;
+}
+
 function agentDir(): string {
   const env = process.env.PI_CODING_AGENT_DIR;
   if (env) return env.startsWith("~") ? path.join(os.homedir(), env.slice(1)) : env;
@@ -97,9 +144,24 @@ function readKey(file: string): unknown {
   }
 }
 
-/** Load effective settings from disk. `projectTrusted=false` skips the project layer. */
-export function loadSettings(cwd: string | undefined, projectTrusted: boolean): GuardSettings {
-  const global = readKey(path.join(agentDir(), "settings.json"));
+/** Default sink for the one-line-per-ignored-field notice (stderr: never the TUI's stdout). */
+const defaultLog = (line: string): void => {
+  console.error(line);
+};
+
+/**
+ * Load effective settings from disk. `projectTrusted=false` skips the project layer. The project
+ * layer is tighten-only (`applyProjectLayer`); each ignored lowering field logs one line via `log`.
+ */
+export function loadSettings(
+  cwd: string | undefined,
+  projectTrusted: boolean,
+  log: (line: string) => void = defaultLog,
+): GuardSettings {
+  const global = resolveSettings(readKey(path.join(agentDir(), "settings.json")));
   const project = cwd && projectTrusted ? readKey(path.join(cwd, ".pi", "settings.json")) : undefined;
-  return resolveSettings(global, project);
+  if (project === undefined) return global;
+  return applyProjectLayer(global, project, (field) =>
+    log(`[untrusted-content-guard] project setting "${field}" ignored: a project's .pi/settings.json can only tighten the guard`),
+  );
 }

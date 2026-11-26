@@ -841,6 +841,32 @@ export interface PathGrantRequestMessage {
   subject: string;
 }
 
+/**
+ * Bridge → server: ask for a stable preview base path for a loopback `port` (D9). The bridge's authenticated
+ * socket is the principal; the server decides (`control` tier, a connected tier-5 viewer, bounds) and the bridge
+ * only forwards the answer. See change: serve-live-previews-on-capability-origin.
+ */
+export interface PreviewPathRequestMessage {
+  type: "preview_path_request";
+  requestId: string;
+  sessionId: string;
+  port: number;
+}
+/** Server → bridge: answer to a {@link PreviewPathRequestMessage}. `path: null` ⇒ no reservation was made. */
+export interface PreviewPathResultMessage {
+  type: "preview_path_result";
+  requestId: string;
+  path: string | null;
+  expiresAt?: number;
+  tier5Viewers: boolean;
+  error?: "insufficient_scope" | "reservation_limit" | "invalid_port" | "session_mismatch";
+}
+/** Bridge → server: drop the unbound reservation made for `requestId` (the tool aborted / started at root). */
+export interface PreviewPathReleaseMessage {
+  type: "preview_path_release";
+  requestId: string;
+  sessionId: string;
+}
 /** Server → bridge: outcome of a {@link PathGrantRequestMessage}. */
 export interface PathGrantResultMessage {
   type: "path_grant_result";
@@ -1097,6 +1123,59 @@ export interface PluginRequestMessage {
   payload: unknown;
 }
 
+/**
+ * Sudo credential prompt (bridge ↔ server). The password only ever rides
+ * `SudoCredentialResponseServerMessage`; it is never stored, logged or replayed.
+ * `callId` is a per-prompt unguessable random, distinct from any `toolCallId`.
+ * See change: add-sudo-credential-prompt.
+ */
+export interface SudoCredentialRequestMessage {
+  type: "sudo_credential_request";
+  sessionId: string;
+  callId: string;
+  /** Every bash/user_bash command in flight at request time, in full (never truncated). */
+  commands: string[];
+  /** sudo's prompt text, already escaped and middle-truncated by the bridge (inert text). */
+  prompt: string;
+  /** Characters removed from the middle of `prompt`; 0 when not truncated. */
+  promptTruncated?: number;
+}
+
+/** Cache metadata only (expiry), never the password. `null` = nothing cached. */
+export interface SudoCredentialCacheMessage {
+  type: "sudo_credential_cache";
+  sessionId: string;
+  expiresAt: number | null;
+}
+
+/** Bridge-side dismissal of the pending prompt (helper gone, tool call ended, timeout). */
+export interface SudoCredentialDismissMessage {
+  type: "sudo_credential_dismiss";
+  sessionId: string;
+  callId: string;
+}
+
+export interface SudoCredentialResponseServerMessage {
+  type: "sudo_credential_response";
+  sessionId: string;
+  callId: string;
+  password: string;
+}
+
+export interface SudoCredentialCancelServerMessage {
+  type: "sudo_credential_cancel";
+  sessionId: string;
+  callId: string;
+  /** Absent = operator Cancel (sticky for the tool calls in flight); present = non-sticky refusal. */
+  reason?: "unanswerable";
+}
+
+export interface SudoCredentialForgetServerMessage {
+  type: "sudo_credential_forget";
+  sessionId: string;
+}
+
+
 export type ExtensionToServerMessage =
   | SessionMovedMessage
   | SessionMoveCommitMessage
@@ -1118,7 +1197,12 @@ export type ExtensionToServerMessage =
   | NotifyMessage
   | PromptDismissMessage
   | PromptCancelMessage
+  | SudoCredentialRequestMessage
+  | SudoCredentialCacheMessage
+  | SudoCredentialDismissMessage
   | PathGrantRequestMessage
+  | PreviewPathRequestMessage
+  | PreviewPathReleaseMessage
   | PathYoloRequestMessage
   | VaultSyncRequestMessage
   | VaultReportMessage
@@ -1720,6 +1804,7 @@ export type ServerToExtensionMessage =
   | HeartbeatAckMessage
   | RegisterRejectedExtensionMessage
   | PathGrantResultMessage
+  | PreviewPathResultMessage
   | PathYoloResultMessage
   | VaultSnapshotMessage
   | DashboardIdentityMessage
@@ -1728,6 +1813,9 @@ export type ServerToExtensionMessage =
   | PluginReplyMessage
   | ArchitectPromptResponseExtensionMessage
   | PromptResponseServerMessage
+  | SudoCredentialResponseServerMessage
+  | SudoCredentialCancelServerMessage
+  | SudoCredentialForgetServerMessage
   | RoleSetExtensionMessage
   | RolePresetLoadExtensionMessage
   | RolePresetSaveExtensionMessage

@@ -201,9 +201,9 @@ describe("E15 — every path-taking route refuses the token", () => {
     const post = (url: string, body: unknown) => app.inject({ method: "POST", url, remoteAddress: "127.0.0.1", headers, payload: JSON.stringify(body) });
 
     const mention = await post("/api/file/resolve-mention", { cwd: home, mention: "~/.pi/dashboard/local/token" });
-    expect(mention.json().data).toEqual({ resolved: null });
+    expect(mention.json().data).toMatchObject({ outside: true });
     const mentionAbs = await post("/api/file/resolve-mention", { cwd: home, mention: tokenPath() });
-    expect(mentionAbs.json().data).toEqual({ resolved: null });
+    expect(mentionAbs.json().data).toMatchObject({ outside: true });
 
     expect((await post("/api/open-in-system", { cwd: home, path: ".pi/dashboard/local/token" })).statusCode).toBe(403);
     expect((await post("/api/reveal-in-file-manager", { cwd: home, path: ".pi/dashboard/local/token" })).statusCode).toBe(403);

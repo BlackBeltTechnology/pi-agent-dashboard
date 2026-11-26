@@ -50,6 +50,18 @@ export interface ToolContext {
    * card is active. See change: improve-canvas-html-and-url-ux (D8).
    */
   canvas?: { key: string | null; sourceCallId?: string; chipDeclarationId?: string };
+  /**
+   * Working directory of the tool call that produced the text being linkified (`toolWorkdir`, design D4 of
+   * rich-chat-links), so a relative path printed by e.g. `cd packages/client && rg` resolves against it first.
+   * Set by `ToolCallStep`; an untrusted hint the server re-gates. Only transcript links use it.
+   */
+  toolCwd?: string;
+  /**
+   * `false` while the text may still change (a running tool call, streaming assistant text); such links are not
+   * pre-confirmed until it settles. Absent = settled, so a committed message needs no wiring.
+   * See change: rich-chat-links (D2).
+   */
+  linkSettled?: boolean;
   /** Send a message to the server (e.g. subagent resync request). Optional for backward-compat / tests. See change: fix-subagent-live-detail-reliability. */
   send?: (message: BrowserToServerMessage) => void;
 }

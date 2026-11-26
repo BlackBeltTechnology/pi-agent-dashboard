@@ -232,3 +232,53 @@ describe("FolderActionBanner — hook rungs explain themselves (change: fix-fold
     expect(screen.queryByTestId("worktree-init-btn")).toBeNull();
   });
 });
+
+// Focus mode hides the compact chip on every rung (#1134). The component only
+// sees the `suppressChip` prop; SessionList derives it from Focus state.
+// See change: sidebar-folder-ux (test-plan #S26).
+describe("FolderActionBanner — suppressChip (Focus mode)", () => {
+  type Rung = "init-needed" | "setup" | "retrust" | "failed" | "running";
+  const RUNGS: Rung[] = ["init-needed", "setup", "retrust", "failed", "running"];
+  const arrange = (rung: Rung): WorktreeInitStatus => {
+    switch (rung) {
+      case "init-needed": return status({ hasHook: true, trusted: true, needsInit: true });
+      case "setup": return status({ configured: false, checklist: checklist([]) });
+      case "retrust": return status({ hasHook: true, trusted: false });
+      case "failed": initStore.markFailed(CWD, "exit_1", "boom"); return status({ hasHook: true, trusted: true });
+      case "running": initStore.startRun(CWD); return status({ hasHook: true, trusted: true });
+    }
+  };
+
+  it.each(RUNGS)("%s: compact + suppressChip → nothing renders", (rung) => {
+    const st = arrange(rung);
+    const { container } = render(<FolderActionBanner cwd={CWD} isProjectRoot compact suppressChip status={st} />);
+    expect(screen.queryByTestId(`folder-banner-chip-${CWD}`)).toBeNull();
+    expect(container.innerHTML).toBe("");
+  });
+
+  it.each(RUNGS)("%s: compact without suppressChip still renders the chip (unchanged)", (rung) => {
+    const st = arrange(rung);
+    render(<FolderActionBanner cwd={CWD} isProjectRoot compact status={st} />);
+    expect(screen.getByTestId(`folder-banner-chip-${CWD}`)).toBeTruthy();
+  });
+
+  it.each(RUNGS)("%s: the expanded (non-compact) banner ignores suppressChip", (rung) => {
+    const st = arrange(rung);
+    const { container } = render(<FolderActionBanner cwd={CWD} isProjectRoot suppressChip status={st} />);
+    expect(screen.queryByTestId(`folder-banner-chip-${CWD}`)).toBeNull();
+    expect(container.innerHTML).not.toBe("");
+  });
+
+  it("suppressChip turning on drops a revealed banner; turning off restores the chip, not the banner (#F7)", () => {
+    const st = status({ hasHook: true, trusted: false });
+    const { rerender } = render(<FolderActionBanner cwd={CWD} isProjectRoot compact status={st} />);
+    fireEvent.click(screen.getByTestId(`folder-banner-chip-${CWD}`));
+    expect(screen.getByTestId(`folder-banner-retrust-${CWD}`)).toBeTruthy();
+    rerender(<FolderActionBanner cwd={CWD} isProjectRoot compact suppressChip status={st} />);
+    expect(screen.queryByTestId(`folder-banner-retrust-${CWD}`)).toBeNull();
+    expect(screen.queryByTestId(`folder-banner-chip-${CWD}`)).toBeNull();
+    rerender(<FolderActionBanner cwd={CWD} isProjectRoot compact status={st} />);
+    expect(screen.getByTestId(`folder-banner-chip-${CWD}`)).toBeTruthy();
+    expect(screen.queryByTestId(`folder-banner-retrust-${CWD}`)).toBeNull();
+  });
+});

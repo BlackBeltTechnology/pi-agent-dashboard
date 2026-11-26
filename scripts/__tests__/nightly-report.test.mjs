@@ -8,16 +8,20 @@
  * or at any time), a non-ancestor anchor is skipped, and a job that produced
  * no report is listed as such — never counted as passing.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
+  DEFER_DEADLINE_UTC_MINUTE,
   buildIssueBody,
-  readReports,
+  main,
   rangeText,
+  readReports,
   resolveAnchor,
   summarizeReports,
   syncIssue,
@@ -193,5 +197,1139 @@ describe("issue lifecycle (X11)", () => {
     const api = fakeApi();
     await syncIssue({ api, red: false, body: "", sha: B });
     expect(api.calls).toEqual([]);
+  });
+});
+
+// ── group 5.3 / 6.1 — reporter interface, attempt-aware main, watchdog ─────────
+// (change: stabilize-blocking-test-lanes, design.md "Reporter interface" + D7;
+// test-plan E61–E64, E67–E71, E73–E82, E84–E99, X5–X8). `main` takes the GitHub
+// API client, the clock and the environment, so every scenario is a pure call.
+
+const CWD = process.cwd();
+const SERVER = "https://github.com";
+const REPO = "o/r";
+const RUN_ID = "555";
+const RUN_URL = `${SERVER}/${REPO}/actions/runs/${RUN_ID}`;
+const CREATED = "2026-11-22T03:00:00Z";
+const at = (hhmm, day = "2026-11-22") => new Date(`${day}T${hhmm}:00Z`);
+const ALL_JOBS = ["unit-1", "unit-2", "unit-3", "unit-4", "real-process", "ci-scenarios", "budget"];
+const GREEN_NEEDS = Object.fromEntries(["select", "unit", "real-process", "ci-scenarios", "budget"].map((j) => [j, { result: "success" }]));
+
+const asr = (title, status) => ({ fullName: title, title, status });
+const res = (file, status, asserts = []) => ({ name: `${CWD}/${file}`, status, startTime: 0, endTime: 1000, assertionResults: asserts });
+const PASS = (file = "ok.test.ts") => [res(file, "passed", [asr("fine", "passed")])];
+
+/** Every expected job gets a clean report unless overridden; `null` = no artifact. */
+function writeReports(dir, over = {}, jobs = ALL_JOBS) {
+  for (const job of jobs) {
+    const results = job in over ? over[job] : PASS(`${job}.test.ts`);
+    if (results === null) continue;
+    fs.mkdirSync(path.join(dir, `vitest-report-${job}`), { recursive: true });
+    fs.writeFileSync(path.join(dir, `vitest-report-${job}`, "vitest.json"), JSON.stringify({ testResults: results }));
+  }
+}
+
+class HttpError extends Error {}
+
+function fakeGh({ open = [], runs = [], run = { created_at: CREATED }, workflows = {}, attempt1 = { event: "schedule", conclusion: "failure" }, scheduled = [], fail = {} } = {}) {
+  const calls = [];
+  const issues = open.map((i) => ({ state: "open", body: "", ...i }));
+  const rec = (name, ...a) => calls.push([name, ...a]);
+  const trip = (key, ...a) => {
+    if (fail[key]) throw new HttpError(`${key} ${a.join(" ")}: HTTP ${fail[key]}`);
+  };
+  return {
+    calls,
+    issuesState: issues,
+    runs: async () => (rec("runs"), runs),
+    run: async (id) => (rec("run", String(id)), trip("run"), run),
+    runAttempt: async (id, n) => (rec("runAttempt", String(id), n), trip("runAttempt"), attempt1),
+    workflow: async (file) => {
+      rec("workflow", file);
+      if (fail.workflow?.[file]) throw new HttpError(`workflow ${file}: HTTP ${fail.workflow[file]}`);
+      return { state: workflows[file] ?? "active" };
+    },
+    scheduledRuns: async () => (rec("scheduledRuns"), trip("scheduledRuns"), scheduled),
+    issues: {
+      listOpen: async () => (rec("listOpen"), issues.filter((i) => i.state === "open")),
+      create: async (title, body) => {
+        const i = { number: 100 + issues.length, state: "open", title, body };
+        issues.push(i);
+        rec("create", i.number);
+        return i;
+      },
+      update: async (n, body) => {
+        issues.find((i) => i.number === n).body = body;
+        rec("update", n);
+      },
+      comment: async (n, body) => rec("comment", n, body),
+      close: async (n) => {
+        issues.find((i) => i.number === n).state = "closed";
+        rec("close", n);
+      },
+    },
+  };
+}
+const issueCalls = (api) => api.calls.filter(([c]) => ["create", "update", "comment", "close"].includes(c));
+
+const tmpDirs = [];
+const tmp = (prefix = "nightly-main-") => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tmpDirs.push(d);
+  return d;
+};
+afterEach(() => {
+  vi.restoreAllMocks();
+  for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+});
+
+/** Run `main` in report mode against a fresh reports dir. */
+async function runReport({ results, jobs, needs = GREEN_NEEDS, event = "schedule", attempt, flags = ["--defer-first-attempt"], previous, api = fakeGh(), now = at("04:00"), extra = [] } = {}) {
+  const dir = tmp();
+  writeReports(dir, results, jobs);
+  const summaryFile = path.join(tmp(), "summary.md");
+  const env = {
+    GITHUB_SHA: B,
+    GITHUB_REPOSITORY: REPO,
+    GITHUB_RUN_ID: RUN_ID,
+    GITHUB_SERVER_URL: SERVER,
+    GITHUB_EVENT_NAME: event,
+    GITHUB_STEP_SUMMARY: summaryFile,
+    NEEDS_JSON: JSON.stringify(needs),
+    ...(attempt ? { GITHUB_RUN_ATTEMPT: String(attempt) } : {}),
+  };
+  const argv = ["--reports", dir, "--expected", (jobs ?? ALL_JOBS).join(","), ...flags, ...extra];
+  let prevDir;
+  if (previous !== undefined) {
+    prevDir = tmp("nightly-prev-");
+    if (previous !== null) fs.writeFileSync(path.join(prevDir, "attempt-1.json"), typeof previous === "string" ? previous : JSON.stringify(previous));
+    argv.push("--previous", prevDir);
+  }
+  const out = [];
+  vi.spyOn(console, "log").mockImplementation((...a) => void out.push(a.join(" ")));
+  const code = await main(argv, { api, now: () => now, env });
+  const summary = fs.existsSync(summaryFile) ? fs.readFileSync(summaryFile, "utf8") : "";
+  const recordFile = path.join(dir, "attempt-1.json");
+  const record = fs.existsSync(recordFile) ? JSON.parse(fs.readFileSync(recordFile, "utf8")) : null;
+  return { code, api, dir, summary, stdout: out.join("\n"), record };
+}
+
+const FAIL_UNIT2 = { "unit-2": [res("a.test.ts", "failed", [asr("A one", "failed"), asr("A two", "passed")])] };
+const prevRecord = (over = {}) => ({ deferred: true, failingTests: [], failedJobs: [], noReport: [], ...over });
+const issueTitleCalls = (api) => issueCalls(api).map(([c]) => c);
+
+describe("summarizeReports failingTests (6.1, X5)", () => {
+  const rep = (...results) => ({ testResults: results });
+  const base = (reports) => summarizeReports({ expected: Object.keys(reports), reports, root: CWD });
+
+  it("lists every failed assertion with job, file and test name; passing ones are not listed", () => {
+    const s = base({ "unit-2": rep(res("a.test.ts", "failed", [asr("A one", "failed"), asr("A two", "passed"), asr("A three", "failed")])) });
+    expect(s.failingTests).toEqual([
+      { job: "unit-2", file: "a.test.ts", test: "A one" },
+      { job: "unit-2", file: "a.test.ts", test: "A three" },
+    ]);
+    expect(s.failing).toEqual([{ job: "unit-2", file: "a.test.ts" }]);
+  });
+
+  it("X5: a file that failed with no failed assertion (broken import) has test: null", () => {
+    const s = base({ budget: rep(res("kb-search-perf.budget.test.ts", "failed", [])) });
+    expect(s.failingTests).toEqual([{ job: "budget", file: "kb-search-perf.budget.test.ts", test: null }]);
+  });
+
+  it("a green report has no failingTests", () => {
+    expect(base({ "unit-1": rep(...PASS("p.test.ts")) }).failingTests).toEqual([]);
+  });
+});
+
+describe("DEFER_DEADLINE_UTC_MINUTE", () => {
+  it("is 04:05 UTC (minute 245 of the UTC day)", () => {
+    expect(DEFER_DEADLINE_UTC_MINUTE).toBe(245);
+  });
+});
+
+describe("flag reader and usage error (E61–E63, 5.3)", () => {
+  it("E61a/b: a missing --reports or --expected prints a usage line, exits 1, writes no timings.json and makes no fetch call", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("no network in a usage error"));
+    const err = [];
+    vi.spyOn(console, "error").mockImplementation((...a) => void err.push(a.join(" ")));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    for (const flagsOf of [(d) => ["--expected", "unit-1"], (d) => ["--reports", d]]) {
+      const dir = path.join(tmp(), "reports");
+      const code = await main(flagsOf(dir), { env: { GITHUB_TOKEN: "t", GITHUB_REPOSITORY: REPO } });
+      expect(code).toBe(1);
+      expect(fs.existsSync(path.join(dir, "timings.json"))).toBe(false);
+    }
+    expect(err.filter((l) => /^usage:/.test(l))).toHaveLength(2);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("E61: the CLI itself prints a usage line and exits 1", () => {
+    const script = fileURLToPath(new URL("../test-selection/nightly-report.mjs", import.meta.url));
+    let status = 0;
+    let stderr = "";
+    try {
+      execFileSync(process.execPath, [script, "--expected", "unit-1"], { stdio: "pipe", env: { PATH: process.env.PATH } });
+    } catch (e) {
+      status = e.status;
+      stderr = String(e.stderr);
+    }
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/usage:/);
+  });
+
+  it("a value flag followed by another flag has no value (usage error)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await main(["--reports", "--expected", "unit-1"], { env: {} })).toBe(1);
+  });
+
+  it("E62: an unknown flag changes no output, file, API call or exit code", async () => {
+    const a = await runReport({ results: FAIL_UNIT2, flags: [] });
+    const b = await runReport({ results: FAIL_UNIT2, flags: [], extra: ["--foo", "bar"] });
+    expect(b.code).toBe(a.code);
+    expect(b.stdout).toBe(a.stdout);
+    expect(b.summary).toBe(a.summary);
+    expect(b.api.calls).toEqual(a.api.calls);
+    const files = (d) => fs.readdirSync(d).sort().map((f) => [f, fs.statSync(path.join(d, f)).isDirectory() ? "dir" : fs.readFileSync(path.join(d, f), "utf8")]);
+    expect(files(b.dir)).toEqual(files(a.dir));
+  });
+
+  it("E63a: --watchdog needs neither --reports nor --expected", async () => {
+    const api = fakeGh({ scheduled: [] });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = await main(["--watchdog"], { api, now: () => at("08:47"), env: { GITHUB_REPOSITORY: REPO, GITHUB_SERVER_URL: SERVER } });
+    expect(code).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+    expect(api.calls.map(([c]) => c)).toContain("scheduledRuns");
+  });
+
+  it("E63b: --dry-run without --watchdog is ignored: report mode behaves as without it", async () => {
+    const a = await runReport({ results: FAIL_UNIT2, flags: [] });
+    const b = await runReport({ results: FAIL_UNIT2, flags: [], extra: ["--dry-run"] });
+    expect(b.code).toBe(a.code);
+    expect(b.stdout).toBe(a.stdout);
+    expect(b.api.calls).toEqual(a.api.calls);
+    expect(issueTitleCalls(b.api)).toEqual(["create"]);
+  });
+});
+
+describe("no group-6 flag keeps today's behaviour (E64, E73)", () => {
+  it("E64: GITHUB_RUN_ATTEMPT=2 without --defer-first-attempt: no record read or written, verdict from this attempt only", async () => {
+    const previous = prevRecord({ failingTests: [{ job: "unit-2", file: "gone.test.ts", test: "X" }] });
+    const r = await runReport({ results: FAIL_UNIT2, flags: [], attempt: 2, previous, api: fakeGh() });
+    expect(r.record).toBeNull();
+    expect(r.code).toBe(1);
+    expect(r.stdout).not.toMatch(/Passed on rerun/);
+    expect(r.api.calls.map(([c]) => c)).not.toContain("runAttempt");
+    expect(issueTitleCalls(r.api)).toEqual(["create"]);
+    const green = await runReport({ flags: [], attempt: 2, previous: null });
+    expect(green.code).toBe(0);
+  });
+
+  it("E73: attempt 1, scheduled, red, no --defer-first-attempt: no attempt-1.json, issue synced as today", async () => {
+    const r = await runReport({ results: FAIL_UNIT2, flags: [], attempt: 1 });
+    expect(r.record).toBeNull();
+    expect(r.code).toBe(1);
+    expect(issueTitleCalls(r.api)).toEqual(["create"]);
+    expect(r.api.calls.map(([c]) => c)).not.toContain("workflow");
+  });
+});
+
+describe("attempt 1 with --defer-first-attempt (E67–E71, E74, X8)", () => {
+  it("E67: red scheduled attempt at 04:05 with both workflows active defers: record written, no issue call, exit 1", async () => {
+    const r = await runReport({ results: { ...FAIL_UNIT2, "unit-4": null }, needs: { ...GREEN_NEEDS, unit: { result: "failure" } }, attempt: 1, now: at("04:05") });
+    expect(r.code).toBe(1);
+    expect(issueCalls(r.api)).toEqual([]);
+    expect(r.api.calls).toContainEqual(["workflow", "nightly-tests-rerun.yml"]);
+    expect(r.api.calls).toContainEqual(["workflow", "nightly-tests-watchdog.yml"]);
+    expect(r.record).toEqual({
+      deferred: true,
+      failingTests: [{ job: "unit-2", file: "a.test.ts", test: "A one" }],
+      failedJobs: ["unit: failure"],
+      noReport: ["unit-4"],
+    });
+    expect(r.summary).toMatch(/deferred to (the )?rerun/i);
+    expect(r.summary).toContain("a.test.ts");
+  });
+
+  it("E68: the deadline is inclusive at minute 245: 04:04 defers, 04:06 does not", async () => {
+    const early = await runReport({ results: FAIL_UNIT2, attempt: 1, now: at("04:04") });
+    expect(early.record.deferred).toBe(true);
+    expect(issueCalls(early.api)).toEqual([]);
+    const late = await runReport({ results: FAIL_UNIT2, attempt: 1, now: at("04:06") });
+    expect(late.record.deferred).toBe(false);
+    expect(issueTitleCalls(late.api)).toEqual(["create"]);
+    expect(late.code).toBe(1);
+  });
+
+  it("a reporter a few seconds past 04:05 does not defer", async () => {
+    const r = await runReport({ results: FAIL_UNIT2, attempt: 1, now: new Date("2026-11-22T04:05:30Z") });
+    expect(r.record.deferred).toBe(false);
+  });
+
+  it("E69: a green attempt writes deferred: false, comments the green SHA and closes the open issue; exit 0", async () => {
+    const api = fakeGh({ open: [{ number: 7 }] });
+    const r = await runReport({ attempt: 1, now: at("04:05"), api });
+    expect(r.code).toBe(0);
+    expect(r.record.deferred).toBe(false);
+    const comment = api.calls.find(([c]) => c === "comment");
+    expect(comment[2]).toContain(B);
+    expect(api.calls).toContainEqual(["close", 7]);
+  });
+
+  it("E70: a dispatch run never defers and never touches the issue API; exit 1", async () => {
+    const r = await runReport({ results: FAIL_UNIT2, event: "workflow_dispatch", attempt: 1, now: at("04:05") });
+    expect(r.record.deferred).toBe(false);
+    expect(issueCalls(r.api)).toEqual([]);
+    expect(r.code).toBe(1);
+  });
+
+  it("E71: an inactive rerun workflow (disabled_manually) means no deferral: issue created", async () => {
+    const api = fakeGh({ workflows: { "nightly-tests-rerun.yml": "disabled_manually" } });
+    const r = await runReport({ results: FAIL_UNIT2, attempt: 1, now: at("04:00"), api });
+    expect(r.record.deferred).toBe(false);
+    expect(issueTitleCalls(api)).toEqual(["create"]);
+  });
+
+  it("an inactive watchdog workflow also means no deferral", async () => {
+    const api = fakeGh({ workflows: { "nightly-tests-watchdog.yml": "disabled_inactivity" } });
+    const r = await runReport({ results: FAIL_UNIT2, attempt: 1, now: at("04:00"), api });
+    expect(r.record.deferred).toBe(false);
+  });
+
+  it("E74: a reporter at 00:30 UTC the next day is past 04:05 of the run's creation date: no deferral", async () => {
+    const r = await runReport({ results: FAIL_UNIT2, attempt: 1, now: at("00:30", "2026-11-23") });
+    expect(r.record.deferred).toBe(false);
+    expect(issueTitleCalls(r.api)).toEqual(["create"]);
+    expect(r.code).toBe(1);
+  });
+
+  it("an HTTP error reading the run means no deferral", async () => {
+    const r = await runReport({ results: FAIL_UNIT2, attempt: 1, api: fakeGh({ fail: { run: 500 } }) });
+    expect(r.record.deferred).toBe(false);
+    expect(issueTitleCalls(r.api)).toEqual(["create"]);
+  });
+
+  it.each([404, 500])("X8: a %i answer for the watchdog workflow counts as not active: deferred false, issue created", async (status) => {
+    const api = fakeGh({ fail: { workflow: { "nightly-tests-watchdog.yml": status } } });
+    const r = await runReport({ results: FAIL_UNIT2, attempt: 1, now: at("04:00"), api });
+    expect(r.record.deferred).toBe(false);
+    expect(issueTitleCalls(api)).toEqual(["create"]);
+    expect(r.code).toBe(1);
+  });
+
+  it("the missing GITHUB_RUN_ATTEMPT is attempt 1", async () => {
+    const r = await runReport({ results: FAIL_UNIT2, now: at("04:00") });
+    expect(r.record?.deferred).toBe(true);
+  });
+});
+
+describe("attempt >= 2 with --previous (E75–E79, E85–E89, X5)", () => {
+  const prevTests = (...t) => prevRecord({ failingTests: t });
+
+  it("E75: attempt 2 green: lists the flaky test in the summary, comments it and closes the open issue", async () => {
+    const api = fakeGh({ open: [{ number: 7 }] });
+    const previous = prevTests({ job: "budget", file: "packages/server/src/__tests__/kb-search-perf.budget.test.ts", test: "P1" });
+    const r = await runReport({ attempt: 2, previous, api });
+    expect(r.code).toBe(0);
+    expect(r.summary).toMatch(/Passed on rerun \(flaky\)/);
+    expect(r.summary).toContain("kb-search-perf.budget.test.ts");
+    expect(r.summary).toContain("P1");
+    const comment = api.calls.find(([c]) => c === "comment");
+    expect(comment[2]).toContain("kb-search-perf.budget.test.ts");
+    expect(api.calls).toContainEqual(["close", 7]);
+    expect(api.calls.map(([c]) => c)).not.toContain("create");
+  });
+
+  it("E76: X fails again, Y passes: X under failing tests, Y only under Passed on rerun", async () => {
+    const api = fakeGh({ open: [{ number: 7 }] });
+    const previous = prevTests({ job: "unit-2", file: "x.test.ts", test: "X1" }, { job: "unit-3", file: "y.test.ts", test: "Y1" });
+    const r = await runReport({ attempt: 2, previous, api, results: { "unit-2": [res("x.test.ts", "failed", [asr("X1", "failed")])] } });
+    expect(r.code).toBe(1);
+    const body = api.issuesState[0].body;
+    const [failingPart, flakyPart] = body.split("### Passed on rerun (flaky)");
+    expect(failingPart).toContain("x.test.ts");
+    expect(failingPart).not.toContain("y.test.ts");
+    expect(flakyPart).toContain("y.test.ts");
+    expect(flakyPart).not.toContain("x.test.ts");
+  });
+
+  it("E77: a hung job (previous failedJobs + noReport) that now succeeds with a report is listed in jobsPassedOnRerun with its attempt-1 result", async () => {
+    const previous = prevRecord({ failedJobs: ["real-process: cancelled"], noReport: ["real-process"] });
+    const r = await runReport({ attempt: 2, previous });
+    expect(r.code).toBe(0);
+    expect(r.summary).toMatch(/Passed on rerun \(flaky\)/);
+    expect(r.summary).toMatch(/real-process.*cancelled/);
+  });
+
+  it("E77b: a previous failedJobs entry without a result suffix is still matched", async () => {
+    const r = await runReport({ attempt: 2, previous: prevRecord({ failedJobs: ["real-process"], noReport: ["real-process"] }) });
+    expect(r.summary).toMatch(/real-process/);
+    expect(r.code).toBe(0);
+  });
+
+  it("E77c: a sharded job (needs key `unit`) that failed on attempt 1 and now has all four shard reports passes on rerun", async () => {
+    const r = await runReport({ attempt: 2, previous: prevRecord({ failedJobs: ["unit: failure"] }) });
+    expect(r.summary).toMatch(/unit.*failure/);
+    expect(r.code).toBe(0);
+  });
+
+  it("E78: a job that succeeded but still has no report is not in jobsPassedOnRerun; the run is red", async () => {
+    const api = fakeGh();
+    const r = await runReport({ attempt: 2, previous: prevRecord({ noReport: ["unit-4"] }), results: { "unit-4": null }, api });
+    expect(r.code).toBe(1);
+    expect(api.issuesState[0].body).not.toMatch(/Passed on rerun/);
+    expect(api.issuesState[0].body).toMatch(/unit-4: no report/);
+  });
+
+  it("E79: a manual re-run (record deferred: false) judges on its own verdict, still showing the lists", async () => {
+    const previous = prevRecord({ deferred: false, failingTests: [{ job: "unit-2", file: "a.test.ts", test: "A one" }] });
+    const r = await runReport({ attempt: 2, previous });
+    expect(r.code).toBe(0);
+    expect(r.summary).toMatch(/Passed on rerun \(flaky\)/);
+    expect(r.summary).toContain("a.test.ts");
+  });
+
+  it("E79b: a manual re-run that is red carries the lists in the issue body", async () => {
+    const api = fakeGh();
+    const previous = prevRecord({ deferred: false, failingTests: [{ job: "unit-3", file: "y.test.ts", test: "Y1" }] });
+    const r = await runReport({ attempt: 2, previous, api, results: FAIL_UNIT2 });
+    expect(r.code).toBe(1);
+    expect(api.issuesState[0].body).toMatch(/Passed on rerun \(flaky\)[\s\S]*y\.test\.ts/);
+  });
+
+  it("E85: a previous test: null entry (import error) whose file now passes is listed with no test name", async () => {
+    const previous = prevTests({ job: "unit-1", file: "f.test.ts", test: null });
+    const r = await runReport({ attempt: 2, previous, results: { "unit-1": PASS("f.test.ts") } });
+    expect(r.code).toBe(0);
+    expect(r.summary).toContain("f.test.ts");
+    expect(r.summary).not.toMatch(/null|undefined/);
+  });
+
+  it("a previous test: null entry whose file now fails a named test is still failing, not passed on rerun", async () => {
+    const previous = prevTests({ job: "unit-1", file: "f.test.ts", test: null });
+    const api = fakeGh();
+    const r = await runReport({ attempt: 2, previous, api, results: { "unit-1": [res("f.test.ts", "failed", [asr("now a named failure", "failed")])] } });
+    expect(r.code).toBe(1);
+    expect(api.issuesState[0].body).not.toMatch(/Passed on rerun/);
+  });
+
+  it("a previous failure whose job has no report now is not passed on rerun", async () => {
+    const previous = prevTests({ job: "unit-1", file: "f.test.ts", test: "T" });
+    const r = await runReport({ attempt: 2, previous, results: { "unit-1": null } });
+    expect(r.code).toBe(1);
+    expect(r.summary).not.toMatch(/Passed on rerun/);
+  });
+
+  it("E86: a real-process test that failed both in-job tries and passes on rerun is under Passed on rerun; no issue; green", async () => {
+    const previous = prevTests({ job: "real-process", file: "real.test.ts", test: "T" });
+    const api = fakeGh();
+    const r = await runReport({ attempt: 2, previous, api, results: { "real-process": [res("real.test.ts", "passed", [asr("T", "passed")])] } });
+    expect(r.code).toBe(0);
+    expect(r.summary).toMatch(/Passed on rerun[\s\S]*real\.test\.ts/);
+    expect(issueCalls(api)).toEqual([]);
+  });
+
+  it("E87: attempt 2 red with one open issue updates that issue; the open count stays 1", async () => {
+    const api = fakeGh({ open: [{ number: 7 }] });
+    await runReport({ attempt: 2, previous: prevRecord(), api, results: FAIL_UNIT2 });
+    expect(issueTitleCalls(api)).toContain("update");
+    expect(issueTitleCalls(api)).not.toContain("create");
+    expect(api.issuesState.filter((i) => i.state === "open")).toHaveLength(1);
+  });
+
+  it("E88: attempt 2 red with no earlier green scheduled run: the issue says no green anchor, names the files and the run URL", async () => {
+    const api = fakeGh({ runs: [] });
+    await runReport({ attempt: 2, previous: prevRecord(), api, results: FAIL_UNIT2 });
+    const body = api.issuesState[0].body;
+    expect(body).toMatch(/no green anchor/);
+    expect(body).toContain("a.test.ts");
+    expect(body).toContain(RUN_URL);
+  });
+
+  it("E89: the range anchors on the older green scheduled run, never the newer green dispatch run", async () => {
+    const runs = [
+      { id: 90, event: "workflow_dispatch", head_branch: "os/feature", conclusion: "success", head_sha: "ddddddd" },
+      { id: 80, event: "schedule", head_branch: "develop", conclusion: "success", head_sha: "aaaaaaa" },
+    ];
+    // Independent of the checkout: a CI unit job clones shallow, where HEAD is its own root and no range exists.
+    const head = "b".repeat(40);
+    const root = "a".repeat(40);
+    runs[1].head_sha = root;
+    const api = fakeGh({ runs });
+    const dir = tmp();
+    writeReports(dir, FAIL_UNIT2);
+    const out = [];
+    vi.spyOn(console, "log").mockImplementation((...a) => void out.push(a.join(" ")));
+    const env = { GITHUB_SHA: head, GITHUB_REPOSITORY: REPO, GITHUB_RUN_ID: RUN_ID, GITHUB_SERVER_URL: SERVER, GITHUB_EVENT_NAME: "schedule", GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: JSON.stringify(GREEN_NEEDS) };
+    const prev = tmp();
+    fs.writeFileSync(path.join(prev, "attempt-1.json"), JSON.stringify(prevRecord()));
+    const code = await main(["--reports", dir, "--expected", ALL_JOBS.join(","), "--defer-first-attempt", "--previous", prev], { api, now: () => at("06:00"), env, gitIsAncestor: (a) => a === root });
+    expect(code).toBe(1);
+    const body = api.issuesState[0].body;
+    expect(body).toContain(`${root}..${head}`);
+    expect(body).not.toContain("ddddddd");
+  });
+
+  it("X5: a broken-import budget file is named by the issue after attempt 2 (test: null in the record)", async () => {
+    const broken = { budget: [res("kb-search-perf.budget.test.ts", "failed", [])] };
+    const a1 = await runReport({ results: broken, attempt: 1, now: at("04:00") });
+    expect(a1.record.failingTests).toEqual([{ job: "budget", file: "kb-search-perf.budget.test.ts", test: null }]);
+    const api = fakeGh();
+    await runReport({ results: broken, attempt: 2, previous: a1.record, api });
+    expect(api.issuesState[0].body).toContain("kb-search-perf.budget.test.ts");
+    expect(api.issuesState[0].body).not.toMatch(/Passed on rerun/);
+  });
+});
+
+describe("attempt >= 2 without a usable record (E80–E82, E84, X6)", () => {
+  const UNAVAILABLE_RED = "first-attempt record unavailable — passed-on-rerun not computed";
+
+  it("E80: no record, attempt 1 was a dispatch run: judged on its own verdict, summary explains", async () => {
+    const api = fakeGh({ attempt1: { event: "workflow_dispatch", conclusion: "failure" } });
+    const r = await runReport({ attempt: 2, previous: null, api });
+    expect(r.code).toBe(0);
+    expect(r.summary).toContain("first-attempt record unavailable; attempt 1 did not defer (workflow_dispatch, failure)");
+    expect(api.calls).toContainEqual(["runAttempt", RUN_ID, 1]);
+  });
+
+  it("E81: no record, attempt 1 was a green scheduled run: green on its own verdict", async () => {
+    const api = fakeGh({ attempt1: { event: "schedule", conclusion: "success" } });
+    const r = await runReport({ attempt: 2, previous: null, api });
+    expect(r.code).toBe(0);
+    expect(r.summary).toContain("attempt 1 did not defer (schedule, success)");
+  });
+
+  it("E80b: a did-not-defer attempt 1 with a red attempt 2 reports red on its own, issue without the unavailable note", async () => {
+    const api = fakeGh({ attempt1: { event: "workflow_dispatch", conclusion: "failure" } });
+    const r = await runReport({ attempt: 2, previous: null, api, results: FAIL_UNIT2 });
+    expect(r.code).toBe(1);
+    expect(api.issuesState[0].body).not.toContain(UNAVAILABLE_RED);
+  });
+
+  it("E82: a truncated record on a scheduled failed attempt 1 is fail-closed: red even when attempt 2 is green", async () => {
+    const api = fakeGh({ attempt1: { event: "schedule", conclusion: "failure" } });
+    const r = await runReport({ attempt: 2, previous: '{"deferred": tr', api });
+    expect(r.code).toBe(1);
+    expect(r.summary).toContain(UNAVAILABLE_RED);
+    expect(api.issuesState[0].body).toContain(UNAVAILABLE_RED);
+  });
+
+  it("a record that is valid JSON but has no boolean `deferred` counts as unparsable", async () => {
+    const r = await runReport({ attempt: 2, previous: { failingTests: [] }, api: fakeGh({ attempt1: { event: "schedule", conclusion: "failure" } }) });
+    expect(r.code).toBe(1);
+  });
+
+  it("E84: --defer-first-attempt on attempt 2 without --previous is treated as a missing record", async () => {
+    const red = await runReport({ attempt: 2, api: fakeGh({ attempt1: { event: "schedule", conclusion: "failure" } }) });
+    expect(red.code).toBe(1);
+    expect(red.summary).toContain(UNAVAILABLE_RED);
+    const ok = await runReport({ attempt: 2, api: fakeGh({ attempt1: { event: "workflow_dispatch", conclusion: "failure" } }) });
+    expect(ok.code).toBe(0);
+  });
+
+  it("X6: no record and GET attempts/1 fails with HTTP 500: red with the unavailable note", async () => {
+    const api = fakeGh({ fail: { runAttempt: 500 } });
+    const r = await runReport({ attempt: 2, previous: null, api });
+    expect(r.code).toBe(1);
+    expect(api.issuesState[0].body).toContain(UNAVAILABLE_RED);
+  });
+
+  it("a manual attempt 2 of a dispatch run never touches the issue API even when forced red", async () => {
+    const api = fakeGh({ fail: { runAttempt: 500 } });
+    const r = await runReport({ attempt: 2, previous: null, api, event: "workflow_dispatch" });
+    expect(r.code).toBe(1);
+    expect(issueCalls(api)).toEqual([]);
+  });
+});
+
+describe("buildIssueBody / syncIssue passed-on-rerun (6.1)", () => {
+  const green = { failing: [], noReport: [], failedJobs: [], red: false };
+
+  it("adds a `### Passed on rerun (flaky)` section with both lists only when one is non-empty", () => {
+    const plain = buildIssueBody({ summary: green, range: "r", runUrl: "u", sha: B });
+    expect(plain).not.toMatch(/Passed on rerun/);
+    const body = buildIssueBody({
+      summary: { ...green, passedOnRerun: [{ job: "unit-2", file: "a.test.ts", test: "A" }], jobsPassedOnRerun: [{ job: "real-process", attempt1: "cancelled" }] },
+      range: "r",
+      runUrl: "u",
+      sha: B,
+    });
+    expect(body).toMatch(/### Passed on rerun \(flaky\)/);
+    expect(body).toContain("a.test.ts");
+    expect(body).toMatch(/real-process.*cancelled/);
+  });
+
+  it("the green close comment lists both lists", async () => {
+    const api = fakeGh({ open: [{ number: 7 }] }).issues;
+    const calls = [];
+    await syncIssue({
+      api: { ...api, comment: async (n, b) => calls.push(b) },
+      red: false,
+      body: "",
+      sha: B,
+      passedOnRerun: [{ job: "unit-2", file: "a.test.ts", test: "A" }],
+      jobsPassedOnRerun: [{ job: "real-process", attempt1: "cancelled" }],
+    });
+    expect(calls[0]).toContain(B);
+    expect(calls[0]).toContain("a.test.ts");
+    expect(calls[0]).toContain("real-process");
+  });
+});
+
+describe("--watchdog (E90–E99, X7)", () => {
+  const NOW = at("08:47");
+  const ago = (h, m = 0) => new Date(NOW.getTime() - (h * 60 + m) * 60000).toISOString();
+  const wrun = (over = {}) => ({ id: 555, event: "schedule", head_branch: "develop", status: "completed", conclusion: "failure", run_attempt: 1, head_sha: B, created_at: ago(4, 47), run_started_at: ago(4, 47), ...over });
+  const ENV = { GITHUB_REPOSITORY: REPO, GITHUB_SERVER_URL: SERVER, GITHUB_TOKEN: "t" };
+  async function runWatchdog(api, extra = []) {
+    const out = [];
+    vi.spyOn(console, "log").mockImplementation((...a) => void out.push(a.join(" ")));
+    const code = await main(["--watchdog", ...extra], { api, now: () => NOW, env: ENV });
+    return { code, out: out.join("\n") };
+  }
+
+  it("E90: red latest scheduled run, no open issue: issue created with URL, attempt, status, conclusion and reason; exit 1", async () => {
+    const api = fakeGh({ scheduled: [wrun({ run_attempt: 2 })] });
+    const r = await runWatchdog(api);
+    expect(r.code).toBe(1);
+    expect(issueTitleCalls(api)).toEqual(["create"]);
+    const body = api.issuesState[0].body;
+    expect(body).toContain(RUN_URL);
+    expect(body).toMatch(/attempt:? `?2/i);
+    expect(body).toMatch(/status:? `?completed/i);
+    expect(body).toMatch(/conclusion:? `?failure/i);
+    expect(body).toContain("rerun not performed or not reported");
+  });
+
+  it("E91: a successful latest run: exit 0, no issue write", async () => {
+    const api = fakeGh({ scheduled: [wrun({ conclusion: "success" })] });
+    const r = await runWatchdog(api);
+    expect(r.code).toBe(0);
+    expect(issueCalls(api)).toEqual([]);
+  });
+
+  it("E92: an open issue already naming the run URL: exit 0, no issue write", async () => {
+    const api = fakeGh({ scheduled: [wrun()], open: [{ number: 7, body: `Nightly red. Run: ${RUN_URL}\n` }] });
+    const r = await runWatchdog(api);
+    expect(r.code).toBe(0);
+    expect(issueCalls(api)).toEqual([]);
+  });
+
+  it("E92b: an open issue naming a run whose id merely starts with this id does not count", async () => {
+    const api = fakeGh({ scheduled: [wrun()], open: [{ number: 7, body: `Run: ${RUN_URL}9` }] });
+    const r = await runWatchdog(api);
+    expect(r.code).toBe(1);
+    expect(issueTitleCalls(api)).toContain("update");
+  });
+
+  it("E93: the open issue names an older run URL: the same issue is updated, no second issue; exit 1", async () => {
+    const api = fakeGh({ scheduled: [wrun()], open: [{ number: 7, body: `Run: ${SERVER}/${REPO}/actions/runs/444` }] });
+    const r = await runWatchdog(api);
+    expect(r.code).toBe(1);
+    expect(issueTitleCalls(api)).toContain("update");
+    expect(issueTitleCalls(api)).not.toContain("create");
+    expect(api.issuesState[0].body).toContain(RUN_URL);
+  });
+
+  it("E94: only a closed issue names the URL: treated as unreported, issue created", async () => {
+    const api = fakeGh({ scheduled: [wrun()], open: [{ number: 7, state: "closed", body: RUN_URL }] });
+    const r = await runWatchdog(api);
+    expect(r.code).toBe(1);
+    expect(issueTitleCalls(api)).toEqual(["create"]);
+  });
+
+  it("E95: 23 h 59 min old reports (exit 1); 24 h 01 min old exits 0", async () => {
+    const fresh = fakeGh({ scheduled: [wrun({ created_at: ago(23, 59), run_started_at: ago(23, 59) })] });
+    expect((await runWatchdog(fresh)).code).toBe(1);
+    const stale = fakeGh({ scheduled: [wrun({ created_at: ago(24, 1), run_started_at: ago(24, 1) })] });
+    expect((await runWatchdog(stale)).code).toBe(0);
+    expect(issueCalls(stale)).toEqual([]);
+  });
+
+  it("E96: an in-progress run is reported by the watchdog; attempt 2 later comments and closes that issue", async () => {
+    const api = fakeGh({ scheduled: [wrun({ status: "in_progress", conclusion: null })] });
+    expect((await runWatchdog(api)).code).toBe(1);
+    expect(api.issuesState[0].state).toBe("open");
+    const r = await runReport({ attempt: 2, previous: prevRecord(), api });
+    expect(r.code).toBe(0);
+    expect(api.calls).toContainEqual(["close", api.issuesState[0].number]);
+    expect(api.issuesState[0].state).toBe("closed");
+  });
+
+  it("E97: a cancelled latest run, no issue: issue created; exit 1", async () => {
+    const api = fakeGh({ scheduled: [wrun({ conclusion: "cancelled" })] });
+    expect((await runWatchdog(api)).code).toBe(1);
+    expect(issueTitleCalls(api)).toEqual(["create"]);
+  });
+
+  it("E98: --dry-run prints the decision, writes nothing and returns the same exit code", async () => {
+    const api = fakeGh({ scheduled: [wrun()] });
+    const r = await runWatchdog(api, ["--dry-run"]);
+    expect(r.code).toBe(1);
+    expect(issueCalls(api)).toEqual([]);
+    expect(r.out).toContain(RUN_URL);
+    expect(r.out).toContain("rerun not performed or not reported");
+  });
+
+  it("--dry-run of a nothing-to-report night prints that and exits 0", async () => {
+    const r = await runWatchdog(fakeGh({ scheduled: [wrun({ conclusion: "success" })] }), ["--dry-run"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/nothing to report/i);
+  });
+
+  it("E99: only schedule runs on develop are judged: a red newer dispatch run is skipped for the green schedule run", async () => {
+    const api = fakeGh({
+      scheduled: [wrun({ id: 600, event: "workflow_dispatch", conclusion: "failure" }), wrun({ id: 590, head_branch: "os/x", conclusion: "failure" }), wrun({ id: 580, conclusion: "success" })],
+    });
+    const r = await runWatchdog(api);
+    expect(r.code).toBe(0);
+    expect(issueCalls(api)).toEqual([]);
+  });
+
+  it("no scheduled run at all: nothing to report, exit 0", async () => {
+    expect((await runWatchdog(fakeGh({ scheduled: [] }))).code).toBe(0);
+  });
+
+  it("X7: a 502 listing the runs rejects (the entry point exits 1) and writes no issue", async () => {
+    const api = fakeGh({ fail: { scheduledRuns: 502 } });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await expect(main(["--watchdog"], { api, now: () => NOW, env: ENV })).rejects.toThrow(/502/);
+    expect(issueCalls(api)).toEqual([]);
+  });
+});
+
+// ── jobs-only mode + report-mode defaults (change: schedule-release-rehearsal, D2; test-plan E1-E28, X1-X8) ──
+describe("nightly-report jobs-only mode (D2)", () => {
+  const N = "Nightly Verdaccio build";
+  const JO = ["--jobs-only", "--no-close-on-rerun", "--label", "nightly", "--name", N];
+  const SHA = "abc1234";
+  const RUN_URL = "https://github.com/o/r/actions/runs/42";
+  const allOk = JSON.stringify({ resolve: { result: "success" }, electron: { result: "success" }, knip: { result: "success" } });
+  const needsOf = (o) => JSON.stringify(Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { result: v }])));
+  const job = (name, conclusion) => ({ name, conclusion });
+
+  /** A fake GitHub at the `fetch` layer: records issue calls, the list URL and every jobs request. */
+  function fakeGitHub({ open = [], jobPages = [[]], fail = {} } = {}) {
+    const calls = [];
+    const jobsRequests = [];
+    const urls = [];
+    const reply = (body, status = 200, headers = {}) => ({
+      ok: status < 400,
+      status,
+      headers: { get: (k) => headers[k.toLowerCase()] ?? null },
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    });
+    const fetch = async (url, init = {}) => {
+      const method = init.method ?? "GET";
+      const u = new URL(url);
+      const body = init.body ? JSON.parse(init.body) : undefined;
+      urls.push(`${method} ${u.pathname}${u.search}`);
+      const err = (name) => (fail[name] ? reply({ message: "boom" }, fail[name]) : null);
+      let m;
+      if (method === "GET" && u.pathname === "/repos/o/r/issues") {
+        calls.push(["listOpen", u.searchParams.get("labels")]);
+        return err("listOpen") ?? reply(open.filter((i) => i.labels.includes(u.searchParams.get("labels"))));
+      }
+      if (method === "GET" && /\/actions\/runs\/42\/jobs$/.test(u.pathname)) {
+        jobsRequests.push(`${u.pathname}${u.search}`);
+        calls.push(["jobs"]);
+        const page = Number(u.searchParams.get("page") ?? 1);
+        const link = page < jobPages.length ? { link: `<https://api.github.com${u.pathname}?per_page=100&page=${page + 1}>; rel="next"` } : {};
+        return err("jobs") ?? reply({ jobs: jobPages[page - 1] }, 200, link);
+      }
+      if (method === "GET" && /\/actions\/workflows\/.+\/runs$/.test(u.pathname)) {
+        calls.push(["runs"]);
+        return reply({ workflow_runs: [] });
+      }
+      if (method === "POST" && u.pathname === "/repos/o/r/issues") {
+        calls.push(["create", body.title, body.labels, body.body]);
+        return err("create") ?? reply({ number: 100 }, 201);
+      }
+      if (method === "POST" && (m = /\/issues\/(\d+)\/comments$/.exec(u.pathname))) {
+        calls.push(["comment", Number(m[1]), body.body]);
+        return err("comment") ?? reply({}, 201);
+      }
+      if (method === "PATCH" && (m = /\/issues\/(\d+)$/.exec(u.pathname))) {
+        const kind = body.state === "closed" ? "close" : "update";
+        calls.push([kind, Number(m[1]), body.body]);
+        return err(kind) ?? reply({});
+      }
+      throw new Error(`unexpected request ${method} ${u.pathname}`);
+    };
+    return { fetch, calls, jobsRequests, urls, writes: () => calls.filter((c) => ["create", "update", "comment", "close"].includes(c[0])) };
+  }
+
+  async function run(argv, { env = {}, gh = fakeGitHub() } = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jo-"));
+    const summaryFile = path.join(dir, "summary.md");
+    const baseEnv = {
+      GITHUB_TOKEN: "t",
+      GITHUB_REPOSITORY: "o/r",
+      GITHUB_SERVER_URL: "https://github.com",
+      GITHUB_RUN_ID: "42",
+      GITHUB_SHA: SHA,
+      GITHUB_EVENT_NAME: "schedule",
+      GITHUB_RUN_ATTEMPT: "1",
+      NEEDS_JSON: allOk,
+      GITHUB_STEP_SUMMARY: summaryFile,
+    };
+    const merged = { ...baseEnv, ...env };
+    for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k];
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const code = await main(argv, { fetch: gh.fetch, env: merged, gitIsAncestor: () => true });
+      const summary = fs.existsSync(summaryFile) ? fs.readFileSync(summaryFile, "utf8") : "";
+      const stdout = log.mock.calls.map((c) => c.join(" ")).join("\n");
+      return { code, summary, stdout, ...gh };
+    } finally {
+      log.mockRestore();
+    }
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  const reportsDir = () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "jo-rep-"));
+    for (const [job, failing] of [["unit-1", false], ["unit-2", true]]) {
+      fs.mkdirSync(path.join(d, `vitest-report-${job}`));
+      fs.writeFileSync(
+        path.join(d, `vitest-report-${job}`, "r.json"),
+        JSON.stringify({ testResults: [{ name: `${process.cwd()}/a.test.ts`, status: failing ? "failed" : "passed", startTime: 0, endTime: 1000, assertionResults: failing ? [{ status: "failed", fullName: "t" }] : [] }] }),
+      );
+    }
+    return d;
+  };
+  const okNeeds = needsOf({ "unit-1": "success", "unit-2": "success" });
+
+  it("E1: report mode without the new flags keeps today's strings, label and files", async () => {
+    const d = reportsDir();
+    const r = await run(["--reports", d, "--expected", "unit-1,unit-2"], { env: { NEEDS_JSON: okNeeds } });
+    expect(r.summary.startsWith("## Nightly tests: RED")).toBe(true);
+    expect(r.stdout).toContain(`Nightly full suite is red at \`${SHA}\`.`);
+    const create = r.calls.filter((c) => c[0] === "create");
+    expect(create).toHaveLength(1);
+    expect(create[0][1]).toBe("Nightly full test suite is failing");
+    expect(create[0][2]).toEqual(["nightly-tests"]);
+    expect(fs.existsSync(path.join(d, "timings.json"))).toBe(true);
+    expect(r.code).toBe(1);
+  });
+
+  it("E2: the new flags are ignored in report mode", async () => {
+    const d = reportsDir();
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly-tests"] }] });
+    const r = await run(["--reports", d, "--expected", "unit-1,unit-2", "--label", "nightly", "--name", "X", "--no-close-on-rerun"], { env: { NEEDS_JSON: okNeeds, GITHUB_RUN_ATTEMPT: "2" }, gh });
+    expect(r.writes().map((c) => c[0])).toEqual(["update", "comment"]);
+    expect(r.writes()[1]).toEqual(["comment", 7, `Still red at \`${SHA}\`.`]);
+    expect(r.calls.find((c) => c[0] === "listOpen")[1]).toBe("nightly-tests");
+    expect(`${r.summary}${r.stdout}${JSON.stringify(r.calls)}`).not.toMatch(/Re-run attempt|"X"|\bX is\b/);
+    expect(r.code).toBe(1);
+  });
+
+  it("E3: --jobs-only wins over --watchdog and needs no --reports", async () => {
+    const gone = path.join(os.tmpdir(), `jo-gone-${process.pid}-${Date.now()}`);
+    const r = await run([...JO, "--watchdog", "--reports", gone, "--expected", "a"], { env: { GITHUB_EVENT_NAME: "workflow_dispatch" } });
+    expect(fs.existsSync(gone)).toBe(false);
+    expect(r.calls.some((c) => c[0] === "runs")).toBe(false);
+    expect(r.stdout + r.summary).not.toContain("usage:");
+    expect(r.summary).toContain(`## ${N}: green`);
+    expect(r.code).toBe(0);
+  });
+
+  it("E4: jobs-only needs neither --reports nor --expected", async () => {
+    const r = await run(JO);
+    expect(r.stdout + r.summary).not.toContain("usage:");
+    expect(r.calls).toEqual([["listOpen", "nightly"]]);
+    expect(r.writes()).toEqual([]);
+    expect(r.code).toBe(0);
+  });
+
+  it("E5: --name maps the heading, headline and title; the failed leg is named", async () => {
+    const gh = fakeGitHub({ jobPages: [[job("electron / build (macos-14)", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure", knip: "success" }) }, gh });
+    expect(r.summary).toContain(`## ${N}: RED`);
+    const create = r.calls.filter((c) => c[0] === "create");
+    expect(create).toHaveLength(1);
+    expect(create[0][1]).toBe(`${N} is failing`);
+    expect(create[0][2]).toEqual(["nightly"]);
+    expect(create[0][3]).toContain(`${N} is red at \`${SHA}\`.`);
+    expect(create[0][3]).toContain(RUN_URL);
+    expect(create[0][3]).toMatch(/### Failed jobs and legs\n- electron \/ build \(macos-14\)/);
+    expect(r.code).toBe(1);
+  });
+
+  it("E6: recovery comments, then closes", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { gh });
+    expect(r.writes()).toEqual([["comment", 7, `${N} is green again at \`${SHA}\`. Closing.`], ["close", 7, undefined]]);
+    expect(r.summary).toContain(`## ${N}: green`);
+    expect(r.code).toBe(0);
+  });
+
+  it("E7: a repeat failure updates the open issue and comments 'Still red'", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], jobPages: [[job("knip", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ knip: "failure" }) }, gh });
+    const w = r.writes();
+    expect(w.map((c) => c[0])).toEqual(["update", "comment"]);
+    expect(w[0][2]).toContain("knip");
+    expect(w[0][2]).toContain(RUN_URL);
+    expect(w[1]).toEqual(["comment", 7, `Still red at \`${SHA}\`.`]);
+    expect(r.code).toBe(1);
+  });
+
+  it("E8: a red re-run comments on the open issue and leaves the body alone", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], jobPages: [[job("electron / build (windows-latest)", "failure")]] });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(r.writes()).toHaveLength(1);
+    const [kind, n, body] = r.writes()[0];
+    expect([kind, n]).toEqual(["comment", 7]);
+    expect(body.startsWith(`Re-run attempt 2 of ${RUN_URL} is red at \`${SHA}\`.`)).toBe(true);
+    expect(body).toMatch(/### Failed jobs and legs\n- electron \/ build \(windows-latest\)/);
+    expect(r.code).toBe(1);
+  });
+
+  it("E9: a red re-run with no open issue opens one with the full body", async () => {
+    const gh = fakeGitHub({ jobPages: [[job("electron / build (windows-latest)", "failure")]] });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    const create = r.calls.filter((c) => c[0] === "create");
+    expect(create).toHaveLength(1);
+    expect(create[0][1]).toBe(`${N} is failing`);
+    expect(create[0][2]).toEqual(["nightly"]);
+    expect(create[0][3]).toContain("electron");
+    expect(create[0][3]).toContain("electron / build (windows-latest)");
+    expect(create[0][3]).toContain(RUN_URL);
+    expect(r.code).toBe(1);
+  });
+
+  it("E10: a green re-run makes no issue call and says why", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2" }, gh });
+    expect(r.calls).toEqual([]);
+    expect(r.summary).toContain(`## ${N}: green`);
+    expect(r.summary).toContain("Re-run attempt 2: a re-run never closes the `nightly` issue; the next green scheduled night does.");
+    expect(r.code).toBe(0);
+  });
+
+  it("E11: a green re-run needs no first-attempt record", async () => {
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2" } });
+    expect(r.calls).toEqual([]);
+    expect(r.summary).toContain("Re-run attempt 2: a re-run never closes");
+    expect(r.code).toBe(0);
+  });
+
+  it("E12: attempt 3 behaves like attempt 2", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "3", NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(r.writes()).toHaveLength(1);
+    expect(r.writes()[0][0]).toBe("comment");
+    expect(r.writes()[0][2].startsWith("Re-run attempt 3 of")).toBe(true);
+    expect(r.code).toBe(1);
+  });
+
+  it("E13: a red dispatch never touches the issue", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { GITHUB_EVENT_NAME: "workflow_dispatch", NEEDS_JSON: needsOf({ smoke: "failure" }) }, gh });
+    expect(r.calls.filter((c) => c[0] !== "jobs")).toEqual([]);
+    expect(r.summary).toContain(`## ${N}: RED`);
+    expect(r.summary).toContain("smoke");
+    expect(r.code).toBe(1);
+  });
+
+  it("E14: a green dispatch never touches the issue", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { GITHUB_EVENT_NAME: "workflow_dispatch" }, gh });
+    expect(r.calls).toEqual([]);
+    expect(r.summary).toContain(`## ${N}: green`);
+    expect(r.code).toBe(0);
+  });
+
+  it("E15: a dispatch re-run writes no issue and no re-run text", async () => {
+    const r = await run(JO, { env: { GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ smoke: "failure" }) } });
+    expect(r.writes()).toEqual([]);
+    expect(r.calls.some((c) => c[0] === "listOpen")).toBe(false);
+    expect(r.summary).not.toContain("Re-run attempt");
+    expect(r.code).toBe(1);
+  });
+
+  it("E16: without --no-close-on-rerun a green attempt 2 behaves like attempt 1", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(["--jobs-only", "--label", "nightly", "--name", N], { env: { GITHUB_RUN_ATTEMPT: "2" }, gh });
+    expect(r.writes().map((c) => c.slice(0, 3))).toEqual([["comment", 7, `${N} is green again at \`${SHA}\`. Closing.`], ["close", 7, undefined]]);
+    expect(r.code).toBe(0);
+  });
+
+  it.each([["unset", undefined], ["empty", ""]])("E17: NEEDS_JSON %s is red with 'job results unavailable'", async (_n, value) => {
+    const r = await run(JO, { env: { NEEDS_JSON: value } });
+    expect(r.stdout).toContain("job results unavailable");
+    expect(r.summary).toContain(`## ${N}: RED`);
+    const create = r.calls.filter((c) => c[0] === "create");
+    expect(create).toHaveLength(1);
+    expect(create[0][2]).toEqual(["nightly"]);
+    expect(r.code).toBe(1);
+  });
+
+  it("E18: invalid NEEDS_JSON is red, never an uncaught exception", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { NEEDS_JSON: "{not json" }, gh });
+    expect(r.stdout).toContain("job results unavailable");
+    expect(r.writes().map((c) => c[0])).toEqual(["update", "comment"]);
+    expect(r.summary).toContain("RED");
+    expect(r.code).toBe(1);
+  });
+
+  it("E19: NEEDS_JSON '{}' is red (today's `|| \"{}\"` would be green)", async () => {
+    const r = await run(JO, { env: { NEEDS_JSON: "{}" } });
+    expect(r.stdout).toContain("job results unavailable");
+    expect(r.summary).toContain("RED");
+    expect(r.calls.filter((c) => c[0] === "create")).toHaveLength(1);
+    expect(r.code).toBe(1);
+  });
+
+  it.each(["null", "[]"])("E20: NEEDS_JSON %s is red, never green", async (value) => {
+    const r = await run(JO, { env: { NEEDS_JSON: value } });
+    expect(r.stdout).toContain("job results unavailable");
+    expect(r.summary).not.toContain(`## ${N}: green`);
+    expect(r.code).toBe(1);
+  });
+
+  it("E21: a skipped job is red and printed with its result", async () => {
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ resolve: "failure", "verify-publish": "skipped", electron: "skipped", knip: "success", "install-load": "success", smoke: "success" }) } });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    for (const line of ["resolve: failure", "verify-publish: skipped", "electron: skipped"]) expect(body).toContain(line);
+    expect(r.code).toBe(1);
+  });
+
+  it("E22: a non-electron failing job is named in both sections", async () => {
+    const gh = fakeGitHub({ jobPages: [[job("knip", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ knip: "failure" }) }, gh });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    expect(body).toMatch(/### Jobs that did not succeed\n- knip: failure/);
+    expect(body).toMatch(/### Failed jobs and legs\n- knip/);
+    expect(r.code).toBe(1);
+  });
+
+  it("E23: only failure, cancelled and timed_out conclusions are listed", async () => {
+    const jobs = [
+      job("smoke / standalone-install-smoke-windows (node 26)", "failure"),
+      job("electron / build (macos-14)", "cancelled"),
+      job("verify-publish", "timed_out"),
+      job("resolve", "success"),
+      job("knip", "skipped"),
+      job("install-load", "neutral"),
+      job("report", null),
+    ];
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh: fakeGitHub({ jobPages: [jobs] }) });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    const section = body.slice(body.indexOf("### Failed jobs and legs"));
+    expect(section).toContain("smoke / standalone-install-smoke-windows (node 26)");
+    expect(section).toContain("electron / build (macos-14)");
+    expect(section).toContain("- verify-publish");
+    for (const name of ["resolve", "knip", "install-load", "report"]) expect(section).not.toContain(`- ${name}`);
+  });
+
+  it("E24: 100 jobs + a next link: two requests with per_page=100, the page-2 leg listed", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => job(`j${i}`, "success"));
+    const gh = fakeGitHub({ jobPages: [page1, [job("electron / build (windows-latest)", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(gh.jobsRequests).toHaveLength(2);
+    for (const u of gh.jobsRequests) expect(u).toContain("per_page=100");
+    expect(r.calls.find((c) => c[0] === "create")[3]).toMatch(/### Failed jobs and legs\n- electron \/ build \(windows-latest\)/);
+  });
+
+  it("E25: exactly 100 jobs and no Link header: one request", async () => {
+    const page = Array.from({ length: 100 }, (_, i) => job(`j${i}`, i === 42 ? "failure" : "success"));
+    const gh = fakeGitHub({ jobPages: [page] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(gh.jobsRequests).toHaveLength(1);
+    expect(r.calls.find((c) => c[0] === "create")[3]).toContain("- j42");
+  });
+
+  it("E26: with two open issues the first is adopted and nothing names the second", async () => {
+    const gh = fakeGitHub({ open: [{ number: 3, state: "open", labels: ["nightly"] }, { number: 9, state: "open", labels: ["nightly"] }] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(r.writes().map((c) => [c[0], c[1]])).toEqual([["update", 3], ["comment", 3]]);
+    expect(r.writes().some((c) => c[1] === 9 || c[0] === "create")).toBe(false);
+  });
+
+  it("E27: the issue list uses the --label, so a nightly-tests issue is never adopted", async () => {
+    const gh = fakeGitHub({ open: [{ number: 5, state: "open", labels: ["nightly-tests"] }] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(gh.urls.some((u) => u.includes("labels=nightly&"))).toBe(true);
+    expect(gh.urls.some((u) => u.includes("labels=nightly-tests"))).toBe(false);
+    expect(r.calls.filter((c) => c[0] === "create")).toHaveLength(1);
+    expect(r.calls.find((c) => c[0] === "create")[2]).toEqual(["nightly"]);
+    expect(r.writes().some((c) => c[1] === 5)).toBe(false);
+  });
+
+  it("E28: a pull request carrying the label is not adopted", async () => {
+    const gh = fakeGitHub({ open: [{ number: 8, state: "open", labels: ["nightly"], pull_request: {} }] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    expect(r.writes().some((c) => c[1] === 8)).toBe(false);
+    expect(r.calls.filter((c) => c[0] === "create")).toHaveLength(1);
+  });
+
+  it("X1: an unreadable job list does not turn the night green and is named", async () => {
+    const gh = fakeGitHub({ fail: { jobs: 500 } });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    expect(body).toContain("failed-job list unavailable:");
+    expect(body).toContain("electron: failure");
+    expect(body).toContain(RUN_URL);
+    expect(r.code).toBe(1);
+  });
+
+  it("X2: a failing jobs list does not change a green verdict or its exit code", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], fail: { jobs: 500 } });
+    const r = await run(JO, { gh });
+    expect(r.writes().map((c) => c[0])).toEqual(["comment", "close"]);
+    expect(r.code).toBe(0);
+  });
+
+  it("X3: a re-run comment names the failing jobs from the results when the list is unreadable", async () => {
+    const gh = fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], fail: { jobs: 500 } });
+    const r = await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ smoke: "failure" }) }, gh });
+    expect(r.writes()).toHaveLength(1);
+    const [kind, , body] = r.writes()[0];
+    expect(kind).toBe("comment");
+    expect(body.startsWith("Re-run attempt 2 of")).toBe(true);
+    expect(body).toContain("failed-job list unavailable:");
+    expect(body).toContain("smoke: failure");
+    expect(r.code).toBe(1);
+  });
+
+  const issueFailure = `Issue call failed: `;
+  const issueTail = "The `nightly` issue may not reflect this run; re-run the `report` job.";
+  const expectNamed = (r) => {
+    expect(r.summary).toContain(issueFailure);
+    expect(r.summary.trimEnd().endsWith(issueTail)).toBe(true);
+    expect(r.stdout).toMatch(/::error::Issue call failed: .*re-run the `report` job\./);
+    expect(r.code).toBe(1);
+  };
+
+  it("X4: a failed create is named in the summary and as an annotation", async () => {
+    expectNamed(await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh: fakeGitHub({ fail: { create: 403 } }) }));
+  });
+
+  it("X5: a close that fails after the comment exits 1 although the verdict is green", async () => {
+    const r = await run(JO, { gh: fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], fail: { close: 500 } }) });
+    expect(r.writes().map((c) => c[0])).toEqual(["comment", "close"]);
+    expectNamed(r);
+  });
+
+  it("X6: a failed issue list is named", async () => {
+    expectNamed(await run(JO, { env: { NEEDS_JSON: needsOf({ electron: "failure" }) }, gh: fakeGitHub({ fail: { listOpen: 500 } }) }));
+  });
+
+  it("X7: a failed re-run comment is named", async () => {
+    expectNamed(await run(JO, { env: { GITHUB_RUN_ATTEMPT: "2", NEEDS_JSON: needsOf({ electron: "failure" }) }, gh: fakeGitHub({ open: [{ number: 7, state: "open", labels: ["nightly"] }], fail: { comment: 500 } }) }));
+  });
+
+  it("X8: a failing verify-publish is red and names it, with no job shown as skipped", async () => {
+    const gh = fakeGitHub({ jobPages: [[job("verify-publish", "failure")]] });
+    const r = await run(JO, { env: { NEEDS_JSON: needsOf({ resolve: "success", "verify-publish": "failure", electron: "success", smoke: "success", knip: "success", "install-load": "success" }) }, gh });
+    const body = r.calls.find((c) => c[0] === "create")[3];
+    expect(body).toContain("verify-publish");
+    expect(body).not.toContain("skipped");
+    expect(r.code).toBe(1);
   });
 });

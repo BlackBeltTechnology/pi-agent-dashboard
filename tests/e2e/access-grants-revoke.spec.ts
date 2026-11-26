@@ -32,10 +32,14 @@
  * against a 403 `path outside cwd` before it.
  *
  * See change: add-access-grants-and-review.
+ *
+ * The final describe (#S57, fix-file-link-editor-routing) covers per-mode revoke: a directory holding BOTH a
+ * read grant and a write grant lists two rows (the write one badged "Write"); revoking the write row leaves
+ * the read grant (a read still loads with no prompt) and a save prompts for write again.
  */
 import { execSync } from "node:child_process";
-import { expect, test } from "./fixtures.js";
-import { ensureGitSession, FIXTURE_GIT } from "./helpers/index.js";
+import { expect, narrowTrust, test } from "./fixtures.js";
+import { ensureGitSession, FIXTURE_GIT, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -181,5 +185,140 @@ test.describe("access grants — grant → read → revoke round-trip", () => {
         message: "revoke must take effect on the next request, without a restart",
       })
       .toBe(403);
+  });
+});
+
+// #S57 — write-mode grant: listed with a "Write" badge, revoked on its own, read grant survives.
+test.describe.serial("write-mode grant — per-mode revoke (fix-file-link-editor-routing)", () => {
+  const DIR = "/fixtures/__grant-e2e__/lk-revoke";
+  const FILE = `${DIR}/doc.md`;
+  const CONFIG = "/home/pi/.pi/dashboard/config.json";
+  const STORES = [CONFIG, "/home/pi/.pi/dashboard/access-grants.json", "/home/pi/.pi/dashboard/access-refusals.json"];
+  let saved: Record<string, string | null> = {};
+
+  const inContainer = (script: string): string =>
+    execSync(`docker exec -i ${containerName()} node`, { input: script, encoding: "utf8" });
+
+  test.beforeAll(async ({ request }) => {
+    saved = JSON.parse(
+      inContainer(`
+        const fs = require("node:fs");
+        const out = {};
+        for (const p of ${JSON.stringify(STORES)}) out[p] = fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
+        process.stdout.write(JSON.stringify(out));
+      `),
+    );
+    // Write prompts need hostGate=enforce + promptEnabled (same setup as access-grant-dialog.spec.ts).
+    await narrowTrust(request, { hostGate: { mode: "enforce" } });
+    inContainer(`
+      const fs = require("node:fs");
+      const c = JSON.parse(fs.readFileSync(${JSON.stringify(CONFIG)}, "utf8"));
+      c.accessGrants = { ...(c.accessGrants ?? {}), promptEnabled: true };
+      fs.writeFileSync(${JSON.stringify(CONFIG)} + ".e2e.tmp", JSON.stringify(c, null, 2));
+      fs.renameSync(${JSON.stringify(CONFIG)} + ".e2e.tmp", ${JSON.stringify(CONFIG)});
+    `);
+  });
+
+  test.afterAll(() => {
+    inContainer(`
+      const fs = require("node:fs");
+      const saved = ${JSON.stringify(saved)};
+      for (const [p, body] of Object.entries(saved)) {
+        if (body === null) { try { fs.unlinkSync(p); } catch {} }
+        else { fs.writeFileSync(p + ".e2e.tmp", body); fs.renameSync(p + ".e2e.tmp", p); }
+      }
+      fs.rmSync(${JSON.stringify(DIR)}, { recursive: true, force: true });
+    `);
+  });
+
+  /**
+   * Operator half, in the container (grant creation is loopback-only, D15), through the REAL denial→grant
+   * binding: a read refusal then a write refusal, each submitted to `POST /api/access/grants`. The server
+   * takes the grant's mode from the denial it recorded, never from the request.
+   */
+  function seedReadAndWriteGrants(): { readStatus: number; writeStatus: number } {
+    return JSON.parse(
+      inContainer(`
+        (async () => {
+          const fs = require("node:fs");
+          fs.mkdirSync(${JSON.stringify(DIR)}, { recursive: true });
+          fs.writeFileSync(${JSON.stringify(FILE)}, "# outside\\nREVOKE-MARKER\\n");
+          const BASE = "http://127.0.0.1:${DASHBOARD_PORT}";
+          const cwd = ${JSON.stringify(FIXTURE_GIT)};
+          const grant = async (denied) => {
+            const d = await denied.json();
+            const r = await fetch(BASE + "/api/access/grants", {
+              method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ denialId: d.denialId, subject: d.subject }),
+            });
+            return r.status;
+          };
+          const readStatus = await grant(await fetch(BASE + "/api/file/exists?cwd=" + encodeURIComponent(cwd) + "&path=" + encodeURIComponent(${JSON.stringify(FILE)})));
+          const writeStatus = await grant(await fetch(BASE + "/api/file/write", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ cwd, path: ${JSON.stringify(FILE)}, content: "x", mtime: 0 }),
+          }));
+          process.stdout.write(JSON.stringify({ readStatus, writeStatus }));
+        })().catch((e) => { console.error(e); process.exit(1); });
+      `),
+    );
+  }
+
+  const writeStatusFromContainer = (): number =>
+    Number(
+      inContainer(`
+        fetch("http://127.0.0.1:${DASHBOARD_PORT}/api/file/write", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cwd: ${JSON.stringify(FIXTURE_GIT)}, path: ${JSON.stringify(FILE)}, content: "probe", mtime: 0 }),
+        }).then((r) => process.stdout.write(String(r.status)));
+      `),
+    );
+
+  test("S57: Write row is badged, revoking it keeps the read grant; read loads unprompted, save prompts again", async ({
+    page,
+  }) => {
+    await ensureGitSession(page);
+    const seeded = seedReadAndWriteGrants();
+    expect(seeded.readStatus, "read remedy grantable").toBe(200);
+    expect(seeded.writeStatus, "write remedy grantable").toBe(200);
+
+    // The write grant admits a write (stale mtime 0 -> 409 AFTER the gate, not 403).
+    expect(writeStatusFromContainer(), "write grant admits the save past the gate").toBe(409);
+
+    await page.goto("/settings/access");
+    await expect(page.getByTestId("access-section")).toBeVisible({ timeout: 20_000 });
+    const rows = page.getByTestId("access-entry").filter({ hasText: DIR });
+    await expect(rows).toHaveCount(2, { timeout: 15_000 });
+    const writeRow = rows.filter({ has: page.getByTestId("access-entry-mode-write") });
+    const readRow = rows.filter({ hasNot: page.getByTestId("access-entry-mode-write") });
+    await expect(writeRow).toHaveCount(1);
+    await expect(writeRow.getByTestId("access-entry-mode-write")).toHaveText("Write");
+    await expect(readRow).toHaveCount(1);
+
+    await writeRow.getByTestId("access-revoke").click();
+    await expect(writeRow).toHaveCount(0, { timeout: 15_000 });
+    await expect(readRow).toHaveCount(1); // the read grant survives
+
+    // Read still admitted with no prompt; a write is refused past the gate again.
+    const read = await page.request.get(
+      `/api/file/exists?cwd=${encodeURIComponent(FIXTURE_GIT)}&path=${encodeURIComponent(FILE)}`,
+    );
+    expect(read.status()).toBe(200);
+    expect(writeStatusFromContainer(), "revoked write grant no longer admits a save").toBe(403);
+
+    // UI: reopen the file via its link - loads without any prompt - and save: the WRITE prompt is back.
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:text-outside-links]] go");
+    await page.getByText(FILE, { exact: true }).first().click();
+    await expect(page.getByText("REVOKE-MARKER")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("grant-dialog")).toHaveCount(0);
+    await page.getByTestId("md-edit-toggle").click();
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.type("AFTER-REVOKE");
+    await page.getByTestId("md-save-btn").click();
+    await expect(page.getByTestId("grant-dialog")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("grant-dialog")).toContainText("A write was blocked");
+    await page.getByTestId("grant-dialog").getByTestId("grant-deny").click();
   });
 });

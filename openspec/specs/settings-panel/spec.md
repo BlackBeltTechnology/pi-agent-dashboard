@@ -155,12 +155,17 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 - **AND** the "All services" page SHALL keep the page id and URL segment `services`
 
 ### Requirement: Canonical and legacy settings URLs
-The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer`, `servers → remote` and `packages → add-ons` SHALL be applied before validation so old links resolve to the new page homes; an aliased route `:page` SHALL be replace-navigated to its canonical id.
+The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer`, `servers → remote` and `packages → add-ons` SHALL be applied before validation so old links resolve to the new page homes; an aliased route `:page` SHALL be replace-navigated to its canonical id. A canonical `/settings/:page?/:sub?` URL MAY additionally carry the one-shot `?scroll=<section data-testid>` parameter, which the panel consumes and removes (see "Page navigation accepts an optional section scroll target"); it SHALL NOT affect page resolution.
 
 #### Scenario: Canonical page URL
 - **WHEN** the user opens `/settings/security`
 - **THEN** the Security page SHALL render
 - **AND** the URL SHALL remain `/settings/security`
+
+#### Scenario: Canonical page URL with a one-shot scroll parameter
+- **WHEN** the user opens `/settings/general?scroll=card-sections-settings`
+- **THEN** the General page SHALL render
+- **AND** after consumption the URL SHALL read `/settings/general`
 
 #### Scenario: Legacy query upgrades to canonical
 - **WHEN** the user opens `/settings?tab=security`
@@ -581,7 +586,7 @@ A subsequent `GET /api/config` SHALL return the persisted `auth.bypassHosts` and
 - **AND** `GET /api/config` SHALL return `auth.secret: "***"` (redacted, per existing rule)
 
 ### Requirement: Settings panel exposes spawn-register timeout
-The Settings panel (`packages/client/src/components/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "Spawn register timeout (ms)" with helper text "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000."
+The Settings panel (`packages/client/src/components/settings/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "+Session register timeout" with a `ms` unit badge (the label key `session.sessionRegisterTimeoutMs`, unchanged; it already matches the shipped UI and the `ui-terminology` wording) and helper text (key `common.howLongToWaitForA`, unchanged key) "How long to wait for a new pi session to connect before reporting a failure and terminating the new pi process. Default 30000 (30s). Range 5000–120000."
 
 The input SHALL accept integers in the closed range `[5000, 120000]`. Out-of-range or non-numeric inputs SHALL be flagged as invalid (existing settings-form invalidation pattern) and SHALL prevent save until corrected.
 
@@ -607,6 +612,11 @@ On save, the value SHALL be persisted via the existing `POST /api/config` config
 #### Scenario: helper text mentions default and range
 - **WHEN** the field is rendered
 - **THEN** the helper text SHALL include both the default value (30000 / 30s) and the valid range (5000–120000)
+
+#### Scenario: helper text states the process is terminated
+- **WHEN** the field is rendered
+- **THEN** the helper text SHALL state that the new pi process is terminated on timeout and SHALL NOT describe the timeout as only a warning
+- **AND** the English helper text SHALL contain no form of the word "spawn" (`ui-terminology`)
 
 ### Requirement: OpenSpec section exposes `openspec.enabled` toggle
 The settings panel SHALL render a toggle control for `DashboardConfig.openspec.enabled` in the OpenSpec polling configuration block (currently rendered alongside `pollIntervalSeconds`, `maxConcurrentSpawns`, etc. — see `SettingsPanel.tsx` lines ~722–791). The toggle SHALL be a checkbox or switch labeled "Enable OpenSpec" (or equivalent) with help text indicating that disabling it hides all OpenSpec UI surfaces and stops background polling.
@@ -1594,7 +1604,9 @@ The **Developer** page inventory is unchanged — the pi runtime picker and the 
 ### Requirement: Page navigation accepts an optional section scroll target
 The panel's internal page-navigation helper SHALL accept an optional target identifying a section on the destination page. When supplied, the panel SHALL scroll that section into view after the destination page renders. When omitted, navigation SHALL behave exactly as before, including its existing unsaved-changes gating.
 
-The scroll target SHALL be transient and SHALL NOT be encoded in the route. `/settings/:page` and the legacy `?tab=<id>` form remain the complete addressable surface.
+The internal helper's scroll target SHALL be transient and SHALL NOT be encoded in the route. The only query-encoded section target is the external one-shot `?scroll=` parameter, which is honoured only on a canonical `/settings/:page?/:sub?` URL (see "Canonical and legacy settings URLs").
+
+Navigation from outside the panel MAY name a section with a one-shot `?scroll=<section data-testid>` query parameter on a canonical `/settings/:page?/:sub?` URL (alias, invalid-page and legacy `?tab=` rewrites MAY drop it). The panel SHALL consume it exactly once: after settings have loaded successfully and the destination page has rendered, it SHALL scroll the element with that `data-testid` into view and then remove the parameter with a history replace, so the URL settles at the same path without the parameter (any `:sub` segment is preserved) and no extra history entry is created. A parameter naming no rendered element SHALL be removed without scrolling. If settings never finish loading (for example `/api/config` fails), the parameter MAY remain and no scroll SHALL occur. A value that is not 1–64 characters of `[A-Za-z0-9_-]` SHALL be removed without querying the DOM, and no value SHALL cause the panel to fail to render. The parameter SHALL NOT change which page renders. The parameter SHALL also be honoured when it arrives while the panel is already mounted, including a repeat arrival of the same value after it was consumed.
 
 #### Scenario: Navigate with a scroll target
 - **WHEN** navigation is requested to the Developer page with the pi runtime picker as the scroll target
@@ -1617,8 +1629,34 @@ The scroll target SHALL be transient and SHALL NOT be encoded in the route. `/se
 - **AND** no new or strengthened gate SHALL be introduced for the scroll-target case
 
 #### Scenario: Route stays unchanged
-- **WHEN** navigation with a scroll target completes
+- **WHEN** navigation with a scroll target via the internal helper completes
 - **THEN** the resulting URL SHALL be `/settings/<page>` with no fragment or additional query parameter naming the section
+
+#### Scenario: External scroll parameter is consumed after load
+- **GIVEN** settings are still loading
+- **WHEN** the app navigates to `/settings/general?scroll=card-sections-settings`
+- **THEN** after loading completes the `Session card sections` block SHALL be scrolled into view exactly once
+- **AND** the URL SHALL then read `/settings/general` via a history replace
+
+#### Scenario: Hostile external scroll value is dropped safely
+- **WHEN** the app navigates to `/settings/general?scroll=%22%5D%20x`
+- **THEN** the General page SHALL render normally without scrolling
+- **AND** the `scroll` parameter SHALL be removed
+
+#### Scenario: Unknown external scroll target is dropped
+- **WHEN** the app navigates to `/settings/general?scroll=does-not-exist`
+- **THEN** the General page SHALL render without scrolling
+- **AND** the `scroll` parameter SHALL be removed
+
+#### Scenario: External scroll parameter while Settings is already open
+- **GIVEN** the General page is open with settings loaded
+- **WHEN** the app navigates to `/settings/general?scroll=card-sections-settings`
+- **THEN** the `Session card sections` block SHALL be scrolled into view
+- **AND** the URL SHALL then read `/settings/general`
+
+#### Scenario: Sub-page path is preserved when the parameter is removed
+- **WHEN** the app navigates to `/settings/plugins/kb?scroll=some-section`
+- **THEN** after consumption the URL SHALL read `/settings/plugins/kb`
 
 ### Requirement: Reasoning sub-controls SHALL be grouped and visible when reasoning is off
 The View settings page SHALL group the reasoning sub-controls (auto-collapse delay, keep-open-until-turn-ends, inline flow) together under the reasoning toggle inside the existing gated group. When `reasoning` is off, the sub-controls SHALL remain visible in a disabled state rather than being hidden, so the controls are discoverable. The `reasoningInlineFlow` toggle SHALL join this group and SHALL be disabled when `reasoning` is off.

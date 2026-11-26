@@ -29,6 +29,17 @@ describe("identityFloorAllows — D24 signed-out floor", () => {
     expect(identityFloorAllows({ ...base, path: "/api/health", method: "POST" })).toBe(false);
   });
 
+  it("admits the plugin OAuth return endpoint for GET only, exact path, both views (add-google-connect D12b)", () => {
+    const cb = "/api/plugins/google/oauth/remote-callback";
+    expect(identityFloorAllows({ ...base, path: cb })).toBe(true);
+    expect(identityFloorAllows({ ...base, path: `${cb}?code=C&state=S` })).toBe(true);
+    expect(identityFloorAllows({ ...base, path: cb, method: "POST" })).toBe(false);
+    expect(identityFloorAllows({ ...base, path: "/api/plugins/google/oauth/callback" })).toBe(false);
+    expect(identityFloorAllows({ ...base, path: `${cb}/x` })).toBe(false);
+    expect(identityFloorAllows({ ...base, path: "/api/plugins/google/oauth/../accounts" })).toBe(false);
+    expect(identityFloorAllows({ ...base, path: `/api/plugins/google/oauth/x/../remote-callback/../../accounts` })).toBe(false);
+  });
+
   it("lets ONLY the break-glass code exchange through as a POST (D23); every other POST stays refused", () => {
     expect(identityFloorAllows({ ...base, path: "/api/identity/local-exchange", method: "POST" })).toBe(true);
     expect(identityFloorAllows({ ...base, path: "/api/identity/local-exchange", method: "GET" })).toBe(false);

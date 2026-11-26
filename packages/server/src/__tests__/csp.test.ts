@@ -343,6 +343,7 @@ describe("strict CSP emission", () => {
     app.get("/assets/a.js", async (_req, reply) => (viteStub(reply) ? reply : reply.type("application/javascript").send("1")));
     app.get("/api/health", async () => ({ ok: true }));
     app.get("/sink", async (_req, reply) => reply.code(204).send());
+    app.get("/re", async (_req, reply) => reply.header("reporting-endpoints", 'up="/x"').type("text/plain").send("x"));
     app.setNotFoundHandler(async (req, reply) => (req.url.startsWith("/api/") ? reply.code(404).send({ error: "nf" }) : html(reply)));
     await app.ready();
     return app;
@@ -360,11 +361,9 @@ describe("strict CSP emission", () => {
     expect(strict).toContain(`report-uri ${P("strict")}`);
     expect(res.headers[EN]).toBeUndefined();
     expect([...ro, ...hv(res, EN)].join()).not.toContain("require-trusted-types-for");
-    const endpoints = String(res.headers["reporting-endpoints"]);
-    expect(endpoints).toContain(`csp-baseline="${P("baseline")}"`);
-    expect(endpoints).toContain(`csp-strict="${P("strict")}"`);
-    expect(base).toContain("report-to csp-baseline");
-    expect(strict).toContain("report-to csp-strict");
+    // report-uri only: `report-to` + `Reporting-Endpoints` is never delivered on plain http. See change: fix-csp-report-delivery.
+    expect(res.headers["reporting-endpoints"]).toBeUndefined();
+    for (const v of ro) expect(v).not.toMatch(/report-to/);
     await app.close();
   });
 
@@ -378,7 +377,8 @@ describe("strict CSP emission", () => {
     expect(en[0]!.split("; ")[0]).toBe(TT);
     expect(en[0]).not.toContain("default-src");
     expect(en[0]).toContain(`report-uri ${P("trusted-types")}`);
-    expect(String(res.headers["reporting-endpoints"])).toContain(`csp-trusted-types="${P("trusted-types")}"`);
+    expect(en[0]).not.toMatch(/report-to/);
+    expect(res.headers["reporting-endpoints"]).toBeUndefined();
     await app.close();
   });
 
@@ -390,6 +390,8 @@ describe("strict CSP emission", () => {
     expect(en).toHaveLength(1);
     expect(isStrict(en[0]!)).toBe(true);
     expect(en[0]).toContain(`report-uri ${P("strict")}`);
+    for (const v of [...en, ...hv(res, RO)]) expect(v).not.toMatch(/report-to/);
+    expect(res.headers["reporting-endpoints"]).toBeUndefined();
     for (const v of [...en, ...hv(res, RO)]) expect(v).not.toMatch(/script-src[^;]*'unsafe-inline'/);
     if (tt === "off") expect(res.headers[RO]).toBeUndefined();
     else {
@@ -483,14 +485,58 @@ describe("strict CSP emission", () => {
       "font-src 'self' data:",
       "worker-src 'self' blob:",
       "connect-src 'self' ws: wss:",
-      "frame-src 'self'",
       "object-src 'none'",
       "base-uri 'self'",
       "frame-ancestors 'self'",
     ])
       expect(strict.split("; ")).toContain(d);
+    // rich-chat-links D13: `'self' https:`, followed only by the live-preview capability sources (D6).
+    expect(strict.split("; ").find((d) => d.startsWith("frame-src "))).toMatch(/^frame-src 'self' https:( http:\/\/\*\.localhost(:\d+)?)?$/);
     expect(buildStrictCsp("abc")).toContain("script-src 'self' 'nonce-abc'");
     expect(buildStrictCsp()).toContain("script-src 'self';");
+    await app.close();
+  });
+
+  it.each(["report", "enforce"] as const)("E36: %s mode — frame-src widens to 'self' https:, every other directive is byte-identical", async (csp) => {
+    const app = await build(csp, "off");
+    const res = await get(app);
+    // report mode emits baseline + strict Report-Only; enforce mode emits strict enforcing only.
+    const policies = [...hv(res, RO), ...hv(res, EN)];
+    expect(hv(res, csp === "report" ? RO : EN).some(isStrict)).toBe(true);
+    expect(policies.some(isBaseline)).toBe(csp === "report");
+    // Pre-change strings (rich-chat-links design D13): only `frame-src` differs.
+    const unchanged = [
+      "default-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      "worker-src 'self' blob:",
+      "connect-src 'self' ws: wss:",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'self'",
+    ];
+    for (const policy of policies.filter((p) => isBaseline(p) || isStrict(p))) {
+      const ds = policy.split("; ");
+      const frame = ds.find((d) => d.startsWith("frame-src"))!;
+      expect(frame).toMatch(/^frame-src 'self' https:( http:\/\/\*\.localhost(:\d+)?)?$/);
+      for (const bad of ["http:", "data:", "blob:", "*"]) expect(frame.split(" ")).not.toContain(bad);
+      for (const d of unchanged) expect(ds).toContain(d);
+      // exactly the pre-change directive set plus nothing new (script-src, report tokens aside)
+      const names = ds.map((d) => d.split(" ")[0]).filter((n) => !/^(script-src|report-uri|report-to)$/.test(n));
+      expect(names).toEqual([
+        "default-src",
+        "style-src",
+        "img-src",
+        "font-src",
+        "worker-src",
+        "connect-src",
+        "frame-src",
+        "object-src",
+        "base-uri",
+        "frame-ancestors",
+      ]);
+    }
     await app.close();
   });
 
@@ -607,8 +653,17 @@ describe("strict CSP emission", () => {
       const only = [...ro, ...en].filter((v) => v.startsWith(TT));
       expect(only).toHaveLength(1);
       expect(only[0]).toContain(`report-uri ${P("trusted-types")}`);
+      expect(only[0]).not.toMatch(/report-to/);
       expect((tt === "enforce" ? en : ro).includes(only[0]!)).toBe(true);
     }
+    expect(res.headers["reporting-endpoints"]).toBeUndefined();
+    await app.close();
+  });
+
+  it("WE40b: a route-level Reporting-Endpoints header is left exactly as the route set it", async () => {
+    const app = await build("report", "report");
+    const res = await get(app, "/re");
+    expect(res.headers["reporting-endpoints"]).toBe('up="/x"');
     await app.close();
   });
 

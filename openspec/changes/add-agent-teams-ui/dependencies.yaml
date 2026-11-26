@@ -1,0 +1,3 @@
+blocked_by:
+  - change: add-agent-teams-core
+    reason: "adds the Team view, chat renderers, badge, owner filtering and user controls on top of core's store, tools, mail customTypes and REST read routes; core's capability specs must exist first"

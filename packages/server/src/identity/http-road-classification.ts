@@ -130,6 +130,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   // Operator reset of the persisted baseline CSP report counters (change: harden-cors-and-csp-reporting).
   "csp-reports": "system",
   "nav-intent": "system",
+  // Framing probe for web-link previews: one outbound HEAD per operator click (change: rich-chat-links).
+  web: "system",
 };
 
 // `/api/pi-trust/query` is the bridge's own credentialed call, classified like the ticket mint
@@ -167,7 +169,7 @@ export function classifyHttpRoad(
   if (route.startsWith("/editor/")) {
     return { road: "non-session", action: "editor.write", resource: { kind: "editor", route } };
   }
-  if (route.startsWith("/live/")) {
+  if (route.startsWith("/live/") || route.startsWith("/preview/")) {
     return { road: "non-session", action: `live.${verbOf(method)}`, resource: { kind: "live", route } };
   }
   if (!route.startsWith("/api/")) return undefined;

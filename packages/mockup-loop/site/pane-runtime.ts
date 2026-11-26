@@ -5,8 +5,10 @@
 // health / missing-fixture reports to the parent shell.
 // Query params: `mkLoops=N` (stop after N loops), `mkFast=1` (no pointer travel).
 // See change: add-mock-site-exact-env (design D3, D4, D5).
+
 import { clockStart, createClock, installClock } from "./clock.ts";
 import { type Fixtures, installFixtures } from "./fixtures.ts";
+import { originOk, postTarget } from "./frame-env.ts";
 import { createOverlay, runSteps, type ScriptStep } from "./script.ts";
 
 const HOLD_MS = 1800;
@@ -30,7 +32,7 @@ export interface PaneRuntimeOptions {
   ready: () => void;
 }
 
-const post = (msg: object) => parent.postMessage(msg, location.origin);
+const post = (msg: object) => parent.postMessage(msg, postTarget());
 
 export async function startPane(o: PaneRuntimeOptions): Promise<void> {
   const params = new URLSearchParams(location.search);
@@ -61,7 +63,7 @@ export async function startPane(o: PaneRuntimeOptions): Promise<void> {
   let hidden = false;
   let resume: (() => void) | null = null;
   addEventListener("message", (e) => {
-    if (e.source !== parent || e.origin !== location.origin) return;
+    if (e.source !== parent || !originOk(e)) return;
     if (typeof e.data?.mkPause === "boolean") userPaused = e.data.mkPause;
     else if (typeof e.data?.mkHidden === "boolean") hidden = e.data.mkHidden;
     else return;

@@ -120,6 +120,8 @@ export default defineConfig({
       // web-access-plugin (change: render-unclaimed-custom-entries): pi-web-access card + parser.
       "packages/web-access-plugin",
       "packages/gmail-plugin",
+      // google-plugin (change: add-google-connect): Google Connect server, leases, return paths.
+      "packages/google-plugin",
       // obs-studio-plugin (change: add-obs-studio-plugin): pi-obs core, bridge, panel routes, client.
       "packages/obs-studio-plugin",
       // chat-gateway (change: add-chat-gateway): the inbound chat control plane.
@@ -131,6 +133,8 @@ export default defineConfig({
       // team-plugin (change: add-team-plugin): personas, project teams, conversations and the
       // isolation guard. Its suites gate owner isolation and path confinement.
       "packages/team-plugin",
+      // agent-teams-plugin (change: add-agent-teams-core): team store, lane handlers, faux-pi-rpc harness.
+      "packages/agent-teams-plugin",
       // team-app (change: add-team-plugin): the Csapat SPA — grid, selector, editor, conversations.
       "packages/team-app",
       // Owns the pi-mcp-adapter config surface + version floor. See change:
@@ -163,6 +167,9 @@ export default defineConfig({
       // ship-it's pure decision helpers. Added by wire-local-review-gate: they
       // gate real ship decisions but were collected by no project before.
       ".pi/skills/ship-it",
+      // ship-batch: scheduler / outcome / lock / args + the runner through injected
+      // adapters. Added by add-ship-batch-orchestrator.
+      ".pi/skills/ship-batch",
       // switch-extension-source script: its prune rule guards the bridge
       // from empty-filter shadowing. Added by fix-switch-source-empty-overlay.
       ".pi/skills/switch-extension-source",

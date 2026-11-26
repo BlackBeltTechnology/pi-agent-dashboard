@@ -74,6 +74,26 @@ describe("spawn-failure-log", () => {
     expect(entries[0]!.message).toBe("good");
   });
 
+  // E23 — optional reclaim evidence round-trips; legacy lines still parse.
+  it("round-trips terminated/terminatedPids on a REGISTER_TIMEOUT entry", () => {
+    appendSpawnFailure(
+      makeEntry({ code: "REGISTER_TIMEOUT", pid: 4242, terminated: true, terminatedPids: [4242] }),
+    );
+    const [entry] = readSpawnFailures(10);
+    expect(entry!.terminated).toBe(true);
+    expect(entry!.terminatedPids).toEqual([4242]);
+  });
+
+  it("still parses legacy entries without the fields, alongside new ones", () => {
+    const logFile = path.join(tmpDir, "spawn-failures.log");
+    writeFileSync(logFile, `${JSON.stringify(makeEntry({ message: "legacy", code: "REGISTER_TIMEOUT" }))}\n`);
+    appendSpawnFailure(makeEntry({ message: "new", code: "REGISTER_TIMEOUT", terminated: true, terminatedPids: [7] }));
+    const entries = readSpawnFailures(10);
+    expect(entries.map((e) => e.message)).toEqual(["legacy", "new"]);
+    expect("terminated" in entries[0]!).toBe(false);
+    expect(entries[1]!.terminatedPids).toEqual([7]);
+  });
+
   it("never throws when append fails", () => {
     const logFile = path.join(tmpDir, "spawn-failures.log");
     // Create as dir to force write failure.

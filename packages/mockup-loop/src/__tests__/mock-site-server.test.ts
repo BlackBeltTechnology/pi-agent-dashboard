@@ -70,6 +70,10 @@ describe("mock-site plugin HTTP (E5-E13; read-only since add-mock-site-exact-env
     const d = JSON.parse((await req(port, "GET", "/__mock/decisions")).body);
     expect(d).toEqual({ mockSite: true, decisions: {}, warnings: [], errors: [] });
   });
+  it("a protocol-relative request path (`//`) does not crash the site", async () => {
+    for (const p of ["//", "//evil.example/x"]) expect((await req(port, "GET", p)).status, p).toBeLessThan(500);
+    expect((await req(port, "GET", "/")).status).toBe(200);
+  });
   it("the decide endpoint is gone: any method 404, nothing written (4.1)", async () => {
     for (const m of ["POST", "GET", "PUT"]) {
       const r = m === "POST" ? await decide(port, { id: "2026-11-03-a", status: "accepted" }) : await req(port, m, "/__mock/decide");

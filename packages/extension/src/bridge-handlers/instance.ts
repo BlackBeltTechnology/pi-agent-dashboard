@@ -49,6 +49,8 @@ import type { VaultDelivery } from "../vault-delivery.js";
 
 export interface BridgeState {
   cleanup?: () => void;
+  /** Reason of the `session_shutdown` that released ownership (`reload|new|resume|fork`). */
+  shutdownReason?: string;
   sessionId?: string;
   ctx?: any;
   modelRegistry?: any;
@@ -197,6 +199,8 @@ export interface BridgeInstance {
   uiModulesBridgeCtx: UiModulesBridgeCtx;
   pluginRequests: ReturnType<typeof createPluginRequestClient>;
   pathGate: ReturnType<typeof createPathGate>;
+  /** Reserve-path link (D9): answers the `mock-site:base-reservation` probe from the server's decision. */
+  previewPathLink: import("../preview-path-link.js").PreviewPathLink;
   /** Credential-vault env delivery (bridge half). See change: add-credential-vault. */
   vaultDelivery: VaultDelivery;
   connection: ConnectionManager;

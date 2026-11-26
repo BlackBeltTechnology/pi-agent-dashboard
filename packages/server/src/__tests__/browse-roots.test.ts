@@ -5,13 +5,14 @@
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { browserProfileRoots } from "@blackbelt-technology/pi-dashboard-shared/forbidden-subjects.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type BrowseRootSources, isWithinBrowseRoots, resolveBrowseRoots } from "../lib/browse-roots.js";
 
 let tmp: string;
 let home: string;
 let outside: string;
-let env: { homedir: string };
+let env: { homedir: string; env: NodeJS.ProcessEnv };
 
 const none = (): readonly string[] => [];
 const src = (over: Partial<BrowseRootSources> = {}): BrowseRootSources => ({
@@ -29,7 +30,11 @@ beforeEach(async () => {
   tmp = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "browse-roots-")));
   home = await mk("home");
   outside = await mk("outside");
-  env = { homedir: home };
+  env = {
+    homedir: home,
+    // Windows profile roots follow LOCALAPPDATA / APPDATA: keep them inside the temp home.
+    env: { ...process.env, LOCALAPPDATA: path.join(home, "AppData", "Local"), APPDATA: path.join(home, "AppData", "Roaming") },
+  };
 });
 afterEach(() => fsp.rm(tmp, { recursive: true, force: true }));
 
@@ -139,4 +144,64 @@ describe("fault injection (X1, X2)", () => {
     expect(lines.length).toBeLessThanOrEqual(1);
     warn.mockRestore();
   });
+});
+
+// ── harden-agent-tool-guards D7: credential dirs in the shared-root set (T.78, T.96, T.119) ─────────
+describe("credential directories and browser profiles (T.78)", () => {
+  it("keeps ordinary roots, drops/refuses the credential ones, lists ~/.config/app, keeps `directory not found` for a missing path", async () => {
+    const work = await mk("srv", "work");
+    const shared = await mk("data", "shared");
+    const aws = await mk("home", ".aws");
+    await mk("home", ".aws", "cache");
+    await mk("home", ".config", "gh");
+    const app = await mk("home", ".config", "app");
+    const chrome = browserProfileRoots(process.platform, home, env.env)[0];
+    await fsp.mkdir(path.join(chrome, "Default"), { recursive: true });
+    const s = src({
+      pinned: () => [work, path.join(aws, "cache"), path.join(home, ".config")],
+      projectGrants: () => [shared],
+      workspaceFolders: () => [chrome],
+    });
+    const roots = await resolveBrowseRoots(s, env);
+    expect(roots.roots).toEqual(expect.arrayContaining([work, shared, home]));
+    for (const dropped of [path.join(aws, "cache"), path.join(home, ".config"), chrome]) expect(roots.roots, dropped).not.toContain(dropped);
+    expect(await isWithinBrowseRoots(home, roots)).toBe(true);
+    for (const refused of [aws, path.join(home, ".config", "gh"), chrome, path.join(chrome, "Default")]) {
+      expect(await isWithinBrowseRoots(refused, roots), refused).toBe(false);
+    }
+    expect(await isWithinBrowseRoots(app, roots)).toBe(true);
+    expect(await isWithinBrowseRoots(path.join(home, "does-not-exist"), roots)).toBe(true); // the route then says "directory not found"
+  });
+});
+
+describe("T.119 a failing grant source contributes nothing, $HOME stays a root and ~/.aws stays refused", () => {
+  it("holds", async () => {
+    await mk("home", ".aws");
+    const roots = await resolveBrowseRoots(
+      src({ projectGrants: () => { throw new Error("store down"); } }),
+      env,
+    );
+    expect(roots.roots).toEqual([home]);
+    expect(await isWithinBrowseRoots(path.join(home, ".aws"), roots)).toBe(false);
+    expect(await isWithinBrowseRoots(home, roots)).toBe(true);
+  });
+});
+
+describe("T.96 shared-root recompute with 50 pinned folders", () => {
+  it("p95 < 5 ms per request over 1000 requests (best of 3 batches)", async () => {
+    const dirs = await Promise.all(Array.from({ length: 50 }, (_, i) => mk("pins", `p${i}`)));
+    const s = src({ pinned: () => dirs });
+    await resolveBrowseRoots(s, env);
+    const batch = async (): Promise<number> => {
+      const t: number[] = [];
+      for (let i = 0; i < 1000; i++) {
+        const a = performance.now();
+        await resolveBrowseRoots(s, env);
+        t.push(performance.now() - a);
+      }
+      t.sort((x, y) => x - y);
+      return t[Math.floor(t.length * 0.95)];
+    };
+    expect(Math.min(await batch(), await batch(), await batch())).toBeLessThan(5);
+  }, 60_000);
 });
