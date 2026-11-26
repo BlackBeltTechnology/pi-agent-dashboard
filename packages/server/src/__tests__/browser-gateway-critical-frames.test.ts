@@ -21,7 +21,8 @@ import { EventEmitter } from "node:events";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
-import { createBrowserGateway, frameClassOf } from "../pairing/browser-gateway.js";
+import { createBrowserGateway, deferKeyOfEvent, frameClassOf } from "../pairing/browser-gateway.js";
+import { createPluginPolicyRegistry, resetPluginPolicyRegistry } from "../plugin-policy-registry.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import type { DrainingWs } from "./helpers/draining-ws.js";
@@ -36,6 +37,7 @@ import {
 } from "./helpers/load-fixtures.js";
 // Aliased: this file already owns a StateWs-typed `asWs` for its own fixtures.
 import { attachCapturedWs, buildDebtGateway, asWs as debtAsWs, TEST_MAX_WS_BUFFER } from "./helpers/status-debt-fixtures.js";
+import { createSubagentsPolicyRegistry } from "./setup/subagents-policies.js";
 
 const MAX_WS_BUFFER = 4 * 1024 * 1024; // gateway default
 const MB = 1024 * 1024;
@@ -745,5 +747,80 @@ describe("collapsed-folder frames (X7)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ── Owner delivery policy (move-subagents-to-plugin D10) ─────────────────────
+// The defer key + bounded copy of an owned event type come from the owning
+// plugin's registered delivery policy; core names no plugin event type.
+// See change: move-subagents-to-plugin (test-plan #E35, #E36).
+
+const evFrame = (sessionId: string, eventType: string, data: Record<string, unknown>, seq = 1) =>
+  ({ type: "event", sessionId, seq, event: { eventType, timestamp: 1, data } }) as unknown as ServerToBrowserMessage;
+
+describe("owner delivery policy keys (E35)", () => {
+  it("keys a real end and a heal distinctly, none without a string id, none with the plugin absent", () => {
+    const registry = createSubagentsPolicyRegistry();
+    const realEnd = deferKeyOfEvent(evFrame("S", "subagent_completed", { id: "A" }), registry);
+    const heal = deferKeyOfEvent(evFrame("S", "subagent_completed", { id: "A", healedBy: "session_ended" }), registry);
+    expect(realEnd).toBeDefined();
+    expect(heal).toBeDefined();
+    expect(realEnd).not.toBe(heal);
+    expect(realEnd).toContain("S");
+    expect(realEnd).toContain("A");
+    expect(deferKeyOfEvent(evFrame("S", "subagent_completed", {}), registry)).toBeUndefined();
+    expect(deferKeyOfEvent(evFrame("S", "subagent_completed", { id: 42 }), registry)).toBeUndefined();
+    // A non-owned type never gets a key from the subagents policy.
+    expect(deferKeyOfEvent(evFrame("S", "tool_execution_end", { id: "A" }), registry)).toBeUndefined();
+    // Plugin absent: no owner, no policy, no key — shed like any transcript frame.
+    const absent = createPluginPolicyRegistry();
+    expect(deferKeyOfEvent(evFrame("S", "subagent_completed", { id: "A" }), absent)).toBeUndefined();
+  });
+});
+
+describe("a delivery policy that throws (E36)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    resetPluginPolicyRegistry();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("counts as no key: the saturated frame is shed and the gateway keeps serving", () => {
+    const registry = createPluginPolicyRegistry();
+    registry.setOwnership("subagents", { eventTypes: ["subagent_*"], tools: [] });
+    registry.registerDeliveryPolicy("subagents", {
+      deferKey() {
+        throw new Error("policy bug");
+      },
+      project() {
+        throw new Error("policy bug");
+      },
+    });
+    resetPluginPolicyRegistry(registry);
+
+    const { gateway } = buildDebtGateway(["S"], TEST_MAX_WS_BUFFER);
+    const client = attachCapturedWs(gateway, TEST_MAX_WS_BUFFER);
+    client.ws.emit("message", Buffer.from(JSON.stringify({ type: "subscribe", sessionId: "S" })));
+    vi.advanceTimersByTime(0);
+    client.drain();
+    client.frames.length = 0;
+
+    client.saturate();
+    const before = gateway.getDroppedFrameStats();
+    gateway.broadcastEvent("S", 5, { eventType: "subagent_completed", timestamp: 1, data: { id: "A" } });
+    const after = gateway.getDroppedFrameStats();
+    expect(after.total).toBe(before.total + 1); // shed, counted as a drop
+    expect(after.deferredSubagentFrames).toBe(before.deferredSubagentFrames); // not deferred
+
+    // Still serving: an unrelated frame reaches the drained socket.
+    client.drain();
+    vi.advanceTimersByTime(250);
+    client.frames.length = 0;
+    gateway.broadcastEvent("S", 6, { eventType: "agent_start", timestamp: 2, data: {} });
+    expect(client.framesOfType("event")).toHaveLength(1);
   });
 });

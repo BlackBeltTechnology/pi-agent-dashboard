@@ -5,6 +5,12 @@
  * with a namespaced logger and typed config accessors.
  */
 
+import type {
+  AppendEventFn,
+  OnSessionStatusEndedFn,
+  RegisterDeliveryPolicyFn,
+  RegisterStorePolicyFn,
+} from "./plugin-policies.js";
 import fs from "node:fs";
 import os from "node:os";
 import { isAbsolute, join as pathJoin } from "node:path";
@@ -1224,6 +1230,28 @@ export interface ServerPluginContext {
    */
   onSessionEnded: OnSessionEndedFn;
   /**
+   * Subscribe to EVERY end transition of `sessionManager.onEnded` (unregister,
+   * status set to ended, end-reason re-fire; never a `movedTo` relocation).
+   * Handlers must be idempotent. See change: move-subagents-to-plugin (D4).
+   */
+  onSessionStatusEnded: OnSessionStatusEndedFn;
+  /**
+   * Store + broadcast an event of a type this plugin owns (manifest
+   * `eventTypes`); stored without broadcast while the session replays.
+   * Refused (never thrown) for other types. See change: move-subagents-to-plugin (D4).
+   */
+  appendEvent: AppendEventFn;
+  /**
+   * Register the store policy for the event types this plugin owns and the
+   * tools it claims. See change: move-subagents-to-plugin (D3).
+   */
+  registerStorePolicy: RegisterStorePolicyFn;
+  /**
+   * Register the delivery policy (defer key + bounded copy) for the event types
+   * this plugin owns. See change: move-subagents-to-plugin (D10).
+   */
+  registerDeliveryPolicy: RegisterDeliveryPolicyFn;
+  /**
    * Subscribe to session-ownership resolution for this plugin's own spawned
    * sessions. See change: detach-automation-goal-from-core.
    */
@@ -1540,6 +1568,14 @@ export interface ServerContextDeps {
   registerBrowserHandler: RegisterBrowserHandlerFn;
   onEvent: OnEventFn;
   onSessionEnded: OnSessionEndedFn;
+  /** Optional: hosts without it give plugins a no-op subscription. See change: move-subagents-to-plugin (D4). */
+  onSessionStatusEnded?: OnSessionStatusEndedFn;
+  /** Optional, host-bound to the calling plugin: hosts without it refuse every append. */
+  appendEvent?: AppendEventFn;
+  /** Optional, host-bound to the calling plugin: hosts without it give plugins a no-op. */
+  registerStorePolicy?: RegisterStorePolicyFn;
+  /** Optional, host-bound to the calling plugin: hosts without it give plugins a no-op. */
+  registerDeliveryPolicy?: RegisterDeliveryPolicyFn;
   onSessionResolved: OnSessionResolvedFn;
   sendToSession: SendToSessionFn;
   emitEventToSession: EmitEventToSessionFn;
@@ -1684,6 +1720,10 @@ export function createServerPluginContext(
     registerBrowserHandler: deps.registerBrowserHandler,
     onEvent: deps.onEvent,
     onSessionEnded: deps.onSessionEnded,
+    onSessionStatusEnded: deps.onSessionStatusEnded ?? (() => () => {}),
+    appendEvent: deps.appendEvent ?? (() => ({ ok: false, reason: "unsupported" })),
+    registerStorePolicy: deps.registerStorePolicy ?? (() => () => {}),
+    registerDeliveryPolicy: deps.registerDeliveryPolicy ?? (() => () => {}),
     onSessionResolved: deps.onSessionResolved,
     sendToSession: deps.sendToSession,
     emitEventToSession: deps.emitEventToSession,

@@ -40,8 +40,7 @@ import type { PrStatusScheduler } from "../pr-status.js";
 import type { PromptBus } from "../prompt-bus.js";
 import type { RetryTracker } from "../retry-tracker.js";
 import type { SteerBuffer } from "../steer-buffer.js";
-import type { SubagentFrameBuffer } from "../subagent-frame-buffer.js";
-import type { SubagentTickThrottle } from "../subagent-tick-throttle.js";
+import type { ToolUpdateFilterRegistry } from "../tool-update-filter-registry.js";
 import type { createTransportDiagnostics } from "../transport-diagnostics.js";
 import type { UiModulesBridgeCtx } from "../ui-modules.js";
 import type { UsageDrain } from "../usage-drain.js";
@@ -159,9 +158,7 @@ export interface BridgeInstance {
   retryTracker: RetryTracker;
   emptyActionableGuard: EmptyActionableGuard;
   abortLatch: AbortLatch;
-  subagentFrameBuffer: SubagentFrameBuffer;
   mcpRegistrar: ReturnType<typeof createMcpDashboardRegistrar>;
-  subagentTickThrottle: SubagentTickThrottle<unknown>;
   coalescer: MessageUpdateCoalescer<Record<string, unknown>>;
   assistantMessageGen: number;
   messageKeyOf: (gen: number, message: unknown) => string;
@@ -221,9 +218,9 @@ export interface BridgeInstance {
   runAutoNameOnTurnEnd: () => void;
   sendCwdMissingIfChanged: (cwd: string) => void;
   sendPiVersionIfChanged: () => void;
-  sendEventForward: (channel: string, data: Record<string, unknown>) => void;
-  flushPendingSubagentFrames: () => void;
   pluginForwardRegistry: PluginForwardRegistry;
+  /** Plugin-declared per-tool `tool_execution_update` filters. See change: move-subagents-to-plugin (D5). */
+  toolUpdateFilters: ToolUpdateFilterRegistry;
 }
 
 /**

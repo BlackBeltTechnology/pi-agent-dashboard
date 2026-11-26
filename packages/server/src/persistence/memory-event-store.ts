@@ -7,7 +7,23 @@ import {
   isBase64DataCarrier,
   isInlineImageBlock,
 } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
+import type {
+  PluginStorePolicy,
+  StorePolicyView,
+} from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { getPluginPolicyRegistry, sanitizeIdentityFields } from "../plugin-policy-registry.js";
+
+/**
+ * Resolves the store policy governing an event (an owned event type, or a
+ * claimed tool's `tool_execution_update|end`), else `undefined`. Defaults to the
+ * process-wide plugin policy registry; tests inject their own.
+ * See change: move-subagents-to-plugin (D3).
+ */
+export type StorePolicyResolver = (event: DashboardEvent) => PluginStorePolicy | undefined;
+
+/** Max pinned events per session honored by trim (overflow ignored oldest-first, counted). */
+export const MAX_RETAINED_PINS_PER_SESSION = 500;
 
 export interface StoredEvent {
   seq: number;
@@ -216,34 +232,18 @@ export interface TrimStats {
    */
   evictedBytes: number;
   /**
-   * Cumulative subagent-tick telemetry. ADDITIVE `/api/health` fields, never
-   * reset on read, mirroring `collapsedUpdates`. `subagentTickBytes` is the
-   * size of every INGESTED subagent-carrying event; `subagentTickFatBytes` is
-   * the part that arrived WITH a timeline. The ratio is the live read on
-   * whether the bridge strip is in force — the spec's ≤ 2x bound is a growth
-   * curve a cumulative counter cannot assert, so this is a health signal, not
-   * the gate.
-   *
-   * Three deliberate imprecisions, so the number is not over-read:
-   *  - counted at INGEST, before the retention collapse, so a later-subsumed
-   *    tick is still counted;
-   *  - sizes come from `measureBytes`, which short-circuits at the ceiling —
-   *    a bounded estimate, not an exact serialized length;
-   *  - a terminal tick is counted once PER CARRIER (`subagent_completed` and
-   *    `tool_execution_end` are both fat), so these are per-carrier counts,
-   *    not per-logical-tick.
-   * See change: reduce-subagent-details-payload (D6).
-   */
-  subagentTicks: number;
-  subagentTickBytes: number;
-  subagentFatTicks: number;
-  subagentTickFatBytes: number;
-  /**
-   * Cumulative `subagent_delta` events dropped once their block finished (an
-   * entry with the same `blockId`) or their agent reached a terminal state.
-   * ADDITIVE `/api/health` field. See change: add-plugin-bridge-contributions (D5).
+   * Cumulative stored events an owner's store policy dropped through its
+   * `onStored` hook (e.g. streamed pieces made redundant by a finished block).
+   * ADDITIVE `/api/health` field. See change: add-plugin-bridge-contributions (D5),
+   * move-subagents-to-plugin (D3).
    */
   collapsedDeltas: number;
+  /**
+   * Cumulative owner `retain` pins ignored because a session exceeded
+   * `MAX_RETAINED_PINS_PER_SESSION` (oldest ignored first). ADDITIVE.
+   * See change: move-subagents-to-plugin (D3).
+   */
+  pinOverflow: number;
 }
 
 /**
@@ -261,11 +261,8 @@ export const EMPTY_TRIM_STATS: TrimStats = {
   collapsedUpdates: 0,
   trimmedBytes: 0,
   evictedBytes: 0,
-  subagentTicks: 0,
-  subagentTickBytes: 0,
-  subagentFatTicks: 0,
-  subagentTickFatBytes: 0,
   collapsedDeltas: 0,
+  pinOverflow: 0,
 };
 
 export interface CollapseProbe {
@@ -279,7 +276,8 @@ export interface CollapseProbe {
 
 /**
  * Two INDEPENDENT seq pointers per `toolCallId` (D7). `creatingSeq` pins the
- * first update carrying `details.agentId` (first-wins `type`/`description`);
+ * first update the owner's store policy flags as `isCarrier` (first-wins
+ * identity fields);
  * `newestSeq` tracks the current retained tail update. A single-seq index
  * would collapse the creating tick whenever it happened to be the indexed
  * predecessor, silently voiding the pin.
@@ -412,6 +410,7 @@ const ESSENTIAL_CHAT_EVENT_TYPES: ReadonlySet<string> = new Set([
 function trimBufferToLimit(
   buf: SessionBuffer,
   limits: { maxEvents: number; maxBytes: number },
+  pinned?: ReadonlySet<number>,
 ): { dropped: number; toolEndDropped: number; bytesDropped: number } {
   const eventCap = limits.maxEvents > 0 ? limits.maxEvents : Number.POSITIVE_INFINITY;
   const byteCap = limits.maxBytes > 0 ? limits.maxBytes : Number.POSITIVE_INFINITY;
@@ -430,7 +429,8 @@ function trimBufferToLimit(
     if (
       over() &&
       dropped < buf.events.length - 1 &&
-      !ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType)
+      !ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType) &&
+      !pinned?.has(e.seq)
     ) {
       excessCount--;
       excessBytes -= e.bytes;
@@ -445,10 +445,13 @@ function trimBufferToLimit(
     kept.push(e);
   }
   // Pass 2: essentials (or the surviving tail) still exceed a bound → drop the
-  // oldest remaining entries to hold the memory bound. A byte budget that BINDS
-  // by design makes this reachable (D3a). Stops at one retained event.
+  // oldest remaining UNPINNED entries to hold the memory bound. A byte budget
+  // that BINDS by design makes this reachable (D3a). Owner pins go last (pass
+  // 3). Stops at one retained event.
   while (over() && kept.length > 1) {
-    const e = kept.shift();
+    const idx = pinned && pinned.size > 0 ? kept.findIndex((k) => !pinned.has(k.seq)) : 0;
+    // Pass 3: only pinned events remain — the hard bound wins, oldest first.
+    const e = kept.splice(idx === -1 ? 0 : idx, 1)[0];
     if (!e) break;
     excessCount--;
     excessBytes -= e.bytes;
@@ -611,29 +614,31 @@ function endSetsRenderedResult(event: DashboardEvent): boolean {
  * D2 END-side gate: may the retained tail `tool_execution_update` be dropped in
  * favour of the `tool_execution_end` `end`? Reuses the SAME `subsumesDetails`
  * predicates, resolved from the consumer's END-side fields (`data.details`,
- * `data.result`), plus two additive fail-closed rules the update path needs not:
+ * `data.result`), plus one additive fail-closed rule the update path needs not:
  *  - presence: a truthy tail `details` the end does not replace as a plain
  *    object would leak the pin's `toolDetails` into the folded end state (the
- *    tail REPLACES `toolDetails`; an end without `data.details` MERGES it);
- *  - identity: the `subagents` map is dual-indexed by VALUE and its end backfill
- *    only runs when `toolName === "Agent"` — `keysSurvive` is type-only.
- * See change: drop-final-update-on-tool-execution-end.
+ *    tail REPLACES `toolDetails`; an end without `data.details` MERGES it).
+ * A claimed tool's identity rules are the owner's `vetoSupersede` hook, applied
+ * by the caller (`collapseOnEnd`).
+ * See change: drop-final-update-on-tool-execution-end, move-subagents-to-plugin (D3).
  */
 function endSubsumes(tail: DashboardEvent, end: DashboardEvent): boolean {
   const pd = resolveUpdateDetails(tail);
   const sd = resolveEndDetails(end);
   if (hasTruthyUpdateDetails(tail) && sd === undefined) return false;
-  if (pd && typeof pd.agentId === "string") {
-    const toolName = (end.data as Record<string, unknown> | undefined)?.toolName;
-    if (toolName !== "Agent") return false;
-    if (sd?.agentId !== pd.agentId) return false;
-    if (pd.agentSessionId !== undefined && sd?.agentSessionId !== pd.agentSessionId) return false;
-  }
   return subsumesDetails(pd ?? {}, sd ?? {}, setsRenderedResult(tail), endSetsRenderedResult(end));
 }
 
-/** Test-only alias for the end-side gate. See change: drop-final-update-on-tool-execution-end. */
-export const __testEndSubsumes = endSubsumes;
+/**
+ * Test-only alias for the end-side gate; an optional owner `policy` adds its
+ * `vetoSupersede` (with the creating tick resident). See change:
+ * drop-final-update-on-tool-execution-end, move-subagents-to-plugin (D3).
+ */
+export const __testEndSubsumes = (
+  tail: DashboardEvent,
+  end: DashboardEvent,
+  policy?: PluginStorePolicy,
+): boolean => !policy?.vetoSupersede?.(end, tail, { pinResident: true }) && endSubsumes(tail, end);
 
 /** `data.toolCallId` when it is a string — else undefined (D5 fail-open). */
 function readToolCallId(event: DashboardEvent): string | undefined {
@@ -990,124 +995,28 @@ export function measureBytes(value: unknown, cap: number): number {
   return Math.min(w.total, cap + 1);
 }
 
-// ---- Subagent-timeline handling ----
-// The head+tail timeline reduction (`⋯ N steps hidden ⋯`) is removed: a producer
-// that streams its steps (`subagent_entry`) has the full timeline resident as
-// small step events, so an over-ceiling terminal frame elides its redundant
-// `entries` instead; any other over-ceiling event takes the generic path.
-// See change: add-plugin-bridge-contributions (D5/D6).
-
-interface SubagentTimeline {
-  /** The resolved `details` object carrying `entries[]` (+ `description`). */
-  details: Record<string, unknown>;
-  /** The `entries[]` array reachable on `details`. */
-  entries: unknown[];
-  /** Whether `details` sits under `data.partialResult` (live) vs `data`. */
-  underPartialResult: boolean;
-}
-
 /**
- * TYPE-scoped detector (D1). Returns the resolved `details` + its `entries[]`
- * ONLY when the event is a subagent-carrying tool event — `data.toolName ===
- * "Agent"`, OR eventType `tool_execution_update`/`tool_execution_end` with a
- * `details.agentId`, OR a `subagent_*` eventType (the resync-reply carrier) —
- * AND an array sits at `data.partialResult.details.entries` (live) or
- * `data.details.entries` (started/end). Shape alone (a bare array) MUST NOT
- * match.
- *
- * The `subagent_*` arm is D5a of reduce-subagent-details-payload: a resync
- * reply arrives as `subagent_started` with `{id, details}`, matching neither
- * of the tool arms, so it took the generic pass where an array > 20 items was
- * clobbered to the string "[array truncated]" and the reducer rendered no
- * timeline at all. See change: reduce-subagent-details-payload.
+ * Byte-bounded `{ __truncated }` placeholder built WITHOUT stringifying the
+ * original. Keeps `eventType` plus the owner's identity fields (scalar leaves,
+ * strings ≤ 256 B) when the result still fits the ceiling.
+ * See change: move-subagents-to-plugin (D3).
  */
-function locateSubagentTimeline(event: DashboardEvent): SubagentTimeline | undefined {
-  const data = event.data as Record<string, unknown> | undefined;
-  if (!data || typeof data !== "object") return undefined;
-  const pr = data.partialResult as Record<string, unknown> | undefined;
-  let details: Record<string, unknown> | undefined;
-  let underPartialResult = false;
-  if (pr && typeof pr === "object" && pr.details && typeof pr.details === "object") {
-    details = pr.details as Record<string, unknown>;
-    underPartialResult = true;
-  } else if (data.details && typeof data.details === "object") {
-    details = data.details as Record<string, unknown>;
-  }
-  if (!details || !Array.isArray(details.entries)) return undefined;
-  const isAgentTool = data.toolName === "Agent";
-  const isUpdateOrEnd =
-    event.eventType === "tool_execution_update" || event.eventType === "tool_execution_end";
-  const hasAgentId = typeof details.agentId === "string";
-  const isSubagentCarrier = event.eventType.startsWith("subagent_");
-  if (!isAgentTool && !isSubagentCarrier && !(isUpdateOrEnd && hasAgentId)) return undefined;
-  return { details, entries: details.entries as unknown[], underPartialResult };
-}
-
-/** Byte-bounded `{ __truncated }` placeholder built WITHOUT stringifying the original. */
-function truncatedPlaceholder(event: DashboardEvent, maxEventDataSize: number): DashboardEvent {
-  return {
-    ...event,
-    data: {
-      __truncated: true,
-      reason: "event data exceeded MAX_EVENT_DATA_SIZE",
-      thresholdBytes: maxEventDataSize,
-      eventType: event.eventType,
-    },
-  };
-}
-
-/** Resident-completeness check for a streamed timeline: `(agentId, entryCount)`. */
-export type TimelineCompleteCheck = (agentId: string, entryCount: number) => boolean;
-
-/**
- * D6: clone an over-ceiling subagent frame with `details.entries` replaced by
- * `[]` (keeping `entryCount`) ONLY when `entryCount` is a safe integer `>= 0`
- * and every step `0..entryCount-1` is resident as a `subagent_entry`.
- * Returns undefined otherwise (legacy producer, step trimmed, no check wired).
- * Never mutates the in-flight event.
- */
-function elideStreamedEntries(
+function truncatedPlaceholder(
   event: DashboardEvent,
-  loc: SubagentTimeline,
-  isTimelineComplete: TimelineCompleteCheck | undefined,
-): DashboardEvent | undefined {
-  if (!isTimelineComplete) return undefined;
-  const entryCount = loc.details.entryCount;
-  if (typeof entryCount !== "number" || !Number.isSafeInteger(entryCount) || entryCount < 0) return undefined;
-  const origData = event.data as Record<string, unknown>;
-  const agentId =
-    typeof loc.details.agentId === "string"
-      ? loc.details.agentId
-      : typeof origData.id === "string"
-        ? origData.id
-        : undefined;
-  if (!agentId || !isTimelineComplete(agentId, entryCount)) return undefined;
-  const details = { ...loc.details, entries: [] };
-  const data: Record<string, unknown> = { ...origData };
-  if (loc.underPartialResult) {
-    data.partialResult = { ...(origData.partialResult as Record<string, unknown>), details };
-  } else {
-    data.details = details;
+  maxEventDataSize: number,
+  identity?: Record<string, unknown>,
+): DashboardEvent {
+  const base = {
+    __truncated: true,
+    reason: "event data exceeded MAX_EVENT_DATA_SIZE",
+    thresholdBytes: maxEventDataSize,
+    eventType: event.eventType,
+  };
+  if (identity) {
+    const merged = { ...identity, ...base };
+    if (!exceedsSerializedSize(merged, maxEventDataSize)) return { ...event, data: merged };
   }
-  return { ...event, data };
-}
-
-/**
- * D5: `subagent_delta` text carries offsets, so it is EXEMPT from the
- * per-string cap. Over the per-event ceiling it keeps its envelope with
- * `text: ""` + `omittedLength`; the client's offset rule then marks the gap.
- */
-function boundStreamDelta(event: DashboardEvent, maxEventDataSize: number): DashboardEvent {
-  const data = event.data as Record<string, unknown>;
-  if (maxEventDataSize <= 0 || !exceedsSerializedSize(data, maxEventDataSize)) return event;
-  const text = typeof data.text === "string" ? data.text : "";
-  const envelope: Record<string, unknown> = { text: "", omittedLength: text.length };
-  for (const k of ["v", "agentId", "toolCallId", "blockId", "kind", "offset", "final"]) {
-    if (k in data) envelope[k] = data[k];
-  }
-  return exceedsSerializedSize(envelope, maxEventDataSize)
-    ? truncatedPlaceholder(event, maxEventDataSize)
-    : { ...event, data: envelope };
+  return { ...event, data: base };
 }
 
 /**
@@ -1119,8 +1028,22 @@ function boundStreamDelta(event: DashboardEvent, maxEventDataSize: number): Dash
 function createTruncator(maxStringSize: number, maxEventDataSize: number) {
   const stringPass = maxStringSize > 0;
   const sizePass = maxEventDataSize > 0;
+  const exceeds = (value: unknown): boolean => sizePass && exceedsSerializedSize(value, maxEventDataSize);
+  /** Owner identity fields for the placeholder; a throwing policy yields none. */
+  const identityOf = (policy: PluginStorePolicy | undefined, event: DashboardEvent) => {
+    if (!policy?.identity) return undefined;
+    try {
+      return sanitizeIdentityFields(policy.identity(event));
+    } catch {
+      return undefined;
+    }
+  };
   /** Generic bound: image rescue → per-string cap → ceiling placeholder. */
-  const genericBound = (event: DashboardEvent, original: DashboardEvent): DashboardEvent => {
+  const genericBound = (
+    event: DashboardEvent,
+    original: DashboardEvent,
+    policy: PluginStorePolicy | undefined,
+  ): DashboardEvent => {
     const data = event.data as Record<string, unknown>;
     // Rescue a chat message that only busts the per-event ceiling because of
     // inline image bytes: strip the base64 out of its image blocks (both the
@@ -1142,28 +1065,50 @@ function createTruncator(maxStringSize: number, maxEventDataSize: number) {
       : rescuedData;
     if (sizePass && exceedsSerializedSize(truncated, maxEventDataSize)) {
       // Non-image content alone still busts the ceiling (e.g. a huge text
-      // block) — fall through to the whole-event placeholder.
-      return truncatedPlaceholder(original, maxEventDataSize);
+      // block) — fall through to the whole-event placeholder, which keeps the
+      // owner's identity fields (scalar, ≤ 256 B each).
+      return truncatedPlaceholder(original, maxEventDataSize, identityOf(policy, original));
     }
     return truncated !== rescuedData ? { ...rescued, data: truncated } : rescued;
   };
-  if (!stringPass && !sizePass) return (event: DashboardEvent, _c?: TimelineCompleteCheck) => event; // disabled
-  return (event: DashboardEvent, isTimelineComplete?: TimelineCompleteCheck): DashboardEvent => {
+  if (!stringPass && !sizePass) {
+    return (event: DashboardEvent, _p?: PluginStorePolicy, _v?: () => StorePolicyView) => event; // disabled
+  }
+  return (
+    event: DashboardEvent,
+    policy?: PluginStorePolicy,
+    makeView?: () => StorePolicyView,
+  ): DashboardEvent => {
     const data = event.data;
     if (!data || typeof data !== "object") return event;
-    if (event.eventType === "subagent_delta") return boundStreamDelta(event, maxEventDataSize);
-    // Subagent-timeline events: under the ceiling they are stored UNCHANGED (the
-    // generic `obj.length > 20` array clobber must never reach `entries[]`).
-    // Over it, a streamed producer's complete timeline lets the frame drop its
-    // redundant `entries`; anything else takes the generic path. No head+tail
-    // reduction. See change: add-plugin-bridge-contributions (D6).
-    const loc = sizePass ? locateSubagentTimeline(event) : undefined;
-    if (loc) {
-      if (!exceedsSerializedSize(data, maxEventDataSize)) return event;
-      const elided = elideStreamedEntries(event, loc, isTimelineComplete);
-      return genericBound(elided ?? event, event);
+    if (policy) {
+      // Owner bound first (stream pieces; under-ceiling timeline frames stay
+      // UNCHANGED so the generic `obj.length > 20` array clobber never reaches
+      // them). A throwing hook is treated as absent.
+      let bounded: DashboardEvent | undefined;
+      try {
+        bounded = policy.bound?.(event, { maxEventDataSize, exceeds });
+      } catch {
+        bounded = undefined;
+      }
+      if (bounded) {
+        return exceeds(bounded.data)
+          ? truncatedPlaceholder(event, maxEventDataSize, identityOf(policy, event))
+          : bounded;
+      }
+      // Over the ceiling the owner may elide a redundant part before the
+      // generic caps run; the generic path then bounds whatever is left.
+      if (policy.elide && makeView && exceeds(data)) {
+        let elided: DashboardEvent | undefined;
+        try {
+          elided = policy.elide(event, makeView());
+        } catch {
+          elided = undefined;
+        }
+        return genericBound(elided ?? event, event, policy);
+      }
     }
-    return genericBound(event, event);
+    return genericBound(event, event, policy);
   };
 }
 
@@ -1175,6 +1120,8 @@ export function createMemoryEventStore(
   maxEventDataSize: number = DEFAULT_MAX_EVENT_DATA_SIZE,
   maxBytesPerSession: number = 0,
   maxTotalEventBytes: number = 0,
+  /** Plugin store-policy lookup; defaults to the process-wide registry. See change: move-subagents-to-plugin (D3). */
+  resolvePolicy: StorePolicyResolver = (event) => getPluginPolicyRegistry().resolveStorePolicy(event),
 ): EventStore {
   const truncateEventData = createTruncator(maxStringFieldSize, maxEventDataSize);
   const buffers = new Map<string, SessionBuffer>();
@@ -1231,41 +1178,58 @@ export function createMemoryEventStore(
   // count-only pass does NOT, so the counter answers "did the byte bound ever
   // bind". See change: bound-event-store-by-bytes (D4).
   let trimmedBytesTotal = 0;
-  // Subagent-tick byte telemetry (D6). Additive, never reset on read.
-  // See change: reduce-subagent-details-payload.
-  let subagentTicksTotal = 0;
-  let subagentTickBytesTotal = 0;
-  let subagentFatTicksTotal = 0;
-  let subagentTickFatBytesTotal = 0;
+  // Owner pins ignored for exceeding the per-session cap (counted, never reset).
+  let pinOverflowTotal = 0;
 
   /**
-   * Count one ingested subagent-carrying event, splitting fat (carries a
-   * timeline) from thin. Measured on the STORED event, which is what the live
-   * broadcast sends — so broadcast bytes == counted bytes.
-   * See change: reduce-subagent-details-payload (D6).
+   * Lazy read window onto `buf`'s resident events governed by `policy` (newest
+   * first). `excludeSeq` hides the event the hook is processing.
    */
-  function countSubagentTick(event: DashboardEvent): void {
-    const isSubagentCarrier =
-      event.eventType.startsWith("subagent_") ||
-      event.eventType === "tool_execution_update" ||
-      event.eventType === "tool_execution_end";
-    if (!isSubagentCarrier) return;
-    const data = event.data as Record<string, unknown> | undefined;
-    if (!data || typeof data !== "object") return;
-    const pr = data.partialResult as Record<string, unknown> | undefined;
-    const details = (pr && typeof pr === "object" ? pr.details : data.details) as
-      | Record<string, unknown>
-      | undefined;
-    if (!details || typeof details !== "object") return;
-    if (typeof details.agentId !== "string" && !event.eventType.startsWith("subagent_")) return;
-    const bytes = measureBytes(data, maxEventDataSize);
-    subagentTicksTotal += 1;
-    subagentTickBytesTotal += bytes;
-    if (Array.isArray(details.entries) && details.entries.length > 0) {
-      subagentFatTicksTotal += 1;
-      subagentTickFatBytesTotal += bytes;
-    }
+  function makeView(buf: SessionBuffer, policy: PluginStorePolicy, excludeSeq?: number): StorePolicyView {
+    return {
+      size: buf.events.length,
+      *resident() {
+        for (let i = buf.events.length - 1; i >= 0; i--) {
+          const e = buf.events[i];
+          if (e.seq === excludeSeq) continue;
+          if (resolvePolicy(e.event) === policy) yield { seq: e.seq, event: e.event };
+        }
+      },
+    };
   }
+
+  /**
+   * Seqs the owners' `retain` hooks pin for this trim pass, capped at
+   * `MAX_RETAINED_PINS_PER_SESSION` (oldest overflow ignored and counted).
+   * `undefined` when no policy retains anything.
+   */
+  function computePins(buf: SessionBuffer): Set<number> | undefined {
+    const views = new Map<PluginStorePolicy, StorePolicyView>();
+    const candidates: number[] = [];
+    for (const e of buf.events) {
+      if (ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType)) continue;
+      const policy = resolvePolicy(e.event);
+      if (!policy?.retain) continue;
+      let view = views.get(policy);
+      if (!view) {
+        view = makeView(buf, policy);
+        views.set(policy, view);
+      }
+      try {
+        if (policy.retain(e.event, view)) candidates.push(e.seq);
+      } catch {
+        /* a throwing hook pins nothing */
+      }
+    }
+    if (candidates.length === 0) return undefined;
+    let pins = candidates;
+    if (pins.length > MAX_RETAINED_PINS_PER_SESSION) {
+      pinOverflowTotal += pins.length - MAX_RETAINED_PINS_PER_SESSION;
+      pins = pins.slice(pins.length - MAX_RETAINED_PINS_PER_SESSION);
+    }
+    return new Set(pins);
+  }
+
   // P1 find-cost probe. Reset per insert; distinct from collapsedUpdatesTotal.
   let lastEntriesExamined = 0;
   let maxEntriesExamined = 0;
@@ -1340,8 +1304,9 @@ export function createMemoryEventStore(
     let dropped = 0;
     let toolEndDropped = 0;
     let bytesDropped = 0;
+    const pinned = computePins(buf);
     for (const e of buf.events) {
-      if (!ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType)) {
+      if (!ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType) && !pinned?.has(e.seq)) {
         dropped++;
         bytesDropped += e.bytes;
         if (e.event.eventType === "tool_execution_end") {
@@ -1556,7 +1521,11 @@ export function createMemoryEventStore(
    * just-inserted `stored` subsumes it (D7), then advance the index. Fail-open
    * on a missing `toolCallId` (D5) and on any unverified lookup (D6.2).
    */
-  function collapseSuperseded(buf: SessionBuffer, stored: StoredEvent): void {
+  function collapseSuperseded(
+    buf: SessionBuffer,
+    stored: StoredEvent,
+    policy: PluginStorePolicy | undefined,
+  ): void {
     if (stored.event.eventType !== "tool_execution_update") return;
     const toolCallId = readToolCallId(stored.event);
     // D5: an update we cannot key (including a `{__truncated}` placeholder,
@@ -1577,10 +1546,14 @@ export function createMemoryEventStore(
 
     entry.newestSeq = stored.seq;
     if (entry.creatingSeq === undefined) {
-      const details = resolveUpdateDetails(stored.event);
-      // Structural pin: the FIRST update carrying `details.agentId` supplies the
-      // reducer's first-wins `type`/`description` and is never collapsed away.
-      if (details && typeof details.agentId === "string") entry.creatingSeq = stored.seq;
+      // Owner pin: the FIRST update the claiming plugin flags as identity-
+      // creating supplies the reducer's first-wins fields and is never
+      // collapsed away. See change: move-subagents-to-plugin (D3).
+      try {
+        if (policy?.isCarrier?.(stored.event)) entry.creatingSeq = stored.seq;
+      } catch {
+        /* a throwing hook pins nothing */
+      }
     }
   }
 
@@ -1592,7 +1565,11 @@ export function createMemoryEventStore(
    * tail, and the no-resident-pin guard.
    * See change: drop-final-update-on-tool-execution-end.
    */
-  function collapseOnEnd(buf: SessionBuffer, stored: StoredEvent): void {
+  function collapseOnEnd(
+    buf: SessionBuffer,
+    stored: StoredEvent,
+    policy: PluginStorePolicy | undefined,
+  ): void {
     if (stored.event.eventType !== "tool_execution_end") return;
     const toolCallId = readToolCallId(stored.event);
     if (toolCallId === undefined) return;
@@ -1602,10 +1579,11 @@ export function createMemoryEventStore(
     // No retained tail, or the retained event IS the pinned creating tick —
     // D7's pin is never a collapse candidate.
     if (prevSeq === undefined || prevSeq === entry.creatingSeq) return;
-    // D3 resident-pin guard: an AGENT-shaped tail with no RESIDENT pin would be
-    // the FIRST hydrating event, seeding the reducer's first-wins
-    // `type`/`description`; dropping it would lose those values. Non-Agent
-    // tails carry no `agentId`, so the guard does not apply to them.
+    // D3 resident-pin guard: an identity-carrying tail with no RESIDENT pin
+    // would be the FIRST hydrating event, seeding the reducer's first-wins
+    // fields; dropping it would lose those values. The owner's `vetoSupersede`
+    // hook applies the guard (and its identity rules); a tail of a tool nobody
+    // claims has no policy and is never vetoed.
     //
     // Residency is checked against the BUFFER, not `creatingSeq !== undefined`.
     // `trimBufferToLimit` drops oldest non-essential first while older
@@ -1614,7 +1592,15 @@ export function createMemoryEventStore(
     // fires, and a `defined`-only guard would drop with no resident pin.
     const pinResident =
       entry.creatingSeq !== undefined && isSeqResident(buf, entry.creatingSeq);
-    const gate = pinResident ? endSubsumes : endSubsumesUnlessAgentTail;
+    const gate = (tail: DashboardEvent, end: DashboardEvent): boolean => {
+      const owner = policy ?? resolvePolicy(tail);
+      try {
+        if (owner?.vetoSupersede?.(end, tail, { pinResident })) return false;
+      } catch {
+        /* a throwing hook vetoes nothing */
+      }
+      return endSubsumes(tail, end);
+    };
     // Only re-point the index when the drop ACTUALLY happened: a non-subsuming
     // end must leave `newestSeq` on the retained tail (a later update still
     // collapses against it — X7).
@@ -1627,68 +1613,38 @@ export function createMemoryEventStore(
   }
 
   /**
-   * D6: true when every step `0..entryCount-1` of `agentId` is resident as a
-   * `subagent_entry`. One pass over the resident buffer (O(resident events));
-   * only reached for an OVER-ceiling subagent frame, so the cost is rare.
+   * Drop the earlier owned events the owner's `onStored` hook names after
+   * `stored` landed (e.g. streamed pieces made redundant). Only seqs of events
+   * the SAME policy governs are honored. Same accounting as every other middle
+   * removal: `buf.bytes` + `globalBytes` decremented, seqs never renumbered.
+   * See change: move-subagents-to-plugin (D3).
    */
-  function residentTimelineComplete(buf: SessionBuffer, agentId: string, entryCount: number): boolean {
-    if (entryCount === 0) return true;
-    if (entryCount > buf.events.length) return false;
-    const seen = new Set<number>();
-    for (const e of buf.events) {
-      if (e.event.eventType !== "subagent_entry") continue;
-      const d = e.event.data as Record<string, unknown> | undefined;
-      if (!d || d.agentId !== agentId) continue;
-      const i = d.index;
-      if (typeof i === "number" && Number.isInteger(i) && i >= 0 && i < entryCount) seen.add(i);
-    }
-    return seen.size === entryCount;
-  }
-
-  /**
-   * D5: drop `subagent_delta` rows made redundant by `stored` — the pieces of
-   * the block a `subagent_entry` (with `blockId`) finishes, or every piece of
-   * an agent that reached `subagent_completed` / `subagent_failed`. Same
-   * accounting as every other middle removal: `buf.bytes` + `globalBytes`
-   * decremented, seqs never renumbered.
-   */
-  function collapseStreamDeltas(buf: SessionBuffer, stored: StoredEvent): void {
-    const t = stored.event.eventType;
-    const d = stored.event.data as Record<string, unknown> | undefined;
-    if (!d) return;
-    let agentId: unknown;
-    let blockId: number | undefined;
-    if (t === "subagent_entry") {
-      if (typeof d.blockId !== "number") return;
-      agentId = d.agentId;
-      blockId = d.blockId;
-    } else if (t === "subagent_completed" || t === "subagent_failed") {
-      const det = d.details as Record<string, unknown> | undefined;
-      agentId = typeof d.id === "string" ? d.id : det?.agentId;
-    } else {
+  function applyOnStored(buf: SessionBuffer, stored: StoredEvent, policy: PluginStorePolicy | undefined): void {
+    if (!policy?.onStored) return;
+    let seqs: readonly number[] | undefined;
+    try {
+      seqs = policy.onStored(stored.event, makeView(buf, policy, stored.seq));
+    } catch {
       return;
     }
-    if (typeof agentId !== "string") return;
-    // Scan the whole resident buffer: a retransmitted (reconnect flush) or
-    // replayed piece can sit before the block's offset-0 piece.
-    for (let i = buf.events.length - 2; i >= 0; i--) {
-      const e = buf.events[i];
-      if (e.event.eventType !== "subagent_delta") continue;
-      const ed = e.event.data as Record<string, unknown> | undefined;
-      if (!ed || ed.agentId !== agentId) continue;
-      if (blockId !== undefined && ed.blockId !== blockId) continue;
-      buf.events.splice(i, 1);
-      buf.bytes -= e.bytes;
-      globalBytes -= e.bytes;
-      collapsedDeltasTotal++;
+    if (!seqs || seqs.length === 0) return;
+    const drop = new Set(seqs);
+    drop.delete(stored.seq);
+    const kept: StoredEvent[] = [];
+    let removed = 0;
+    for (const e of buf.events) {
+      if (drop.has(e.seq) && resolvePolicy(e.event) === policy) {
+        buf.bytes -= e.bytes;
+        globalBytes -= e.bytes;
+        removed++;
+        continue;
+      }
+      kept.push(e);
     }
-  }
-
-  /** D3 resident-pin guard: refuse an Agent-shaped tail when no pin is resident. */
-  function endSubsumesUnlessAgentTail(tail: DashboardEvent, end: DashboardEvent): boolean {
-    const pd = resolveUpdateDetails(tail);
-    if (pd && typeof pd.agentId === "string") return false;
-    return endSubsumes(tail, end);
+    if (removed > 0) {
+      buf.events = kept;
+      collapsedDeltasTotal += removed;
+    }
   }
 
   return {
@@ -1696,15 +1652,13 @@ export function createMemoryEventStore(
       const buf = getOrCreate(sessionId);
       const seq = buf.nextSeq++;
       lastEntriesExamined = 0;
-      const truncated = truncateEventData(event, (agentId, entryCount) =>
-        residentTimelineComplete(buf, agentId, entryCount),
-      );
+      const policy = resolvePolicy(event);
+      const truncated = truncateEventData(event, policy, () => makeView(buf, policy!));
       const stored: StoredEvent = {
         seq,
         event: truncated,
         bytes: measureBytes(truncated.data, measurementCap),
       };
-      countSubagentTick(stored.event);
       buf.events.push(stored);
       buf.bytes += stored.bytes;
       globalBytes += stored.bytes;
@@ -1712,15 +1666,15 @@ export function createMemoryEventStore(
       // placeholder is already resolved) and BEFORE trim/evict, so the shed
       // policies see the already-collapsed buffer.
       // See change: collapse-superseded-tool-execution-updates (D1, task 2.3).
-      collapseSuperseded(buf, stored);
+      collapseSuperseded(buf, stored, policy);
       // Drop the retained tail when this `tool_execution_end` subsumes it, at
       // the SAME position (post-truncate so a `{__truncated}` end no-ops;
       // pre-trim so shed policies see the collapsed buffer).
       // See change: drop-final-update-on-tool-execution-end (D3).
-      collapseOnEnd(buf, stored);
-      // Drop the streamed pieces of a block once its finished step is stored,
-      // and all of an agent's pieces once it is terminal (D5).
-      collapseStreamDeltas(buf, stored);
+      collapseOnEnd(buf, stored, policy);
+      // Let the owner drop earlier owned events this one supersedes (e.g. the
+      // streamed pieces of a finished block). See change: move-subagents-to-plugin (D3).
+      applyOnStored(buf, stored, policy);
       // Trim over the per-session limit (0 = unlimited). Hysteresis: only
       // reclaim once the buffer overshoots the cap by TRIM_SLACK, then trim
       // back to the cap in one O(n) pass. This amortizes the trim cost to O(1)
@@ -1738,10 +1692,14 @@ export function createMemoryEventStore(
         const overBytes =
           effectiveMaxBytesPerSession > 0 &&
           buf.bytes > effectiveMaxBytesPerSession + perSessionByteSlack;
-        const { dropped, toolEndDropped, bytesDropped } = trimBufferToLimit(buf, {
-          maxEvents: maxEventsPerSession,
-          maxBytes: effectiveMaxBytesPerSession,
-        });
+        const { dropped, toolEndDropped, bytesDropped } = trimBufferToLimit(
+          buf,
+          {
+            maxEvents: maxEventsPerSession,
+            maxBytes: effectiveMaxBytesPerSession,
+          },
+          computePins(buf),
+        );
         trimPassesPerSession++;
         globalBytes -= bytesDropped;
         // A pass the byte bound triggered (alone or with the count bound) adds
@@ -1924,11 +1882,8 @@ export function createMemoryEventStore(
         collapsedUpdates: collapsedUpdatesTotal,
         trimmedBytes: trimmedBytesTotal,
         evictedBytes: evictedBytesTotal,
-        subagentTicks: subagentTicksTotal,
-        subagentTickBytes: subagentTickBytesTotal,
-        subagentFatTicks: subagentFatTicksTotal,
-        subagentTickFatBytes: subagentTickFatBytesTotal,
         collapsedDeltas: collapsedDeltasTotal,
+        pinOverflow: pinOverflowTotal,
       };
     },
 

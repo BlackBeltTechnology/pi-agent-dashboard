@@ -9,7 +9,19 @@ import { join } from "node:path";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
 import type { StoredEvent } from "../../persistence/memory-event-store.js";
-import { findBackfillOpenToolCalls, findOpenSubagents, findOpenToolCalls } from "../open-tool-calls.js";
+import { createSubagentsPolicyRegistry } from "../../__tests__/setup/subagents-policies.js";
+import { findBackfillOpenToolCalls, findOpenToolCalls as findOpenToolCallsRaw, type ToolIdentityResolver } from "../open-tool-calls.js";
+
+/**
+ * The claiming plugin's store-policy `identity` hook recovers a claimed tool's
+ * identity (the heal names no plugin field). Here: the real subagents policy.
+ * See change: move-subagents-to-plugin (D3, task 5.3).
+ */
+const registry = createSubagentsPolicyRegistry();
+const resolveIdentity: ToolIdentityResolver = (toolName, update) =>
+  registry.resolveToolStorePolicy(toolName)?.identity?.(update);
+const findOpenToolCalls = (events: StoredEvent[]) => findOpenToolCallsRaw(events, resolveIdentity);
+const AGENT_ID = (id: string) => ({ identity: { details: { agentId: id } } });
 
 /** Wrap bare events into the store's `{seq, event}` shape, seq ascending. */
 function stored(events: DashboardEvent[]): StoredEvent[] {
@@ -62,21 +74,21 @@ describe("findOpenToolCalls", () => {
       start("B", "bash"),
     ]);
     expect(findOpenToolCalls(events)).toEqual([
-      { toolCallId: "A", toolName: "Agent", agentId: "ag-1" },
+      { toolCallId: "A", toolName: "Agent", ...AGENT_ID("ag-1") },
       { toolCallId: "B", toolName: "bash" },
     ]);
   });
 
   it("reads agentId from the nested recorded path, not a flat data.details (#E2)", () => {
     const nested = stored([ev("agent_start", {}), start("A", "Agent"), recordedUpdate("A", "ag-1")]);
-    expect(findOpenToolCalls(nested)[0].agentId).toBe("ag-1");
+    expect(findOpenToolCalls(nested)[0].identity).toEqual({ details: { agentId: "ag-1" } });
 
     const flat = stored([
       ev("agent_start", {}),
       start("A", "Agent"),
       ev("tool_execution_update", { toolCallId: "A", details: { agentId: "ag-1" } }),
     ]);
-    expect(findOpenToolCalls(flat)[0].agentId).toBeUndefined();
+    expect(findOpenToolCalls(flat)[0].identity).toBeUndefined();
   });
 
   it("is scoped to the last agent_start — earlier turns are not reopened (#E3)", () => {
@@ -134,27 +146,9 @@ describe("findOpenToolCalls", () => {
   });
 });
 
-describe("findOpenSubagents", () => {
-  it("returns non-terminal subagents in first-seen order (#E6)", () => {
-    const events = stored([
-      ev("subagent_created", { id: "ag-9" }),
-      ev("subagent_started", { id: "ag-9" }),
-      ev("subagent_started", { id: "ag-1" }),
-      ev("subagent_completed", { id: "ag-1" }),
-      ev("subagent_created", { id: "ag-7" }),
-    ]);
-    expect(findOpenSubagents(events)).toEqual(["ag-9", "ag-7"]);
-  });
-
-  it("treats subagent_failed as terminal, so a healed stream rescans empty (#E6)", () => {
-    const events = stored([
-      ev("subagent_created", { id: "ag-9" }),
-      ev("subagent_started", { id: "ag-9" }),
-      ev("subagent_failed", { id: "ag-9", error: "parent session ended", healedBy: "session_ended" }),
-    ]);
-    expect(findOpenSubagents(events)).toEqual([]);
-  });
-});
+// `findOpenSubagents` moved to the subagents plugin with the subagent heal
+// (see packages/subagents-plugin/src/server/__tests__/session-end-heal.test.ts).
+// See change: move-subagents-to-plugin (D4).
 
 // See change: render-nested-tool-calls — test-plan E16.
 describe("findOpenToolCalls — nested calls are never healed (E16)", () => {
@@ -193,7 +187,7 @@ describe("findOpenToolCalls — synthetic reconnect agent_start", () => {
       recordedUpdate("A", "ag-1"),
       ev("agent_start", { synthetic: true }),
     ]);
-    expect(findOpenToolCalls(events)).toEqual([{ toolCallId: "A", toolName: "Agent", agentId: "ag-1" }]);
+    expect(findOpenToolCalls(events)).toEqual([{ toolCallId: "A", toolName: "Agent", ...AGENT_ID("ag-1") }]);
   });
 
   it("an unmarked agent_start still bounds the scan (test-plan #E8)", () => {

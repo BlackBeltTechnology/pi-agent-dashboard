@@ -136,8 +136,6 @@ describe("E9: session_start delegates the session change to session-sync", () =>
       usageDrain: { baseline: vi.fn(() => undefined) } as never,
       abortLatch: { clear: vi.fn() } as never,
       // Session-change reset surface (everything handleSessionChange touches before delegating).
-      subagentFrameBuffer: { reset: vi.fn() } as never,
-      subagentTickThrottle: { reset: vi.fn() } as never,
       coalescer: { clear: vi.fn() } as never,
       bridgeSteer: { length: 0, clear: vi.fn() } as never,
       bridgeFollowUp: { length: 0, reset: vi.fn() } as never,

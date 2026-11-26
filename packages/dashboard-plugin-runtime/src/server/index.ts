@@ -32,6 +32,7 @@ export * from "./plugin-status-store.js";
 export * from "./requirement-probes.js";
 export * from "./runtime-client-listing.js";
 export * from "./runtime-client-registry.js";
+export * from "./plugin-policies.js";
 export * from "./server-context.js";
 export * from "./service-probes/model-proxy.js";
 export * from "./ws-route-registry.js";

@@ -30,6 +30,9 @@
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { createSubagentsDeliveryPolicy } from "./delivery-policy.js";
+import { registerSessionEndHeal } from "./session-end-heal.js";
+import { createSubagentsStorePolicy } from "./store-policy.js";
 import {
 	clampMaxConcurrent,
 	mergeIntoProducerSettings,
@@ -122,6 +125,12 @@ function mirrorToProducer(ctx: ServerPluginContext): void {
 }
 
 export default async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
+	// ── 0. Generic core seams (store policy, delivery policy, orphan heal) ──
+	// See change: move-subagents-to-plugin (D3, D4, D10).
+	ctx.registerStorePolicy(createSubagentsStorePolicy());
+	ctx.registerDeliveryPolicy(createSubagentsDeliveryPolicy());
+	registerSessionEndHeal(ctx);
+
 	// ── 1. Startup reconcile ─────────────────────────────────────────────
 	try {
 		await reconcile(ctx);

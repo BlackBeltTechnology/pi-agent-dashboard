@@ -14,7 +14,6 @@ import { refreshAfterCredentialsReload } from "../model-refresh.js";
 import { emitPendingPrompts } from "../pending-prompt-emitter.js";
 import { buildProviderCatalogue, reloadProviders, toModelInfo } from "../provider-register.js";
 import { filterByEnabledModels } from "../session-sync.js";
-import { serveSubagentResync } from "../subagent-forward-sites.js";
 import { readTranscriptChunk, type TranscriptCursor } from "../transcript-backfill.js";
 import { handleUiManagement } from "../ui-modules.js";
 import type { BridgeInstance } from "./instance.js";
@@ -374,35 +373,12 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
     }
     return;
   }
-  // Subagent resync (D2): reply with the latest retained snapshot of a
-  // running subagent as a synthetic subagent_started event_forward. No-op
-  // for an unknown/finished agent (durable completed-case backfill covers
-  // those). See change: fix-subagent-live-detail-reliability.
-  if (msg.type === "subagent_resync_request") {
-    // The incoming id may be EITHER a v4 agentId or a v7 runner
-    // agentSessionId (from a deep-link route); resync() resolves both.
-    // See change: resolve-subagent-inspector-by-session-id (D3/D4).
-    const requestedId = (msg as { agentId?: unknown }).agentId;
-    if (typeof requestedId === "string" && requestedId.length > 0) {
-      // The reply is NEVER stripped: it IS the pull model's answer and
-      // carries the full timeline for a RUNNING agent — exactly the shape a
-      // strip inside `sendEventForward` would have destroyed.
-      // See change: reduce-subagent-details-payload (X6).
-      const echoId = (msg as { requestId?: unknown }).requestId;
-      const resolvedAgentId = serveSubagentResync(
-        inst.subagentFrameBuffer,
-        requestedId,
-        inst.sendEventForward,
-        () => inst.sessionReady && inst.isActive(),
-        typeof echoId === "string" && echoId.length > 0 ? echoId : undefined,
-        (msg as { reason?: "open" | "cadence" }).reason,
-      );
-      console.log(
-        resolvedAgentId
-          ? `[dashboard] served subagent resync for id=${requestedId} (resolved agentId=${resolvedAgentId})`
-          : `[dashboard] subagent resync no-op (unknown/finished/not-ready) id=${requestedId}`,
-      );
-    }
+  // Plugin ownership table (D1): manifest event-type + tool-renderer ownership,
+  // sent by the server on every session_register. Releases held plugin
+  // declarations. See change: move-subagents-to-plugin.
+  if (msg.type === "plugin_ownership") {
+    inst.pluginForwardRegistry.setOwnership(msg);
+    inst.toolUpdateFilters.setClaims(msg.toolClaims);
     return;
   }
   // Prompt resync (fix B, extension half): a browser asked the bridge to

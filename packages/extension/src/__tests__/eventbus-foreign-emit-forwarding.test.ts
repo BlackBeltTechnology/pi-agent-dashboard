@@ -11,7 +11,9 @@
  * This is NOT a mirror test: it drives the production wiring
  * (`registerEventBusForwarding` / `forwardBusEvent`) and the event originates
  * from a foreign facade, i.e. the exact link that fails.
- * See change: fix-automation-run-lifecycle.
+ * Core maps no plugin channel, so the mechanism is exercised with a generic
+ * demo channel passed as an `extraMaps` entry.
+ * See change: fix-automation-run-lifecycle, move-subagents-to-plugin.
  */
 import { REGISTER_EVENT_FORWARD_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
 import { describe, expect, it } from "vitest";
@@ -25,65 +27,54 @@ import {
 import { PluginForwardRegistry } from "../plugin-event-forward-registry.js";
 import { makeDeps, makeHost } from "./helpers/event-bus-host.js";
 
+const DEMO = { "demo:completed": "demo_completed" };
+
 describe("EventBus forwarding across per-extension facades", () => {
-  it("forwards subagents:completed emitted by a FOREIGN extension facade", () => {
+  it("forwards a mapped channel emitted by a FOREIGN extension facade", () => {
     const host = makeHost();
     const { deps, sent } = makeDeps();
-    registerEventBusForwarding(host.bridgeEvents, deps);
+    registerEventBusForwarding(host.bridgeEvents, deps, [DEMO]);
 
-    host.foreignEvents.emit("subagents:completed", { agentId: "a1", status: "success" });
+    host.foreignEvents.emit("demo:completed", { agentId: "a1", status: "success" });
 
-    expect(sent.find((s) => s.channel === "subagents:completed")?.data).toEqual({
+    expect(sent.find((s) => s.channel === "demo:completed")?.data).toEqual({
       agentId: "a1",
       status: "success",
     });
   });
 
-  it("forwards a foreign subagent channel and marks it forwarded", () => {
-    const host = makeHost();
-    const { deps, sent, marked } = makeDeps();
-    registerEventBusForwarding(host.bridgeEvents, deps);
-
-    host.foreignEvents.emit("subagents:completed", { id: "a1" });
-
-    expect(sent.map((s) => s.channel)).toContain("subagents:completed");
-    expect(marked.map((s) => s.channel)).toContain("subagents:completed");
-  });
-
   it("does not forward a foreign emission while the session is not ready", () => {
     const host = makeHost();
-    const { deps, sent, buffered } = makeDeps({ isSessionReady: () => false });
-    registerEventBusForwarding(host.bridgeEvents, deps);
+    const { deps, sent } = makeDeps({ isSessionReady: () => false });
+    registerEventBusForwarding(host.bridgeEvents, deps, [DEMO]);
 
-    host.foreignEvents.emit("subagents:started", { id: "a1" });
+    host.foreignEvents.emit("demo:completed", { id: "a1" });
 
     expect(sent).toHaveLength(0);
-    // subagent frames are reconcilable state → buffered, not dropped
-    expect(buffered.map((s) => s.channel)).toEqual(["subagents:started"]);
   });
 
   it("forwards the bridge's OWN emission exactly once (no double-forward)", () => {
     const host = makeHost();
     const { deps, sent } = makeDeps();
-    registerEventBusForwarding(host.bridgeEvents, deps);
+    registerEventBusForwarding(host.bridgeEvents, deps, [DEMO]);
 
-    host.bridgeEvents.emit("subagents:completed", { id: "a1" });
+    host.bridgeEvents.emit("demo:completed", { id: "a1" });
 
-    expect(sent.filter((s) => s.channel === "subagents:completed")).toHaveLength(1);
+    expect(sent.filter((s) => s.channel === "demo:completed")).toHaveLength(1);
   });
 
   it("subscribes every channel in the rename mapping", () => {
     const host = makeHost();
     const { deps, sent } = makeDeps();
-    registerEventBusForwarding(host.bridgeEvents, deps);
+    registerEventBusForwarding(host.bridgeEvents, deps, [DEMO]);
 
-    const channels = forwardedBusChannels();
-    expect(channels.length).toBeGreaterThan(0);
+    const channels = forwardedBusChannels([DEMO]);
+    expect(channels).toEqual(["demo:completed"]);
     for (const channel of channels) host.foreignEvents.emit(channel, { probe: channel });
 
     expect(sent.map((s) => s.channel).sort()).toEqual([...channels].sort());
-    // and the mapping itself is the declaration point
-    expect(Object.keys(EVENT_BUS_MAP_FOR_TEST).sort()).toEqual([...channels].sort());
+    // the core declaration point maps nothing
+    expect(Object.keys(EVENT_BUS_MAP_FOR_TEST)).toEqual([]);
   });
 
   it("keeps delivering to other subscribers when forwarding throws", () => {
@@ -96,38 +87,66 @@ describe("EventBus forwarding across per-extension facades", () => {
     // Assert the isolation in `forwardBusEvent` ITSELF: the host wraps `on`
     // handlers in its own try/catch, so going through the bus would still pass
     // if forwardBusEvent lost its catch block. See CodeRabbit review, PR #456.
-    expect(() => forwardBusEvent(deps, "subagents:completed", { id: "a1" })).not.toThrow();
-    registerEventBusForwarding(host.bridgeEvents, deps);
+    expect(() => forwardBusEvent(deps, "demo:completed", { id: "a1" })).not.toThrow();
+    registerEventBusForwarding(host.bridgeEvents, deps, [DEMO]);
 
     const seen: unknown[] = [];
-    host.foreignEvents.on("subagents:completed", (d) => seen.push(d));
+    host.foreignEvents.on("demo:completed", (d) => seen.push(d));
 
-    expect(() => host.foreignEvents.emit("subagents:completed", { id: "a1" })).not.toThrow();
+    expect(() => host.foreignEvents.emit("demo:completed", { id: "a1" })).not.toThrow();
     expect(seen).toEqual([{ id: "a1" }]);
   });
 
   it("dispose releases the wiring and stops forwarding", () => {
     const host = makeHost();
     const { deps, sent } = makeDeps();
-    const dispose = registerEventBusForwarding(host.bridgeEvents, deps);
+    const dispose = registerEventBusForwarding(host.bridgeEvents, deps, [DEMO]);
     dispose();
 
-    host.foreignEvents.emit("subagents:completed", { id: "a1" });
+    host.foreignEvents.emit("demo:completed", { id: "a1" });
 
     expect(sent).toHaveLength(0);
   });
 });
 
 /**
- * E49: the core map holds only subagent channels; flow channels reach the
- * dashboard only through the flows plugin's declaration.
+ * E41: core has no subagent map — with the subagents plugin absent, a
+ * `subagents:created` emission is not forwarded.
+ * See change: move-subagents-to-plugin (test-plan E41).
+ */
+describe("core forwards no subagent channel (E41)", () => {
+  it("exports no SUBAGENT_EVENT_MAP and forwards nothing when the plugin is absent", () => {
+    expect("SUBAGENT_EVENT_MAP" in wiring).toBe(false);
+    const host = makeHost();
+    const { deps, sent } = makeDeps();
+    registerEventBusForwarding(host.bridgeEvents, deps);
+    const pluginSent: string[] = [];
+    const registry = new PluginForwardRegistry(host.bridgeEvents, {
+      send: (eventType) => pluginSent.push(eventType),
+      isSessionReady: () => true,
+      isActive: () => true,
+      isConnected: () => true,
+    });
+    registry.setOwnership({ eventTypes: { "subagent_*": "subagents" } });
+    registry.attach();
+
+    host.foreignEvents.emit("subagents:created", { id: "a1" });
+
+    expect(sent).toEqual([]);
+    expect(pluginSent).toEqual([]);
+  });
+});
+
+/**
+ * E49: core maps no channel at all; flow channels reach the dashboard only
+ * through the flows plugin's declaration.
  * See change: update-flows-plugin (test-plan E49).
  */
 describe("core forwards no flow channel (E49)", () => {
-  it("exports SUBAGENT_EVENT_MAP and no FLOW_EVENT_MAP; every core key is subagents:", () => {
-    expect(wiring.SUBAGENT_EVENT_MAP).toBeDefined();
+  it("exports no channel rename map; the core channel list is empty", () => {
     expect("FLOW_EVENT_MAP" in wiring).toBe(false);
-    for (const k of forwardedBusChannels()) expect(k.startsWith("subagents:"), k).toBe(true);
+    expect("SUBAGENT_EVENT_MAP" in wiring).toBe(false);
+    expect(forwardedBusChannels()).toEqual([]);
   });
 
   function wire(flowsEnabled: boolean) {
@@ -140,8 +159,8 @@ describe("core forwards no flow channel (E49)", () => {
       isSessionReady: () => true,
       isActive: () => true,
       isConnected: () => true,
-      isCoreChannel: (c) => c in wiring.SUBAGENT_EVENT_MAP,
     });
+    registry.setOwnership({ eventTypes: {} });
     registry.attach();
     if (flowsEnabled) {
       host.foreignEvents.emit(REGISTER_EVENT_FORWARD_CHANNEL, {
@@ -152,13 +171,13 @@ describe("core forwards no flow channel (E49)", () => {
     return { host, sent, pluginSent };
   }
 
-  it("flows disabled: subagent forwarded, flow:flow-started not, no error", () => {
+  it("flows disabled: nothing forwarded, no error", () => {
     const { host, sent, pluginSent } = wire(false);
     expect(() => {
       host.foreignEvents.emit("subagents:created", { agentId: "a" });
       host.foreignEvents.emit("flow:flow-started", { flowName: "r" });
     }).not.toThrow();
-    expect(sent.map((s) => s.channel)).toEqual(["subagents:created"]);
+    expect(sent).toEqual([]);
     expect(pluginSent).toEqual([]);
   });
 

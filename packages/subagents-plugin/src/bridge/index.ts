@@ -1,9 +1,13 @@
 /**
  * subagents-plugin · bridge entry (runs inside every pi session as a pi extension).
  *
- * Declares the producer's per-step and in-progress-block streams to the main
- * dashboard bridge through the plugin event-forward registry, so core never
- * names these channels:
+ * Declares the producer's channels to the main dashboard bridge through the
+ * plugin event-forward registry, so core never names them:
+ *   - `subagents:created|started|completed|failed` → `subagent_created|started|
+ *     completed|failed` (`latest`, key `id`, group `lifecycle`): one slot per agent
+ *     across the four channels, so a terminal frame supersedes created/started
+ *     while the bridge cannot forward. `maxKeys: 256` (≈128 agents: lifecycle +
+ *     stream key each), above the 64-key default.
  *   - `subagents:entry` → `subagent_entry` (one finished timeline step)
  *   - `subagents:delta` → `subagent_delta` (append-only piece of the open block)
  * Both `stream` (every message kept in order while the bridge cannot forward),
@@ -31,6 +35,8 @@ import {
   BRIDGE_READY_CHANNEL,
   type EventForwardDeclaration,
   REGISTER_EVENT_FORWARD_CHANNEL,
+  REGISTER_TOOL_UPDATE_FILTER_CHANNEL,
+  type ToolUpdateFilterDeclaration,
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
 
 export const STOP_CHANNEL = "subagents:stop";
@@ -38,14 +44,34 @@ export const STOP_RESULT_CHANNEL = "subagents:stop_result";
 export const REGISTRY_QUERY_CHANNEL = "subagents:registry";
 export const REGISTRY_SNAPSHOT_CHANNEL = "subagents:registry_snapshot";
 
+/** Producer channel → forwarded lifecycle type (one `latest` slot per `id` across the group). */
+const LIFECYCLE = { delivery: "latest", key: "id", group: "lifecycle" } as const;
+
 export const SUBAGENTS_FORWARD_DECLARATION: EventForwardDeclaration = {
   pluginId: "subagents",
+  maxKeys: 256,
   channels: {
+    "subagents:created": { as: "subagent_created", ...LIFECYCLE },
+    "subagents:started": { as: "subagent_started", ...LIFECYCLE },
+    "subagents:completed": { as: "subagent_completed", ...LIFECYCLE },
+    "subagents:failed": { as: "subagent_failed", ...LIFECYCLE },
     "subagents:entry": { as: "subagent_entry", delivery: "stream", key: "agentId" },
     "subagents:delta": { as: "subagent_delta", delivery: "stream", key: "agentId" },
     [STOP_RESULT_CHANNEL]: { as: "subagent_stop_result", delivery: "latest", key: "agentId" },
     [REGISTRY_SNAPSHOT_CHANNEL]: { as: "subagent_registry_snapshot", delivery: "latest", key: "scope" },
   },
+};
+
+/**
+ * `tool_execution_update` filter for the claimed `Agent` tool: drop the cumulative
+ * `details.entries` timeline of a queued/running agent (bytes per tick stay flat);
+ * terminal updates keep it. See change: move-subagents-to-plugin (D5).
+ */
+export const AGENT_TOOL_UPDATE_FILTER: ToolUpdateFilterDeclaration = {
+  pluginId: "subagents",
+  toolName: "Agent",
+  dropPaths: ["partialResult.details.entries", "details.entries"],
+  when: { path: "partialResult.details.status", in: ["queued", "running"] },
 };
 
 /** Dashboard-side subagent status vocabulary. */
@@ -147,7 +173,10 @@ export default function activate(ctx: unknown): void {
       /* a stale runtime's `on` throws — nothing to wire */
     }
   };
-  const declare = () => safeEmit(REGISTER_EVENT_FORWARD_CHANNEL, SUBAGENTS_FORWARD_DECLARATION);
+  const declare = () => {
+    safeEmit(REGISTER_TOOL_UPDATE_FILTER_CHANNEL, AGENT_TOOL_UPDATE_FILTER);
+    return safeEmit(REGISTER_EVENT_FORWARD_CHANNEL, SUBAGENTS_FORWARD_DECLARATION);
+  };
 
   /** Query every producer activation and forward the union (D1, D4). */
   const publishRegistry = () => {

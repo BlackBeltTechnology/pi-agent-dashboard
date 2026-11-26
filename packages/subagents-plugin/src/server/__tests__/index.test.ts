@@ -77,6 +77,12 @@ function makeMockCtx(initialConfig: Record<string, unknown>, opts: MockOpts = {}
 			updates.push(partial as Record<string, unknown>);
 		},
 		logger,
+		// Generic core seams the plugin registers at startup (move-subagents-to-plugin).
+		registerStorePolicy: () => () => {},
+		registerDeliveryPolicy: () => () => {},
+		onSessionStatusEnded: () => () => {},
+		appendEvent: () => ({ ok: false, reason: "unsupported" }),
+		eventStore: { getEvents: () => [], getLatestEvent: () => undefined },
 		// Unused by this plugin but required by the type. Cast through unknown.
 	} as unknown as Parameters<typeof registerPlugin>[0];
 

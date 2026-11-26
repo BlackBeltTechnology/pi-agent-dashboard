@@ -48,7 +48,6 @@ import { mapEventToProtocol, } from "./event-forwarder.js";
 import { bridgeExtensionIdentity } from "./extension-identity.js";
 import {
   registerEventBusForwarding,
-  SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
 import { drainOneFollowup } from "./followup-drain.js";
@@ -80,10 +79,7 @@ import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { buildSpawnNewSessionMessage } from "./spawn-new-session.js";
 import { captureSpawnTokenAtActivation } from "./spawn-token.js";
 import { admitSteer, createSteerBuffer } from "./steer-buffer.js";
-import { flushBufferedSubagentFrames, } from "./subagent-forward-sites.js";
-import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
-import { stripForForward } from "./subagent-frame-strip.js";
-import { SubagentTickThrottle } from "./subagent-tick-throttle.js";
+import { ToolUpdateFilterRegistry } from "./tool-update-filter-registry.js";
 import { createSudoAskpass, createSudoConfigReader } from "./sudo-askpass/index.js";
 import { sudoMaskState } from "./sudo-askpass/sudo-mask-registry.js";
 import {
@@ -405,13 +401,6 @@ function initBridge(pi: ExtensionAPI) {
   const abortLatch = new AbortLatch();
   inst.abortLatch = abortLatch;
 
-  // Subagent live-detail reliability: retain subagent frames emitted while the
-  // bridge is not ready (buffer-and-flush on re-register, D1) and keep the
-  // latest snapshot of each running subagent for the resync responder (D2).
-  // See change: fix-subagent-live-detail-reliability.
-  const subagentFrameBuffer = new SubagentFrameBuffer();
-  inst.subagentFrameBuffer = subagentFrameBuffer;
-
   // Dashboard MCP server registration with pi's built-in MCP. The bearer lives
   // only in this registrar and pi's registration — never in process.env.
   // See change: migrate-mcp-to-pi-builtin (D1).
@@ -430,25 +419,6 @@ function initBridge(pi: ExtensionAPI) {
     log: console,
   });
   inst.mcpRegistrar = mcpRegistrar;
-
-  // Bound the Agent-tick rate on the `tool_execution_update` carrier. That
-  // carrier has no throttle anywhere on its path, so its rate is the
-  // subagent's raw session-event rate; the sibling `subagents:*` carrier is
-  // already coalesced to 250 ms by the producer and is what paces the LIVE
-  // render, so this window costs replay staleness, not liveness.
-  //
-  // `windowMs` comes from the shared dashboard config, read once here at
-  // bridge init (`0` = disabled, the byte-identical rollback path). `send` and
-  // `canSend` deliberately resolve `connection` / `sessionReady` / `sessionId`
-  // at CALL time: all three can move while a frame is held, and a captured
-  // reference would send over a dead connection or under a stale session.
-  // See change: reduce-bridge-tick-bandwidth (D2/D3/D4).
-  const subagentTickThrottle = new SubagentTickThrottle<unknown>({
-    windowMs: loadConfig().subagentTickThrottleMs,
-    send: (msg) => inst.connection.send(msg),
-    canSend: (frameSessionId) => isActive() && inst.sessionReady && frameSessionId === inst.sessionId,
-  });
-  inst.subagentTickThrottle = subagentTickThrottle;
 
   // Bound the bridge's per-token streaming cost. pi's `message_update` carries
   // the FULL accumulated text snapshot, so forwarding each one synchronously
@@ -1394,12 +1364,11 @@ function initBridge(pi: ExtensionAPI) {
       // A live reconnect keeps in-flight calls open (no fabricated end).
       // See change: fix-replay-fabricates-orphan-end-for-live-calls (D3).
       replaySessionEntries({ liveTailOpen });
-      // Flush subagent frames buffered while the socket was down (D1). Unlike
-      // session_start, a transient WS reconnect keeps `sessionReady` true, so
-      // the intercept routes those frames into the per-agent buffer; drain them
-      // now that the transport is open again. See change:
-      // fix-subagent-live-detail-reliability.
-      flushPendingSubagentFrames();
+      // Flush plugin latest/stream messages retained while the socket was down.
+      // Unlike session_start, a transient WS reconnect keeps `sessionReady` true,
+      // so they sit in the registry's buffer; drain them now that the transport
+      // is open again. See change: add-plugin-bridge-contributions.
+      pluginForwardRegistry.flush();
       // Re-send pending PromptBus requests so dashboard dialogs survive browser refresh.
       // Synchronous within this tick to prevent TUI respond() from interleaving.
       // Client-side dedup by requestId prevents double-rendering. Shared with the
@@ -2016,10 +1985,8 @@ function initBridge(pi: ExtensionAPI) {
   inst.sendCwdMissingIfChanged = sendCwdMissingIfChanged;
   function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
   inst.sendPiVersionIfChanged = sendPiVersionIfChanged;
-  // Core EventBus rename map (subagent lifecycle only — flow channels are declared by the
-  // flows plugin bridge): used by `sendEventForward` for the channel→eventType rename and by
-  // `registerEventBusForwarding` for the per-channel subscription set. See change: update-flows-plugin.
-  const EVENT_BUS_MAP: Record<string, string> = { ...SUBAGENT_EVENT_MAP };
+  // Core maps no plugin channel (subagent and flow channels are declared by their
+  // plugin bridges through the forward registry below). See change: move-subagents-to-plugin.
 
   registerEnrichedForwarders(inst);
 
@@ -2100,44 +2067,19 @@ function initBridge(pi: ExtensionAPI) {
   // clear here — it would wipe entries the user adds DURING the drain.
   // See change: add-followup-edit-and-steer-cancel (per-entry-drain).
 
-  // Forward one EventBus frame as an `event_forward` message. Known channels
-  // get renamed via EVENT_BUS_MAP; unknown channels use the channel name.
+  // Forward one EventBus frame as an `event_forward` message (channel name as type).
   function sendEventForward(channel: string, data: Record<string, unknown>): void {
-    const eventType = EVENT_BUS_MAP[channel] ?? channel;
     inst.connection.send({
       type: "event_forward",
       sessionId: inst.sessionId,
-      event: { eventType, timestamp: Date.now(), data },
+      event: { eventType: channel, timestamp: Date.now(), data },
     });
   }
-  inst.sendEventForward = sendEventForward;
-
-  // Flush subagent frames buffered while the bridge was not ready (D1). Called
-  // right after `sessionReady` flips true on (re-)register, in emission order.
-  // See change: fix-subagent-live-detail-reliability.
-  function flushPendingSubagentFrames(): void {
-    // Drained intermediate frames are stripped too: this path calls
-    // `sendEventForward` directly, so a bus-path-only strip would leak every
-    // buffered frame fat. See change: reduce-subagent-details-payload (X5).
-    const flushed = flushBufferedSubagentFrames(subagentFrameBuffer, sendEventForward);
-    // Plugin-declared latest/stream channels retained over the same gap flush
-    // here too, in emission order. See change: add-plugin-bridge-contributions.
-    pluginForwardRegistry.flush();
-    if (flushed === 0) return;
-    console.log(
-      `[dashboard] flushed ${flushed} buffered subagent frame(s) on re-register` +
-        ` (forwarded=${subagentFrameBuffer.stats.forwarded} buffered=${subagentFrameBuffer.stats.buffered}` +
-        ` flushed=${subagentFrameBuffer.stats.flushed})`,
-    );
-  }
-  inst.flushPendingSubagentFrames = flushPendingSubagentFrames;
 
   // EventBus forwarding: ONE `pi.events.on` subscription per declared channel
-  // (every key of EVENT_BUS_MAP). NOT an `emit` intercept — pi hands each
-  // extension its own `events` facade, so patching OUR `emit` never observed
-  // pi-flows' or pi-subagents' emissions, and every live flow_*/subagent_*
-  // event was silently dropped (automation runs then hung until the max-age
-  // reaper). The gating + subagent-buffer semantics live in `forwardBusEvent`.
+  // (every key of the core rename map — currently empty). NOT an `emit`
+  // intercept — pi hands each extension its own `events` facade, so patching OUR
+  // `emit` never observed foreign emissions. The gating lives in `forwardBusEvent`.
   // See change: fix-automation-run-lifecycle.
   const disposeEventBusForwarding = registerEventBusForwarding(
     pi.events,
@@ -2146,12 +2088,6 @@ function initBridge(pi: ExtensionAPI) {
       isSessionReady: () => inst.sessionReady,
       isActive,
       isConnected: () => inst.connection.isConnected,
-      subagent: {
-        isSubagentChannel: (channel) => SubagentFrameBuffer.isSubagentChannel(channel),
-        markForwarded: (channel, data) => subagentFrameBuffer.markForwarded(channel, data),
-        buffer: (channel, data) => subagentFrameBuffer.buffer(channel, data),
-        stripForForward,
-      },
     },
   );
 
@@ -2161,18 +2097,25 @@ function initBridge(pi: ExtensionAPI) {
   // re-declare. Core names no plugin channel. See change:
   // add-plugin-bridge-contributions (D1/D2/D4).
   const pluginForwardRegistry = new PluginForwardRegistry(pi.events, {
-    send: (eventType, data) =>
+    send: (eventType, data, pluginId) =>
       inst.connection.send({
         type: "event_forward",
         sessionId: inst.sessionId,
         event: { eventType, timestamp: Date.now(), data },
+        // Stamp the declaring plugin so the server can verify ownership on ingest.
+        pluginId,
       }),
     isSessionReady: () => inst.sessionReady,
     isActive,
     isConnected: () => inst.connection.isConnected,
-    isCoreChannel: (channel) => channel in EVENT_BUS_MAP,
   });
   inst.pluginForwardRegistry = pluginForwardRegistry;
+  // Per-tool `tool_execution_update` filters declared by plugin bridges (D5).
+  // Attach BEFORE the forward registry announces `dashboard:bridge-ready`, so a
+  // plugin re-declaring on that signal reaches both listeners.
+  const toolUpdateFilters = new ToolUpdateFilterRegistry(pi.events);
+  inst.toolUpdateFilters = toolUpdateFilters;
+  toolUpdateFilters.attach();
   pluginForwardRegistry.attach();
 
   registerSessionStart(inst);
@@ -2239,6 +2182,7 @@ function initBridge(pi: ExtensionAPI) {
     disposeEventBusForwarding();
     disposeBaseReservation();
     pluginForwardRegistry.dispose();
+    toolUpdateFilters.dispose();
     inst.connection.disconnect();
   };
 

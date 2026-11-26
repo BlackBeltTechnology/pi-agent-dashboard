@@ -12,6 +12,8 @@ import {
   RESERVED_EVENT_TYPES,
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
 import { describe, expect, it } from "vitest";
+import { PluginForwardRegistry } from "../../../../extension/src/plugin-event-forward-registry.js";
+import { ToolUpdateFilterRegistry } from "../../../../extension/src/tool-update-filter-registry.js";
 import activate, {
   REGISTRY_QUERY_CHANNEL,
   REGISTRY_SNAPSHOT_CHANNEL,
@@ -52,9 +54,15 @@ const verdictStub = (verdict: Record<string, unknown>) => (d: unknown) => {
   (data.verdicts ??= []).push(verdict);
 };
 
+const LIFECYCLE = { delivery: "latest", key: "id", group: "lifecycle" };
 const EXPECTED_DECLARATION = {
   pluginId: "subagents",
+  maxKeys: 256,
   channels: {
+    "subagents:created": { as: "subagent_created", ...LIFECYCLE },
+    "subagents:started": { as: "subagent_started", ...LIFECYCLE },
+    "subagents:completed": { as: "subagent_completed", ...LIFECYCLE },
+    "subagents:failed": { as: "subagent_failed", ...LIFECYCLE },
     "subagents:entry": { as: "subagent_entry", delivery: "stream", key: "agentId" },
     "subagents:delta": { as: "subagent_delta", delivery: "stream", key: "agentId" },
     "subagents:stop_result": { as: "subagent_stop_result", delivery: "latest", key: "agentId" },
@@ -74,6 +82,60 @@ describe("subagents-plugin bridge entry", () => {
       expect(d.data).toEqual(EXPECTED_DECLARATION);
     }
     expect(SUBAGENTS_FORWARD_DECLARATION.pluginId).toBe("subagents");
+  });
+
+  // 1.3: the four lifecycle channels forward under their subagent_* names, and
+  // only the newest frame per agent flushes after a reconnect (core maps none).
+  it("forwards the lifecycle channels as subagent_* and flushes only the newest frame per agent", () => {
+    const pi = fakePi();
+    const state = { connected: true };
+    const sent: Array<{ eventType: string; data: Record<string, unknown>; pluginId: string }> = [];
+    const registry = new PluginForwardRegistry(pi.events, {
+      send: (eventType, data, pluginId) => sent.push({ eventType, data, pluginId }),
+      isSessionReady: () => true,
+      isActive: () => true,
+      isConnected: () => state.connected,
+    });
+    registry.setOwnership({ eventTypes: { "subagent_*": "subagents" } });
+    registry.attach(); // re-declares on bridge-ready
+    activate(pi);
+    for (const [ch, eventType] of [
+      ["subagents:created", "subagent_created"],
+      ["subagents:started", "subagent_started"],
+      ["subagents:completed", "subagent_completed"],
+      ["subagents:failed", "subagent_failed"],
+    ] as const) {
+      pi.events.emit(ch, { id: `x-${ch}` });
+      expect(sent.at(-1)).toEqual({ eventType, data: { id: `x-${ch}` }, pluginId: "subagents" });
+    }
+    sent.length = 0;
+    state.connected = false;
+    pi.events.emit("subagents:created", { id: "a1" });
+    pi.events.emit("subagents:started", { id: "a1", n: 1 });
+    pi.events.emit("subagents:started", { id: "a1", n: 2 });
+    pi.events.emit("subagents:completed", { id: "a1" });
+    pi.events.emit("subagents:created", { id: "a2" });
+    state.connected = true;
+    registry.flush();
+    expect(sent.map((m) => [m.eventType, m.data.id])).toEqual([
+      ["subagent_completed", "a1"],
+      ["subagent_created", "a2"],
+    ]);
+  });
+
+  // 2.2: the Agent filter the plugin declares drops the timeline of a running agent.
+  it("declares the Agent tool-update filter that drops entries of a running agent", () => {
+    const pi = fakePi();
+    const filters = new ToolUpdateFilterRegistry(pi.events);
+    filters.attach();
+    filters.setClaims({ Agent: "subagents" });
+    activate(pi);
+    const running = { toolName: "Agent", partialResult: { details: { status: "running", entries: [1, 2] } } };
+    const out = filters.apply("Agent", running) as typeof running;
+    expect(out.partialResult.details).toEqual({ status: "running" });
+    expect(running.partialResult.details.entries).toHaveLength(2);
+    const done = { toolName: "Agent", partialResult: { details: { status: "completed", entries: [1] } } };
+    expect(filters.apply("Agent", done)).toBe(done);
   });
 
   it("accepts ctx wrapped as { pi } and is a no-op without an event bus", () => {

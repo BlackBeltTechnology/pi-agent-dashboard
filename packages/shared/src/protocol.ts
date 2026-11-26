@@ -351,6 +351,13 @@ export interface ProcessMetrics {
   pluginForwardRetained?: number;
   pluginForwardDropped?: number;
   /**
+   * Plugin tool-update filter counters (change: move-subagents-to-plugin, D5):
+   * declared filters (gauge), refused declarations and applied drops (cumulative).
+   */
+  toolUpdateFilterDeclared?: number;
+  toolUpdateFilterRefused?: number;
+  toolUpdateFilterApplied?: number;
+  /**
    * V8 heap ceiling of this process in bytes (`v8.getHeapStatistics()
    * .heap_size_limit`). Without it `heapUsed` is unreadable: "148 MB" means
    * nothing until you know whether the ceiling is 512 MB or 8 GB.
@@ -415,6 +422,23 @@ export interface EventForwardMessage {
    * See change: fix-large-session-resume-replay (D1).
    */
   replay?: true;
+  /**
+   * Stamped by the bridge's plugin forward registry on every plugin-declared
+   * forward. The server rejects an event of a manifest-owned type whose stamp
+   * is not the owner. See change: move-subagents-to-plugin (D1).
+   */
+  pluginId?: string;
+}
+
+/**
+ * Server → bridge, on every `session_register`: the plugin ownership table built
+ * from loaded manifests (event-type pattern → pluginId, claimed tool → pluginId).
+ * See change: move-subagents-to-plugin (D1).
+ */
+export interface PluginOwnershipMessage {
+  type: "plugin_ownership";
+  eventTypes: Record<string, string>;
+  toolClaims: Record<string, string>;
 }
 
 /**
@@ -1780,6 +1804,7 @@ export interface PluginReplyMessage {
 }
 
 export type ServerToExtensionMessage =
+  | PluginOwnershipMessage
   | ProvisionalAcceptedMessage
   | SessionMoveCommittedMessage
   | ProvisionalRejectedMessage

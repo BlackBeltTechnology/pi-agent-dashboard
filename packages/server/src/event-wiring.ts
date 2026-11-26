@@ -20,6 +20,8 @@ import { handlePathGateRefusal, handlePathYoloRequest } from "./access/agent-yol
 import { announceableGrantStoreId } from "./access/grant-store-id.js";
 import { recordRefusal } from "./access/refusal-ledger.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
+import { createPluginOwnership, type PluginOwnership } from "./plugin-ownership.js";
+import { getPluginPolicyRegistry } from "./plugin-policy-registry.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
 import { choiceToSpawnOptions, resolveSpawnChoice } from "./browser-handlers/spawn-choice.js";
@@ -54,12 +56,7 @@ import { createReplayState, decideSkipWipe, type ReplayState, validLeafEntryId }
 import { createInFlightToolCalls, type InFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
 import { buildAutoNameRestore, guardBridgeNameClaim, systemRenameUpdates } from "./session/name-provenance.js";
-import {
-  findOpenSubagents,
-  findOpenToolCalls,
-  synthesizeSessionEndedEnd,
-  synthesizeSessionEndedSubagentFail,
-} from "./session/open-tool-calls.js";
+import { findOpenToolCalls, synthesizeSessionEndedEnd } from "./session/open-tool-calls.js";
 import {
   attachedStillExistsInCandidateRoots,
   localityGateAllows,
@@ -265,12 +262,25 @@ export interface EventWiringDeps {
    */
   dispatchPluginRawEvent?: (sessionId: string, event: unknown) => void;
   /**
+   * Manifest-derived plugin ownership (event types + claimed tools); `server.ts`
+   * passes the loaded plugin manifests. Absent ⇒ nothing is owned (unit rigs).
+   * See change: move-subagents-to-plugin (D1).
+   */
+  pluginOwnership?: PluginOwnership;
+  /**
    * Fan a session-end (unregister) out to plugin
    * `ServerPluginContext.onSessionEnded` subscribers. Fired from
    * `sessionManager.onUnregister` — the transport-independent death signal.
    * See change: finalize-automation-run-on-session-death.
    */
   dispatchPluginSessionEnded?: (sessionId: string) => void;
+  /**
+   * Fan EVERY end transition of `sessionManager.onEnded` (unregister, status set
+   * to ended, end-reason re-fire; never a `movedTo` relocation) out to plugin
+   * `ServerPluginContext.onSessionStatusEnded` subscribers. Handlers are
+   * idempotent. See change: move-subagents-to-plugin (D4).
+   */
+  dispatchPluginSessionStatusEnded?: (sessionId: string) => void;
   /**
    * A session's bridge registered with `cwd` — drives local-scope plugin detection for a cwd not
    * yet scanned. See change: decouple-plugins-from-core (task 5.9).
@@ -345,6 +355,8 @@ function isValidNotifyTs(ts: unknown): ts is number {
  * Sets piGateway.onEvent and sessionManager.onUnregister.
  */
 
+const NO_PLUGINS: readonly never[] = [];
+
 export function wireEvents(deps: EventWiringDeps): void {
   const {
     sessionManager,
@@ -352,6 +364,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     eventStore,
     fitWorkerPool,
     dispatchPluginSessionEnded,
+    dispatchPluginSessionStatusEnded,
     dispatchSessionRegisteredCwd,
     piGateway,
     browserGateway,
@@ -385,6 +398,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     customEventGroupResolver,
   } = deps;
   const inFlightToolCalls = deps.inFlightToolCalls ?? createInFlightToolCalls();
+  const pluginOwnership = deps.pluginOwnership ?? createPluginOwnership(() => NO_PLUGINS);
   const replayState = deps.replayState ?? createReplayState();
   const replayController = replayState.controller;
   const hydration = replayState.hydration;
@@ -691,11 +705,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     }
 
-    // Terminate every tool card + subagent the dying session left open, by
-    // writing synthesized terminal events into its own stream (design D1): the
+    // Terminate every tool card the dying session left open, by writing
+    // synthesized terminal events into its own stream (design D1): the
     // reducer's existing arms then heal live AND on every replay, and a second
     // `onEnded` (a later `closedReason` change) finds nothing open, so
-    // idempotence comes from the store rather than a flag.
+    // idempotence comes from the store rather than a flag. A claimed tool's
+    // identity fields come from its plugin's store policy; open background
+    // work of a plugin is healed by that plugin through
+    // `ctx.onSessionStatusEnded` below (move-subagents-to-plugin D3/D4).
     //
     // A relocation is not a death: `movedTo` means the calls are still running
     // on the destination instance, which could never correct the lie.
@@ -703,16 +720,19 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (session && session.movedTo === undefined) {
       const stored = eventStore.getEvents(sessionId, 1);
       const now = Date.now();
-      const healEvents = [
-        ...findOpenToolCalls(stored).map((call) => synthesizeSessionEndedEnd(call, now)),
-        ...findOpenSubagents(stored).map((id) => synthesizeSessionEndedSubagentFail(id, now)),
-      ];
+      const healEvents = findOpenToolCalls(stored, (toolName, update) =>
+        getPluginPolicyRegistry().resolveToolStorePolicy(toolName)?.identity?.(update),
+      ).map((call) => synthesizeSessionEndedEnd(call, now));
       for (const healEvent of healEvents) {
         const seq = eventStore.insertEvent(sessionId, healEvent);
         if (!replayingSessions.has(sessionId)) {
           browserGateway.broadcastEvent(sessionId, seq, healEvent);
         }
       }
+      // Every end transition of this seam (also status-ended, reason re-fire):
+      // plugins heal their own open work. Skipped for a relocation (movedTo).
+      // See change: move-subagents-to-plugin (D4).
+      dispatchPluginSessionStatusEnded?.(sessionId);
     }
     // Nothing is running in an ended session. See change:
     // distinguish-tool-result-pending-vs-gone (D2).
@@ -1219,6 +1239,10 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "event_forward") {
+      // An event of a manifest-owned type must carry the owning pluginId (the
+      // bridge registry stamps it); a mis-stamped one is dropped and counted.
+      // See change: move-subagents-to-plugin (D1).
+      if (!pluginOwnership.acceptForward(msg.event.eventType, msg.pluginId)) return;
       // A marked event after the replay exited (early idle/cap, slow link)
       // re-enters replay mode so the next exit flushes it; it is replayed
       // whatever the timers say. See change: fix-large-session-resume-replay (D1).
@@ -1676,6 +1700,9 @@ export function wireEvents(deps: EventWiringDeps): void {
 
     if (msg.type === "session_register") {
       if (!msg.provisional) deps.onBridgeRegister?.(sessionId, msg.extensionIdentity);
+      // Release the bridge's held plugin declarations: manifest ownership table.
+      // See change: move-subagents-to-plugin (D1).
+      piGateway.sendToSession(sessionId, pluginOwnership.table());
       // Reset the once-per-activation liveness guard on every (re)register so
       // a resumed session re-stamps `{ live:true, liveEpoch }` on its next
       // activity event. Without this, a session manually closed (sidecar

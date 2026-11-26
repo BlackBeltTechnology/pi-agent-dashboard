@@ -292,6 +292,9 @@ import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, resolveExitRecord, stampBootStart } from "./persistence/boot-state.js";
+import { createPluginEventAppender } from "./plugin-append-event.js";
+import { buildPluginOwnership, createPluginOwnership } from "./plugin-ownership.js";
+import { getPluginPolicyRegistry } from "./plugin-policy-registry.js";
 import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, DEFAULT_MAX_STRING_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
@@ -1690,6 +1693,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // death signal, even when no terminal pi event was forwarded.
   // See change: finalize-automation-run-on-session-death.
   const pluginSessionEndSubs = new Set<(sessionId: string) => void>();
+  // Plugin status-ended subscribers (ServerPluginContext.onSessionStatusEnded). Fired
+  // from sessionManager.onEnded via wireEvents on EVERY end transition (unregister,
+  // status set to ended, end-reason re-fire; not a relocation). Handlers are idempotent.
+  // See change: move-subagents-to-plugin (D4).
+  const pluginSessionStatusEndSubs = new Set<(sessionId: string) => void>();
   // Post-boot plugin discovery (refreshPluginDiscovery + local-scope detection); built right
   // after the boot `loadServerEntries` pass. See change: decouple-plugins-from-core (5.5, 5.9).
   let pluginDiscovery: PluginDiscoveryWiring | undefined;
@@ -1913,6 +1921,31 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
     pluginDiscovery?.onSessionEnded();
   }
+  // Record what a loaded plugin owns (manifest `eventTypes`, tool-renderer claims) so the
+  // store/delivery policies it registers apply to its own types and claimed tools only.
+  // Reuses the bridge ownership table builder. See change: move-subagents-to-plugin (D1, D3).
+  function recordPluginPolicyOwnership(plugin: Parameters<typeof buildPluginOwnership>[0][number]): void {
+    const own = buildPluginOwnership([plugin]);
+    getPluginPolicyRegistry().setOwnership(plugin.manifest.id, {
+      eventTypes: Object.keys(own.eventTypes),
+      tools: Object.keys(own.toolClaims),
+    });
+  }
+  function dispatchPluginSessionStatusEnded(sessionId: string): void {
+    for (const h of pluginSessionStatusEndSubs) {
+      try { h(sessionId); } catch (err) { console.error("[plugin-onSessionStatusEnded]", err); }
+    }
+  }
+  // ctx.appendEvent: store + broadcast an event of a type the calling plugin owns
+  // (manifest `eventTypes`); store WITHOUT broadcast while the session replays,
+  // like the core tool-call heal. Anything else is refused and counted, never thrown.
+  // See change: move-subagents-to-plugin (D4).
+  const appendPluginOwnedEvent = createPluginEventAppender({
+    registry: getPluginPolicyRegistry,
+    eventStore,
+    isReplaying: (sessionId) => replayState.controller.replayingSessions.has(sessionId),
+    broadcastEvent: (sessionId, seq, event) => browserGateway.broadcastEvent(sessionId, seq, event),
+  });
   // A bridge registered: a cwd not yet scanned may carry local-scope plugins. Deferred one tick so the
   // session is in the manager's active list. See change: decouple-plugins-from-core (task 5.9).
   function dispatchSessionRegisteredCwd(cwd: string): void {
@@ -2028,7 +2061,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     activeIds: () => pairedDeviceRegistry.activeIds(),
     onLeft: () => vaultDelivery.schedulePush(),
   });
+  // Manifest ownership sent to every bridge on register + checked on event_forward ingest.
+  // Built eagerly once: the first discovery is a synchronous scan the register path must not pay.
+  // See change: move-subagents-to-plugin (D1).
+  const pluginOwnership = createPluginOwnership(() => discoverPlugins());
+  pluginOwnership.table();
   wireEvents({
+    pluginOwnership,
     replayState,
     inFlightToolCalls,
     vaultDelivery,
@@ -2087,6 +2126,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         : undefined,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
+    dispatchPluginSessionStatusEnded,
     dispatchSessionRegisteredCwd,
     metaPersistence,
     liveEpoch,
@@ -4378,7 +4418,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
           // Bracket this plugin's activation for route-owner attribution (D24): the
           // next plugin's createContext re-begins; the finally below ends.
-          createContext: (plugin) => (routeOwners.begin(plugin.manifest.id), pluginManifestEmits.set(plugin.manifest.id, plugin.manifest.emits ?? []), createServerPluginContext(
+          createContext: (plugin) => (routeOwners.begin(plugin.manifest.id), pluginManifestEmits.set(plugin.manifest.id, plugin.manifest.emits ?? []), recordPluginPolicyOwnership(plugin), createServerPluginContext(
             {
               fastify,
               isPiExtensionInstalled,
@@ -4459,6 +4499,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 pluginSessionEndSubs.add(handler);
                 return () => pluginSessionEndSubs.delete(handler);
               },
+              onSessionStatusEnded: (handler) => {
+                pluginSessionStatusEndSubs.add(handler);
+                return () => pluginSessionStatusEndSubs.delete(handler);
+              },
+              appendEvent: (sessionId, event) => appendPluginOwnedEvent(plugin.manifest.id, sessionId, event),
+              registerStorePolicy: (policy) => getPluginPolicyRegistry().registerStorePolicy(plugin.manifest.id, policy),
+              registerDeliveryPolicy: (policy) => getPluginPolicyRegistry().registerDeliveryPolicy(plugin.manifest.id, policy),
               onSessionResolved: (handler) => {
                 const id = plugin.manifest.id;
                 let set = pluginSessionResolvedSubs.get(id);
