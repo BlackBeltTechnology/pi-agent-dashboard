@@ -46,6 +46,8 @@ export async function createStartEnv(over: StartEnvOptions = {}) {
     ...rest,
     config: { maxActiveTeams: 50, ...(rest.config ?? {}) },
     runtime: {
+      // The shipped bundled templates would appear in every listing: suites about plain templates start without the OpenSpec module.
+      openspec: false,
       ...(rest.runtime ?? {}),
       templatesHost: {
         isProjectTrusted: (c: string) => state.trusted === true && c.length > 0,

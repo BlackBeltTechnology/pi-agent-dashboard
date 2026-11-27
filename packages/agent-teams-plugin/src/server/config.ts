@@ -47,7 +47,24 @@ export interface TeamsConfig {
   planMaxChars: number;
   /** Sanitised read-only tool names kept while a plan is pending (never bash/edit/write/unknown). */
   planModeTools: string[];
+  /**
+   * RAW values (any type, unvalidated) of the `openspec*` keys the host config carries; the OpenSpec
+   * profile module validates and clamps them (`openspec/config.ts`). Absent keys are not present.
+   * See change: add-agent-teams-openspec.
+   */
+  openspecRaw?: Readonly<Record<string, unknown>>;
 }
+
+/** Config keys owned by the OpenSpec profile module (validated there, passed through verbatim here). */
+const OPENSPEC_CONFIG_KEYS = [
+  "openspecGroupParallel",
+  "openspecShipSkill",
+  "openspecReviewSkill",
+  "openspecWorktreeBase",
+  "openspecMergeBase",
+  "openspecLockTtlMs",
+  "openspecFetchTimeoutMs",
+] as const;
 
 /** Mail text headroom kept free when a plan or playbook rides one core mail (design D3/D8). */
 const PLAN_MAIL_HEADROOM_CHARS = 500;
@@ -73,6 +90,13 @@ export const effectivePlanMaxLines = (): number => PLAN_MAX_LINES;
 /** Per-command hook timeout default, never above the core op-gate budget. */
 export function effectiveHookTimeoutMs(cfg: Pick<TeamsConfig, "hookTimeoutMs" | "opGateBudgetMs">): number {
   return Math.max(1, Math.min(cfg.hookTimeoutMs, cfg.opGateBudgetMs));
+}
+
+/** The raw `openspec*` values present in the host config (validated by the OpenSpec profile module). */
+function pickOpenspecRaw(raw: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of OPENSPEC_CONFIG_KEYS) if (raw[key] !== undefined) out[key] = raw[key];
+  return out;
 }
 
 let schemaDefaults: Record<string, unknown> | undefined;
@@ -161,6 +185,7 @@ export function createConfigReader(
         warnOnce(`${key}=${String(v)}`, `${key} ${JSON.stringify(v)} is not an integer ≥ ${min}; using ${String(defaults[key])}`);
       }
     }
+    merged.openspecRaw = pickOpenspecRaw(raw);
     merged.planModeTools = sanitizePlanModeTools(raw.planModeTools, defaults.planModeTools as string[], warnOnce);
     // Positive-only knobs: 0 would disable the limit it guards.
     for (const key of ["maxActiveTeams", "maxTasks", "maxMessageChars", "maxResultChars", "maxFinalTextChars", "mailRatePerMin", "pairExchangeLimit"] as const) {

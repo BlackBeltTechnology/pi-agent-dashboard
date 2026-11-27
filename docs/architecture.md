@@ -2069,6 +2069,26 @@ See change: collapse-model-proxy-onto-modelruntime.
 
 **Host project-trust service.** `packages/server/src/server.ts` registers `host.isProjectTrusted(cwd)` (awaited at boot) next to `host.knownFolderCwds`, plus `host.projectTrustSource` and `host.piTrustCoverInteractive`. `packages/server/src/pi/host-project-trust.ts` `createHostProjectTrustService` / `loadHostProjectTrustService` run shared `decidePiTrust` (pi's own rule + dashboard mirror; see Pi trust mirror). `coveringDashboardEntry` finds covering entry. Honours `PI_CODING_AGENT_DIR`. Pi core unresolvable → one log line (not silent untrusted). Legacy `createHostProjectTrust({recordedDecision, defaultProjectTrust})` kept for compat only; not the decision path. `mcp-client` injects it as `isProjectTrusted` so folder MCP rows load the project layer only in trusted folders. See change: migrate-mcp-to-pi-builtin, mirror-dashboard-trust-to-pi.
 
+**Host local-request service.** `packages/server/src/plugin-local-request.ts` `host.localRequest({method, url, body?, timeoutMs?})`. Registered in `packages/server/src/server.ts` beside `host.resolveCwdPolicy`. Registry key const `HOST_LOCAL_REQUEST_KEY`.
+- Why: credential-less `fastify.inject` writes refused `local_proof_required` under `requireLocalProof=true` (default). Proof = endpoint-bound HMAC over connection local addr+port, method+target, ts, nonce. Cannot mint for `inject` (no socket).
+- How: real loopback HTTP fetch to server's own listener. Header `X-Pi-Local-Proof` minted per request from in-process local token (same helper as CLI `pi-dashboard api`: `httpProofHeaders`, `localDialHost`). Route runs every normal guard (host gate, network guard, credential verify + replay cache, route-tier gate). Real client, no bypass.
+- Allowlist FIXED in source, exact pathnames, not registrant-configurable (any plugin can `consume` it; configurable list would let first consumer widen all). Only `query`-flagged entry takes query string.
+
+| Method | Path |
+|---|---|
+| POST | `/api/git/worktree` |
+| POST | `/api/git/worktree/init` |
+| POST | `/api/git/worktree/orphan-cleanup` |
+| GET | `/api/openspec/tasks` (query allowed) |
+| POST | `/api/openspec/tasks/toggle` |
+
+- Caps: request body 256 KiB (`LOCAL_REQUEST_MAX_BODY_BYTES`), response 4 MiB (`LOCAL_REQUEST_MAX_RESPONSE_BYTES`), timeout default 60 s, max 300 s.
+- No caller headers, host, or credential. Plugin never sees token or proof. Proof single-use, bound to one method + target + endpoint.
+- Result: `{ok:true, statusCode, body}` (route 4xx guard refusal still `ok:true`) or `{ok:false, code}`. Codes: `invalid_request`, `path_not_allowed`, `body_too_large`, `response_too_large`, `timeout`, `unavailable`, `unreachable`. No message echoes URL, header, proof. Nothing logged.
+- Consumer: agent-teams OpenSpec profiles, `packages/agent-teams-plugin/src/server/openspec/inject.ts` (`createInject`). Prefers service; falls back to loopback `fastify.inject` (no credential) on older host — strict `requireLocalProof` then answers 401/403, caller never retries.
+- Add route = edit allowlist in `plugin-local-request.ts`, in review, next to route-tier table.
+- See [agent-teams.md](agent-teams.md) § OpenSpec profiles. See change: add-agent-teams-openspec.
+
 #### Legacy `~/.pi-dashboard/` advisory
 
 Pre-R3 builds installed pi/openspec/tsx into `~/.pi-dashboard/node_modules/` at runtime. R3 leaves that directory untouched. `detectLegacyManagedDir({ homedir })` in `packages/shared/src/legacy-managed-dir.ts` returns `{present, path, pkgCount, sizeMb}`. Doctor surfaces a warning-severity row "Legacy install directory" with a `rm -rf <path>` suggestion. Server `cli.ts` logs the path once at startup after the `[bootstrap] ready` line. Repo-lint `no-managed-dir-reference.test.ts` blocks any new write into the legacy directory from `packages/electron/src/lib/`, `packages/server/src/`, or `packages/shared/src/` outside the explicit allowlist.

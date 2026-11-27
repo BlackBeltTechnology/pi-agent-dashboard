@@ -39,6 +39,7 @@ Files in this directory. One row per source file.
 | `__tests__/browser-gateway-critical-frames.test.ts` | Bounded critical-frame delivery suite (E1–E6, X6, P1): pending-prompt replay exempt past MAX_WS_BUFFER under… → see `__tests__/browser-gateway-critical-frames.test.ts.AGENTS.md` |
 | `__tests__/browser-gateway-resync-delivery.test.ts` | Requester-scoped resync suite (E7–E9, X3, E16, P2): `prompt_resync_request` forwarding/recording,… → see `__tests__/browser-gateway-resync-delivery.test.ts.AGENTS.md` |
 | `__tests__/plugin-ws-route.test.ts` | Plugin-registered WS route gates on the REAL upgrade handler (test-plan #E4-#E8, #E5 golden, #X11; spec… → see `__tests__/plugin-ws-route.test.ts.AGENTS.md` |
+| `__tests__/plugin-local-request.test.ts` | `host.localRequest`: proof bound to endpoint+method+target, fresh nonce, allowlist + negative controls… → see `__tests__/plugin-local-request.test.ts.AGENTS.md` |
 | `__tests__/ui-link-base.test.ts` | #E2-#E5: configured match, XFH precedence/spoofing, normalized output (port 1/65535/65536, IPv6, case), fallback. See change: add-session-ui-deep-links-for-agents. |
 | `__tests__/ws-origin-gate.test.ts` | WS upgrade Origin gate L1 (#E4-#E9, #E18, #X1, #X2, #F4). → see `__tests__/ws-origin-gate.test.ts.AGENTS.md` |
 | `__tests__/keeper-log-maintenance.test.ts` | Sweep + stats L1 suite (E10-E15, X5-X11, P4): size/age gates, launch-log exclusion, PID-sidecar liveness (NOT… → see `__tests__/keeper-log-maintenance.test.ts.AGENTS.md` |
@@ -58,6 +59,7 @@ Files in this directory. One row per source file.
 | `plugin-intent-cache.ts` | Server-side cache of most recent plugin intent per `(pluginId, sessionId, slot)`. → see `plugin-intent-cache.ts.AGENTS.md` |
 | `plugin-ownership.ts` | Manifest ownership table. `buildPluginOwnership(plugins)` → `plugin_ownership {eventTypes: pattern→pluginId,… → see `plugin-ownership.ts.AGENTS.md` |
 | `plugin-policy-registry.ts` | Process-wide registry of plugin ownership (manifest `eventTypes` + tool-renderer claims), store policies and… → see `plugin-policy-registry.ts.AGENTS.md` |
+| `plugin-local-request.ts` | Plugin host service `host.localRequest` (`HOST_LOCAL_REQUEST_KEY`). → see `plugin-local-request.ts.AGENTS.md` |
 | `plugin-request-lane.ts` | Server half of the private plugin request/reply lane. `createPluginRequestLane(send)` → `register(pluginId,type,handler)` (single owner; duplicate throws) + `handle(sessionId,msg)`: replies `plugin_reply` `{ok,result}` / `{ok:false,error}` (`no_handler`, handler message only, `reply_not_serializable`, `reply_too_large` >256 KiB). `sessionId` = socket key. Host-internal send, no priority gate, no `pi.events`. See change: expose-plugin-credential-and-oauth-seams. | See change: harden-bridge-session-claim
 | `plugin-runtime-clients.ts` | Server wiring of the runtime-client registry. `createServerRuntimeClients({repoRoot?, declaredIds?})` (prod… → see `plugin-runtime-clients.ts.AGENTS.md` |
 | `project-seed.ts` | Unattended project-default seeding. Exports `SeedOutcome`, `SeedProjectDefaultsOptions`,… → see `project-seed.ts.AGENTS.md` |

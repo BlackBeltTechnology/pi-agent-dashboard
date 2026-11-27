@@ -311,6 +311,7 @@ import { createPackageCompletionHandler, createPluginDiscoveryWiring, type Plugi
 import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
+import { createHostLocalRequest, HOST_LOCAL_REQUEST_KEY } from "./plugin-local-request.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
 import { getRuntimeClientRegistry, installRuntimeClientRegistry, logRuntimeAdmissions } from "./plugin-runtime-clients.js";
 import { configureProjectSeed, resolveAutoSeedEnabled, sweepKnownProjects } from "./project-seed.js";
@@ -1829,6 +1830,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // cwd-policy as the spawn funnel composes it, so the team plugin can refuse a
   // start whose skill set the policy would narrow. See change: add-team-skill-access (D7).
   pluginServiceRegistry.set("host.resolveCwdPolicy", (cwd: string) => cwdPolicyRegistry.resolve(cwd));
+  // Authenticated loopback REST for plugins (fixed allowlist; per-request local proof, token never exposed).
+  // See change: add-agent-teams-openspec (D4/D8).
+  pluginServiceRegistry.set(HOST_LOCAL_REQUEST_KEY, createHostLocalRequest({ getToken: () => localToken, host: config.host, getPort: () => httpListenPort }));
   // `@role` default model: re-mirror into pi when its resolution moves (roles
   // watcher calls this), and expose the ref for the Roles "used by" list.
   // See change: default-model-follows-role (D4, D5).

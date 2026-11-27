@@ -293,6 +293,7 @@ Failures are `{ok:false, error, message?, details?}`.
 | `DELETE hook-trust?cwd=&hash=` | operate | revoke one confirmation; no `hash` removes every confirmation for the cwd |
 | `GET teams/:id/plans` | observe | the team's plan requests (core visibility rule; foreign team → the unknown-team 404) |
 | `POST teams/:id/members/:name/plan-decision` | operate | `{planId, approve, feedback?}` — the user's decision (team-control rule) |
+| `POST openspec-relaunch` | operate | `{teamId, change}` — clear a `launch_failed` / lost launch of an `openspec-group` team and re-evaluate its launcher (`not_relaunchable` for any other state; see "OpenSpec templates") |
 
 ## Example templates
 
@@ -399,6 +400,114 @@ Working directory: {{cwd}}
 `Explore` and `Audit` resolve from `<cwd>/.pi/agents/` (trusted project) or
 `<piAgentDir>/agents/`; a missing one fails that member's spawn with
 `agent_not_found` and only that member is marked `failed`.
+
+## OpenSpec templates (`openspec-group`, `openspec-apply`)
+
+Two templates ship inside the package (`templates/`, source `bundled`: listed after `project` and `user`,
+shadowable by a trusted project or a user file of the same name, trusted, no hook confirmation, always
+`mode: session`). A **profile** (server-side seeding, launcher, lock, guards) is bound to the template **name**
+and only when the resolved source is `bundled`: a shadowing file of the same name runs as a plain template, and no
+frontmatter key selects a profile. Both need a trusted project (`project_untrusted` otherwise), are started like
+any template (`/agent-team start <template> <goal>` or the Start team dialog) and are checked by a **preflight**
+that creates nothing when it refuses. The goal is a name of at most 64 characters (`^[a-z0-9][a-z0-9-]{0,63}$`).
+`examples/` is documentation only: nothing under it is ever scanned, listed or started.
+
+| Template | Goal | What the server does |
+|----------|------|----------------------|
+| `openspec-group` | an OpenSpec group id or name (`groups.json`) | one task per change (blocked by in-group `dependencies.yaml` edges), then one teammate per change, started lazily in the saved order, at most `openspecGroupParallel` at a time, each in its own git worktree `<repo>/.worktrees/os-<change>` on branch `os/<change>`; the teammate ships its change there with the ship skill and may commit, push and merge in its own worktree only |
+| `openspec-apply` | one change name | tasks from the change's `tasks.md` (one per checkbox, or one per section for a wide change) plus a final `Review` task owned by a read-only `reviewer` that uses the `review-code` skill; two implementers share the lead's cwd; the lead is the only committer |
+
+The lead commits nothing in a group (the teammates do) and never spawns teammates by hand. In an apply team the
+teammates never commit; the lead commits once after `Review` is completed and the checkboxes are synced. Task and
+change text is **data**, never instructions: every briefing says so, and the server notices carry codes and ids,
+never task text.
+
+### Group: worktrees, completion, relaunch
+
+- Preflight codes, first failing wins: `invalid_args`, `project_untrusted`, `profile_unavailable`,
+  `invalid_config`, then `group_unknown` / `group_ambiguous` / `group_empty` / `groups_invalid` / `change_unknown` /
+  `tasks_unreadable`, `lead_not_repo_root` (the lead must run in the repository root), `batch_runner_active` (a live
+  ship-batch lock), `ship_skill_missing` / `review_skill_missing`, `base_not_found`, `too_many_tasks`,
+  `nothing_to_do`, `change_in_use` (another active team, or a start that has not bound yet, already drives the
+  change).
+- A task is completed only by its teammate and only when the change is shipped: the server verifies that the
+  change was archived and merged (`not_shipped` otherwise; with the worktree gone it fetches `origin/<merge base>`
+  within `openspecFetchTimeoutMs`).
+- A failed launch (`launch_failed <code>`) or a lost member wakes the lead with the code and the relaunch route;
+  nothing is relaunched automatically. The owner relaunches with
+  `POST /api/plugins/agent-teams/openspec-relaunch` (`{teamId, change}`, tier `operate`; `not_relaunchable` for any
+  other state) or deletes the team. There is no abandon route in v1.
+- When the task is completed the slot is free at once and the member is asked to shut down; a rejection or
+  silence only notifies the lead.
+
+### Apply: `tasks.md` hints and checkbox sync
+
+The checkbox list always comes from the dashboard's own tasks route; the plugin only reads `tasks.md` a second
+time for dependency hints, which are plain HTML comments the dashboard and the OpenSpec CLI ignore and the plugin
+never rewrites:
+
+```markdown
+## 2. Engine
+- [ ] 2.1 Parse the input
+- [ ] 2.2 Build the plan <!-- after: 2.1 -->
+- [ ] 2.3 Wire the CLI
+  <!-- after: 2.1, §1 -->
+```
+
+| Rule | Behaviour |
+|------|-----------|
+| Grammar | `<!-- after: <entry>[, <entry>…] -->`; an entry is a checkbox id (`2.1`) or a section number (`§2`); a bare number is a checkbox id first, then a section; the keyword is case-insensitive and whitespace-tolerant; at most 64 entries (the rest is dropped and reported) |
+| Placement | trailing on a checkbox line, or on its own line directly below a checkbox (that box) or a `##` heading (every box of the section; a box-level hint wins); hints inside fenced code or on indented sub-bullets are ignored; the first hint of a box wins, a second is reported |
+| Direction | every edge must point backward in the file; forward, self, duplicate and cyclic entries and unknown ids are dropped and listed once in the start notice |
+| Default | without a hint a section waits for the previous non-empty section (a barrier); ticked boxes count as satisfied |
+
+The runtime is the **sole writer** of checkboxes: when a task completes it ticks the matching box (matched by id
+and text hash) through the dashboard route, serially per change, with a bounded retry; a failure is a lead notice
+and the box stays as it is. Teammates of an apply team may not `write`/`edit` `openspec/changes/*/tasks.md` or
+`…/specs/**`. **Limitations (advisory, stated honestly in every briefing):** that guard covers the `write` and
+`edit` tools only, `bash` is not covered, so the sole-writer rule for a shell is a request backed by the lead's
+diff review, not a sandbox. If the dashboard refuses the in-process toggle (`401`/`403`) the sync is not retried
+and the lead gets a `sync_forbidden` notice naming the task ids: tick those boxes by hand. A team closed while a
+sync is pending waits up to 5 s for it, then keeps `synced:false` and tells the lead.
+
+### The `harness` resource lock
+
+Group teammates share one docker test harness; `ResourceLock {action: acquire | release | status, name}` (teammate
+tool, group teams only, resource `harness`) is a small server-owned mutex. `acquire` answers `granted:true`, or
+`granted:false` with the holder and queue position and the teammate **ends its turn** (no polling): the oldest
+waiter is handed the lock synchronously when it is released and woken by a `lock_grant` mail. The lock is released on
+`release`, when its holder settles idle, goes away or fails, on team close, and after `openspecLockTtlMs`
+(default 30 min; the lead is told). A teammate must **not end its turn while holding** it. The lock is advisory: it
+does not stop a direct harness start, and the harness start script's own memory guard stays the hard backstop.
+
+### Seams, host services and configuration
+
+The profiles use only core registries (start profiles, spawn contributors, op gates, dispatch eligibility,
+server mail and lead notices, the per-member committer) and refuse to start (`profile_unavailable`) when one is
+missing. To reach the dashboard's own REST routes (git worktrees for the group, the tasks list and toggle for
+apply) the plugin goes through a **host-provided loopback service**, never through a credential of its own; when
+the host denies or does not provide it, the sync reports `sync_forbidden` and a worktree step fails the launch
+with a typed `launch_failed` code. State lives in a sidecar per team (`<dataDir>/openspec/<teamId>.json`),
+pruned with closed teams; if it is lost the launcher, sync and lock stay off for that team and the lead is told.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `openspecGroupParallel` | 2 | changes shipped at the same time (clamped into `1..maxTeammates`) |
+| `openspecShipSkill` | `ship-it` | skill a group teammate loads first |
+| `openspecReviewSkill` | `review-code` | skill of the apply reviewer |
+| `openspecWorktreeBase` | `develop` | branch a new change worktree forks from |
+| `openspecMergeBase` | `develop` | branch the ship skill merges into (the completion gate looks for the archive there) |
+| `openspecLockTtlMs` | 1800000 | lock time limit (clamped into 60000..86400000) |
+| `openspecFetchTimeoutMs` | 8000 | bound of the gate's `git fetch` (max 10000) |
+
+Invalid values fall back to the default (integers only) with a warning; names and refs are validated before use
+(`invalid_config`).
+
+### Example: `examples/judo-modules.md`
+
+A judo-ng-style per-module template (one teammate per Maven module in rank order, a fast `TaskCompleted` hook that
+checks a verification stamp) with its two helper script sketches in `examples/judo-modules.helpers.md`. It is
+documentation: copy it into a project's `.pi/teams/` to use it.
 
 ## Teammate limits (advisory with `bash`)
 

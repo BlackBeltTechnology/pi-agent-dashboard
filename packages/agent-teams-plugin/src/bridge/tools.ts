@@ -162,6 +162,16 @@ const SPECS: readonly ToolSpec[] = [
     parameters: obj({ plan: str("The plan: what you will change and how (plain text, keep it short)") }, ["plan"]),
   },
   {
+    op: "ResourceLock",
+    label: "Resource lock",
+    description:
+      'Teams started from an OpenSpec template only: take or give back a named shared resource (for example "harness"). "acquire" answers {granted:true}, or {granted:false, holder, position} and queues you; you then get a lock_grant message when it is yours. Do not end your turn while you hold it. "release" gives it back (or leaves the queue); "status" only reads. Teams without declared resources answer no_resources.',
+    parameters: obj({
+      action: { type: "string", enum: ["acquire", "release", "status"] },
+      name: str("Resource name (lowercase letters, digits, dashes; ≤40 chars)"),
+    }, ["action", "name"]),
+  },
+  {
     op: "PlanDecision",
     label: "Decide plan",
     description: `Approve or reject a teammate's submitted plan by its plan id (shown in the plan request). Approving lets the teammate start working; rejecting returns it to planning with your feedback. If the team requires the user's approval, this fails with user_decision_required. ${PEER_TRUST}`,

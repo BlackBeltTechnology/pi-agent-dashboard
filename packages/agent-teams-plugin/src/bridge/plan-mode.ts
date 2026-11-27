@@ -8,9 +8,10 @@
  * See change: add-agent-teams-templates-hooks.
  */
 import { MAIL_KIND_PLAN_DECISION } from "../shared/approval-mail.js";
+import { ENV_OPENSPEC_PROFILE } from "../shared/openspec-profile.js";
 import { ENV_PLAN_MODE_TOOLS, PLAN_SUBMIT_TOOL, parsePlanToolsEnv, planModeEnvHint, unionTools } from "../shared/plan-mode.js";
 import { ENV_PLAN_MODE } from "../shared/policy.js";
-import { TEAM_TOOLS_BY_ROLE } from "../shared/protocol.js";
+import { memberTools, TEAM_TOOLS_BY_ROLE } from "../shared/protocol.js";
 import type { BridgeContext } from "./context.js";
 
 /** `(getAllTools ∩ planModeTools) ∪ team tools ∪ PlanSubmit`; without `getAllTools` the (read-only) config list is used as is. */
@@ -86,7 +87,7 @@ export function registerPlanMode(ctx: BridgeContext): void {
     const submitOk = planSubmitActive();
     const planToolsActive = narrowed && submitOk;
     const now = activeNow();
-    const othersActive = now !== undefined && TEAM_TOOLS_BY_ROLE.member.filter((t) => t !== PLAN_SUBMIT_TOOL).every((t) => now.includes(t));
+    const othersActive = now !== undefined && memberTools((ctx.env[ENV_OPENSPEC_PROFILE] ?? "") !== "").filter((t) => t !== PLAN_SUBMIT_TOOL).every((t) => now.includes(t));
     return { planToolsActive, ...(!submitOk && othersActive ? { toolsActive: true } : {}) };
   }
 

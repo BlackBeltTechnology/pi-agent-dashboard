@@ -1,0 +1,9 @@
+blocked_by:
+  - change: chat-gateway-multi-guild
+    reason: "Uses A's enabled-server records (guildPolicy), limits with 0 = unlimited, limits.maxMappings, the per-server disarm latches, the sendableChannel guild gate and the reserved top-level agentTools key, the serialized shared config writer with whole-object `limits` writes and the direct disarm-state helper `disarmStateFor(guildId?)` in `disarm-store.ts` (A design.md §Contract)."
+  - change: chat-gateway-query-mode
+    reason: "discord_read/discord_search read B's persisted message index when it covers a channel (design D5); without B every read is live. C reads it only through B's index-store/search.ts over index-store/store.ts and never writes or configures it. B no longer MODIFIES chat-gateway 'Hard in-session tool policy for spawned sessions', so C copies that block from the main spec."
+related:
+  - add-supervised-tool-approval  # both MODIFY chat-gateway 'Interactive prompts rendered natively via PromptBus' (C's paragraph is keyed on metadata.plugin and the pending-confirm registry, supervised's on metadata.kind/supervised; they do not overlap; the second to archive re-copies the block with both paragraphs, design D7). Its guard extraction must keep C's hard-deny wrapper in chat-gateway's default export (design D7).
+  - add-plugin-connector-kit  # optional later adoption of registerConnectorTools; not a dependency
+  - chat-gateway-discord-moderation  # D extends GATEWAY_HARD_DENY and reuses the bridge entry and lane client

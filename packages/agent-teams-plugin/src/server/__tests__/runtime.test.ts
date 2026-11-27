@@ -1272,7 +1272,7 @@ describe("registries are inert, then bound by the server (S57)", () => {
     await e.call("lead", "TeammateSpawn", { name: "carol", prompt: "go", tools: ["read"] });
     const sp = e.fake.base.spawns[0] as unknown as { cwd: string; scope: { tools: string[] } };
     expect(sp.cwd).toBe("/work"); // the contributor's cwd is ignored
-    expect(sp.scope.tools).toEqual(["read", "TaskCreate", "TaskList", "TaskGet", "TaskUpdate", "SendMessage", "TeamStatus", "ShutdownResponse", "PlanSubmit"]); // `write`/`bash` would widen
+    expect(sp.scope.tools).toEqual(["read", "TaskCreate", "TaskList", "TaskGet", "TaskUpdate", "SendMessage", "TeamStatus", "ShutdownResponse", "PlanSubmit", "ResourceLock"]); // `write`/`bash` would widen
     expect(e.fake.logs.warn.filter((l) => l.includes("cwd")).length).toBeGreaterThan(0);
 
     e.addMember(team, "alice", "idle");

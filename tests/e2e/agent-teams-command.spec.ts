@@ -25,6 +25,7 @@ interface ListedTemplate {
   valid: boolean;
   trusted: boolean;
   hasHooks?: boolean;
+  source?: string;
 }
 
 async function listedTemplates(page: Page): Promise<ListedTemplate[] | undefined> {
@@ -58,7 +59,8 @@ test.describe("/agent-team command", () => {
   test("#F9 the command is listed; `templates` and `start` surface their outcome as notices; the start makes a lead with a playbook card", async ({ page }) => {
     const templates = await listedTemplates(page);
     test.skip(templates === undefined, "agent-teams plugin routes are not served by this harness");
-    const startable = templates?.find((t) => t.valid && t.trusted && !t.hasHooks);
+    // bundled templates (the OpenSpec profiles) need their own goal and a trusted project: never the plain-start candidate
+    const startable = templates?.find((t) => t.valid && t.trusted && !t.hasHooks && t.source !== "bundled");
     test.skip(!startable, "the harness has no startable template without hooks");
 
     const card = await spawnFreshGitSession(page);

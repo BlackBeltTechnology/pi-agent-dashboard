@@ -84,6 +84,8 @@ export interface TemplatesHooksHost {
   isProjectTrusted: (cwd: string) => boolean;
   /** `host.knownFolderCwds`; default `() => []`. */
   knownFolderCwds: () => string[];
+  /** `sessionManager.listActive()` (resident-session check of the OpenSpec launcher); absent ⇒ the check is skipped with a note. */
+  listActiveSessions?: () => unknown[];
   /** pi agent dir (`PI_CODING_AGENT_DIR` or `~/.pi/agent`); user-tier agents/templates live below it. */
   resolvePiAgentDir: () => string;
   /** `ctx.onShutdown`. */

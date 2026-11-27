@@ -21,6 +21,7 @@ import {
   isTeamOp,
   LEAD_ONLY_OPS,
   LEAD_ONLY_TOOLS,
+  LOCK_OPS,
   PLAN_OPS,
   START_OPS,
   TEAM_OPS,
@@ -39,8 +40,8 @@ describe("role → tool table", () => {
     expect(LEAD_ONLY_OPS).toContain("PlanDecision");
   });
 
-  it("TEAM_OPS = core ops + plan ops; every op has exactly one tool definition", () => {
-    expect([...TEAM_OPS]).toEqual([...CORE_TEAM_OPS, ...PLAN_OPS]);
+  it("TEAM_OPS = core ops + plan ops + lock ops; every op has exactly one tool definition", () => {
+    expect([...TEAM_OPS]).toEqual([...CORE_TEAM_OPS, ...PLAN_OPS, ...LOCK_OPS]);
     expect([...TEAM_TOOL_NAMES].sort()).toEqual([...TEAM_OPS].sort());
     const defs = createTeamTools({ call: async () => ({ ok: true, data: {} }) });
     expect(defs.map((d) => d.name).sort()).toEqual([...TEAM_OPS].sort());

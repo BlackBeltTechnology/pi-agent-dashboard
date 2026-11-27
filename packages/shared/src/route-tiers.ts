@@ -460,6 +460,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/agent-teams/teams/start", tier: "operate" },
   { method: "POST", path: "/api/plugins/agent-teams/teams/:id/members/:name/plan-decision", tier: "operate" },
   { method: "POST", path: "/api/plugins/agent-teams/hook-trust", tier: "operate" },
+  // Agent teams (add-agent-teams-openspec): relaunch of a failed/lost group launch spawns a session — `operate`, team owner rule.
+  { method: "POST", path: "/api/plugins/agent-teams/openspec-relaunch", tier: "operate" },
   // edit-office-in-pane-with-craft-web: prepare downloads a build (control, like spawning); csp-report only bumps a counter.
   { method: "POST", path: "/api/plugins/craft-web/csp-report", tier: "control" },
   // extend-craft-web-to-all-apps: open-outcome / validator-reject counters (log only, like csp-report).
