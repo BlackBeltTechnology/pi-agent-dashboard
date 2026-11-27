@@ -9,7 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import { buildSkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import { describe, expect, it } from "vitest";
-import { parsePolicy, policyHash, serializePolicy, type TeammatePolicy } from "../../shared/policy.js";
+import { createTeamsEnv, linkBridge } from "../../__tests__/harness/index.js";
+import { ENV_OPENSPEC_PROFILE } from "../../shared/openspec-profile.js";
+import { ENV_MEMBER, ENV_POLICY, ENV_TEAM_ID, parsePolicy, policyHash, serializePolicy, type TeammatePolicy } from "../../shared/policy.js";
 import { TEAM_TOOLS_BY_ROLE } from "../../shared/protocol.js";
 import {
   createBeforeAgentStartHandler,
@@ -19,6 +21,7 @@ import {
   type GuardState,
   hashOfEnvPolicy,
 } from "../guard.js";
+import { isProtectedOpenspecPath, nativeResolveEnv, OPENSPEC_SOLE_WRITER_REASON, openspecWriteBlock } from "../openspec-guard.js";
 import { GIT_WRITE_REASON, isSleepPoll, SLEEP_REASON, splitSimpleCommands } from "../shell-guard.js";
 
 const policy = (over: Partial<TeammatePolicy> = {}): TeammatePolicy => ({
@@ -255,5 +258,142 @@ describe("teammate prompt files (8.7)", () => {
     expect(md).toMatch(/exclusive git worktree/);
     expect(md).toMatch(/Nothing to claim[^\n]*end your turn/);
     expect(md).toMatch(/untrusted input/);
+  });
+});
+
+// ── openspec-apply sole-writer guard (task 5.8 / 9.35, test-plan #S7) ─────────────────────────────────────────
+
+describe("apply teammates do not edit tasks.md or spec deltas (9.35 #S7)", () => {
+  /** A repository: change `x` with tasks + a spec delta, an archived change, main specs and a source file. */
+  function repo() {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "at-os-guard-")));
+    const w = (rel: string, text = "x\n"): string => {
+      const p = path.join(root, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, text);
+      return p;
+    };
+    w("openspec/changes/x/tasks.md");
+    w("openspec/changes/x/specs/a/b/spec.md");
+    w("openspec/changes/archive/2024-01-01-x/tasks.md");
+    w("openspec/specs/cap/spec.md");
+    w("packages/foo/src/a.ts");
+    return { root, w };
+  }
+  const apply = (root: string) => ({ openspecApply: { cwd: root } });
+  const call = (tool: string, p: string, root: string, who: "apply" | "lead" | "group" | "plain" = "apply") => decideToolCall(tool, { path: p }, policy(), who === "apply" ? apply(root) : {});
+
+  const BLOCKED = ["openspec/changes/x/tasks.md", "packages/../openspec/changes/x/tasks.md", "./openspec/changes/x/tasks.md", "openspec//changes//x//tasks.md", "openspec/changes/x/specs/a/b/spec.md", "openspec/changes/x/specs/new/spec.md", "@openspec/changes/x/tasks.md"];
+  const FREE = ["packages/foo/src/a.ts", "openspec/changes/archive/2024-01-01-x/tasks.md", "openspec/specs/cap/spec.md", "openspec/changes/x/proposal.md", "openspec/changes/x/tasks.md.bak", "docs/tasks.md"];
+
+  it.each(["write", "edit"])("%s: blocked on tasks.md and changes/*/specs/**, with the sole-writer reason; source, archive and main specs are free", (tool) => {
+    const { root } = repo();
+    for (const p of BLOCKED) expect(call(tool, p, root), p).toEqual({ allow: false, reason: OPENSPEC_SOLE_WRITER_REASON });
+    for (const p of FREE) expect(call(tool, p, root).allow, p).toBe(true);
+    expect(call(tool, path.join(root, "openspec/changes/x/tasks.md"), root).allow).toBe(false); // absolute
+    expect(decideToolCall(tool, { file_path: "openspec/changes/x/tasks.md" }, policy(), apply(root)).allow).toBe(false); // alternate arg key
+  });
+
+  it("only write/edit are judged: read, grep and the team tools are free on the same path", () => {
+    const { root } = repo();
+    for (const tool of ["read", "grep", "ls", "find", "TaskList"]) expect(call(tool, "openspec/changes/x/tasks.md", root).allow, tool).toBe(true);
+  });
+
+  it("lead, group member and plain-team member are unaffected (the guard exists only with the apply hint)", () => {
+    const { root } = repo();
+    for (const who of ["lead", "group", "plain"] as const) expect(call("edit", "openspec/changes/x/tasks.md", root, who).allow, who).toBe(true);
+  });
+
+  it("a symlinked file, a symlinked parent directory and a not-yet-existing target below a symlinked parent resolve to their real place", () => {
+    const { root, w } = repo();
+    w("sidecar.txt");
+    fs.symlinkSync(path.join(root, "openspec/changes/x/tasks.md"), path.join(root, "link-tasks.md"));
+    fs.symlinkSync(path.join(root, "openspec/changes/x"), path.join(root, "link-dir"));
+    fs.symlinkSync(path.join(root, "openspec/changes/x/specs"), path.join(root, "link-specs"));
+    fs.symlinkSync(path.join(root, "sidecar.txt"), path.join(root, "link-ok"));
+    for (const p of ["link-tasks.md", "link-dir/tasks.md", "link-dir/specs/a/b/spec.md", "link-specs/brand/new/spec.md", "link-dir/specs/not/yet/there.md"]) expect(call("write", p, root).allow, p).toBe(false);
+    expect(call("write", "link-ok", root).allow).toBe(true);
+    expect(call("write", "link-dir/proposal.md", root).allow).toBe(true); // below the symlink but not protected
+  });
+
+  it("a dangling symlink whose target is tasks.md-to-be is judged on where a write would land", () => {
+    const { root } = repo();
+    fs.mkdirSync(path.join(root, "openspec/changes/y"), { recursive: true });
+    fs.symlinkSync(path.join(root, "openspec/changes/y/tasks.md"), path.join(root, "dangling"));
+    expect(call("write", "dangling", root).allow).toBe(false);
+  });
+
+  it("a hardlink to tasks.md (a different path, the same inode) is blocked; a single-link look-alike is not", () => {
+    const { root } = repo();
+    fs.linkSync(path.join(root, "openspec/changes/x/tasks.md"), path.join(root, "packages/foo/hard.md"));
+    fs.linkSync(path.join(root, "openspec/changes/x/specs/a/b/spec.md"), path.join(root, "packages/foo/hard-spec.md"));
+    expect(call("edit", "packages/foo/hard.md", root).allow).toBe(false);
+    expect(call("edit", "packages/foo/hard-spec.md", root).allow).toBe(false);
+    expect(call("edit", "packages/foo/src/a.ts", root).allow).toBe(true);
+  });
+
+  it("case aliases: the fold logic blocks TASKS.MD / SPECS when the volume is case-insensitive and lets them through when it is case-sensitive", () => {
+    const { root } = repo();
+    // A change directory that does not exist, so no on-disk spelling can correct the case: a pure comparison.
+    for (const ci of [true, false]) {
+      expect(isProtectedOpenspecPath("openspec/changes/zzz/TASKS.MD", root, { caseInsensitive: ci }), `tasks ${ci}`).toBe(ci);
+      expect(isProtectedOpenspecPath("openspec/changes/zzz/SPECS/a/spec.md", root, { caseInsensitive: ci }), `specs ${ci}`).toBe(ci);
+    }
+    expect(isProtectedOpenspecPath("openspec/changes/zzz/tasks.md", root, { caseInsensitive: false })).toBe(true);
+  });
+
+  const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "at-os-ci-"));
+  fs.writeFileSync(path.join(probeRoot, "Probe"), "");
+  const realCi = fs.existsSync(path.join(probeRoot, "pROBE"));
+  it.skipIf(!realCi)("on this case-insensitive volume a differently cased path to the real tasks.md is blocked end to end", () => {
+    const { root } = repo();
+    expect(call("edit", "openspec/changes/x/TASKS.MD", root).allow).toBe(false);
+    expect(call("edit", "OPENSPEC/changes/x/Tasks.md", root).allow).toBe(false);
+    expect(call("write", "Openspec/Changes/X/Specs/a/b/spec.md", root).allow).toBe(false);
+  });
+  if (realCi) {
+    it("(note) the case-sensitive-volume variant of the case test is covered by the injected caseInsensitive:false run above", () => {
+      expect(realCi).toBe(true);
+    });
+  } else {
+    it("(note) this volume is case-sensitive: the real-volume TASKS.MD alias test is skipped; only the injected fold logic ran", () => {
+      expect(realCi).toBe(false);
+    });
+  }
+
+  it("an unresolvable path (a symlink loop) blocks (fail closed)", () => {
+    const { root } = repo();
+    fs.symlinkSync(path.join(root, "loop-b"), path.join(root, "loop-a"));
+    fs.symlinkSync(path.join(root, "loop-a"), path.join(root, "loop-b"));
+    expect(openspecWriteBlock("write", { path: "loop-a" }, root)).toMatch(/could not be resolved/);
+  });
+
+  it("uses fs.realpath.native", () => {
+    const { root } = repo();
+    const env = nativeResolveEnv();
+    expect(env.realpathSync(root)).toBe(fs.realpathSync.native(root));
+  });
+
+  it("the guard is switched on by the spawn env hint only: apply member blocked; group member, plain env and a lead are not", async () => {
+    const { root } = repo();
+    const t = createTeamsEnv();
+    const run = async (profile: string | undefined) => {
+      const { pi } = linkBridge(t, "alice", { cwd: root, env: { [ENV_TEAM_ID]: "t1", [ENV_MEMBER]: "alice", [ENV_POLICY]: serializePolicy(policy()), ...(profile ? { [ENV_OPENSPEC_PROFILE]: profile } : {}) } });
+      const out = await pi.fire("tool_call", { toolName: "edit", input: { path: "openspec/changes/x/tasks.md" } });
+      return out.filter(Boolean);
+    };
+    expect(await run("apply")).toEqual([{ block: true, reason: `agent-teams: ${OPENSPEC_SOLE_WRITER_REASON}` }]);
+    expect(await run("group")).toEqual([]);
+    expect(await run(undefined)).toEqual([]);
+    const lead = linkBridge(t, "lead", { cwd: root, env: { [ENV_OPENSPEC_PROFILE]: "apply" } });
+    expect((await lead.pi.fire("tool_call", { toolName: "edit", input: { path: "openspec/changes/x/tasks.md" } })).filter(Boolean)).toEqual([]);
+  });
+
+  it("a member that left its team (guard disabled) is inert", () => {
+    const { root } = repo();
+    const state: GuardState = { enabled: false, policy: policy(), openspecApply: { cwd: root } };
+    expect(createToolCallHandler(state)({ toolName: "edit", input: { path: "openspec/changes/x/tasks.md" } })).toBeUndefined();
+    state.enabled = true;
+    expect(createToolCallHandler(state)({ toolName: "edit", input: { path: "openspec/changes/x/tasks.md" } })).toMatchObject({ block: true });
   });
 });

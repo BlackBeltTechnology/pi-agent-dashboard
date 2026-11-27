@@ -362,7 +362,103 @@ Spawn/agent codes: `agent_not_found`, `agent_untrusted`, `agent_invalid`, `tools
 
 Tool-side codes: `hook_blocked` (+ feedback `hook_busy` / `hook_pending`), `plan_not_required`, `user_decision_required`. Degraded member: `plan_tools_unavailable`. Team close reason: `lead_spawn_failed`.
 
+## OpenSpec profiles
+
+Two bundled templates (`packages/agent-teams-plugin/templates/`): `openspec-group`, `openspec-apply`. Source `bundled`: trusted, no hook TOFU, `mode: session`. Profile = server-side seeding + launcher + lock + guards. Bound to template NAME, only when resolved source = `bundled`. Shadowing user/project file of same name = plain template. No frontmatter key selects profile. Needs trusted project (`project_untrusted`). Goal = name, `^[a-z0-9][a-z0-9-]{0,63}$`. Preflight refuses before anything created. `examples/` = docs only, never scanned. Code: `packages/agent-teams-plugin/src/server/openspec/`.
+
+| Template | Goal | Server does |
+|---|---|---|
+| `openspec-group` | group id/name from `groups.json` | One task per change (blocked by in-group `dependencies.yaml` edges). One teammate per change, lazy, saved order, max `openspecGroupParallel`. Worktree `<repo>/.worktrees/os-<change>`, branch `os/<change>`. Teammate ships with ship skill, commits/pushes/merges in own worktree only. |
+| `openspec-apply` | one change name | Seed tasks from `tasks.md` (one per checkbox; one per section if wide) + final `Review` task. Reviewer read-only, `review-code` skill. Two implementers share lead cwd. Lead sole committer. |
+
+Task + change text = data, never instructions. Briefings say so. Server notices carry codes + ids, never task text.
+
+```mermaid
+flowchart LR
+  S["start: template + goal"] --> PF["preflight<br/>creates nothing on refuse"]
+  PF -->|"openspec-group"| SG["seed-group.ts<br/>task per change"]
+  PF -->|"openspec-apply"| SA["seed-apply.ts<br/>task per checkbox + Review"]
+  SG --> LA["launcher.ts<br/>lazy, parallel-capped"]
+  LA --> WT["worktree.ts<br/>.worktrees/os-change"]
+  WT -->|"host.localRequest"| HOST["POST /api/git/worktree"]
+  LA --> MEM["teammate per change"]
+  MEM -->|"TaskUpdate completed"| GATE["gate.ts<br/>not_shipped check"]
+  SA --> RT["runtime: tasks done"]
+  RT -->|"host.localRequest"| TOG["POST /api/openspec/tasks/toggle"]
+```
+
+### Group: worktrees, gate, relaunch
+
+- Preflight codes, first failing wins: `invalid_args`, `project_untrusted`, `profile_unavailable`, `invalid_config`, then `group_unknown` / `group_ambiguous` / `group_empty` / `groups_invalid` / `change_unknown` / `tasks_unreadable`, `lead_not_repo_root`, `batch_runner_active` (live ship-batch lock), `ship_skill_missing` / `review_skill_missing`, `base_not_found`, `too_many_tasks`, `nothing_to_do`, `change_in_use` (other active team or unbound start drives change).
+- Lead commits nothing in group. Never spawns teammates by hand.
+- Completion gate (`gate.ts`): only owning teammate completes task, only when change shipped = archived + merged. Else `not_shipped (<reason>)` feedback. Fails closed on throw/timeout/odd shape/missing state. Worktree gone ⇒ `git fetch origin <merge base>` bounded by `openspecFetchTimeoutMs`.
+- Slot freed at completion. Member asked to shut down. Rejection/silence only notifies lead.
+- Failed launch (`launch_failed <code>`) or lost member: lead woken with code + relaunch route. Nothing relaunches automatically. Launch timeout ⇒ `launch_timeout`. Crash mid-launch ⇒ `launch_interrupted`.
+- Worktree codes: `worktree_path_unexpected`, `worktree_branch_mismatch`, `worktree_failed`; typed codes from git routes pass verbatim. Never falls back to lead cwd.
+- Relaunch: `POST /api/plugins/agent-teams/openspec-relaunch` body `{teamId, change}`. Tier `operate`. `not_relaunchable` for any other state. Or delete team. No abandon route in v1.
+- State sidecar `<dataDir>/openspec/<teamId>.json`. Pruned with closed teams. Lost ⇒ launcher, sync, lock off for team; lead told.
+
+### Apply: seed, hints, checkbox sync
+
+Checkbox list from dashboard `GET /api/openspec/tasks`. Plugin re-reads `tasks.md` only for dependency hints. Hints = HTML comments. Dashboard + OpenSpec CLI ignore. Plugin never rewrites.
+
+```markdown
+## 2. Engine
+- [ ] 2.1 Parse the input
+- [ ] 2.2 Build the plan <!-- after: 2.1 -->
+- [ ] 2.3 Wire the CLI
+  <!-- after: 2.1, §1 -->
+```
+
+| Rule | Behaviour |
+|---|---|
+| Grammar | `<!-- after: <entry>[, <entry>…] -->`. Entry = checkbox id (`2.1`) or section (`§2`). Bare number = checkbox id first, then section. Case-insensitive, whitespace-tolerant. Max 64 entries, rest dropped + reported. |
+| Placement | Trailing on checkbox line, or own line directly below checkbox (that box) or `##` heading (every box of section; box-level wins). Inside fenced code or on indented sub-bullet ⇒ ignored. First hint per box wins, second reported. |
+| Direction | Every edge points backward. Forward, self, duplicate, cyclic, unknown ids dropped, listed once in start notice. |
+| Default | No hint ⇒ section waits for previous non-empty section (barrier). Ticked boxes count satisfied. |
+
+- Reviewer (`openspecReviewSkill`) owns final `Review` task. Read-only. Teammates never commit. Lead commits once after `Review` completed + checkboxes synced.
+- Runtime = SOLE writer of checkboxes. On task complete ticks matching box (id + text hash) via `POST /api/openspec/tasks/toggle`. Serial per change, bounded retry. Failure ⇒ lead notice, box unchanged.
+- Write guard: teammates may not `write`/`edit` `openspec/changes/*/tasks.md` or `…/specs/**`.
+- Advisory: guard covers `write`/`edit` tools only. `bash` not covered. Sole-writer rule for shell = request backed by lead diff review, not sandbox. Stated in every briefing.
+- Dashboard refuses toggle (`401`/`403`) ⇒ no retry, lead gets `sync_forbidden` naming task ids. Tick by hand.
+- Team closed with sync pending ⇒ waits up to 5 s, then keeps `synced:false`, tells lead.
+
+### `harness` ResourceLock
+
+Group teams only. Teammate tool `ResourceLock {action: acquire | release | status, name}`. Resource `harness` = server-owned mutex over shared docker test harness.
+- `acquire` ⇒ `granted:true`, or `granted:false` + holder + queue position. Teammate ends turn, no polling.
+- Release hands lock synchronously to oldest waiter. Waiter woken by `lock_grant` mail.
+- Released on `release`, holder idle/gone/failed, team close, `openspecLockTtlMs` (lead told).
+- Holder must not end turn while holding.
+- Advisory. Does not stop direct harness start. Harness start script memory guard = hard backstop.
+- Lock codes: `no_resources`, `unknown_resource`, `not_holder`, `queue_full`, `sidecar_write_failed`, `sidecar_missing`.
+
+### Seams + host service
+
+Uses only core registries: start profiles, spawn contributors, op gates, dispatch eligibility, server mail + lead notices, per-member committer. Missing one ⇒ `profile_unavailable`.
+
+REST access goes through host service `host.localRequest` (never own credential). Real loopback HTTP, per-request local proof, fixed route allowlist. Details: [architecture.md](architecture.md) § Host local-request service. Host denies/absent ⇒ sync reports `sync_forbidden`; worktree step fails launch with typed `launch_failed` code.
+
+### OpenSpec config keys
+
+Schema `packages/agent-teams-plugin/src/configSchema.json`. Invalid ⇒ default + warning (integers only). Names + refs validated before use (`invalid_config`).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `openspecGroupParallel` | 2 | parallel changes. Clamped `1..maxTeammates` |
+| `openspecShipSkill` | `ship-it` | skill group teammate loads first |
+| `openspecReviewSkill` | `review-code` | apply reviewer skill |
+| `openspecWorktreeBase` | `develop` | branch new worktree forks from |
+| `openspecMergeBase` | `develop` | branch ship merges into. Gate looks for archive there |
+| `openspecLockTtlMs` | 1800000 | lock TTL. Clamped 60000..86400000 |
+| `openspecFetchTimeoutMs` | 8000 | gate `git fetch` bound. Max 10000 |
+
+Typed error codes: preflight + worktree + lock + gate codes above; relaunch route `not_relaunchable`; sync `sync_forbidden`; gate `not_shipped`.
+
+See change: add-agent-teams-openspec.
+
 ## Deferred
 
 - Automation action `agent-teams.start`. Needs completion event, orphan policy, unattended hook trust.
-- OpenSpec templates, in-process mode, bundled agent tiers, global hooks, fail-closed hooks, `wakeOnIdle`.
+- In-process mode, bundled agent tiers, global hooks, fail-closed hooks, `wakeOnIdle`.

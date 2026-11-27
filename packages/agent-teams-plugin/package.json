@@ -36,6 +36,8 @@
   "files": [
     "src/",
     "prompts/",
+    "templates/",
+    "examples/",
     "!**/AGENTS.md",
     "!**/*.AGENTS.md",
     "!**/__tests__",

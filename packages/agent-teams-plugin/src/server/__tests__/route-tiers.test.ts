@@ -21,6 +21,7 @@ const TEMPLATES_HOOKS_ROWS: ReadonlyArray<readonly [method: string, path: string
   ["POST", "/api/plugins/agent-teams/teams/:id/members/:name/plan-decision", "operate"],
   ["POST", "/api/plugins/agent-teams/hook-trust", "operate"],
   ["DELETE", "/api/plugins/agent-teams/hook-trust", "operate"],
+  ["POST", "/api/plugins/agent-teams/openspec-relaunch", "operate"],
 ];
 
 const envs: UiEnv[] = [];
@@ -55,9 +56,11 @@ describe("ROUTE_TIERS rows (S27)", () => {
     await e.app.inject({ method: "POST", url: `${api}/teams/${team.id}/members/alice/plan-decision`, payload: {} });
     await e.app.inject({ method: "POST", url: `${api}/hook-trust`, payload: {} });
     await e.app.inject({ method: "DELETE", url: `${api}/hook-trust?cwd=/nowhere&hash=h` });
+    // add-agent-teams-openspec: the group relaunch route (mounted by `openspec/relaunch-route.ts`).
+    await e.app.inject({ method: "POST", url: `${api}/openspec-relaunch`, payload: {} });
     const rows = ROUTE_TIERS.filter((r) => r.path.startsWith("/api/plugins/agent-teams/")).map((r) => `${r.method} ${r.path}`);
     expect(rows.sort()).toEqual([...new Set(seen)].sort());
-    expect(rows).toHaveLength(10);
+    expect(rows).toHaveLength(11);
   });
 });
 

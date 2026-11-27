@@ -20,6 +20,7 @@ const TEMPLATES_HOOKS_ROUTES = [
   "/api/plugins/agent-teams/teams/:id/plans",
   "/api/plugins/agent-teams/teams/:id/members/:name/plan-decision",
   "/api/plugins/agent-teams/hook-trust",
+  "/api/plugins/agent-teams/openspec-relaunch",
 ];
 const MCP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../mcp-server-plugin/src/server");
 const read = (rel: string): string => fs.readFileSync(path.join(MCP, rel), "utf8");

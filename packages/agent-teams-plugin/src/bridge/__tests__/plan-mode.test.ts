@@ -14,12 +14,12 @@ import { decidePlan, type PlansDeps } from "../../server/plans.js";
 import { systemClock } from "../../shared/clock.js";
 import { ENV_PLAN_MODE_TOOLS, PLAN_HOLD, PLAN_READONLY_TOOLS, PLAN_SUBMIT_TOOL, serializePlanTools } from "../../shared/plan-mode.js";
 import { ENV_COMMITTER, ENV_MEMBER, ENV_PLAN_MODE, ENV_POLICY, ENV_TEAM_ID } from "../../shared/policy.js";
-import { TEAM_TOOLS_BY_ROLE } from "../../shared/protocol.js";
+import { memberTools } from "../../shared/protocol.js";
 import type { Team } from "../../shared/types.js";
 import type { BridgeContext } from "../context.js";
 import { computePlanTools, planAllowedTools, registerPlanMode } from "../plan-mode.js";
 
-const MEMBER = TEAM_TOOLS_BY_ROLE.member as readonly string[];
+const MEMBER = memberTools(false) as readonly string[]; // no OpenSpec profile env: no ResourceLock
 const BUILTIN = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 /** Ten registered tools besides the team tools: the built-ins plus MCP/extension ones. */
 const ALL_NON_TEAM = [...BUILTIN, "mcp__x__search", "mcp__x__delete", "custom_ext"];

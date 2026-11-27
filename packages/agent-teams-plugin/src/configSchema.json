@@ -170,6 +170,46 @@
       "default": [],
       "description": "Additional absolute directory roots a per-member cwd may live under, besides the lead's cwd."
     },
+    "openspecGroupParallel": {
+      "type": "integer",
+      "default": 2,
+      "minimum": 1,
+      "description": "openspec-group: changes shipped in parallel (clamped into 1..effective maxTeammates; non-integers use the default)."
+    },
+    "openspecShipSkill": {
+      "type": "string",
+      "default": "ship-it",
+      "description": "openspec-group: skill the teammate loads first (lowercase letters, digits, dashes, at most 64 characters)."
+    },
+    "openspecReviewSkill": {
+      "type": "string",
+      "default": "review-code",
+      "description": "openspec-apply: skill of the reviewer teammate (lowercase letters, digits, dashes, at most 64 characters)."
+    },
+    "openspecWorktreeBase": {
+      "type": "string",
+      "default": "develop",
+      "description": "openspec-group: branch a new change worktree forks from (a valid git branch name, never starting with a dash)."
+    },
+    "openspecMergeBase": {
+      "type": "string",
+      "default": "develop",
+      "description": "openspec-group: branch the ship skill merges into; the completion gate looks for the archive there (a valid git branch name)."
+    },
+    "openspecLockTtlMs": {
+      "type": "integer",
+      "default": 1800000,
+      "minimum": 60000,
+      "maximum": 86400000,
+      "description": "ResourceLock: a holder that never releases loses the lock after this long (clamped into 60000..86400000)."
+    },
+    "openspecFetchTimeoutMs": {
+      "type": "integer",
+      "default": 8000,
+      "minimum": 1,
+      "maximum": 10000,
+      "description": "openspec-group completion gate: bound of `git fetch origin <merge>` (clamped to at most 10000; below 1 or non-integer uses the default)."
+    },
     "teammateMode": {
       "type": "string",
       "description": "Default teammate mode for TeamCreate when no mode is given. Unset resolves to \"session\". Must name a registered mode."
