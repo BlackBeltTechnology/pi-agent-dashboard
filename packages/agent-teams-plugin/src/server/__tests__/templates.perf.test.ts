@@ -28,6 +28,9 @@ function sized(name: string, bytes: number): string {
   return `${base}${"x".repeat(Math.max(0, bytes - Buffer.byteLength(base) - Buffer.byteLength(tail)))}${tail}`;
 }
 
+/** The loop is 50 cold listings of 200 templates: the 5 s default starves on a loaded shard (the p95 gates stay). */
+const PERF_TEST_TIMEOUT_MS = 60_000;
+
 describe("listing cost (P4)", () => {
   it("200 templates: cold p95 ≤ 300 ms, warm p95 ≤ 20 ms over 50 listings", () => {
     const env = createTemplateEnv();
@@ -48,7 +51,7 @@ describe("listing cost (P4)", () => {
     expect(p95(cold)).toBeLessThanOrEqual(300);
     expect(p95(warm)).toBeLessThanOrEqual(20);
     expect(run().templates.every((t) => t.valid)).toBe(true);
-  });
+  }, PERF_TEST_TIMEOUT_MS);
 
   it("an untrusted project with 10 000 files lists stems only and reads 0 bodies", () => {
     const env = createTemplateEnv();
@@ -68,5 +71,5 @@ describe("listing cost (P4)", () => {
     expect(reads.mock.calls.filter((c) => String(c[0]).endsWith(".md"))).toEqual([]);
     expect(opens.mock.calls.filter((c) => String(c[0]).endsWith(".md"))).toEqual([]);
     expect(ms).toBeLessThan(300);
-  });
+  }, PERF_TEST_TIMEOUT_MS);
 });
