@@ -108,7 +108,7 @@ describe("FlowWriteToolRenderer", () => {
       result: OK,
     });
     expect(nodeIds()).toEqual(["a", "b"]);
-    expect(getByText("2 steps · 1 agents, 1 code")).toBeTruthy();
+    expect(getByText("2 steps · 1 agents, 1 code").textContent).toBe("2 steps · 1 agents, 1 code");
   });
 
   it("E2: invalid steps are skipped", () => {
@@ -118,22 +118,22 @@ describe("FlowWriteToolRenderer", () => {
       result: OK,
     });
     expect(nodeIds()).toEqual(["a", "c"]);
-    expect(getByText(/^2 steps/)).toBeTruthy();
+    expect(getByText(/^2 steps/).textContent).toMatch(/^2 steps · /);
   });
 
   it("E3: empty steps degrade to no graph, no counts", () => {
-    const { getByText, queryByText } = renderWrite({ toolInput: { content: "name: t\nsteps: []" }, status: "complete", result: OK });
+    const { getByText } = renderWrite({ toolInput: { content: "name: t\nsteps: []" }, status: "complete", result: OK });
     expect(nodeIds()).toEqual([]);
-    expect(queryByText(/steps ·/)).toBeNull();
-    expect(getByText("/custom:t")).toBeTruthy();
-    expect(getByText("registered")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/steps ·/);
+    expect(getByText("/custom:t").textContent).toBe("/custom:t");
+    expect(getByText("registered").textContent).toBe("registered");
   });
 
   it("E4: unparseable YAML degrades without throwing", () => {
-    const { getByText, queryByText } = renderWrite({ toolInput: { content: "::: not yaml [" }, status: "complete", result: OK });
+    const { getByText } = renderWrite({ toolInput: { content: "::: not yaml [" }, status: "complete", result: OK });
     expect(nodeIds()).toEqual([]);
-    expect(queryByText(/steps ·/)).toBeNull();
-    expect(getByText("/custom:t")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/steps ·/);
+    expect(getByText("/custom:t").textContent).toBe("/custom:t");
   });
 
   it("E5: only a successful write draws a graph", () => {
@@ -143,8 +143,8 @@ describe("FlowWriteToolRenderer", () => {
       result: JSON.stringify({ written: false, diagnostics: ["bad"] }),
     });
     expect(nodeIds()).toEqual([]);
-    expect(getByText("not written — validation failed")).toBeTruthy();
-    expect(getByText("bad")).toBeTruthy();
+    expect(getByText("not written — validation failed").textContent).toBe("not written — validation failed");
+    expect(getByText("bad").textContent).toBe("bad");
   });
 
   it("E6: object-form branches draw their edge on the card", () => {
@@ -171,12 +171,12 @@ describe("FlowWriteToolRenderer", () => {
       "  - { id: s6 }",
     ].join("\n");
     const { getByText } = renderWrite({ toolInput: { content: yaml }, status: "complete", result: OK });
-    expect(getByText("6 steps · 3 agents, 2 code")).toBeTruthy();
+    expect(getByText("6 steps · 3 agents, 2 code").textContent).toBe("6 steps · 3 agents, 2 code");
   });
 
   it("E12: no Mermaid output; graph nodes present", () => {
     const { container } = renderWrite({ toolInput: { content: FLOW_YAML }, status: "complete", result: OK });
-    expect(container.querySelector(".language-mermaid")).toBeNull();
+    expect(container.querySelectorAll(".language-mermaid")).toHaveLength(0);
     expect(markdownSpy).not.toHaveBeenCalled();
     expect(nodeIds().length).toBeGreaterThan(0);
   });
@@ -210,7 +210,7 @@ describe("FlowWriteToolRenderer", () => {
     expect(dialog.getAttribute("data-size")).toBe("full");
     expect(nodeIds(dialog)).toEqual(["extract", "validate"]);
     // The dialog graph is not `fit`: it carries no ⤢ expand button of its own.
-    expect(dialog.querySelector('[title="Expand graph"]')).toBeNull();
+    expect(dialog.querySelectorAll('[title="Expand graph"]')).toHaveLength(0);
   });
 });
 
