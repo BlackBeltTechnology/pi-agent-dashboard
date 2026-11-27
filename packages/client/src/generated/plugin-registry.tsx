@@ -79,6 +79,23 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "customType": "agent-teams-notice"
             },
             {
+                "slot": "custom-entry-renderer",
+                "component": "ApprovalCard",
+                "module": "./src/client/ApprovalCard.tsx",
+                "customType": "agent-teams-approval"
+            },
+            {
+                "slot": "custom-entry-renderer",
+                "component": "PlaybookCard",
+                "module": "./src/client/PlaybookCard.tsx",
+                "customType": "agent-teams-playbook"
+            },
+            {
+                "slot": "sidebar-folder-section",
+                "component": "StartTeamFolderAction",
+                "module": "./src/client/StartTeamFolderAction.tsx"
+            },
+            {
                 "slot": "tool-renderer",
                 "component": "TeamLifecycleToolRenderer",
                 "module": "./src/client/TeamToolRenderers.tsx",
@@ -162,6 +179,9 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "agent-teams", priority: 100, slot: "custom-entry-renderer", customType: "agent-teams-mail", Component: lazyClaim(() => import("../../../agent-teams-plugin/src/client/MailEntryCard"), "MailEntryCard") },
       { pluginId: "agent-teams", priority: 100, slot: "custom-entry-renderer", customType: "agent-teams-idle", Component: lazyClaim(() => import("../../../agent-teams-plugin/src/client/MailEntryCard"), "MailEntryCard") },
       { pluginId: "agent-teams", priority: 100, slot: "custom-entry-renderer", customType: "agent-teams-notice", Component: lazyClaim(() => import("../../../agent-teams-plugin/src/client/MailEntryCard"), "MailEntryCard") },
+      { pluginId: "agent-teams", priority: 100, slot: "custom-entry-renderer", customType: "agent-teams-approval", Component: lazyClaim(() => import("../../../agent-teams-plugin/src/client/ApprovalCard"), "ApprovalCard") },
+      { pluginId: "agent-teams", priority: 100, slot: "custom-entry-renderer", customType: "agent-teams-playbook", Component: lazyClaim(() => import("../../../agent-teams-plugin/src/client/PlaybookCard"), "PlaybookCard") },
+      { pluginId: "agent-teams", priority: 100, slot: "sidebar-folder-section", Component: lazyClaim(() => import("../../../agent-teams-plugin/src/client/StartTeamFolderAction"), "StartTeamFolderAction") },
       { pluginId: "agent-teams", priority: 100, slot: "tool-renderer", toolName: "TeamCreate", Component: lazyClaim(() => import("../../../agent-teams-plugin/src/client/TeamToolRenderers"), "TeamLifecycleToolRenderer") },
       { pluginId: "agent-teams", priority: 100, slot: "tool-renderer", toolName: "TeammateSpawn", Component: lazyClaim(() => import("../../../agent-teams-plugin/src/client/TeamToolRenderers"), "TeamLifecycleToolRenderer") },
       { pluginId: "agent-teams", priority: 100, slot: "tool-renderer", toolName: "TeamStatus", Component: lazyClaim(() => import("../../../agent-teams-plugin/src/client/TeamToolRenderers"), "TeamLifecycleToolRenderer") },
@@ -1365,4 +1385,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "a6d3e3bfcacfd104f44675a158d88eb7cb22a0a2ce9c471ce68a230ac80f2878";
+export const PLUGIN_REGISTRY_HASH = "aaa39fa2bbcec42723791a20da6ddfb62a85425dcf355b983c8d44ed40d6ab1b";

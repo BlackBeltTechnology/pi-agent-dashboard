@@ -42,6 +42,8 @@ function parseHello(payload: unknown): HelloPayload | undefined {
   const confined = get("confined");
   const policyHash = get("policyHash");
   const sessionFile = get("sessionFile");
+  const planToolsActive = get("planToolsActive");
+  if (planToolsActive !== undefined && typeof planToolsActive !== "boolean") return undefined;
   if (typeof isIdle !== "boolean" || typeof toolsActive !== "boolean" || typeof guardActive !== "boolean" || typeof confined !== "boolean") return undefined;
   if ((policyHash !== undefined && typeof policyHash !== "string") || (sessionFile !== undefined && typeof sessionFile !== "string")) return undefined;
   return {
@@ -51,6 +53,7 @@ function parseHello(payload: unknown): HelloPayload | undefined {
     confined,
     ...(typeof policyHash === "string" ? { policyHash: policyHash.slice(0, 200) } : {}),
     ...(typeof sessionFile === "string" ? { sessionFile: sessionFile.slice(0, 1000) } : {}),
+    ...(typeof planToolsActive === "boolean" ? { planToolsActive } : {}),
   };
 }
 

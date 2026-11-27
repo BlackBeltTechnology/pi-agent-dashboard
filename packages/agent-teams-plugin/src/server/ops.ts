@@ -31,9 +31,11 @@ import {
   type HelloPayload,
   type HelloReply,
   type IdlePayload,
+  isStartOp,
   isTeamOp,
   LEAD_ONLY_OPS,
   type OpResult,
+  type StartOp,
   type TeamCreateResult,
   type TeamDeleteResult,
   type TeammateSpawnArgs,
@@ -42,7 +44,7 @@ import {
   type TeamRole,
   type TeamStatusResult,
 } from "../shared/protocol.js";
-import { sanitizeText, truncateWithMarker } from "../shared/text.js";
+import { codePointLength, sanitizeText, truncateWithMarker } from "../shared/text.js";
 import type {
   CloseReason,
   Committer,
@@ -50,12 +52,22 @@ import type {
   Member,
   SessionBinding,
   Team,
+  TeamOverrides,
 } from "../shared/types.js";
 import { isRecord, own, stringList, textField } from "./args.js";
-import type { ConfigReader, TeamsConfig } from "./config.js";
+import { type ConfigReader, effectiveCoalesceWindowMs, type TeamsConfig } from "./config.js";
 import { createDispatcher } from "./dispatch.js";
 import type { MemberDriver } from "./driver.js";
-import { type ExtensionPoints, runOpGates, type TrustedSpawnOptions } from "./extension-points.js";
+import {
+  type ExtensionPoints,
+  IDLE_GATE_OP,
+  type MemberSpawnExtras,
+  runOpGatePipeline,
+  runOpGates,
+  type SpawnResolution,
+  type SpawnSource,
+  type TrustedSpawnOptions,
+} from "./extension-points.js";
 import { createMailEngine } from "./mail.js";
 import { createMailLimits } from "./mail-limits.js";
 import { createMessaging } from "./messaging.js";
@@ -64,7 +76,7 @@ import { createNoticeBuffer } from "./notices.js";
 import { fail, isLive } from "./op-util.js";
 import { createShutdown } from "./shutdown.js";
 import { createSpawnFlow, createSpawnPlanner } from "./spawn.js";
-import type { TeamStore } from "./store.js";
+import type { CreateTeamInput as StoreCreateTeamInput, TeamStore } from "./store.js";
 import { createTaskOps } from "./tasks.js";
 import { createTelemetry } from "./telemetry.js";
 import type { Actor, HostSessionLookup, Logger } from "./types.js";
@@ -97,6 +109,8 @@ export interface Caller {
 export interface PreparedSpawn {
   cwd: string;
   model?: string;
+  /** From the spawn resolver (`SpawnResolution.thinkingLevel`); passed to the host spawn. */
+  thinkingLevel?: string;
   tools?: string[];
   skills?: string[];
   noMcp: boolean;
@@ -172,17 +186,39 @@ export interface CreateTeamInput {
   description?: string;
   maxTeammates?: number;
   committer?: Committer;
+  /** Canonical team default tools / skills (`Team.defaultTools` / `Team.defaultSkills`). */
+  defaultTools?: string[];
+  defaultSkills?: string[];
+  /** Legacy aliases of `defaultTools` / `defaultSkills` (the `TeamCreate` tool args); the `default*` names win. */
   skills?: string[];
   tools?: string[];
   callerSessionId?: string;
+  overrides?: TeamOverrides;
+  /** Templates-hooks fields persisted on the team record. */
+  template?: StoreCreateTeamInput["template"];
+  hooks?: StoreCreateTeamInput["hooks"];
+  leadSpawnToken?: string;
+  leadBindDeadline?: number;
 }
 
-/** Values the async step before the sync op resolved (`TeammateSpawn`: allowlisted skill names → `SKILL.md` paths). */
+/** Values the async step before the sync op resolved (`TeammateSpawn`: allowlisted skill names → `SKILL.md` paths, the spawn resolution). */
 export interface CallExtra {
   skills?: string[];
+  /** The spawn resolver's output for this call (absent when no resolver is registered). */
+  spawn?: SpawnResolution;
 }
 
 export type OpHandler = (args: unknown, caller: Caller, extra?: CallExtra) => OpResult<unknown>;
+
+/** A server-side start op (`team.start`, `team.templates`): may be async; the caller is the lane socket's session. */
+export type StartOpHandler = (args: unknown, caller: Caller) => OpResult<unknown> | Promise<OpResult<unknown>>;
+
+export interface StartOpOptions {
+  /** Roles allowed to call it (default `["plain"]`). Others get `nested_team_forbidden` (member) / `already_in_team` (lead). */
+  roles?: readonly TeamRole[];
+  /** Refuse a confined plain session with `lead_confined` like `TeamCreate` (default `true`). */
+  refuseConfined?: boolean;
+}
 
 export function createOps(deps: OpsDeps) {
   const { store, clock, logger } = deps;
@@ -190,6 +226,10 @@ export function createOps(deps: OpsDeps) {
   const reports = deps.reports ?? new Map<string, SessionReport>();
   const planner = deps.planner ?? createSpawnPlanner(deps.isKnownModel ? { isKnownModel: deps.isKnownModel } : {});
   const newToken = deps.newToken ?? (() => `at-${randomUUID()}`);
+  const wakeSeqs = new Map<string, number>();
+  const wakeKey = (teamId: string, member: string): string => `${teamId}\u0000${member}`;
+  /** Count of waking mails queued for a member since the server started (the idle gate compares it before/after its await). */
+  const wakeSeq = (teamId: string, member: string): number => wakeSeqs.get(wakeKey(teamId, member)) ?? 0;
   const orphanTimers = new Map<string, unknown>();
   const closeTimers = new Map<string, unknown>();
 
@@ -311,6 +351,7 @@ export function createOps(deps: OpsDeps) {
       ...(input.details ? { details: input.details } : {}),
     });
     if (mail) {
+      if (input.wake && to !== LEAD_ADDRESS) wakeSeqs.set(wakeKey(team.id, to), wakeSeq(team.id, to) + 1);
       mailer.flush(team.id, to);
       if (!engine.isHandedOver(team.id, mail.id)) {
         telemetry.count(team.id, "queued");
@@ -338,13 +379,15 @@ export function createOps(deps: OpsDeps) {
     return mailTo(team, LEAD_ADDRESS, { from: "server", kind: "notice", text: input.text, wake: input.wake });
   }
 
-  /** Server mail to one live member in a registered kind (sender `server`). */
-  function sendServerMail(team: Team, to: string, input: { kind: string; text: string; wake: boolean }): OpResult<{ mailId: number }> {
+  /** Server mail to one live member (or the lead, `to === "lead"`) in a registered kind (sender `server`). */
+  function sendServerMail(team: Team, to: string, input: { kind: string; text: string; wake: boolean; details?: Record<string, unknown> }): OpResult<{ mailId: number }> {
     if (!isRegisteredMailKind(input.kind)) return fail("invalid_args", `unregistered mail kind: ${input.kind}`);
-    const member = store.member(team, to);
-    if (!member) return fail("unknown_recipient", to);
-    if (!isLive(member)) return fail("member_gone", to);
-    const mail = mailTo(team, to, { from: "server", kind: input.kind, text: input.text, wake: input.wake });
+    if (to !== LEAD_ADDRESS) {
+      const member = store.member(team, to);
+      if (!member) return fail("unknown_recipient", to);
+      if (!isLive(member)) return fail("member_gone", to);
+    }
+    const mail = mailTo(team, to, { from: "server", kind: input.kind, text: input.text, wake: input.wake, ...(input.details ? { details: input.details } : {}) });
     return mail ? { ok: true, data: { mailId: mail.id } } : fail("team_closed");
   }
 
@@ -404,8 +447,13 @@ export function createOps(deps: OpsDeps) {
       ...(input.owner ? { owner: input.owner } : {}),
       ...(input.description ? { description: input.description } : {}),
       ...(input.committer ? { committer: input.committer } : {}),
-      ...(input.skills ? { defaultSkills: input.skills } : {}),
-      ...(input.tools ? { defaultTools: input.tools } : {}),
+      ...((input.defaultSkills ?? input.skills) ? { defaultSkills: (input.defaultSkills ?? input.skills) as string[] } : {}),
+      ...((input.defaultTools ?? input.tools) ? { defaultTools: (input.defaultTools ?? input.tools) as string[] } : {}),
+      ...(input.overrides ? { overrides: input.overrides } : {}),
+      ...(input.template ? { template: input.template } : {}),
+      ...(input.hooks ? { hooks: input.hooks } : {}),
+      ...(input.leadSpawnToken ? { leadSpawnToken: input.leadSpawnToken } : {}),
+      ...(input.leadBindDeadline !== undefined ? { leadBindDeadline: input.leadBindDeadline } : {}),
     });
     return { ok: true, data: team };
   }
@@ -453,6 +501,7 @@ export function createOps(deps: OpsDeps) {
     if (team.status === "closed") return;
     clearOrphanTimer(team.id);
     limits.forgetTeam(team.id);
+    for (const k of wakeSeqs.keys()) if (k.startsWith(`${team.id}\u0000`)) wakeSeqs.delete(k);
     engine.dropTeam(team.id);
     notices.drop(team.id);
     const closeTimer = closeTimers.get(team.id);
@@ -553,7 +602,12 @@ export function createOps(deps: OpsDeps) {
     const noMcp = own(raw, "noMcp");
     const noContextFiles = own(raw, "noContextFiles");
     const resume = own(raw, "resume");
-    if (!prompt.ok || !role.ok || !model.ok || tools === "invalid" || skills === "invalid") return fail("invalid_args");
+    // The agent NAME is validated by the resolver (`agent_invalid`: empty, > 64 chars, bad characters), so it is only bounded here.
+    const rawAgent = own(raw, "agent");
+    const agent = typeof rawAgent === "string" && rawAgent.length <= 256 ? ({ ok: true, value: rawAgent.trim() } as const) : rawAgent === undefined || rawAgent === null ? ({ ok: true, value: undefined } as const) : ({ ok: false } as const);
+    const planPolicy = own(raw, "requirePlanApproval");
+    if (!prompt.ok || !role.ok || !model.ok || !agent.ok || tools === "invalid" || skills === "invalid") return fail("invalid_args");
+    if (planPolicy !== undefined && typeof planPolicy !== "boolean" && planPolicy !== "user") return fail("invalid_args", 'requirePlanApproval must be true, false or "user"');
     if ((cwd !== undefined && typeof cwd !== "string") || (noMcp !== undefined && typeof noMcp !== "boolean")) return fail("invalid_args");
     if ((noContextFiles !== undefined && typeof noContextFiles !== "boolean") || (resume !== undefined && typeof resume !== "boolean")) return fail("invalid_args");
     return {
@@ -569,6 +623,9 @@ export function createOps(deps: OpsDeps) {
         ...(typeof noMcp === "boolean" ? { noMcp } : {}),
         ...(typeof noContextFiles === "boolean" ? { noContextFiles } : {}),
         ...(typeof resume === "boolean" ? { resume } : {}),
+        // Parsed for the spawn resolver; core itself ignores both (no resolver registered ⇒ no effect).
+        ...(agent.value !== undefined ? { agent: agent.value } : {}),
+        ...(planPolicy !== undefined ? { requirePlanApproval: planPolicy } : {}),
       },
     };
   }
@@ -578,7 +635,13 @@ export function createOps(deps: OpsDeps) {
    * `await`, then hand the async host spawn to the `starter` seam. `trusted`
    * options come only from in-process server callers; the lane never passes them.
    */
-  function spawnMember(team: Team, args: TeammateSpawnArgs, trusted?: TrustedSpawnOptions, resolvedSkills?: string[]): OpResult<TeammateSpawnResult> {
+  function spawnMember(
+    team: Team,
+    args: TeammateSpawnArgs,
+    trusted?: TrustedSpawnOptions,
+    resolvedSkills?: string[],
+    resolution?: Pick<SpawnResolution, "thinkingLevel" | "member">,
+  ): OpResult<TeammateSpawnResult> {
     const cfg = deps.config();
     if (team.status === "closed" || team.status === "closing") return fail("team_closed");
     const existing = store.member(team, args.name);
@@ -594,14 +657,20 @@ export function createOps(deps: OpsDeps) {
     if (live.length >= effectiveMaxTeammates(team, cfg)) return fail("team_full", `at most ${effectiveMaxTeammates(team, cfg)} teammates`);
     const plan = planner.prepare({ leadCwd: team.leadCwd, team, args, ...(trusted ? { trusted } : {}), ...(resolvedSkills ? { resolvedSkills } : {}), config: cfg });
     if (!plan.ok) return plan;
-    const p = plan.data;
+    const p: PreparedSpawn = resolution?.thinkingLevel ? { ...plan.data, thinkingLevel: resolution.thinkingLevel } : plan.data;
+    const extras: MemberSpawnExtras | undefined = resolution?.member;
     const record: Member = {
       name: args.name,
       ...(args.role ? { role: args.role } : {}),
       spawnToken: newToken(),
       ...(resume && existing?.sessionFile ? { sessionFile: existing.sessionFile } : {}),
       // A resumed record sheds its previous session binding and failure state.
-      ...(resume ? { sessionId: undefined, goneReason: undefined, degraded: undefined } : {}),
+      ...(resume ? { sessionId: undefined, goneReason: undefined, degraded: undefined, agent: undefined, requirePlanApproval: undefined, planApproval: undefined, hold: undefined } : {}),
+      // Resolver-provided member state (agent type, plan approval policy/state, dispatch hold); absent without a resolver.
+      ...(extras?.agent ? { agent: extras.agent } : {}),
+      ...(extras?.requirePlanApproval !== undefined ? { requirePlanApproval: extras.requirePlanApproval } : {}),
+      ...(extras?.planApproval ? { planApproval: extras.planApproval } : {}),
+      ...(extras?.hold ? { hold: extras.hold } : {}),
       cwd: p.cwd,
       ...(p.model ? { model: p.model } : {}),
       status: "spawning",
@@ -639,31 +708,82 @@ export function createOps(deps: OpsDeps) {
     releaseMember(team, name, "failed", `spawn failed: ${message}`);
   }
 
+  /**
+   * Run the registered spawn resolver (none ⇒ the parsed args pass through untouched). The resolver
+   * returns the EFFECTIVE args; core re-pins `name`/`resume`, bounds the prompt again and keeps
+   * everything else the resolver decided (the planner still confines `cwd` and validates `model`).
+   */
+  function resolveSpawn(input: { team: Team | undefined; leadCwd: string; args: TeammateSpawnArgs; trusted?: TrustedSpawnOptions; source: SpawnSource; callerSessionId?: string }): OpResult<SpawnResolution> {
+    const resolver = deps.ext.spawnResolver;
+    if (!resolver) return { ok: true, data: { args: input.args } };
+    let res: OpResult<SpawnResolution>;
+    try {
+      res = resolver(input);
+    } catch (err) {
+      logger.error(`agent-teams: spawn resolver threw: ${(err as Error).message}`);
+      return fail("invalid_args", "spawn resolution failed");
+    }
+    if (!res.ok) return res;
+    const args: TeammateSpawnArgs = { ...res.data.args, name: input.args.name, ...(input.args.resume !== undefined ? { resume: input.args.resume } : {}) };
+    if (codePointLength(args.prompt) > deps.config().maxMessageChars) return fail("message_too_long", `at most ${deps.config().maxMessageChars} characters`);
+    return { ok: true, data: { ...res.data, args } };
+  }
+
   function teammateSpawn(raw: unknown, caller: Caller, extra?: CallExtra): OpResult<TeammateSpawnResult> {
     if (caller.role === "member") return fail("not_lead");
     const cfg = deps.config();
-    const args = parseSpawnArgs(raw, cfg);
-    if (!args.ok) return args;
+    const parsed = parseSpawnArgs(raw, cfg);
+    if (!parsed.ok) return parsed;
     let team = caller.team;
+    let leadCwd = team?.leadCwd;
     if (caller.role === "plain") {
       if (isConfined(caller.sessionId)) return fail("lead_confined");
       const host = deps.hostSession(caller.sessionId);
       if (!host?.cwd) return fail("invalid_args", "caller working directory unknown");
+      leadCwd = host.cwd;
+    }
+    // The async step before this sync op normally resolved already (`extra.spawn`); a direct `call` resolves here.
+    const spawn: OpResult<SpawnResolution> | undefined = extra?.spawn ? { ok: true, data: extra.spawn } : (leadCwd !== undefined ? resolveSpawn({ team, leadCwd, args: parsed.data, source: "lane", callerSessionId: caller.sessionId }) : undefined);
+    if (spawn && !spawn.ok) return spawn;
+    const args = spawn?.data.args ?? parsed.data;
+    const resolution = spawn ? { ...(spawn.data.thinkingLevel ? { thinkingLevel: spawn.data.thinkingLevel } : {}), ...(spawn.data.member ? { member: spawn.data.member } : {}) } : undefined;
+    if (caller.role === "plain") {
+      const host = deps.hostSession(caller.sessionId);
       // Dry-run the spawn plan before creating anything, so a refused spawn leaves no team behind.
-      const plan = planner.prepare({ leadCwd: host.cwd, args: args.data, config: cfg, ...(extra?.skills ? { resolvedSkills: extra.skills } : {}) });
+      const plan = planner.prepare({ leadCwd: host?.cwd as string, args, config: cfg, ...(extra?.skills ? { resolvedSkills: extra.skills } : {}) });
       if (!plan.ok) return plan;
       const created = createTeam({
-        name: `${basename(host.cwd)} team`.slice(0, TEAM_NAME_MAX_CHARS),
-        leadCwd: host.cwd,
+        name: `${basename(host?.cwd as string)} team`.slice(0, TEAM_NAME_MAX_CHARS),
+        leadCwd: host?.cwd as string,
         leadSessionId: caller.sessionId,
         callerSessionId: caller.sessionId,
-        ...(host.principalOwner ? { owner: host.principalOwner } : {}),
+        ...(host?.principalOwner ? { owner: host.principalOwner } : {}),
       });
       if (!created.ok) return created;
       team = created.data;
     }
     if (!team) return fail("not_in_team");
-    return spawnMember(team, args.data, undefined, extra?.skills);
+    return spawnMember(team, args, undefined, extra?.skills, resolution);
+  }
+
+  /**
+   * In-process spawn through the SAME path the agent tool takes (resolver → skill-name resolution →
+   * `spawnMember`): eager template members, seeds. `trusted` is honoured exactly like `spawnMember`.
+   * Async because skill names resolve through the host; the reserve itself is synchronous inside.
+   */
+  async function spawnTeammate(team: Team, args: TeammateSpawnArgs, opts: { trusted?: TrustedSpawnOptions; source?: SpawnSource } = {}): Promise<OpResult<TeammateSpawnResult>> {
+    const spawn = resolveSpawn({ team, leadCwd: team.leadCwd, args, source: opts.source ?? "server", ...(opts.trusted ? { trusted: opts.trusted } : {}) });
+    if (!spawn.ok) return spawn;
+    const eff = spawn.data.args;
+    let skills: string[] | undefined;
+    const names = eff.skills ?? team.defaultSkills;
+    if (names !== undefined) {
+      const r = await resolveSkillPaths(names, team.leadCwd);
+      if (!r.ok) return r;
+      skills = r.data;
+    }
+    const resolution = { ...(spawn.data.thinkingLevel ? { thinkingLevel: spawn.data.thinkingLevel } : {}), ...(spawn.data.member ? { member: spawn.data.member } : {}) };
+    return spawnMember(team, eff, opts.trusted, skills, resolution);
   }
 
   // ── TeamStatus ──────────────────────────────────────────────────────────────
@@ -836,14 +956,16 @@ export function createOps(deps: OpsDeps) {
         store.setLeadConnected(team.id, true);
         redeliver(team.id, LEAD_ADDRESS);
       }
-      return { ok: true, data: { role: "lead", teamId: team.id } };
+      return { ok: true, data: { ...contribute(team, undefined, "lead", payload).reply, role: "lead", teamId: team.id } };
     }
     const member = store.member(team, caller.name);
     if (!member) return fail("not_in_team");
     const patch: Partial<Member> = { guardActive: payload.guardActive };
     if (payload.sessionFile) patch.sessionFile = payload.sessionFile;
-    const reply: OpResult<HelloReply> = { ok: true, data: { role: "member", teamId: team.id, member: member.name } };
-    const degraded = guardVerdict(member, payload);
+    const contributed = contribute(team, member, "member", payload);
+    // Contributor fields first so `role`/`teamId`/`member` can never be overridden.
+    const reply: OpResult<HelloReply> = { ok: true, data: { ...contributed.reply, role: "member", teamId: team.id, member: member.name } };
+    const degraded = guardVerdict(member, payload) ?? contributed.degraded;
     if (degraded) {
       // Never run unguarded: team tools refused, no dispatch, the lead is told (once per reason).
       if (member.degraded !== degraded) {
@@ -864,6 +986,22 @@ export function createOps(deps: OpsDeps) {
     redeliver(team.id, member.name);
     dispatcher.run(team);
     return reply;
+  }
+
+  /** Run the hello contributors in order: replies merge (later keys win), the first `degraded` wins; a throwing contributor is skipped. */
+  function contribute(team: Team, member: Member | undefined, role: TeamRole, payload: HelloPayload): { reply: Partial<HelloReply>; degraded?: Member["degraded"] } {
+    const out: { reply: Partial<HelloReply>; degraded?: Member["degraded"] } = { reply: {} };
+    for (const fn of deps.ext.helloContributors) {
+      try {
+        const c = fn({ team, member, role, payload });
+        if (!c) continue;
+        if (c.reply) Object.assign(out.reply, c.reply);
+        if (c.degraded !== undefined && out.degraded === undefined && role === "member") out.degraded = c.degraded;
+      } catch (err) {
+        logger.error(`agent-teams: hello contributor threw: ${(err as Error).message}`);
+      }
+    }
+    return out;
   }
 
   /**
@@ -904,12 +1042,65 @@ export function createOps(deps: OpsDeps) {
     return { ok: true, data: {} };
   }
 
-  function idle(payload: IdlePayload, caller: Caller): OpResult<{ ignored: boolean }> {
+  /**
+   * Idle report. With no `TeammateIdle` gate registered (or for a `shutdown_pending` member, an
+   * errored or aborted settle) it commits synchronously exactly as before. Otherwise it first
+   * awaits the gates under the shared `opGateBudgetMs`, then RE-VALIDATES everything against the
+   * store (team/member still there and live, settle not superseded, no waking mail arrived since
+   * the report — the member's `wakeSeq` is compared) and only then commits:
+   *   allow → normal idle handling; veto → member stays `busy`, `lastSettleId` is consumed, NO lead
+   *   notice, no claim, then the veto's `afterBlock()` runs; gate throw/timeout/budget → fail-open (allow).
+   */
+  function idle(payload: IdlePayload, caller: Caller): OpResult<{ ignored: boolean }> | Promise<OpResult<{ ignored: boolean }>> {
     const team = caller.team;
     const member = team && caller.role === "member" ? store.member(team, caller.name) : undefined;
     if (!team || !member) return fail("not_in_team");
     if (!Number.isInteger(payload.settleId)) return fail("invalid_args");
     if (payload.settleId <= member.lastSettleId) return { ok: true, data: { ignored: true } };
+    const gates = payload.error === undefined && payload.aborted !== true && member.status !== "shutdown_pending" ? deps.ext.gatesFor(IDLE_GATE_OP) : [];
+    if (gates.length === 0) return commitIdle(team, member, payload);
+    const at = wakeSeq(team.id, member.name);
+    const input = {
+      op: IDLE_GATE_OP,
+      team,
+      callerName: member.name,
+      args: payload,
+      idle: { settleId: payload.settleId, ...(payload.finalText !== undefined ? { finalText: payload.finalText } : {}) },
+      wakeSeq: { at, read: () => wakeSeq(team.id, member.name) },
+    };
+    return runOpGatePipeline(gates, input, deps.config().opGateBudgetMs, clock).then((outcome) => {
+      if (outcome.kind === "failed") {
+        logger.warn(`agent-teams: idle gate for ${member.name} failed open: ${outcome.refusal.ok ? "" : outcome.refusal.message}`);
+      }
+      // Re-validate: state may have moved during the await.
+      const t = store.get(team.id);
+      const m = t ? store.member(t, member.name) : undefined;
+      if (!t || !m || t.status === "closed" || !isLive(m) || payload.settleId <= m.lastSettleId) return { ok: true, data: { ignored: true } };
+      if (wakeSeq(t.id, m.name) !== at) return { ok: true, data: { ignored: true } }; // a waking mail arrived: the idle is stale
+      if (outcome.kind === "veto") return blockIdle(t, m, payload, outcome.veto.afterBlock);
+      return commitIdle(t, m, payload);
+    });
+  }
+
+  /** The gate vetoed an idle: consume the settle, keep the member `busy`, tell nobody. */
+  function blockIdle(team: Team, member: Member, payload: IdlePayload, afterBlock?: () => void): OpResult<{ ignored: boolean }> {
+    telemetry.log("idle", team.id, { member: member.name, settleId: payload.settleId, blocked: true });
+    const patch: Partial<Member> = { lastSettleId: payload.settleId };
+    if (member.status === "idle" || member.status === "disconnected") patch.status = "busy";
+    engine.confirm(team.id, member.name);
+    engine.takeSuspect(team.id, member.name);
+    store.patchMember(team.id, member.name, patch);
+    if (afterBlock) {
+      try {
+        afterBlock();
+      } catch (err) {
+        logger.error(`agent-teams: idle gate follow-up threw: ${(err as Error).message}`);
+      }
+    }
+    return { ok: true, data: { ignored: false } };
+  }
+
+  function commitIdle(team: Team, member: Member, payload: IdlePayload): OpResult<{ ignored: boolean }> {
     telemetry.log("idle", team.id, { member: member.name, settleId: payload.settleId, aborted: payload.aborted === true, errored: payload.error !== undefined, finalChars: payload.finalText?.length ?? 0 });
     const patch: Partial<Member> = { lastSettleId: payload.settleId };
     if (member.status === "busy" || member.status === "disconnected" || member.status === "idle") patch.status = "idle";
@@ -929,6 +1120,10 @@ export function createOps(deps: OpsDeps) {
     const before = open();
     dispatcher.run(team);
     const claimedNext = open() > before;
+    // A registered filter (e.g. a member with a pending plan) may suppress the lead notice; the claim above still ran.
+    if (deps.ext.suppressIdleNotice(team, member, { settleId: payload.settleId, ...(payload.finalText !== undefined ? { finalText: payload.finalText } : {}) })) {
+      return { ok: true, data: { ignored: false } };
+    }
     const text = payload.finalText === undefined ? "" : truncateWithMarker(sanitizeText(payload.finalText, { keepNewlines: true }).trim(), cfg.maxFinalTextChars, TRUNCATION_MARKER);
     notices.add(team, {
       head: `${name} is idle${text === "" ? " (no final text)" : ""}${claimedNext ? " and picked up its next task" : ""}`,
@@ -996,6 +1191,41 @@ export function createOps(deps: OpsDeps) {
     table.set(op, handler);
   }
 
+  const startTable = new Map<StartOp, { handler: StartOpHandler; roles: readonly TeamRole[]; refuseConfined: boolean }>();
+
+  /**
+   * Register a server-side start op (`team.start` / `team.templates`). Only before the first lane
+   * request (`ext.seal()`); a second registration replaces nothing and throws. These ops are NOT agent
+   * tools: they are reached only through `agent-teams/call` from bridge code, and `callAsync` is
+   * their only entry (`call` stays the synchronous core path and answers `unknown_op`).
+   */
+  function registerStartOp(op: StartOp, handler: StartOpHandler, opts: StartOpOptions = {}): void {
+    if (deps.ext.sealed) throw new Error(`agent-teams: start op ${op} must be registered before the first request`);
+    if (startTable.has(op)) throw new Error(`agent-teams: start op ${op} is already registered`);
+    startTable.set(op, { handler, roles: opts.roles ?? ["plain"], refuseConfined: opts.refuseConfined !== false });
+  }
+
+  function callStart(op: StartOp, args: unknown, caller: Caller): OpResult<unknown> | Promise<OpResult<unknown>> {
+    if (caller.team?.status === "closed") return fail("team_closed");
+    const entry = startTable.get(op);
+    if (!entry) return fail("unknown_op", op);
+    if (!entry.roles.includes(caller.role)) return caller.role === "member" ? fail("nested_team_forbidden") : fail("already_in_team");
+    if (caller.role === "plain" && entry.refuseConfined && isConfined(caller.sessionId)) return fail("lead_confined");
+    try {
+      const out = entry.handler(args, caller);
+      if (out && typeof (out as Promise<unknown>).then === "function") {
+        return (out as Promise<OpResult<unknown>>).catch((err: unknown) => {
+          logger.error(`agent-teams: start op ${op} failed: ${(err as Error).message}`);
+          return fail("invalid_args", `${op} failed`);
+        });
+      }
+      return out as OpResult<unknown>;
+    } catch (err) {
+      logger.error(`agent-teams: start op ${op} threw: ${(err as Error).message}`);
+      return fail("invalid_args", `${op} failed`);
+    }
+  }
+
   function call(op: unknown, args: unknown, caller: Caller, extra?: CallExtra): OpResult<unknown> {
     if (!isTeamOp(op)) return fail("unknown_op", typeof op === "string" ? op.slice(0, 40) : undefined);
     if (caller.team?.status === "closed") return fail("team_closed");
@@ -1046,6 +1276,7 @@ export function createOps(deps: OpsDeps) {
    * continues exactly as without gates. No gate registered ⇒ the sync path.
    */
   function callAsync(op: unknown, args: unknown, caller: Caller): OpResult<unknown> | Promise<OpResult<unknown>> {
+    if (isStartOp(op)) return callStart(op, args, caller);
     const team = caller.team;
     const gatedOp = isGated(op, args) ? op : undefined;
     const gates = team && gatedOp ? deps.ext.gatesFor(gatedOp) : [];
@@ -1053,16 +1284,25 @@ export function createOps(deps: OpsDeps) {
     return runOpGates(gates, { op: gatedOp, team, callerName: caller.name, args }, deps.config().opGateBudgetMs, clock).then((veto) => veto ?? callUngated(op, args, resolveCaller({ sessionId: caller.sessionId })));
   }
 
-  /** Like `call`, but a `TeammateSpawn` with a skill allowlist first resolves the names (sync otherwise). */
+  /**
+   * Like `call`, but a `TeammateSpawn` first runs the spawn resolver (if any) and resolves the
+   * effective skill allowlist names (sync otherwise).
+   */
   function callUngated(op: unknown, args: unknown, caller: Caller): OpResult<unknown> | Promise<OpResult<unknown>> {
     const eligible = op === "TeammateSpawn" && (caller.role === "lead" || (caller.role === "plain" && !isConfined(caller.sessionId)));
     if (!eligible || caller.team?.status === "closed") return call(op, args, caller);
     const parsed = parseSpawnArgs(args, deps.config());
     if (!parsed.ok) return call(op, args, caller);
-    const names = parsed.data.skills ?? caller.team?.defaultSkills;
-    if (names === undefined) return call(op, args, caller);
     const cwd = caller.team?.leadCwd ?? deps.hostSession(caller.sessionId)?.cwd ?? "";
-    return resolveSkillPaths(names, cwd).then((r) => (r.ok ? call(op, args, caller, { skills: r.data }) : r));
+    let spawn: OpResult<SpawnResolution> | undefined;
+    if (deps.ext.spawnResolver && cwd !== "") {
+      spawn = resolveSpawn({ team: caller.team, leadCwd: cwd, args: parsed.data, source: "lane", callerSessionId: caller.sessionId });
+      if (!spawn.ok) return spawn;
+    }
+    const resolved = spawn?.ok ? spawn.data : undefined;
+    const names = (resolved?.args ?? parsed.data).skills ?? caller.team?.defaultSkills;
+    if (names === undefined) return call(op, args, caller, resolved ? { spawn: resolved } : undefined);
+    return resolveSkillPaths(names, cwd).then((r) => (r.ok ? call(op, args, caller, { skills: r.data, ...(resolved ? { spawn: resolved } : {}) }) : r));
   }
 
   function dispose(): void {
@@ -1085,6 +1325,11 @@ export function createOps(deps: OpsDeps) {
     callAsync,
     resolveSkillPaths,
     registerOp,
+    registerStartOp,
+    hostSession: deps.hostSession,
+    wakeSeq,
+    coalesceWindowMs: (team: Team): number => effectiveCoalesceWindowMs(team, deps.config()),
+    spawnTeammate,
     createTeam,
     bindLead,
     spawnMember,

@@ -16,6 +16,7 @@
  */
 
 import { PLUGIN_REQUEST_SYMBOL } from "@blackbelt-technology/dashboard-plugin-runtime/bridge";
+import { registerApprovalMailKinds } from "../shared/approval-mail.js";
 import { compareMailIds } from "../shared/constants.js";
 import { customTypeForKind, formatMail } from "../shared/mail-format.js";
 import {
@@ -31,12 +32,15 @@ import {
 } from "../shared/policy.js";
 import {
   type HelloPayload,
+  type HelloReply,
   LEAD_ONLY_TOOLS,
   TEAM_TOOLS_BY_ROLE,
   type TeamOp,
   type TeamRole,
   type WireMail,
 } from "../shared/protocol.js";
+import { registerAgentTeamCommand } from "./command.js";
+import type { BridgeContext, BridgeRegistrar, PiLike } from "./context.js";
 import {
   createBeforeAgentStartHandler,
   createInputHandler,
@@ -45,20 +49,16 @@ import {
   hashOfEnvPolicy,
 } from "./guard.js";
 import { createLaneClient, type LaneClient, type LaneResult } from "./lane.js";
+import { registerPlanMode } from "./plan-mode.js";
 import { createTeamTools, TEAM_TOOL_NAMES, type TeamToolDef, type TeamTransport } from "./tools.js";
 
 /** Last mail ids remembered for de-duplication (design D5). */
 export const SEEN_MAIL_IDS = 200;
 
-interface PiLike {
-  // biome-ignore lint/suspicious/noExplicitAny: pi event payloads and contexts differ per event; each handler narrows its own
-  on?: (event: string, handler: (event: any, ctx: any) => unknown) => void;
-  registerTool?: (tool: TeamToolDef) => void;
-  getActiveTools?: () => string[];
-  setActiveTools?: (names: string[]) => void;
-  sendMessage?: (message: { customType: string; content: string; display: boolean; details?: Record<string, unknown> }, options?: { deliverAs?: string; triggerTurn?: boolean }) => void;
-  events?: { on?: (name: string, handler: (payload: unknown) => void) => unknown };
-}
+export type { PiLike };
+
+/** Optional bridge modules, registered in this order (plan mode before the command: its handlers attach first). */
+const BRIDGE_REGISTRARS: readonly BridgeRegistrar[] = [registerPlanMode, registerAgentTeamCommand];
 
 export interface BridgeOptions {
   env?: Record<string, string | undefined>;
@@ -71,6 +71,8 @@ export interface BridgeOptions {
   /** How often the lane is sampled for a reconnect (ms, default 2000). */
   laneWatchMs?: number;
   log?: (message: string) => void;
+  /** Optional bridge modules (default: plan mode + the `/agent-team` command); a test seam. */
+  modules?: readonly BridgeRegistrar[];
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -97,6 +99,7 @@ function isWireMail(v: unknown): v is WireMail {
 }
 
 export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
+  registerApprovalMailKinds(); // kind → customType for server-sent plan/hook/playbook mails
   const env = opts.env ?? process.env;
   const lane = opts.lane ?? createLaneClient();
   const sleep = opts.sleep ?? defaultSleep;
@@ -118,6 +121,9 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   let lastText = "";
   let lastError: string | undefined;
   let lastCtx: { isIdle?: () => boolean; sessionManager?: { getSessionFile?: () => string | undefined } } | undefined;
+  const helloFields: Array<() => Partial<HelloPayload>> = [];
+  const helloReplyListeners: Array<(reply: HelloReply) => void> = [];
+  const mailListeners: Array<(mail: WireMail) => void> = [];
   let helloInFlight = false;
   let helloAgain = false;
 
@@ -193,6 +199,7 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
       ...(policyHash ? { policyHash } : {}),
       confined,
       ...(sessionFile ? { sessionFile } : {}),
+      ...helloFields.reduce<Partial<HelloPayload>>((acc, fn) => ({ ...acc, ...fn() }), {}),
     };
   }
 
@@ -203,6 +210,13 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
     }
     if (res.data.role === "lead" && role !== "lead") becomeLead();
     else if (res.data.role === "member") role = "member";
+    for (const fn of helloReplyListeners) {
+      try {
+        fn(res.data as HelloReply);
+      } catch (err) {
+        log(`agent-teams: hello reply listener failed: ${(err as Error).message}`);
+      }
+    }
   }
 
   /** Send `hello` (retrying while the lane is unavailable); overlapping calls coalesce into one extra round. */
@@ -259,9 +273,42 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
       seen.push(mail.id);
       if (seen.length > SEEN_MAIL_IDS) seen.shift();
       acks.push(mail.id);
+      for (const fn of mailListeners) {
+        try {
+          fn(mail);
+        } catch (err) {
+          log(`agent-teams: mail listener failed: ${(err as Error).message}`);
+        }
+      }
     }
     if (acks.length > 0) await lane.ack(acks);
     if (skipped) await sendHello(); // a provisional busy for a mail that produced no turn recovers at once
+  }
+
+  // ── optional modules (plan mode, /agent-team command) ───────────────────────
+
+  const bridgeContext: BridgeContext = {
+    pi,
+    env,
+    lane,
+    log,
+    role: () => role,
+    started: () => started,
+    hello: {
+      addPayload: (fn) => void helloFields.push(fn),
+      onReply: (fn) => void helloReplyListeners.push(fn),
+      send: () => sendHello(),
+    },
+    onMail: (fn) => void mailListeners.push(fn),
+    tools: { registered: () => [...registered], activate: activateTools, deactivate: deactivateTools },
+    becomeLead,
+  };
+  for (const register of opts.modules ?? BRIDGE_REGISTRARS) {
+    try {
+      register(bridgeContext);
+    } catch (err) {
+      log(`agent-teams: bridge module failed to register: ${(err as Error).message}`);
+    }
   }
 
   // ── wiring ──────────────────────────────────────────────────────────────────

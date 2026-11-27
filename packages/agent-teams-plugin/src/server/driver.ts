@@ -28,6 +28,8 @@ import type { Mail, Team } from "../shared/types.js";
 export interface ResolvedSpawnSpec {
   cwd: string;
   model?: string;
+  /** Canonical thinking level for the host spawn (`PluginSpawnOptions.thinkingLevel`); absent = host default. */
+  thinkingLevel?: string;
   /** Tool allowlist; absent = unrestricted. The server appends the team tool names before spawn. */
   tools?: string[];
   /** Resolved SKILL paths; absent = unrestricted, `[]` = none. */
@@ -54,6 +56,19 @@ interface SpawnRequest {
 
 type SpawnOutcome = { ok: true; spawnToken: string } | { ok: false; message: string };
 
+/**
+ * Options of a server-started lead. `spawnToken` lets the caller PERSIST the token
+ * (`Team.leadSpawnToken`) before the host call so the spawn can be aborted by token.
+ * There is deliberately no `initialPrompt` (design D10: the host queues it per cwd, not per identity).
+ */
+export interface LeadSpawnOptions {
+  model?: string;
+  principalOwner?: string;
+  cwd?: string;
+  spawnToken?: string;
+}
+export type { SpawnOutcome };
+
 /** Which member a driver call is about. `sessionId` is unset until the host resolves the session. */
 export interface DriverMemberRef {
   teamId: string;
@@ -76,7 +91,7 @@ export interface MemberDriver {
   shutdown(ref: DriverMemberRef): Promise<boolean>;
   isConnected(ref: DriverMemberRef): boolean;
   /** Lead-role spawn for a server-started team (`pluginRef {"agent-teams": {teamId, role:"lead"}}`). */
-  spawnLead?(team: Team, opts: { model?: string; principalOwner?: string; cwd?: string }): Promise<SpawnOutcome>;
+  spawnLead?(team: Team, opts: LeadSpawnOptions): Promise<SpawnOutcome>;
   /** Tell a lead session its team closed so its bridge drops the lead-only tools. */
   notifyTeamClosed?(sessionId: string, payload: { teamId: string; closeReason?: string }): boolean;
 }
@@ -115,6 +130,7 @@ export function createSessionDriver(host: DriverHost, newToken: () => string = (
       const opts: PluginSpawnOptions = {
         cwd: spec.cwd,
         ...(spec.model ? { model: spec.model } : {}),
+        ...(spec.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
         name: `${req.teamName}/${req.member}`,
         pluginRef: pluginRefFor({
           teamId: req.teamId,
@@ -178,7 +194,7 @@ export function createSessionDriver(host: DriverHost, newToken: () => string = (
     },
 
     async spawnLead(team, opts) {
-      const token = newToken();
+      const token = opts.spawnToken ?? newToken();
       const options: PluginSpawnOptions = {
         cwd: opts.cwd ?? team.leadCwd,
         ...(opts.model ? { model: opts.model } : {}),

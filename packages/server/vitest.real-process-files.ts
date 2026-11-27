@@ -19,6 +19,8 @@
  * See change: isolate-real-process-tests.
  */
 export const REAL_PROCESS_TESTS: readonly string[] = [
+  // wrapper — spawns a real process tree to prove the boot parent-liveness probe never re-spawns. See change: fix-automation-run-store-eventloop-block.
+  "src/__tests__/boot-parent-liveness-no-spawn.test.ts",
   // full-server — spawns the installed `pi --mode rpc` and observes whether a project extension loaded
   // under each `defaultProjectTrust`. See change: harden-agent-tool-guards.
   "src/__tests__/pi-headless-trust-outcome.test.ts",

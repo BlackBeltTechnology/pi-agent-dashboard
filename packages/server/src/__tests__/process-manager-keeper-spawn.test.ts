@@ -90,7 +90,7 @@ function makeFakeKeeperManager(
     },
     discoverExistingKeepers: async () => [],
     isKeeperAlive: () => false,
-    sweepKeeperLogs: () => ({ scanned: 0, reclaimedFiles: 0, reclaimedBytes: 0, skippedLive: 0 }),
+    sweepKeeperLogs: () => ({ scanned: 0, reclaimedFiles: 0, reclaimedBytes: 0, skippedLive: 0, prunedLaunchLogs: 0 }),
     getKeeperLogStats: () => ({
       totalBytes: 0,
       fileCount: 0,

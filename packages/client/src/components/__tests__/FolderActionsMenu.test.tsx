@@ -84,6 +84,23 @@ describe("FolderActionsMenu dismissal (X1, X2)", () => {
     expect(document.activeElement).toBe(screen.getByTestId(`folder-actions-menu-${CWD}`));
   });
 
+  it("X5: selecting an item parks focus on the still-mounted trigger BEFORE onSelect runs, so an opener captured later by a lazily mounted dialog is the trigger (not the unmounted item)", () => {
+    let activeAtSelect: Element | null = null;
+    const onSelect = vi.fn(() => {
+      activeAtSelect = document.activeElement;
+    });
+    render(<Harness items={makeItems(onSelect)} />);
+    const trigger = screen.getByTestId(`folder-actions-menu-${CWD}`);
+    fireEvent.click(trigger);
+    const item = screen.getByTestId("folder-menu-item-pin");
+    item.focus();
+    fireEvent.click(item);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId(`folder-actions-menu-panel-${CWD}`)).toBeNull();
+    expect(activeAtSelect).toBe(trigger);
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("X2: a click outside closes the menu and fires no item handler", () => {
     const onSelect = vi.fn();
     render(<Harness items={makeItems(onSelect)} />);
