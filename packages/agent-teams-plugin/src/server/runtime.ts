@@ -14,11 +14,14 @@ import { createSessionDriver } from "./driver.js";
 import { type ExtensionPoints, extensionPoints } from "./extension-points.js";
 import { createLaneHandlers, registerLane } from "./lane.js";
 import { createModeRegistry, type ModeRegistry } from "./modes.js";
+import { initOpenspecForHost, type OpenspecInitOptions } from "./openspec/index.js";
+import { createLoopbackInject, HOST_LOCAL_REQUEST_KEY } from "./openspec/inject.js";
+import type { OpenspecApi } from "./openspec/profiles.js";
 import { createOps, type MailFlusher, type Ops, type SpawnPlanner, type SpawnStarter } from "./ops.js";
 import { type PersistFs, TeamPersistence } from "./persistence.js";
 import { TeamStore } from "./store.js";
 import type { Telemetry } from "./telemetry.js";
-import { createPluginCounters, type LeadSpawner, type PluginCounters, registerTemplatesHooks, type TemplatesHooksHost } from "./templates-hooks.js";
+import { createPluginCounters, type LeadSpawner, type PluginCounters, registerTemplatesHooks, type TemplatesHooksDeps, type TemplatesHooksHost } from "./templates-hooks.js";
 import { type HostSessionLookup, narrowHostSession } from "./types.js";
 
 /** The `ServerPluginContext` members the runtime drives. */
@@ -37,7 +40,7 @@ export type RuntimeHost = Pick<
   | "onSessionEnded"
   | "sessionManager"
 > &
-  Partial<Pick<ServerPluginContext, "registerPiRequestHandler" | "getPiResources" | "consume">>;
+  Partial<Pick<ServerPluginContext, "registerPiRequestHandler" | "getPiResources" | "consume" | "fastify">>;
 
 export interface RuntimeOptions {
   clock?: Clock;
@@ -52,6 +55,8 @@ export interface RuntimeOptions {
   isKnownModel?: (model: string) => boolean;
   /** Overrides of the host capabilities the templates-hooks modules consume (tests; defaults come from `host.consume`). */
   templatesHost?: Partial<TemplatesHooksHost>;
+  /** OpenSpec profile module (bundled templates, sidecar, seed): `false` skips it; options are test seams. See change: add-agent-teams-openspec. */
+  openspec?: false | OpenspecInitOptions;
 }
 
 export interface TeamsRuntime {
@@ -66,6 +71,8 @@ export interface TeamsRuntime {
   leads: LeadSpawner;
   /** Plugin-owned counters shared with the templates-hooks modules. */
   counters: PluginCounters;
+  /** OpenSpec profile module handle (undefined when `opts.openspec === false`). */
+  openspec: OpenspecApi | undefined;
   /** Whether the request lane could be registered (false on an old host). */
   laneRegistered: boolean;
   laneHandlers: ReturnType<typeof createLaneHandlers>;
@@ -135,7 +142,7 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
   };
   const counters = createPluginCounters();
   const consume = host.consume;
-  registerTemplatesHooks({
+  const templatesDeps: TemplatesHooksDeps = {
     ops,
     store,
     ext,
@@ -151,12 +158,16 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
     host: {
       isProjectTrusted: (cwd: string) => consume?.<(cwd: string) => boolean>("host.isProjectTrusted")?.(cwd) === true,
       knownFolderCwds: () => consume?.<() => string[]>("host.knownFolderCwds")?.() ?? [],
+      ...(typeof host.sessionManager?.listActive === "function" ? { listActiveSessions: () => host.sessionManager.listActive() } : {}),
       resolvePiAgentDir: () => resolvePiAgentDir(),
       onShutdown: (fn) => host.onShutdown(fn),
       ...opts.templatesHost,
     },
     onDispose: (fn) => void disposers.push(fn),
-  });
+  };
+  registerTemplatesHooks(templatesDeps);
+  const openspecOpts = opts.openspec === false ? false : { ...(host.fastify || typeof consume?.(HOST_LOCAL_REQUEST_KEY) === "function" ? { inject: createLoopbackInject(host.fastify, consume) } : {}), ...opts.openspec };
+  const openspec = initOpenspecForHost(templatesDeps, consume, openspecOpts, opts.templatesHost?.isProjectTrusted);
 
   const laneHandlers = createLaneHandlers({ ops, ext });
   const laneRegistered = registerLane(host, laneHandlers, logger);
@@ -179,6 +190,7 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
     ext,
     leads,
     counters,
+    openspec,
     laneRegistered,
     laneHandlers,
     dispose() {

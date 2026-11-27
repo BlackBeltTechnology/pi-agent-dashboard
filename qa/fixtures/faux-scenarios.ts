@@ -712,7 +712,58 @@ export const AGENT_TEAMS_TASK_CREATED = "AGENT_TEAMS_TASK_CREATED";
 /** Closing text of the agent-teams teammate scenarios (mirrored as `TEAMMATE_ACK` in the plugin harness). */
 const AGENT_TEAMS_TEAMMATE_ACK = "AGENT_TEAMS_TEAMMATE_ACK";
 
+/**
+ * OpenSpec team teammate scripts (change: add-agent-teams-openspec; L3 tests/e2e/agent-teams-openspec.spec.ts,
+ * L2 qa/tests/12-agent-teams-openspec.sh). A task id is part of the scenario id because a scenario's tool-call
+ * arguments are static: the driver reads the id from the team snapshot and prompts the owner with
+ * `[[faux:agent-teams-openspec-ship-<id>]]` / `[[faux:agent-teams-openspec-complete-<id>]]`.
+ *  - ship: the scripted "ship skill" of a group teammate. Inside its worktree (`…/.worktrees/os-<change>`) it
+ *    archives the change (`openspec/changes/<change>` → `archive/<YYYY-MM-DD>-<change>`, what the server's
+ *    `not_shipped` gate judges) and completes the task. No-op shell outside an `os-*` worktree.
+ *  - complete: an apply-team implementer completes the task it owns (the runtime then ticks the checkbox).
+ *  - lock-acquire: one `ResourceLock acquire harness` call (tool row). lock-hold: acquire, then keep the turn busy
+ *    (`sleep 60`) — the server releases the lock the moment its holder SETTLES idle and hands it to the next waiter
+ *    with a `lock_grant` mail, so a holder that ends its turn immediately never contends.
+ */
+export const AGENT_TEAMS_OPENSPEC_SHIPPED = "AGENT_TEAMS_OPENSPEC_SHIPPED";
+export const AGENT_TEAMS_OPENSPEC_COMPLETED = "AGENT_TEAMS_OPENSPEC_COMPLETED";
+export const AGENT_TEAMS_OPENSPEC_LOCK_ACQUIRED = "AGENT_TEAMS_OPENSPEC_LOCK_ACQUIRED";
+const OPENSPEC_TASK_IDS = ["1", "2", "3", "4"] as const;
+const OPENSPEC_SHIP_COMMAND =
+  'd="$(basename "$PWD")"; case "$d" in os-*) c="${d#os-}"; mkdir -p openspec/changes/archive && mv "openspec/changes/$c" "openspec/changes/archive/$(date +%Y-%m-%d)-$c" ;; *) echo "not an os-* worktree" ;; esac';
+
+const openspecShip = (taskId: string): Scenario => ({
+  script: [
+    fauxAssistantMessage([fauxToolCall("bash", { command: OPENSPEC_SHIP_COMMAND })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("TaskUpdate", { id: taskId, status: "completed", result: "shipped by the scripted ship skill" })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxText(AGENT_TEAMS_OPENSPEC_SHIPPED)]),
+  ],
+  expect: { text: AGENT_TEAMS_OPENSPEC_SHIPPED },
+});
+
+const openspecComplete = (taskId: string): Scenario => ({
+  script: [
+    fauxAssistantMessage([fauxToolCall("TaskUpdate", { id: taskId, status: "completed", result: "done by the scripted implementer" })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxText(AGENT_TEAMS_OPENSPEC_COMPLETED)]),
+  ],
+  expect: { text: AGENT_TEAMS_OPENSPEC_COMPLETED },
+});
+
+const openspecLock = (hold: boolean): Scenario => ({
+  script: [
+    fauxAssistantMessage([fauxToolCall("ResourceLock", { action: "acquire", name: "harness" })], { stopReason: "toolUse" }),
+    ...(hold ? [fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 60; echo held" })], { stopReason: "toolUse" })] : []),
+    fauxAssistantMessage([fauxText(AGENT_TEAMS_OPENSPEC_LOCK_ACQUIRED)]),
+  ],
+  expect: { text: AGENT_TEAMS_OPENSPEC_LOCK_ACQUIRED },
+});
+
 export const SCENARIOS: Record<string, Scenario> = {
+  ...Object.fromEntries(OPENSPEC_TASK_IDS.map((id) => [`agent-teams-openspec-ship-${id}`, openspecShip(id)])),
+  ...Object.fromEntries(OPENSPEC_TASK_IDS.map((id) => [`agent-teams-openspec-complete-${id}`, openspecComplete(id)])),
+  "agent-teams-openspec-lock-acquire": openspecLock(false),
+  "agent-teams-openspec-lock-hold": openspecLock(true),
+
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
     script: [fauxAssistantMessage([fauxText(PLAIN_TEXT_MARKER)])],

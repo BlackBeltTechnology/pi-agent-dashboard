@@ -16,10 +16,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createTeamsEnv, fauxPiAvailable, startRealPiLink } from "../../__tests__/harness/index.js";
 import { GIT_WRITE_REASON } from "../../bridge/shell-guard.js";
 import { systemClock } from "../../shared/clock.js";
-import { LEAD_ONLY_TOOLS, TEAM_TOOLS_BY_ROLE } from "../../shared/protocol.js";
+import { LEAD_ONLY_TOOLS, memberTools, TEAM_TOOLS_BY_ROLE } from "../../shared/protocol.js";
 
 /** Tools a teammate has and a plain session does not. */
-const MEMBER_ONLY_TOOLS = TEAM_TOOLS_BY_ROLE.member.filter((t) => !TEAM_TOOLS_BY_ROLE.plain.includes(t));
+const MEMBER_ONLY_TOOLS = memberTools(false).filter((t) => !TEAM_TOOLS_BY_ROLE.plain.includes(t));
 
 describe.skipIf(!fauxPiAvailable())("session replaced (S87, real faux pi)", () => {
   it("new_session in the teammate process: not_in_team, tools and guard dropped in that process, old member gone, tasks released", async () => {
@@ -52,7 +52,7 @@ describe.skipIf(!fauxPiAvailable())("session replaced (S87, real faux pi)", () =
 
       // Before: a member in the team — member tools active, the git-write guard refuses.
       const before = await probeTools();
-      expect(before).toEqual(expect.arrayContaining([...TEAM_TOOLS_BY_ROLE.member]));
+      expect(before).toEqual(expect.arrayContaining([...memberTools(false)]));
       expect(await gitProbe()).toContain(GIT_WRITE_REASON.slice(0, 30));
 
       // The session is replaced inside the same process.

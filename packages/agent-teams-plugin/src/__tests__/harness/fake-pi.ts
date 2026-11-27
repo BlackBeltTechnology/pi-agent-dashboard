@@ -118,6 +118,8 @@ export interface LinkOptions {
   laneWatchMs?: number;
   /** Replace the optional bridge modules (default: the shipped ones). */
   modules?: BridgeOptions["modules"];
+  /** The session cwd the bridge guards are rooted at (default `process.cwd()`). */
+  cwd?: string;
 }
 
 /** Activate the real bridge for `who` against the real server handlers of `env`. */
@@ -141,6 +143,7 @@ export function linkBridge(env: TeamsEnv, who: string, opts: LinkOptions = {}) {
     laneUp: opts.laneUp ?? (() => false),
     ...(opts.laneWatchMs !== undefined ? { laneWatchMs: opts.laneWatchMs } : {}),
     ...(opts.modules ? { modules: opts.modules } : {}),
+    ...(opts.cwd ? { cwd: opts.cwd } : {}),
   });
   return { pi, bridge, sid, requests, lane };
 }

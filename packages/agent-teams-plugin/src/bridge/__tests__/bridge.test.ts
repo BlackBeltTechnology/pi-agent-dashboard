@@ -7,13 +7,14 @@
  */
 import { describe, expect, it } from "vitest";
 import { createTeamsEnv, flushAsync, linkBridge, type TeamsEnv, type TeamsEnvOptions } from "../../__tests__/harness/index.js";
+import { ENV_OPENSPEC_PROFILE } from "../../shared/openspec-profile.js";
 import { ENV_COMMITTER, ENV_MEMBER, ENV_POLICY, ENV_TEAM_ID, policyHash, serializePolicy } from "../../shared/policy.js";
-import { LEAD_ONLY_TOOLS, TEAM_TOOLS_BY_ROLE } from "../../shared/protocol.js";
+import { LEAD_ONLY_TOOLS, memberTools, TEAM_TOOLS_BY_ROLE } from "../../shared/protocol.js";
 import type { Team } from "../../shared/types.js";
 
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();
 const PLAIN = sorted(TEAM_TOOLS_BY_ROLE.plain);
-const MEMBER = sorted(TEAM_TOOLS_BY_ROLE.member);
+const MEMBER = sorted(memberTools(false)); // a member without an OpenSpec profile env has no ResourceLock
 const LEAD = sorted(TEAM_TOOLS_BY_ROLE.lead);
 
 /** The env a spawned teammate gets: the spawn's `extensionConfig` projected like the host does. */
@@ -53,6 +54,29 @@ describe("role → tool table at activation (S38, S89, S91)", () => {
     expect(sorted(pi.registerOrder)).toEqual(MEMBER);
     for (const forbidden of ["TeamCreate", "TeammateSpawn", "ShutdownRequest", "TeamDelete"]) expect(pi.tools.has(forbidden)).toBe(false);
     expect(team.members[0]?.name).toBe("alice");
+  });
+
+  it("ResourceLock is registered ONLY for a member whose env names an OpenSpec profile; toolsActive passes either way (task 4.4)", async () => {
+    for (const profile of [false, true]) {
+      const env = setup();
+      const team = await env.createTeam();
+      await env.call("lead", "TeammateSpawn", { name: "alice", prompt: "go" });
+      env.fake.addSession("S-alice", { cwd: "/work", sessionFile: "/sessions/alice.jsonl" });
+      env.fake.resolveSession("S-alice", { "agent-teams": { teamId: team.id, member: "alice", role: "member" } });
+      const { pi, requests } = linkBridge(env, "alice", { env: { ...hintEnv(env), ...(profile ? { [ENV_OPENSPEC_PROFILE]: "group" } : {}) } });
+      expect(pi.registerOrder.includes("ResourceLock")).toBe(profile);
+      expect(sorted(pi.registerOrder)).toEqual(sorted(memberTools(profile)));
+      await pi.fire("session_start", { reason: "startup" });
+      await flushAsync();
+      expect(requests.find((r) => r.type === "agent-teams/hello")?.payload).toMatchObject({ toolsActive: true });
+      expect(pi.activeTeamTools.includes("ResourceLock")).toBe(profile);
+    }
+  });
+
+  it("TEAM_TOOLS_BY_ROLE keeps ResourceLock teammate-only (snapshot)", () => {
+    expect(TEAM_TOOLS_BY_ROLE.member).toContain("ResourceLock");
+    expect(TEAM_TOOLS_BY_ROLE.lead).not.toContain("ResourceLock");
+    expect(TEAM_TOOLS_BY_ROLE.plain).not.toContain("ResourceLock");
   });
 
   it("a teammate with a tool allowlist registers the same set (the allowlist is the host scope + guard)", async () => {

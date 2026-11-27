@@ -19,6 +19,7 @@ import { parseSkillBlock, parseSkillCommand } from "@blackbelt-technology/pi-das
 import { canonicalizeTarget, isPathWithinRoots } from "@blackbelt-technology/pi-dashboard-shared/tool-path-resolve.js";
 import { policyHash as hashPolicyString, type TeammatePolicy } from "../shared/policy.js";
 import { TEAM_TOOLS_BY_ROLE } from "../shared/protocol.js";
+import { openspecWriteBlock } from "./openspec-guard.js";
 import { commandWritesGit, GIT_WRITE_REASON, isSleepPoll, SLEEP_REASON } from "./shell-guard.js";
 
 export type Decision = { allow: true } | { allow: false; reason: string };
@@ -28,6 +29,17 @@ export interface GuardState {
   enabled: boolean;
   /** `null` ⇒ the env policy is missing or unparseable: fail closed (block every tool call). */
   policy: TeammatePolicy | null;
+  /**
+   * Member of an `openspec-apply` team (spawn env `PI_EXT_AGENT_TEAMS_OPENSPEC_PROFILE=apply`): `write`/`edit` of
+   * `<cwd>/openspec/changes/*\/tasks.md` and `…/specs/**` are refused. `cwd` is the shared (lead) cwd.
+   * See change: add-agent-teams-openspec.
+   */
+  openspecApply?: { cwd: string };
+}
+
+/** Optional extra layers of `decideToolCall` (absent ⇒ the core guard only). */
+export interface DecideExtras {
+  openspecApply?: { cwd: string };
 }
 
 const TEAM_TOOL_NAMES: ReadonlySet<string> = new Set(TEAM_TOOLS_BY_ROLE.member);
@@ -79,19 +91,30 @@ function readsUngrantedSkill(input: unknown, policy: TeammatePolicy): boolean {
   return false;
 }
 
-export function decideToolCall(toolName: unknown, input: unknown, policy: TeammatePolicy | null): Decision {
+/** The sleep-poll and git-write guards of one `bash` command; `undefined` = allowed. */
+function bashDecision(command: string, policy: TeammatePolicy): Decision | undefined {
+  if (policy.blockSleepPolling && isSleepPoll(command)) return { allow: false, reason: SLEEP_REASON };
+  if (policy.blockGitWrite && policy.committer === "lead" && commandWritesGit(command)) return { allow: false, reason: GIT_WRITE_REASON };
+  return undefined;
+}
+
+/** Layers that only apply to some members (today: the apply-team sole-writer guard). */
+function extraDecision(toolName: string, input: unknown, extras: DecideExtras): Decision {
+  const reason = extras.openspecApply ? openspecWriteBlock(toolName, input, extras.openspecApply.cwd) : undefined;
+  return reason ? { allow: false, reason } : { allow: true };
+}
+
+export function decideToolCall(toolName: unknown, input: unknown, policy: TeammatePolicy | null, extras: DecideExtras = {}): Decision {
   if (!policy) return { allow: false, reason: "policy_unavailable" };
   if (typeof toolName !== "string") return { allow: false, reason: "tool_not_allowed" };
   if (policy.tools && !policy.tools.includes(toolName) && !TEAM_TOOL_NAMES.has(toolName)) {
     return { allow: false, reason: `tool_not_allowed: ${toolName}` };
   }
   const args = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
-  if (toolName === "bash" && typeof args.command === "string") {
-    if (policy.blockSleepPolling && isSleepPoll(args.command)) return { allow: false, reason: SLEEP_REASON };
-    if (policy.blockGitWrite && policy.committer === "lead" && commandWritesGit(args.command)) return { allow: false, reason: GIT_WRITE_REASON };
-  }
+  const shell = toolName === "bash" && typeof args.command === "string" ? bashDecision(args.command, policy) : undefined;
+  if (shell) return shell;
   if (toolName === "read" && readsUngrantedSkill(input, policy)) return { allow: false, reason: "skill_not_granted: read of a SKILL.md outside the granted skill roots" };
-  return { allow: true };
+  return extraDecision(toolName, input, extras);
 }
 
 /**
@@ -135,7 +158,7 @@ function isRefusedInput(text: unknown, policy: TeammatePolicy | null): boolean {
 export function createToolCallHandler(state: GuardState) {
   return (event: { toolName?: unknown; input?: unknown } | undefined): { block: true; reason: string } | undefined => {
     if (!state.enabled) return undefined;
-    const d = decideToolCall(event?.toolName, event?.input, state.policy);
+    const d = decideToolCall(event?.toolName, event?.input, state.policy, state.openspecApply ? { openspecApply: state.openspecApply } : {});
     return d.allow ? undefined : { block: true, reason: `agent-teams: ${d.reason}` };
   };
 }

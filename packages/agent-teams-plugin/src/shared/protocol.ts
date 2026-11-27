@@ -36,8 +36,12 @@ export type CoreTeamOp = (typeof CORE_TEAM_OPS)[number];
 export const PLAN_OPS = ["PlanSubmit", "PlanDecision"] as const;
 export type PlanOp = (typeof PLAN_OPS)[number];
 
+/** Resource mutex of the OpenSpec profiles (teammates only; the server answers `no_resources` for a team without a profile). See change: add-agent-teams-openspec. */
+export const LOCK_OPS = ["ResourceLock"] as const;
+export type LockOp = (typeof LOCK_OPS)[number];
+
 /** Every agent tool is a thin client of `agent-teams/call {op, args}`. */
-export const TEAM_OPS = [...CORE_TEAM_OPS, ...PLAN_OPS] as const;
+export const TEAM_OPS = [...CORE_TEAM_OPS, ...PLAN_OPS, ...LOCK_OPS] as const;
 export type TeamOp = (typeof TEAM_OPS)[number];
 
 /**
@@ -80,8 +84,16 @@ export const TEAM_TOOLS_BY_ROLE: Record<TeamRole, readonly TeamOp[]> = {
     "TeamDelete",
     "PlanDecision",
   ],
-  member: [...TASK_TOOLS, "SendMessage", "TeamStatus", "ShutdownResponse", "PlanSubmit"],
+  member: [...TASK_TOOLS, "SendMessage", "TeamStatus", "ShutdownResponse", "PlanSubmit", "ResourceLock"],
 };
+
+/**
+ * The teammate tool set a bridge registers: `TEAM_TOOLS_BY_ROLE.member` minus the lock tools unless the member's spawn env
+ * names an OpenSpec profile (`profile`). The server re-checks the profile on every `ResourceLock` call.
+ */
+export function memberTools(profile: boolean): readonly TeamOp[] {
+  return profile ? TEAM_TOOLS_BY_ROLE.member : TEAM_TOOLS_BY_ROLE.member.filter((t) => !(LOCK_OPS as readonly string[]).includes(t));
+}
 
 /** Ops only the lead may call: a teammate gets `not_lead` before the op runs (nested teams are impossible). */
 export const LEAD_ONLY_OPS: readonly TeamOp[] = ["TeammateSpawn", "ShutdownRequest", "TeamDelete", "PlanDecision"];

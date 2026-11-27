@@ -19,6 +19,7 @@ import { PLUGIN_REQUEST_SYMBOL } from "@blackbelt-technology/dashboard-plugin-ru
 import { registerApprovalMailKinds } from "../shared/approval-mail.js";
 import { compareMailIds } from "../shared/constants.js";
 import { customTypeForKind, formatMail } from "../shared/mail-format.js";
+import { ENV_OPENSPEC_PROFILE } from "../shared/openspec-profile.js";
 import {
   AGENT_TEAMS_EVENT_MAIL,
   AGENT_TEAMS_EVENT_TEAM_CLOSED,
@@ -34,6 +35,7 @@ import {
   type HelloPayload,
   type HelloReply,
   LEAD_ONLY_TOOLS,
+  memberTools,
   TEAM_TOOLS_BY_ROLE,
   type TeamOp,
   type TeamRole,
@@ -73,6 +75,8 @@ export interface BridgeOptions {
   log?: (message: string) => void;
   /** Optional bridge modules (default: plan mode + the `/agent-team` command); a test seam. */
   modules?: readonly BridgeRegistrar[];
+  /** The session cwd (default `process.cwd()`); the root of the apply-team sole-writer guard. */
+  cwd?: string;
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -98,6 +102,11 @@ function isWireMail(v: unknown): v is WireMail {
   return isRecord(v) && Number.isInteger(v.id) && typeof v.from === "string" && typeof v.kind === "string" && typeof v.text === "string";
 }
 
+/** Sole-writer guard of an `openspec-apply` team member (a spawn-env HINT: the lead and group/plain sessions are never guarded). */
+function applyGuardRoot(env: Record<string, string | undefined>, hintedMember: boolean, cwd: string | undefined): Pick<GuardState, "openspecApply"> {
+  return hintedMember && env[ENV_OPENSPEC_PROFILE] === "apply" ? { openspecApply: { cwd: cwd ?? process.cwd() } } : {};
+}
+
 export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   registerApprovalMailKinds(); // kind → customType for server-sent plan/hook/playbook mails
   const env = opts.env ?? process.env;
@@ -111,8 +120,12 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   const confined = CONFINING_ENV_KEYS.some((k) => (env[k] ?? "") !== "");
   const hintedMember = (env[ENV_MEMBER] ?? "") !== "" && (env[ENV_TEAM_ID] ?? "") !== "";
   let role: TeamRole = hintedMember && !confined ? "member" : "plain";
-  const guard: GuardState = { enabled: hintedMember && !confined, policy: parsePolicy(env[ENV_POLICY]) };
+  const guard: GuardState = { enabled: hintedMember && !confined, policy: parsePolicy(env[ENV_POLICY]), ...applyGuardRoot(env, hintedMember, opts.cwd) };
   const policyHash = hintedMember ? hashOfEnvPolicy(env[ENV_POLICY]) : undefined;
+
+  // `ResourceLock` is part of the teammate set only when the spawn env names an OpenSpec profile (a HINT: the server re-checks).
+  const hasProfile = (env[ENV_OPENSPEC_PROFILE] ?? "") !== "";
+  const roleTools = (r: TeamRole): readonly TeamOp[] => (r === "member" ? memberTools(hasProfile) : TEAM_TOOLS_BY_ROLE[r]);
 
   const registered = new Set<TeamOp>();
   const seen: number[] = [];
@@ -184,13 +197,13 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   }
 
   // Role tools from the env hint, synchronously: the first turn must already have them.
-  activateTools(TEAM_TOOLS_BY_ROLE[role]);
+  activateTools(roleTools(role));
 
   // ── hello ───────────────────────────────────────────────────────────────────
 
   function helloPayload(): HelloPayload {
     const active = started ? pi.getActiveTools?.() : undefined;
-    const toolsActive = confined || (active ? TEAM_TOOLS_BY_ROLE[role].every((t) => active.includes(t)) : TEAM_TOOLS_BY_ROLE[role].every((t) => registered.has(t)));
+    const toolsActive = confined || (active ? roleTools(role).every((t) => active.includes(t)) : roleTools(role).every((t) => registered.has(t)));
     const sessionFile = lastCtx?.sessionManager?.getSessionFile?.();
     return {
       isIdle: lastCtx?.isIdle ? lastCtx.isIdle() : !running,
