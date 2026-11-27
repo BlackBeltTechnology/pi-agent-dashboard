@@ -79,7 +79,7 @@
 
 ## 8. Manual verification
 
-- [ ] 8.1 Look at a scripted pane with short and tall steps: empty space under short steps and the bottom caption read as a fixed player (test-plan: manual-only, #M1)
+- [x] 8.1 Look at a scripted pane with short and tall steps: empty space under short steps and the bottom caption read as a fixed player (test-plan: manual-only, #M1)
 
 ## 9. Gates
 
