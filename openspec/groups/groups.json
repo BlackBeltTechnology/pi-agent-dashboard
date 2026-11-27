@@ -471,7 +471,9 @@
     "add-agent-teams-openspec": "agent-teams",
     "add-agent-teams-in-process": "agent-teams",
     "fix-kb-parent-link-and-section-miss": "queue",
-    "fix-discovery-resurrects-archived": "queue"
+    "fix-discovery-resurrects-archived": "queue",
+    "card-sections-global-pointer": "queue",
+    "fix-automation-run-store-eventloop-block": "queue"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -482,19 +484,10 @@
       "fix-npm12-remote-tarball-install",
       "migrate-budget-assertions",
       "rehearse-runtime-asset-matrix",
-      "persist-flow-run-close",
       "settle-server-credential-writes-on-exit"
     ],
     "queue": [
-      "add-plugin-spawn-worktree",
-      "serve-live-previews-on-capability-origin",
-      "add-google-connect",
-      "add-agent-teams-core",
-      "add-agent-teams-ui",
-      "add-agent-teams-templates-hooks",
-      "add-file-download",
-      "add-agent-teams-openspec",
-      "add-agent-teams-in-process"
+      "fix-automation-run-store-eventloop-block"
     ],
     "ui": [
       "add-google-docs-pane",

@@ -18,6 +18,7 @@ import {
   LANE_CALL,
   LANE_HELLO,
   LANE_IDLE,
+  type StartOp,
   type TeamOp,
 } from "../shared/protocol.js";
 
@@ -50,7 +51,7 @@ function interpret<T>(reply: PluginLaneReply): LaneResult<T> {
 }
 
 export interface LaneClient {
-  call(op: TeamOp, args: unknown): Promise<LaneResult<unknown>>;
+  call(op: TeamOp | StartOp, args: unknown): Promise<LaneResult<unknown>>;
   hello(payload: HelloPayload): Promise<LaneResult<HelloReply>>;
   busy(): Promise<LaneResult<unknown>>;
   idle(payload: IdlePayload): Promise<LaneResult<unknown>>;

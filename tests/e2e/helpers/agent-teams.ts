@@ -163,3 +163,21 @@ export function changedFrame(leadSessionId: string, teamId: string, rev: number)
 }
 
 export const teamViewUrl = (sessionId: string): string => `/session/${encodeURIComponent(sessionId)}/team`;
+
+/** Ids of every team the server knows (any status); `[]` when the plugin routes are not served. */
+export async function listTeamIds(page: Page): Promise<string[]> {
+  const res = await page.request.get(`${TEAMS_API}/teams`);
+  if (!res.ok()) return [];
+  return ((await res.json()) as { teams?: Array<{ id: string }> }).teams?.map((t) => t.id) ?? [];
+}
+
+/**
+ * Shut down every REAL team created since `before` (a `listTeamIds` snapshot). A started team stays
+ * counted against the server's team cap even after its lead session is gone (`orphaned`), so a spec
+ * that really starts a team must close it or a re-run on the same harness hits `team_cap_reached`.
+ */
+export async function shutdownTeamsCreatedSince(page: Page, before: readonly string[]): Promise<void> {
+  for (const id of await listTeamIds(page)) {
+    if (!before.includes(id)) await page.request.post(`${TEAMS_API}/teams/${encodeURIComponent(id)}/shutdown`).catch(() => undefined);
+  }
+}

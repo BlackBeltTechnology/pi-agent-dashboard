@@ -544,3 +544,51 @@ describe("closing resume (S136)", () => {
     expect(fake3.base.shutdowns).toEqual([]);
   });
 });
+
+describe("templates-hooks optional fields (tasks 1.6)", () => {
+  const snapshot = {
+    name: "review-pr",
+    source: "user" as const,
+    hash: "h1",
+    goal: "PR 123",
+    playbook: "Started by the user from template review-pr",
+    members: [{ name: "security", agent: "Audit", requirePlanApproval: "user" as const }, { name: "style-1" }, { name: "style-2" }],
+    spawn: "eager" as const,
+    defaultModel: "@coding",
+    lead: { model: "@review" },
+  };
+
+  it("round-trips template, hooks, plans, lead spawn token/deadline and the member fields; schemaVersion stays 1", async () => {
+    const env = createStoreEnv();
+    const team = env.store.createTeam({ name: "alpha", starting: true, leadCwd: "/work", mode: "session", maxTeammates: 5 });
+    Object.assign(team, {
+      template: snapshot,
+      hooks: { TaskCompleted: [{ command: "npm test --silent", timeoutMs: 10000 }] },
+      plans: [{ id: "p1", member: "security", plan: "do x", status: "pending", createdAt: 1 }],
+      leadSpawnToken: "tok-1",
+      leadBindDeadline: 12345,
+    });
+    env.store.reserveMember(team.id, { ...memberFixture("security"), agent: "Audit", requirePlanApproval: "user", planApproval: "planning" } as never);
+    env.store.patchTeam(team.id, { description: "touch" }); // commit
+    await env.persistence.flush();
+    const before = structuredClone(env.store.get(team.id));
+
+    const env2 = env.restart();
+    const after = env2.store.get(team.id);
+    expect(after?.schemaVersion).toBe(1);
+    expect(after?.template).toEqual(snapshot);
+    expect(after?.hooks).toEqual(before?.hooks);
+    expect(after?.plans).toEqual(before?.plans);
+    expect(after?.leadSpawnToken).toBe("tok-1");
+    expect(after?.leadBindDeadline).toBe(12345);
+    expect(after?.members[0]).toMatchObject({ agent: "Audit", requirePlanApproval: "user", planApproval: "planning" });
+  });
+
+  it("a core-only team file (none of the new fields) loads unchanged", async () => {
+    const env = createStoreEnv();
+    const { team } = seedTeam(env);
+    await env.persistence.flush();
+    const after = env.restart().store.get(team.id);
+    for (const k of ["template", "hooks", "plans", "leadSpawnToken", "leadBindDeadline"]) expect(after, k).not.toHaveProperty(k);
+  });
+});

@@ -6,6 +6,8 @@
  */
 import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { resolvePiAgentDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { registerApprovalMailKinds } from "../shared/approval-mail.js";
 import { type Clock, systemClock } from "../shared/clock.js";
 import { createConfigReader } from "./config.js";
 import { createSessionDriver } from "./driver.js";
@@ -16,6 +18,7 @@ import { createOps, type MailFlusher, type Ops, type SpawnPlanner, type SpawnSta
 import { type PersistFs, TeamPersistence } from "./persistence.js";
 import { TeamStore } from "./store.js";
 import type { Telemetry } from "./telemetry.js";
+import { createPluginCounters, type LeadSpawner, type PluginCounters, registerTemplatesHooks, type TemplatesHooksHost } from "./templates-hooks.js";
 import { type HostSessionLookup, narrowHostSession } from "./types.js";
 
 /** The `ServerPluginContext` members the runtime drives. */
@@ -34,7 +37,7 @@ export type RuntimeHost = Pick<
   | "onSessionEnded"
   | "sessionManager"
 > &
-  Partial<Pick<ServerPluginContext, "registerPiRequestHandler" | "getPiResources">>;
+  Partial<Pick<ServerPluginContext, "registerPiRequestHandler" | "getPiResources" | "consume">>;
 
 export interface RuntimeOptions {
   clock?: Clock;
@@ -47,6 +50,8 @@ export interface RuntimeOptions {
   idFactory?: () => string;
   /** Host model availability for `TeammateSpawn {model}` (absent ⇒ syntax check only). */
   isKnownModel?: (model: string) => boolean;
+  /** Overrides of the host capabilities the templates-hooks modules consume (tests; defaults come from `host.consume`). */
+  templatesHost?: Partial<TemplatesHooksHost>;
 }
 
 export interface TeamsRuntime {
@@ -57,6 +62,10 @@ export interface TeamsRuntime {
   telemetry: Telemetry;
   modes: ModeRegistry;
   ext: ExtensionPoints;
+  /** Server-started lead spawn + abort by token (D4b); the session driver's `spawnLead`. */
+  leads: LeadSpawner;
+  /** Plugin-owned counters shared with the templates-hooks modules. */
+  counters: PluginCounters;
   /** Whether the request lane could be registered (false on an old host). */
   laneRegistered: boolean;
   laneHandlers: ReturnType<typeof createLaneHandlers>;
@@ -64,6 +73,7 @@ export interface TeamsRuntime {
 }
 
 export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {}): TeamsRuntime {
+  registerApprovalMailKinds();
   const clock = opts.clock ?? systemClock;
   const logger = host.logger;
   const ext = opts.ext ?? extensionPoints;
@@ -111,6 +121,43 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
     ...(opts.isKnownModel ? { isKnownModel: opts.isKnownModel } : {}),
   });
 
+  const disposers: Array<() => void> = [];
+  const leads: LeadSpawner = {
+    spawn: (team, o) => (driver.spawnLead ? driver.spawnLead(team, o) : Promise.resolve({ ok: false, message: "this mode cannot spawn a lead" })),
+    abort(spawnToken) {
+      try {
+        const out = abortSpawnedRun?.({ spawnToken });
+        if (out && typeof (out as Promise<unknown>).catch === "function") (out as Promise<unknown>).catch((err: unknown) => logger.warn(`agent-teams: abortSpawnedRun failed: ${(err as Error).message}`));
+      } catch (err) {
+        logger.warn(`agent-teams: abortSpawnedRun failed: ${(err as Error).message}`);
+      }
+    },
+  };
+  const counters = createPluginCounters();
+  const consume = host.consume;
+  registerTemplatesHooks({
+    ops,
+    store,
+    ext,
+    config,
+    logger,
+    clock,
+    dataDir: host.dataDir,
+    hostSession,
+    modes,
+    leads,
+    telemetry: ops.telemetry,
+    counters,
+    host: {
+      isProjectTrusted: (cwd: string) => consume?.<(cwd: string) => boolean>("host.isProjectTrusted")?.(cwd) === true,
+      knownFolderCwds: () => consume?.<() => string[]>("host.knownFolderCwds")?.() ?? [],
+      resolvePiAgentDir: () => resolvePiAgentDir(),
+      onShutdown: (fn) => host.onShutdown(fn),
+      ...opts.templatesHost,
+    },
+    onDispose: (fn) => void disposers.push(fn),
+  });
+
   const laneHandlers = createLaneHandlers({ ops, ext });
   const laneRegistered = registerLane(host, laneHandlers, logger);
 
@@ -130,12 +177,21 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
     telemetry: ops.telemetry,
     modes,
     ext,
+    leads,
+    counters,
     laneRegistered,
     laneHandlers,
     dispose() {
       offResolved();
       offEnded();
       offShutdown();
+      for (const fn of disposers.splice(0)) {
+        try {
+          fn();
+        } catch (err) {
+          logger.warn(`agent-teams: dispose hook failed: ${(err as Error).message}`);
+        }
+      }
       ops.dispose();
     },
   };

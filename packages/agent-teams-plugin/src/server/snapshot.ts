@@ -83,9 +83,9 @@ function mailView(m: Mail): SnapshotMail {
   };
 }
 
-export function snapshotOf(store: TeamStore, telemetry: Telemetry, team: Team): TeamSnapshot {
+export function snapshotOf(store: TeamStore, telemetry: Telemetry, team: Team, extraStats?: Readonly<Record<string, number>>): TeamSnapshot {
   const log = store.mailLog(team.id);
-  const stats: SnapshotStats = { ...telemetry.stats(team.id) };
+  const stats: SnapshotStats = { ...telemetry.stats(team.id), ...(extraStats as Partial<SnapshotStats> | undefined) };
   return {
     id: team.id,
     name: team.name,
