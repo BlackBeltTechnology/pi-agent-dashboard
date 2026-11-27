@@ -4,7 +4,7 @@
  * shared `FlowGraph` (not-started pipeline, lenient). See changes:
  * rework-flows-plugin-for-new-pi-flows, unify-flow-rendering (D4).
  */
-import React from "react";
+import type React from "react";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import {
