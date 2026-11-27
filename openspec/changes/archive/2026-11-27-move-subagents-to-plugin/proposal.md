@@ -33,7 +33,7 @@ Four defects follow from this:
   - The `started` arm reads `details.subagentType` / `details.description` / `details.displayName` and never shows `unknown`.
   - A truncated terminal frame keeps its `id` and ends the row.
   - The registry reconcile uses `subagents:list` and ends only background rows.
-  - The plugin requires producer ≥ 0.7.0 and shows a notice below that.
+  - The plugin requires producer ≥ 0.7.0 (manifest `requires`); the shell lists an older producer as an unmet requirement.
 - Absorbs the empty `openspec/changes/add-plugin-session-close-hook/` placeholder; that directory has been removed.
 
 ## Capabilities

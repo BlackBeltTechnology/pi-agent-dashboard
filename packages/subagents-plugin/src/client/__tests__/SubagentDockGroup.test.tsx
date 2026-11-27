@@ -20,7 +20,6 @@ vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (importOriginal)
 
 const { SubagentDockGroup } = await import("../SubagentDockGroup.js");
 const { sessionEventReducer } = await import("../sessionEventReducer.js");
-const { resetProducerFloorCache } = await import("../producerFloor.js");
 
 const NOW = new Date("2026-01-01T00:00:00.000Z").getTime();
 const session = { id: "s1", cwd: "/repo", source: "tui", status: "active", startedAt: 0 } as DashboardSession;
@@ -299,7 +298,6 @@ describe("dock row Stop — wording (#E7)", () => {
 describe("dock row Stop — feedback (#F2, #F3)", () => {
   const dw = () => bgSub({ id: "dw", displayName: "docs-writer", stoppable: true, startedAt: NOW, entries: [{ kind: "text", text: "a", ts: 1 }] });
   beforeEach(() => stopStore.__resetSubagentStopsForTests());
-  beforeEach(() => resetProducerFloorCache());
   afterEach(() => vi.unstubAllGlobals());
 
   it("(a) Stopping… + disabled, then the row leaves on the stopped frame", async () => {
@@ -535,39 +533,5 @@ describe("SubagentDockGroup — row from a started frame only", () => {
     renderGroup("rows");
     expect(screen.getByTestId("composer-dock-row-title").textContent).toBe("abcdef12");
     expect(document.body.textContent).not.toMatch(/unknown/i);
-  });
-});
-
-describe("SubagentDockGroup — producer below the version floor (#F6)", () => {
-  const PRODUCER = "@blackbelt-technology/pi-dashboard-subagents";
-  const mockPluginStatus = (missingRequirements: string[]) => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({ success: true, plugins: [{ id: "subagents", missingRequirements }] }),
-      })),
-    );
-  };
-  beforeEach(() => resetProducerFloorCache());
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("renders the one-line update notice and no subagent rows", async () => {
-    vi.useRealTimers();
-    mockPluginStatus([`${PRODUCER} >=0.7.0`]);
-    subagents = mapOf(sub({ id: "a1", displayName: "explorer" }));
-    renderGroup("rows");
-    expect(await screen.findByTestId("subagent-producer-update-notice")).toBeTruthy();
-    expect(screen.getByTestId("subagent-producer-update-notice").textContent).toMatch(/0\.7\.0/);
-    expect(screen.queryByTestId("composer-dock-row-title")).toBeNull();
-  });
-
-  it("shows rows and no notice when the floor is met", async () => {
-    vi.useRealTimers();
-    mockPluginStatus([]);
-    subagents = mapOf(sub({ id: "a1", displayName: "explorer" }));
-    renderGroup("rows");
-    expect(await screen.findByTestId("composer-dock-row-title")).toBeTruthy();
-    expect(screen.queryByTestId("subagent-producer-update-notice")).toBeNull();
   });
 });

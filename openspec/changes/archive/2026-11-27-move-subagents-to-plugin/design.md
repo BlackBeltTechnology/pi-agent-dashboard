@@ -119,7 +119,7 @@ A plugin bridge declares `dashboard:register-tool-update-filter { pluginId, tool
 - `requires.piExtensions` stays `string[]`. A new optional `requires.piExtensionVersions: Record<string, semverRange>` is added.
   - The installed version is read from the extension's installed `package.json` by the existing pi-extension probe and compared with `semver` (already a dependency of `server` and `shared`).
   - A local-path or git install without a valid version counts as satisfied, with a warning in the plugin status.
-  - The 30 s probe cache applies. The subagents plugin sets `">=0.7.0"`. Below the floor, `missingRequirements` names the version and the dock shows a one-line notice.
+  - The 30 s probe cache applies. The subagents plugin sets `">=0.7.0"`. Below the floor, `missingRequirements` names the version and the shell's plugin surfaces show it, as for every plugin requirement (revised before merge: no plugin-side dock notice).
 - A new tree-wide script, `scripts/check-subagent-boundary.mjs`, run by `npm test`, fails on a subagent contract identifier in `packages/{extension,server,shared,client,dashboard-plugin-runtime}/src`. It is separate from `check-conventions.mjs`, which is touched-files-only and capped at five rules (`scripts/check-conventions.mjs:9-14`).
   - Denylist, case-insensitive regex families: `subagent_[a-z_]+` (any subagent event or message type), `subagents:` (any channel), `subagent(state|statesnapshot|timelineentry|details|tickthrottle|heap)\w*`, `subagent_heap\w*`, `subagent_event_map`, `empty_subagents`, `usesessionsubagents`, `issubagentcarrier`, and `\.subagents\b` state access.
   - Tests, `generated/` and i18n are exempt.
@@ -136,7 +136,7 @@ A plugin server registers `ctx.registerDeliveryPolicy({ deferKey(event, sessionI
 - [Carry inflates first paint on huge sessions] → bounded to 2000 events / 2 MiB, open agents only, priority-ordered, counted.
 - [Ownership relies on a self-asserted `pluginId` on the bus] → only in-process code can spoof it, and that code already has core power. The server-sent ownership table and the server-side ingest check still block accidental collisions.
 - [Without the bridge throttle the Agent tick rate doubles (2/s → 4/s per running subagent)] → this is the producer's designed cadence; ticks are small since 0.3.0 and D5 removes `entries`.
-- [Producers 0.2.6–0.6.x stop rendering rows] → acceptable: they lack `subagents:list`. The notice tells the user to update.
+- [Producers 0.2.6–0.6.x stop rendering rows] → acceptable: they lack `subagents:list`. The shell lists the unmet range under the plugin's requirements.
 - [No immediate stop answer] → the `Stopping…` notice clears on the subagent's terminal frame, or on the next registry snapshot for background runs. A ghost foreground row clears on tool end or settle.
 - [An older cached client sends `subagent_resync_request`] → the server answers unknown messages with a no-op.
 - [A slice arm that is not idempotent double-applies a carried event] → covered by a reducer test per arm (task 4.3).

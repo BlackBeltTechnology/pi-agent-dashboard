@@ -24,7 +24,6 @@
  * See change: add-composer-dock (task 3.3, design D4);
  * show-background-subagents-in-dock (D3, D4).
  */
-import { useProducerBelowFloor } from "./producerFloor.js";
 import { ComposerDockRow, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import {
@@ -158,7 +157,6 @@ export function SubagentDockRow({ sessionId, sub }: { sessionId: string; sub: Su
 /** Shared body of both claims; `background` selects the kind and the noun. */
 function useDockGroup({ session, mode, reportSummary }: DockGroupProps, background: boolean) {
   const t = useT();
-  const belowFloor = useProducerBelowFloor();
   const all = useSessionSubagents(session.id);
   const active = useMemo(() => subagentsOfKind(all, background, isLive), [all, background]);
   const count = active.length;
@@ -191,14 +189,6 @@ function useDockGroup({ session, mode, reportSummary }: DockGroupProps, backgrou
   }, [mode, all, background, session.id]);
 
   if (mode === "summary") return null;
-  // Below the producer floor: one update notice (foreground group only) instead of rows.
-  if (belowFloor !== undefined) {
-    return background ? null : (
-      <div data-testid="subagent-producer-update-notice" className="px-2 py-1 text-xs text-[var(--text-secondary)]">
-        {t("producerUpdateNotice", { range: belowFloor }, "Update pi-dashboard-subagents ({range}) to see subagents here.")}
-      </div>
-    );
-  }
   if (count === 0) return null;
   return (
     <>

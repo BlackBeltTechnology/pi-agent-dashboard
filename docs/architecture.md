@@ -466,7 +466,7 @@ Replaces the core thin-tick push/pull split (change: reduce-subagent-details-pay
 - Server policies: `ctx.registerStorePolicy`, `registerDeliveryPolicy`, `registerReplayCarry`, `onSessionStatusEnded`, `appendEvent`. Registry `packages/server/src/plugin-policy-registry.ts`. Runtime types `packages/dashboard-plugin-runtime/src/server/plugin-policies.ts`.
 - Replay carry: server sends `plugin_event_carry` frame after `history_window`, before first `event_replay`.
 - Client state: `SessionState.pluginState` + `useSessionPluginState`. Reducer finalizer lookup `findFinalizerForEventType`.
-- Version gate: manifest `requires.piExtensionVersions`. Subagents plugin `>=0.7.0`.
+- Version gate: manifest `requires.piExtensionVersions`. Subagents plugin `>=0.7.0`. Unmet range → `missingRequirements` → shown by shell plugin surfaces (Settings → Plugins, plugin settings page, Add-ons issues). Plugin renders no notice, reads no status.
 
 **Subagents plugin implementations.**
 

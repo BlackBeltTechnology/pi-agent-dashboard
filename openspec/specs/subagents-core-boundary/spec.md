@@ -42,9 +42,9 @@ A tree-wide boundary check, run by `npm test`, SHALL fail when a core production
 
 ### Requirement: The plugin SHALL require producer 0.7.0 or later
 
-The subagents plugin SHALL declare `pi-dashboard-subagents` `>=0.7.0`. When the installed producer is older, the plugin status SHALL list the version as a missing requirement and the dock SHALL show a one-line update notice instead of rows.
+The subagents plugin SHALL declare `pi-dashboard-subagents` `>=0.7.0`. When the installed producer is older, the plugin status SHALL list the version as a missing requirement, which the shell's plugin surfaces (Settings → Plugins, the plugin settings page, the Add-ons issues tab) display like any other unmet requirement. The plugin SHALL NOT read plugin status itself or render its own update notice.
 
 #### Scenario: Producer below the floor
 - **GIVEN** an installed `pi-dashboard-subagents` 0.6.0
-- **WHEN** the plugin status is read and a subagent runs
-- **THEN** `missingRequirements` SHALL name `@blackbelt-technology/pi-dashboard-subagents >=0.7.0` and the dock SHALL show the update notice
+- **WHEN** the loader's requirement probe runs for the subagents plugin
+- **THEN** `missingRequirements` SHALL name `@blackbelt-technology/pi-dashboard-subagents >=0.7.0`

@@ -34,4 +34,4 @@ After a browser reload or popout of a running subagent, the stored `subagent_ent
 
 ### Requirement: Legacy producers SHALL keep working
 **Reason**: The dashboard requires pi ≥ 1.6.0, so producers ≤ 0.2.5 cannot run. The tick-timeline and resync path this requirement relied on is removed.
-**Migration**: Use `pi-dashboard-subagents` ≥ 0.7.0. Older producers get the unsupported-producer notice (`subagents-core-boundary`).
+**Migration**: Use `pi-dashboard-subagents` ≥ 0.7.0. Older producers are listed as an unmet plugin requirement (`subagents-core-boundary`).

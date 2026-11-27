@@ -73,7 +73,7 @@ No clarifications are open: every Triple slot below is filled from the delta spe
 | F3 | plugin-replay-carry: ordering under back-pressure | state-transition | L1 | automated | socket above the threshold during a windowed subscribe | carry + replay sent | browser receives `history_window`, `plugin_event_carry`, then the first `event_replay`, in that order |
 | F4 | background-subagent-display + subagent-live-timeline: windowed long session | state-convergence | L3 | automated | docker harness session seeded beyond the replay window with a background subagent created before the tail (see `tests/e2e/large-session-replay.spec.ts`, `tests/e2e/background-subagents.spec.ts`) | open the session in the browser | dock row shows the producer type and task, no `unknown`; the subagent view lists every entry from index 0 |
 | F5 | subagent-live-detail-reliability: open inspector converges | state-convergence | L1 | automated | mounted detail view, running subagent | 25 `subagent_entry` events arrive live | rendered entry count converges to 30 from 5 with no resync request sent |
-| F6 | subagents-core-boundary: producer below floor | state-transition | L1 | automated | plugin status with the version missing | dock renders while a subagent runs | the one-line update notice renders; no subagent rows |
+| F6 | subagents-core-boundary: producer below floor | state-transition | L1 | automated | the subagents manifest `requires`; installed producer 0.6.0, then 0.7.0 | loader requirement probe runs | 0.6.0: `missingRequirements` = `@blackbelt-technology/pi-dashboard-subagents >=0.7.0` (shown by the shell's plugin surfaces); 0.7.0: nothing missing; the plugin renders no notice of its own |
 
 ### Error-handling
 
