@@ -1,169 +1,245 @@
 # video-transcription Specification
 
 ## Purpose
-Transcribe local video/audio files in-place to speaker-diarized SRT via the Soniox async API, exposed as a pi skill and a `pi-transcribe` CLI, with long-recording chunking and idempotent re-runs.
+Transcribe local video and audio files into speaker-diarized SRT subtitles written beside the source files. The capability ships as the `video-transcription` pi skill and the `pi-transcribe` CLI, uses Soniox (model `stt-async-v6`) by default and AssemblyAI on request, and is safe to re-run because existing subtitles are skipped.
 
 ## Requirements
+### Requirement: CLI entry point and exit behavior
+The package SHALL expose a `pi-transcribe` bin and the `video-transcription` pi skill. The bin SHALL pass its arguments to the run orchestrator. It SHALL exit with code 1 and print the error message only when the run itself throws, such as a configuration error. A failure on one file SHALL be counted in the summary and SHALL NOT end the run with a non-zero exit code.
 
-### Requirement: Local media transcription to speaker-diarized SRT
-The package SHALL transcribe local video (`.mkv`, `.mp4`) and audio (`.m4a`, `.mp3`) files to SRT subtitles with speaker labels using the Soniox async transcription API. For video inputs it SHALL first extract audio to MP3 via `ffmpeg`. Output SRT SHALL be written as a sibling file with the same stem as the original input. Segmentation and timestamp formatting SHALL match the existing skill's behavior (speaker-change boundaries, a 5000 ms maximum segment span, and `HH:MM:SS,mmm` timestamps).
+The run SHALL log its progress. After discovery it SHALL log `Found <total> files: <n> to process, <m> already transcribed`. For each file it SHALL log `Processing: <file>`, then `  Audio already extracted: <mp3>` or `  Extracting audio...` for video sources, then `  Transcribing via <backend> API...` and `  Saved: <srt>` per backend, and `Done: <file>` when the file was newly transcribed.
 
-#### Scenario: Audio file transcribed to sibling SRT
-- **WHEN** `pi-transcribe` is run on an untranscribed `.m4a` file
-- **THEN** the file SHALL be uploaded to Soniox, transcribed with speaker diarization, and a sibling `.srt` SHALL be written with the same stem
-- **AND** each cue SHALL carry a `[Speaker N]` label and `HH:MM:SS,mmm --> HH:MM:SS,mmm` timing
+#### Scenario: Missing API key aborts the run
+- **WHEN** `pi-transcribe` runs with no `SONIOX_API_KEY` in the environment or in any `.env` file
+- **THEN** the process prints `SONIOX_API_KEY is not set. ...` to stderr
+- **AND** exits with code 1 before it uploads anything
 
-#### Scenario: Video file has audio extracted first
-- **WHEN** the input is a `.mkv` or `.mp4` and `ffmpeg` is available
-- **THEN** audio SHALL be extracted to a sibling `.mp3` before transcription
-- **AND** the resulting `.srt` SHALL be derived from the original file's stem
+#### Scenario: One failed file does not abort the run
+- **WHEN** one of two files fails during transcription
+- **THEN** the other file is still processed
+- **AND** the summary reports `Failed: 1` and the process does not exit with code 1
 
-### Requirement: Idempotent, discovery-based runs
+#### Scenario: Printed summary
+- **WHEN** a run processes at least one file
+- **THEN** it prints `=== Transcription Summary ===` followed by the counts for `Total files found`, `Already transcribed`, `Newly transcribed` and `Failed`
 
-The tool SHALL accept no argument (scanning `~/Movies`), a single directory (scanning it), or
-one or more explicit file paths. Discovered files SHALL be **dispatched** oldest-first by
-modification time; when concurrency is greater than one, files therefore **start** oldest-first
-but MAY **complete** in any order. A file SHALL be skipped when a sibling `.srt` already exists.
-A run SHALL print a summary of files found, already transcribed, newly transcribed, and failed.
+#### Scenario: Progress lines
+- **WHEN** a run finds 3 files and 1 of them already has its SRT
+- **THEN** it logs `Found 3 files: 2 to process, 1 already transcribed`
+- **AND** each processed file is logged with `Processing: <file>`
 
-#### Scenario: Already-transcribed file skipped
-- **WHEN** a media file already has a sibling `.srt`
-- **THEN** it SHALL be counted as already transcribed and NOT re-sent to the API
+### Requirement: Input discovery
+The CLI SHALL resolve its inputs as follows. With no arguments, it SHALL scan `~/Movies`. With exactly one argument that is a directory, it SHALL scan that directory. In every other case, it SHALL treat each argument as an explicit file. A scan SHALL include only regular files in the top level of the directory whose lower-cased extension is `.mkv`, `.mp4`, `.mov`, `.m4a` or `.mp3`. Resolved files SHALL be ordered oldest first by modification time.
 
-#### Scenario: Explicit file list
-- **WHEN** one or more file paths are passed
-- **THEN** exactly those files SHALL be transcribed
-- **AND** an unsupported extension or missing path SHALL fail with a clear error
+#### Scenario: Default directory
+- **WHEN** `pi-transcribe` runs with no arguments
+- **THEN** it scans `<home>/Movies` for supported media files
 
-#### Scenario: Oldest-first dispatch under concurrency
-- **WHEN** multiple untranscribed files are discovered and concurrency is greater than one
-- **THEN** files SHALL be claimed for processing in ascending modification-time order
-- **AND** completion order MAY differ from dispatch order without affecting any file's output
+#### Scenario: Unsupported explicit file
+- **WHEN** an explicit argument is `notes.txt` and that file exists
+- **THEN** the run throws `Unsupported file type: notes.txt`
 
-### Requirement: Long-recording chunking with merged absolute timestamps
-Recordings whose duration exceeds the Soniox per-request limit (5 h) SHALL be split into chunks of at most `MAX_CHUNK_HOURS` (default 4.5 h), transcribed independently, and merged into a single SRT whose cue timestamps are shifted by each chunk's absolute offset and whose cue indices are renumbered sequentially. No audio SHALL be dropped or truncated. Duration SHALL be probed via `ffprobe`, since the limit is on duration, not file size.
+#### Scenario: Unsupported explicit file that does not exist
+- **WHEN** an explicit argument is `notes.txt` and no such file exists
+- **THEN** the run throws `Not a file: notes.txt`
 
-#### Scenario: Recording under the limit is a single request
-- **WHEN** a recording's probed duration is at or below `MAX_CHUNK_HOURS`
-- **THEN** it SHALL be transcribed in one request with no splitting
+#### Scenario: Missing explicit file
+- **WHEN** an explicit argument does not exist or is not a regular file
+- **THEN** the run throws `Not a file: <arg>`
 
-#### Scenario: Recording over the limit is split and merged
-- **WHEN** a recording's probed duration exceeds the chunk size
-- **THEN** it SHALL be split into sequential chunks, each transcribed separately
-- **AND** the merged SRT SHALL have monotonically increasing absolute timestamps and sequentially renumbered cues covering the full duration
+#### Scenario: No media found
+- **WHEN** discovery finds no supported files
+- **THEN** the CLI logs `No audio/video files found.` and returns zero counts
 
-### Requirement: Configuration without committed secrets
+### Requirement: Idempotent sibling SRT output
+For each selected backend, the CLI SHALL write the transcript as UTF-8 to a sibling file whose name replaces the source extension with that backend's suffix. Soniox SHALL use `.srt` and AssemblyAI SHALL use `.diarize.srt`. When exactly one backend is selected, `TRANSCRIBE_SRT_SUFFIX` SHALL override its suffix. When several backends are selected, the override SHALL be ignored. A backend whose sibling file already exists SHALL be skipped. A file whose sibling files exist for every selected backend SHALL be counted as already transcribed and SHALL NOT be processed.
 
-The package SHALL read `SONIOX_API_KEY` from the environment, falling back to an optional
-gitignored `.env` file. No API key SHALL be committed in the package tarball. The API key SHALL
-NOT appear in logs, errors, or any output. When the key cannot be resolved, the tool SHALL fail
-fast with an actionable message. `MAX_CHUNK_HOURS`, `MAX_AUDIO_MB`, and `TRANSCRIBE_CONCURRENCY`
-SHALL be configurable via environment variables. `TRANSCRIBE_CONCURRENCY` SHALL parse as a
-positive integer defaulting to `8`, clamped to the range `1`–`100`; an absent, non-numeric, or
-out-of-range value SHALL resolve to a valid in-range value (default for invalid, clamped for
-out-of-range).
+#### Scenario: Re-run skips finished files
+- **WHEN** `talk.m4a` and `talk.srt` both exist and the Soniox backend is selected
+- **THEN** `talk.m4a` is counted as already transcribed
+- **AND** nothing is uploaded for it
 
-#### Scenario: Missing API key fails fast
-- **WHEN** neither the environment nor a local `.env` provides `SONIOX_API_KEY`
-- **THEN** the tool SHALL exit with a clear error naming the required variable
-- **AND** SHALL NOT attempt any API call
+#### Scenario: Nothing left to do
+- **WHEN** every discovered file is already transcribed
+- **THEN** the CLI logs `Nothing to do.` and creates no transcription client
 
-#### Scenario: No secret in the tarball
-- **WHEN** the package is published
-- **THEN** the `files` whitelist SHALL exclude any `.env`, and no secret material SHALL be present
+#### Scenario: Both backends write separate files
+- **WHEN** `TRANSCRIBE_BACKEND=both` is set for `meeting.mp4`
+- **THEN** the run writes `meeting.srt` from Soniox and `meeting.diarize.srt` from AssemblyAI
 
-#### Scenario: Concurrency env var parsed and clamped
-- **WHEN** `TRANSCRIBE_CONCURRENCY` is unset, non-numeric, or less than 1
-- **THEN** the effective concurrency SHALL be the default of `8`
-- **WHEN** `TRANSCRIBE_CONCURRENCY` exceeds `100`
-- **THEN** the effective concurrency SHALL be clamped to `100`
+### Requirement: Backend selection and configuration
+The configuration SHALL select backends from `TRANSCRIBE_BACKEND`. The value is case-insensitive. It accepts `soniox`, `assemblyai`, `both`, `all`, or a comma-separated list. Unknown names SHALL be dropped and duplicates SHALL be collapsed. An empty or fully unknown value SHALL fall back to `soniox`. The configuration SHALL look up each selected backend's key in this order: the environment, `.env` in the current working directory, then `.env` in the fallback directory. The fallback directory defaults to the directory of the config module itself (`packages/video-transcription/src/` when run from source), not the package root. The fallback lookup SHALL be skipped when that directory resolves to the current working directory. Soniox uses `SONIOX_API_KEY` and AssemblyAI uses `ASSEMBLY_AI_KEY`. All keys SHALL be resolved before any work starts.
 
-### Requirement: Dual surface — skill and CLI bin
-The capability SHALL be exposed both as a pi skill (`.pi/skills/video-transcription`) and as a `pi-transcribe` CLI bin, sharing one implementation. The skill SHALL invoke the bin and preserve the existing trigger phrases and argument contract.
+The configuration SHALL also apply these settings:
+- `MAX_CHUNK_HOURS` is a positive float. Otherwise the default is 4.5 hours for Soniox and 9 hours for AssemblyAI.
+- `MAX_AUDIO_MB` is a whole number of MB. The default is 200 and `0` disables the limit. An unset, empty or whitespace-only value silently uses 200 with no warning. Any other non-whole-number value triggers a warning and falls back to 200.
+- `TRANSCRIBE_CONCURRENCY` is a positive integer. A fractional value is truncated. The value is clamped to 1–100, and an invalid value falls back to 8.
+- `TRANSCRIBE_LANGUAGE` and `TRANSCRIBE_MAX_SPEAKERS` affect AssemblyAI only.
 
-#### Scenario: Skill invokes the shared bin
-- **WHEN** the skill is triggered (e.g. "/transcribe", "transcribe my meetings")
-- **THEN** it SHALL run `pi-transcribe` with the same argument contract as the standalone CLI
+#### Scenario: Unknown backend falls back
+- **WHEN** `TRANSCRIBE_BACKEND=whisper`
+- **THEN** only the Soniox backend is selected
 
-#### Scenario: Standalone CLI use
-- **WHEN** a user runs `pi-transcribe [directory | file ...]` directly
-- **THEN** it SHALL behave identically to the skill invocation
+#### Scenario: Missing key for a both-run
+- **WHEN** `TRANSCRIBE_BACKEND=both` is set, `SONIOX_API_KEY` is set, and `ASSEMBLY_AI_KEY` is missing
+- **THEN** loading the configuration throws `ASSEMBLY_AI_KEY is not set...`
+- **AND** no audio is uploaded
 
-### Requirement: Graceful ffmpeg absence
-When `ffmpeg`/`ffprobe` are not installed, the tool SHALL skip video inputs with a warning while still processing audio-only inputs. `ffmpeg` failures SHALL clean up any partial output and be reported per file without aborting the whole run.
+#### Scenario: .env parsing
+- **WHEN** `.env` contains `# comment`, a blank line and `SONIOX_API_KEY="abc"`
+- **THEN** the key resolves to `abc` with the quotes removed
 
-#### Scenario: ffmpeg missing
-- **WHEN** `ffmpeg` is not available on `PATH`
-- **THEN** video files SHALL be skipped with a warning and counted appropriately
-- **AND** audio-only files SHALL still be transcribed
+#### Scenario: Module-directory .env fallback
+- **WHEN** the key is in neither the environment nor `<cwd>/.env`, and `.env` beside the config module contains `SONIOX_API_KEY=abc`
+- **THEN** the key resolves to `abc`
 
-### Requirement: Bounded-concurrency file-level processing
+#### Scenario: Invalid size limit
+- **WHEN** `MAX_AUDIO_MB=1.5`
+- **THEN** a warning `Invalid MAX_AUDIO_MB "1.5": expected a whole number of MB >= 0; using 200.` is emitted
+- **AND** the limit is set to 200
 
-The tool SHALL process discovered files through a bounded-concurrency worker pool at the
-file level, running at most `TRANSCRIBE_CONCURRENCY` files in flight simultaneously (default
-`8`, clamped to the range `1`–`100`). Each file SHALL be processed by the same per-file
-pipeline (audio extraction for video, long-recording chunking, Soniox transcription, sibling
-SRT write) as a serial run; only the scheduling changes. Per-file error isolation SHALL be
-preserved: a failure in one file SHALL be counted and SHALL NOT abort other in-flight or
-pending files. The final summary (found / already transcribed / newly transcribed / failed)
-SHALL report the same totals a serial run would for the same inputs. Chunk-level processing
-within a single recording SHALL remain sequential.
+#### Scenario: Empty size limit
+- **WHEN** `MAX_AUDIO_MB` is set to an empty or whitespace-only string
+- **THEN** the limit is 200 and no warning is emitted
 
-#### Scenario: Multiple files processed concurrently
-- **WHEN** more untranscribed files are discovered than `TRANSCRIBE_CONCURRENCY`
-- **THEN** at most `TRANSCRIBE_CONCURRENCY` files SHALL be in flight at any moment
-- **AND** every discovered untranscribed file SHALL eventually be transcribed with its sibling `.srt` written
+#### Scenario: No secret in the repository or the package-root tarball
+- **WHEN** an API key is kept in `packages/video-transcription/.env`
+- **THEN** the file is gitignored by `packages/video-transcription/.gitignore`
+- **AND** it is not part of the published package, because the `files` whitelist does not include the package-root `.env`
 
-#### Scenario: One failing file does not abort the batch
-- **WHEN** one file in a concurrent batch fails to transcribe
-- **THEN** that file SHALL be counted as failed
-- **AND** the other files in the batch SHALL still be processed and counted
+### Requirement: Audio extraction, size guard, and ffmpeg handling
+The CLI SHALL use files with the `.m4a` or `.mp3` extension directly. For `.mkv`, `.mp4` and `.mov` files, it SHALL extract audio once per file into a sibling `.mp3` using `ffmpeg -i <abs src> -vn -acodec libmp3lame -q:a 2 -y <abs out>`. That audio SHALL be shared by every selected backend. An existing sibling `.mp3` SHALL be reused instead of extracting again. The CLI SHALL find ffmpeg and ffprobe through the shared tool registry. A bundled `ffmpeg-static` counts as available. Media paths SHALL be passed to these tools as absolute paths so that a file name starting with `-` cannot be read as an option. Before uploading, the CLI SHALL refuse extracted audio that is larger than `MAX_AUDIO_MB` × 1024² bytes. If the file size cannot be read, the CLI SHALL treat the file as failed rather than upload it.
 
-#### Scenario: Concurrency of one reproduces serial behavior
-- **WHEN** `TRANSCRIBE_CONCURRENCY` is `1`
-- **THEN** files SHALL be processed one at a time in oldest-first order with deterministic completion order
-- **AND** the resulting summary totals SHALL match the concurrent run for the same inputs
+#### Scenario: ffmpeg absent
+- **WHEN** ffmpeg cannot be resolved or `ffmpeg -version` fails
+- **THEN** the CLI warns `ffmpeg not found - video files will be skipped (audio-only files will still be processed)`
+- **AND** each video file is logged as skipped and counted as failed, while audio files are still transcribed
 
-#### Scenario: Summary totals are concurrency-invariant
-- **WHEN** the same set of inputs is run at `TRANSCRIBE_CONCURRENCY=1` and at a higher value
-- **THEN** the found / already-transcribed / newly-transcribed / failed totals SHALL be identical
+#### Scenario: Extraction failure cleans up
+- **WHEN** the ffmpeg extraction command fails
+- **THEN** any partial output `.mp3` is removed
+- **AND** the file fails with an error message that starts with `FFmpeg extraction failed:`
 
-### Requirement: Extracted audio size limit enforced before upload
+#### Scenario: Oversized audio is refused
+- **WHEN** the extracted audio is 250 MB and `MAX_AUDIO_MB` is 200
+- **THEN** the file fails with `Extracted audio is 250.0 MB, over the 200.0 MB limit (MAX_AUDIO_MB=200); nothing was uploaded...`
+- **AND** no provider request is made
 
-The tool SHALL enforce the audio size limit (`MAX_AUDIO_MB`, config `maxAudioMb`) on the extracted audio (total size), after extraction and before any upload or transcription request. Audio exceeding the limit SHALL fail with an error naming both the limit and the size found, and nothing SHALL be uploaded. A limit of `0` SHALL disable the check. 1 MB SHALL mean 1024² bytes. An invalid limit SHALL fall back to 200 with a warning. The error shows both sizes in MB with one decimal.
+### Requirement: Long-recording chunking
+The CLI SHALL measure audio duration with `ffprobe -v error -show_entries format=duration -of csv=p=0 <abs path>`. If ffprobe is missing or the probe fails, it SHALL treat the duration as 0. When the duration is 0 or does not exceed the backend's chunk length, it SHALL send the audio in a single request. Otherwise it SHALL cut the audio into consecutive chunks of the chunk length in a temporary directory with the `vt-chunk-` prefix. Each chunk SHALL be re-encoded into `chunk_<n>.mp3` (n starting at 1) with `ffmpeg -y -ss <start> -t <len> -i <abs src> -vn -acodec libmp3lame -q:a 2 <abs dest>`. It SHALL transcribe the chunks in order. Each chunk's cue times SHALL be shifted by the chunk's offset and the cues SHALL be renumbered continuously into a single SRT. A chunk whose shifted SRT is empty SHALL be dropped from the merge. The merged output SHALL end with a trailing newline. The temporary directory SHALL be removed even when transcription fails. A non-positive chunk length SHALL throw an error.
 
-#### Scenario: Oversized audio is refused with sizes named
+#### Scenario: Ten-hour recording on Soniox
+- **WHEN** the audio is 36000 s long and the Soniox chunk length is 16200 s
+- **THEN** three chunks starting at 0 s, 16200 s and 32400 s are transcribed
+- **AND** the cues in the second chunk are shifted by 16200000 ms and numbered after the last cue of the first chunk
 
-- **GIVEN** `MAX_AUDIO_MB` is 200 and an input whose extracted audio is 350 MB
-- **WHEN** transcription is requested
-- **THEN** the tool SHALL fail with an error naming `200.0` MB and `350.0` MB
-- **AND** SHALL NOT call any API upload or transcription
+#### Scenario: Unknown duration
+- **WHEN** ffprobe is unavailable
+- **THEN** the whole file is sent in a single request
 
-#### Scenario: Audio within the limit proceeds
+#### Scenario: Silent chunk
+- **WHEN** the second of three chunks yields no cues
+- **THEN** the merged SRT contains only the cues of the first and third chunks, numbered continuously
+- **AND** it ends with a trailing newline
 
-- **GIVEN** `MAX_AUDIO_MB` is 200 and audio of 150 MB
-- **WHEN** transcription is requested
-- **THEN** the tool SHALL proceed as usual
+### Requirement: Soniox transcription
+The Soniox backend SHALL call `https://api.soniox.com/v1` with `Authorization: Bearer <key>`. It SHALL work in five steps:
+1. Upload the file with `POST /files` as multipart form data.
+2. Create a transcription with `POST /transcriptions` using `model: "stt-async-v6"`, `enable_speaker_diarization: true`, `enable_language_identification: true` and the `file_id`.
+3. Poll `GET /transcriptions/{id}` every 2 s, for at most 1800 attempts.
+   A status of `error` or `failed` SHALL be terminal and SHALL throw `Transcription failed: <msg>`, where `<msg>` is `error_message`, else `error`, else `Unknown error`.
+4. Fetch the transcript with `GET /transcriptions/{id}/transcript` and convert its tokens to SRT.
+5. Delete the uploaded file with `DELETE /files/{id}` on success and on failure. Errors from the delete SHALL be ignored.
 
-#### Scenario: Limit comes from configuration
+Error messages SHALL NOT include the API key.
 
-- **WHEN** `MAX_AUDIO_MB` is set to `50` in the environment
-- **THEN** a 60 MB audio SHALL be refused
+#### Scenario: Provider failure status
+- **WHEN** polling returns `status: "error"` with `error_message: "bad audio"`
+- **THEN** transcription throws `Transcription failed: bad audio`
+- **AND** the uploaded file is still deleted
 
-#### Scenario: Megabyte is 1024 squared bytes
-- **GIVEN** `MAX_AUDIO_MB` is `1`
-- **WHEN** the extracted audio is 1048577 bytes
-- **THEN** the tool SHALL refuse it, and SHALL accept audio of exactly 1048576 bytes
+#### Scenario: Failed status without message
+- **WHEN** polling returns `status: "failed"` with neither `error_message` nor `error`
+- **THEN** transcription throws `Transcription failed: Unknown error`
 
-#### Scenario: Invalid limit falls back to 200
-- **WHEN** `MAX_AUDIO_MB` is `abc` or `-5`
-- **THEN** the limit SHALL be 200 MB and one warning SHALL be logged
+#### Scenario: HTTP error
+- **WHEN** creating the transcription returns HTTP 401 Unauthorized
+- **THEN** it throws `Soniox create failed: HTTP 401 Unauthorized` and the message does not contain the key
 
-#### Scenario: Zero disables the limit
+#### Scenario: Stuck job
+- **WHEN** the status is never `completed` after 1800 polls
+- **THEN** it throws `Transcription <id> timed out after 1800 poll attempts`
 
-- **GIVEN** `MAX_AUDIO_MB` is `0`
-- **WHEN** transcription is requested for a 350 MB audio
-- **THEN** the tool SHALL NOT refuse it for size
+### Requirement: AssemblyAI transcription
+The AssemblyAI backend SHALL use the EU endpoint `https://api.eu.assemblyai.com` with a raw `Authorization: <key>` header that has no `Bearer` prefix. It SHALL work in three steps:
+1. Upload the file as `application/octet-stream` with `POST /v2/upload`.
+2. Create a transcript with `POST /v2/transcript` using `speech_models: ["universal-3-5-pro","universal-2"]` and `speaker_labels: true`. It SHALL send `language_code` when `TRANSCRIBE_LANGUAGE` is set and `language_detection: true` otherwise. It SHALL send `max_speakers_expected` when `TRANSCRIBE_MAX_SPEAKERS` is set.
+3. Poll `GET /v2/transcript/{id}` every 3 s, for at most 1800 attempts.
+   A status of `error` SHALL throw `Transcription failed: <error>`, or `Transcription failed: Unknown error` when `error` is absent. When the job never completes, it SHALL throw `Transcription <id> timed out after 1800 poll attempts`.
+
+The backend SHALL retry HTTP 429 and 5xx responses up to 4 times, for uploads, creation and status polls alike. It SHALL wait for the time in `retry-after` when that header is present, and for the poll interval × attempt number otherwise. Unlike Soniox, the backend SHALL NOT delete the uploaded audio.
+
+The backend SHALL build tokens from the transcript as follows. For each utterance with words, it SHALL use those words, each with its own speaker or else the utterance speaker. For an utterance without words, it SHALL use the whole utterance text as one token, skipping blank text. When there are no utterances, it SHALL use the top-level `words`. Speaker labels SHALL map single letters `A`–`Z` to `Speaker 1`–`Speaker 26` and numeric labels `N` to `Speaker N`; a missing label SHALL become `Speaker 1` and any other label SHALL pass through unchanged.
+
+#### Scenario: Rate limited then success
+- **WHEN** the upload returns HTTP 429 with `retry-after: 2` and then succeeds
+- **THEN** the client waits 2 s and continues the run
+
+#### Scenario: Non-retryable error
+- **WHEN** creating the transcript returns HTTP 400
+- **THEN** it throws `AssemblyAI create failed: HTTP 400 ...` without retrying
+
+#### Scenario: Speaker labels mapped
+- **WHEN** the utterances use speakers `A` and `B`
+- **THEN** the SRT cues are labelled `[Speaker 1]` and `[Speaker 2]`
+
+#### Scenario: Provider error status
+- **WHEN** polling returns `status: "error"` with no `error` field
+- **THEN** it throws `Transcription failed: Unknown error`
+- **AND** no delete request is sent for the uploaded audio
+
+#### Scenario: No utterances
+- **WHEN** the transcript has no utterances but has top-level words with speaker `2`
+- **THEN** the SRT is built from those words labelled `[Speaker 2]`
+
+### Requirement: SRT format
+Both backends SHALL produce SRT through the same builder:
+- Tokens or words with blank text SHALL be dropped.
+- Consecutive tokens SHALL be grouped into one cue until the speaker changes or the cue reaches 5000 ms.
+- A token without a speaker SHALL be labelled `Speaker 1`.
+- Each cue SHALL consist of its index starting at 1, a line `HH:MM:SS,mmm --> HH:MM:SS,mmm`, a line `[<speaker>] <text>`, and a blank line.
+- A transcript without tokens SHALL produce an empty string.
+
+#### Scenario: Speaker change splits cues
+- **WHEN** the tokens alternate from speaker `1` to speaker `2`
+- **THEN** two cues are emitted, labelled `[1]` and `[2]`
+
+#### Scenario: Timestamp format
+- **WHEN** a cue starts at 3723004 ms
+- **THEN** its start time is rendered as `01:02:03,004`
+
+### Requirement: Bounded file-level concurrency
+The CLI SHALL process pending files through a worker pool with at most `TRANSCRIBE_CONCURRENCY` files in flight (minimum 1). Files SHALL be dispatched oldest first and may finish in any order. Within one file, the selected backends SHALL run one after another against the audio, which is extracted once. The file's outcome SHALL be `transcribed` if any backend wrote a new SRT. Otherwise it SHALL be `failed` if any backend failed, and `already` in all remaining cases. A backend error SHALL be logged as `Failed (<file> via <backend>): <msg>` and SHALL NOT stop the other backends for that file. An exception outside the backends, such as an extraction or size-guard failure, SHALL be caught per file, logged as `Failed (<file>): <msg>`, and counted as failed without stopping the other files.
+
+#### Scenario: Serial mode
+- **WHEN** `TRANSCRIBE_CONCURRENCY=1`
+- **THEN** files are transcribed one at a time, oldest first
+
+#### Scenario: One backend fails in a both-run
+- **WHEN** Soniox succeeds and AssemblyAI fails for the same file
+- **THEN** `.srt` is written, the AssemblyAI error is logged, and the file counts as newly transcribed
+
+#### Scenario: File-level failure
+- **WHEN** audio extraction throws for `a.mp4`
+- **THEN** `Failed (a.mp4): FFmpeg extraction failed: ...` is logged
+- **AND** the file counts as failed and the next file is still processed
+
+### Requirement: SRT naming contract with speaker identification
+The SRT suffixes that transcription produces SHALL match the names the speaker identification feature uses to find the source media. Speaker identification strips `.diarize.srt`, `.named.srt` or `.srt` from a transcript name to get its media stem. It then looks for sibling media in the fixed order `.mkv`, `.mp4`, `.mov`, `.m4a`, `.mp3`, which is the same set that discovery transcribes.
+
+#### Scenario: AssemblyAI output maps back to its video
+- **WHEN** `talk.diarize.srt` was produced from `talk.mp4`, and `talk.m4a` also exists
+- **THEN** media resolution for `talk.diarize.srt` returns `talk.mp4`
 
 ### Requirement: Media paths are absolute and never parsed as options
 

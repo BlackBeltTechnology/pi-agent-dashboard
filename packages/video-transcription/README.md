@@ -66,7 +66,7 @@ alongside each source file.
 | Key | `SONIOX_API_KEY` | `ASSEMBLY_AI_KEY` |
 | Output | `<name>.srt` | `<name>.diarize.srt` |
 | Endpoint | `api.soniox.com` | `api.eu.assemblyai.com` (EU data residency) |
-| Model | `stt-async-v3` | `speech_models: ["universal-3-5-pro", "universal-2"]` |
+| Model | `stt-async-v6` | `speech_models: ["universal-3-5-pro", "universal-2"]` |
 | Per-request duration cap | 5 h (chunk default 4.5 h) | 10 h (chunk default 9 h) |
 
 Because the two backends write different suffixes, the same source file can be
