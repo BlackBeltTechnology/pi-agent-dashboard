@@ -28,7 +28,9 @@ test.describe("flow code nodes reach the dashboard tool registry (L3: real engin
     await byTestId(page, "flowLaunchRun").click();
 
     await expandSummary(page);
-    const summary = page.getByTestId("flow-summary-scrollbox").locator("xpath=..");
+    // The completed panel is FlowDashboard in summary mode (graph above the
+    // scroll box, cards inside it). See change: unify-flow-rendering (D1).
+    const summary = page.locator('[data-testid="flow-dashboard"][data-flow-mode="summary"]');
     await expect(summary.locator('[data-node="probe"]')).toHaveAttribute("data-status", "complete");
     await expect(summary.locator('[data-step="probe"]')).toContainText(/git version/);
   });

@@ -61,10 +61,11 @@ describe("flow-card-grid helper (L1, #E1)", () => {
     );
   });
 
-  it("both grid call sites spread the helper", () => {
-    // The live panel's grid moved into FlowStepCards (Agent cards section).
-    // See change: update-flows-plugin (D7).
-    for (const file of ["FlowStepCards.tsx", "FlowSummary.tsx"]) {
+  it("the grid call site spreads the helper", () => {
+    // The live panel's grid moved into FlowStepCards (Agent cards section);
+    // completed flows render the same FlowStepCards (the FlowSummary grid is
+    // gone). See changes: update-flows-plugin (D7), unify-flow-rendering (D1).
+    for (const file of ["FlowStepCards.tsx"]) {
       const src = readFileSync(join(CLIENT_SRC, file), "utf8");
       expect(src, `${file} must use the container class`).toContain("FLOW_CARD_GRID_CONTAINER_CLASS");
       expect(src, `${file} must use the grid class`).toContain("FLOW_CARD_GRID_CLASS");

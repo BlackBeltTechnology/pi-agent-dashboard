@@ -1,6 +1,6 @@
 /**
- * Per-session persistence for the flow socket's collapse state. The whole-panel
- * (`FlowSummary`) and live-dashboard (`FlowDashboard`) collapses are stored in
+ * Per-session persistence for the flow socket's collapse state. The completed
+ * (`summary` kind) and idle/live (`dashboard` kind) `FlowDashboard` collapses are stored in
  * localStorage keyed by session id, so collapsing a session's flow panel sticks
  * across remounts/reloads instead of re-opening every time. Mirrors the
  * try/catch-swallow pattern of `useSidebarState.ts`; a localStorage failure
