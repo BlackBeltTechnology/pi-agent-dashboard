@@ -137,6 +137,10 @@ async function assertRunningThenCompleted(page: Page): Promise<void> {
   await expect(page.getByText(LONG_STREAM_HOLD_TAIL).first()).toBeVisible({ timeout: 180_000 });
   await expect(page.locator(RUNNING_CARD)).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator(ELIDED_NOTE)).toHaveCount(0);
+  await expect.poll(async () => {
+    const text = await page.getByTestId("chat-scroll-container").innerText();
+    return text.split(LONG_STREAM_HOLD_TAIL).length - 1;
+  }).toBe(1);
 }
 
 /**
