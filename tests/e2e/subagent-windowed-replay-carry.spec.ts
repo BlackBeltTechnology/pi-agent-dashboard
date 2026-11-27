@@ -4,10 +4,12 @@
  *
  * A fake bridge registers a session and forwards producer-0.8.x-shaped
  * `subagent_created` / `subagent_started` / `subagent_entry` frames (stamped
- * `pluginId: "subagents"`, as the server's ownership check requires), then more
- * than `maxReplayEvents` filler `message_end` events, so every subagent frame
- * sits OUTSIDE the replay tail. The browser opens the session cold: only the
- * server's `plugin_event_carry` frame can bring those frames back.
+ * `pluginId: "subagents"`, as the server's ownership check requires) AFTER a
+ * head's worth of filler `message_end` events, then more than `maxReplayEvents`
+ * filler events, so every subagent frame sits in the replay GAP: past the head
+ * (the first ~10% of the window, 20..200 events, is always replayed) and before
+ * the tail. The browser opens the session cold: only the server's
+ * `plugin_event_carry` frame can bring those frames back.
  *
  * Asserts: the dock row shows the producer type + task (never `unknown`) and
  * the subagent view lists every entry from index 0.
@@ -46,7 +48,23 @@ test.describe("subagent windowed replay carry (L3)", () => {
           event: { eventType, timestamp: Date.now(), data },
         });
 
-      // Subagent frames FIRST, before the tail.
+      const filler = (i: number) =>
+        bridge.send({
+          type: "event_forward",
+          sessionId: bridge.sessionId,
+          event: {
+            eventType: "message_end",
+            timestamp: Date.now(),
+            data: { message: { role: i % 2 ? "assistant" : "user", content: [{ type: "text", text: `filler ${i}` }] } },
+          },
+        });
+
+      // Fill the replay HEAD first (HEAD_MIN 20 .. HEAD_CAP 200 = 10% of the
+      // window), so the subagent frames below land in the gap, not the head.
+      const headFill = Math.min(200, Math.max(20, Math.floor(limit * 0.1))) + 20;
+      for (let i = 0; i < headFill; i++) filler(i);
+
+      // Subagent frames, now past the head and before the tail.
       forward("subagent_created", {
         id: SUB_ID,
         type: TYPE,
@@ -62,17 +80,7 @@ test.describe("subagent windowed replay carry (L3)", () => {
       }
 
       // Push every subagent frame out of the replay window.
-      for (let i = 0; i < limit + 300; i++) {
-        bridge.send({
-          type: "event_forward",
-          sessionId: bridge.sessionId,
-          event: {
-            eventType: "message_end",
-            timestamp: Date.now(),
-            data: { message: { role: i % 2 ? "assistant" : "user", content: [{ type: "text", text: `filler ${i}` }] } },
-          },
-        });
-      }
+      for (let i = 0; i < limit + 300; i++) filler(i);
       bridge.send({ type: "session_heartbeat", sessionId: bridge.sessionId, agentRunning: false });
 
       // Cold open (fresh context, empty IndexedDB) => windowed subscribe.
