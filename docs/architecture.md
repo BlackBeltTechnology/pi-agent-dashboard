@@ -1876,6 +1876,31 @@ Access + controls:
 - Limits: read 8/s burst 16; POST writes 2/s burst 5. 429 ⇒ `rate_limited`.
 - See change: add-agent-teams-ui.
 
+### Agent Teams templates, hooks, plan approval (`add-agent-teams-templates-hooks`)
+
+Same plugin `agent-teams`. Additive over core seams (`registerOpGate`, `registerDispatchEligibility`, `registerSpawnContributor`, `registerMailKind`, `Team.overrides`, `Member.hold`). Full guide: [`agent-teams.md`](agent-teams.md). Security: [`security/agent-teams-hooks-and-plans.md`](security/agent-teams-hooks-and-plans.md).
+
+```mermaid
+flowchart LR
+  T["templates.ts<br/>user + project(trusted)"] --> S["start.ts team.start"]
+  C["bridge /agent-team"] -->|lane| S
+  D["Start team dialog"] -->|"POST teams/start"| S
+  A["agents.ts .pi/agents"] --> R["spawn-resolve.ts"]
+  S --> CORE["core createTeam · bindLead · spawnMember"]
+  R --> CORE
+  H["hooks.ts"] -->|registerOpGate| CORE
+  P["plans.ts"] -->|eligibility · mail kinds| CORE
+```
+
+- Template = markdown + YAML frontmatter. Sources `user` (`<piAgentDir>/teams/`), `project` (`<cwd>/.pi/teams/`, needs `host.isProjectTrusted`). Vars `{{goal}}`, `{{cwd}}` only.
+- Start: `/agent-team start|templates` (bridge, current session becomes lead) or `POST /api/plugins/agent-teams/teams/start` (server spawns lead, deadline `leadBindDeadline`, `closeReason: lead_spawn_failed`). Template snapshot persisted on team; frozen.
+- Teammate types: `.pi/agents/<Name>.md` re-implemented reader (`agents.ts`). Precedence + ceiling + plan floor in `spawn-resolve.ts`.
+- Hooks `TeammateIdle|TaskCreated|TaskCompleted`: op gates, exit 0 allow / 2 block / other allow (fail-open), one `opGateBudgetMs` (12 s) deadline, concurrency 2/team 4/global, `hookMaxRetries` 3. TOFU `<dataDir>/hook-trust.json` keyed `realpath(cwd)`+sha256. Frozen at start.
+- Plan approval: `planning → pending → approved`. `PlanSubmit` / `PlanDecision` tools + `plan-decision` route. Layers: spawn tool list, `setActiveTools` narrowing, `tool_call` backstop (`bridge/plan-mode.ts`).
+- Config: `maxTemplateBytes`, `hookTimeoutMs`, `hookMaxRetries`, `planMaxChars`, `planModeTools`.
+- Routes: GET `templates`, GET `teams/:id/plans` (observe); POST `teams/start`, POST `…/members/:name/plan-decision`, POST/DELETE `hook-trust` (operate).
+- See change: add-agent-teams-templates-hooks.
+
 ### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
 
 `ServerPluginContext.spawnSession` accepts `PluginSpawnOptions.lifecycle: PluginSessionLifecycle` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`). Owning plugin declares per-session lifecycle decisions; core reads the flags, never the plugin name.

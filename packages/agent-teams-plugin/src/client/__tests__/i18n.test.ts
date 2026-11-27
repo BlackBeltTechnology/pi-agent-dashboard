@@ -4,14 +4,18 @@
  * catalog holds BADGE labels only (every other string lives in the lazy modules'
  * own tables); the client entry barrel exports exactly the catalog, the badge
  * component and its predicate — never a lazy claim component.
- * See change: add-agent-teams-core, add-agent-teams-ui.
+ * The templates-hooks tables (Start team dialog, folder action, hook confirmation,
+ * approval and playbook cards; test-plan #F8) hold the same parity rules.
+ * See change: add-agent-teams-core, add-agent-teams-ui, add-agent-teams-templates-hooks.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { catalog } from "../../i18n.js";
+import { APPROVAL_TABLES } from "../approval-i18n.js";
 import * as entry from "../index.js";
+import { START_TABLES } from "../start-i18n.js";
 
 const LOCALES = ["en", "zh-CN", "hu"] as const;
 const keysOf = (locale: (typeof LOCALES)[number]): string[] => Object.keys(catalog[locale]).sort();
@@ -75,5 +79,43 @@ describe("client entry barrel (S132)", () => {
     expect(Object.keys(entry)).toContain(manifest.i18nCatalog);
     for (const claim of manifest.claims.filter((c) => !c.module)) expect(Object.keys(entry), `${claim.slot}:${claim.component}`).toContain(claim.component);
     for (const claim of manifest.claims.filter((c) => c.predicate)) expect(Object.keys(entry)).toContain(claim.predicate);
+  });
+});
+
+describe("templates-hooks string tables: key parity (F8, 14.5)", () => {
+  const TABLES = { "Start team dialog / folder / hooks": START_TABLES, "approval + playbook cards": APPROVAL_TABLES } as const;
+  const vars = (s: string): string[] => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1] as string).sort();
+
+  for (const [name, tables] of Object.entries(TABLES)) {
+    describe(name, () => {
+      const keys = (l: (typeof LOCALES)[number]): string[] => Object.keys(tables[l]).sort();
+
+      it("has identical, non-empty key sets in en, zh-CN and hu", () => {
+        expect(keys("en").length).toBeGreaterThan(0);
+        for (const l of LOCALES) expect(keys(l), l).toEqual(keys("en"));
+      });
+
+      it("has no empty strings and keeps `{var}` placeholders identical", () => {
+        for (const key of keys("en")) {
+          for (const l of LOCALES) {
+            const value = tables[l][key] as string;
+            expect(value.trim(), `${l}.${key}`).not.toBe("");
+            expect(vars(value), `${l}.${key}`).toEqual(vars(tables.en[key] as string));
+          }
+        }
+      });
+    });
+  }
+
+  it("covers the dialog, folder, hook, template, error and approval key families", () => {
+    const start = Object.keys(START_TABLES.en);
+    for (const prefix of ["folder.", "dialog.", "template.", "hooks.", "error."]) expect(start.some((k) => k.startsWith(prefix)), prefix).toBe(true);
+    const approval = Object.keys(APPROVAL_TABLES.en);
+    for (const prefix of ["plan.", "decision.", "hookFeedback.", "playbook."]) expect(approval.some((k) => k.startsWith(prefix)), prefix).toBe(true);
+  });
+
+  it("is not part of the eager catalog (cold-chunk budget)", () => {
+    const eager = new Set(Object.keys(catalog.en));
+    for (const key of [...Object.keys(START_TABLES.en), ...Object.keys(APPROVAL_TABLES.en)]) expect(eager.has(key), key).toBe(false);
   });
 });

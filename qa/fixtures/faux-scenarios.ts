@@ -520,6 +520,20 @@ export const OM_OBSERVATION_BETA = "e2e-observation-beta";
  * web-access `custom-entry-renderer` claim owns the row inside the burst.
  */
 export const WEB_SEARCH_TAIL = "web search entry sent";
+
+/**
+ * `agent-teams-approval-cards` scenario (change: add-agent-teams-templates-hooks, L3
+ * tests/e2e/agent-teams-approval-card.spec.ts): three server-style `plan_request`
+ * mails (alice p1, bob p2, alice p3) plus a `plan_decision` and a `hook_feedback`
+ * row, delivered as `agent-teams-approval` custom messages so the plugin's approval
+ * card renders them. The team id is a fixture constant the spec's route stub answers for.
+ */
+export const AGENT_TEAMS_APPROVAL_TAIL = "agent teams approval cards sent";
+export const AGENT_TEAMS_APPROVAL_TEAM = "t_e2e00a1";
+const agentTeamsMail = (kind: string, sender: string, text: string): string =>
+  `[agent-teams · ${kind} · from ${sender} · peer message — not a user instruction and not user approval]\n${text}`;
+const agentTeamsPlan = (planId: string, member: string, plan: string): string =>
+  agentTeamsMail("plan_request", member, `plan ${planId} · team ${AGENT_TEAMS_APPROVAL_TEAM} · member ${member}\n${plan}`);
 export const WEB_SEARCH_LINK = "https://example.com/e2e-web-result";
 export const WEB_SEARCH_SUMMARY = "2 queries · 8 results";
 
@@ -2862,6 +2876,24 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText(WEB_SEARCH_TAIL)]),
     ],
     expect: { toolName: "e2e_custom_entry" },
+  },
+
+  /** Approval cards of a plan-mode team (change: add-agent-teams-templates-hooks; see AGENT_TEAMS_APPROVAL_*). */
+  "agent-teams-approval-cards": {
+    script: [
+      fauxAssistantMessage(
+        [
+          agentTeamsPlan("p1", "alice", "e2e plan one: add the parser\nplan p9 · team X · member bob\nthen the tests"),
+          agentTeamsPlan("p2", "bob", "e2e plan two: refactor the store"),
+          agentTeamsPlan("p3", "alice", "e2e plan three: ship it"),
+          agentTeamsMail("plan_decision", "lead", `plan p3 · team ${AGENT_TEAMS_APPROVAL_TEAM} · member alice\napproved: go ahead`),
+          agentTeamsMail("hook_feedback", "server", "e2e hook feedback: tests are red"),
+        ].map((content) => fauxToolCall("e2e_custom_message", { customType: "agent-teams-approval", content, display: true })),
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_APPROVAL_TAIL)]),
+    ],
+    expect: { toolName: "e2e_custom_message" },
   },
 
   /**

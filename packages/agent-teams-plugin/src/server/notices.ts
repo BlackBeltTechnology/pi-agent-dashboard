@@ -14,7 +14,7 @@
 import type { Clock } from "../shared/clock.js";
 import { formatNoticeItem } from "../shared/mail-format.js";
 import type { Team } from "../shared/types.js";
-import type { ConfigReader } from "./config.js";
+import { type ConfigReader, effectiveCoalesceWindowMs } from "./config.js";
 import type { TeamStore } from "./store.js";
 import type { Logger } from "./types.js";
 
@@ -50,7 +50,7 @@ export function createNoticeBuffer(deps: NoticesDeps) {
   const buffers = new Map<string, { items: RenderedNoticeItem[]; timer: unknown }>();
 
   function windowMs(team: Team): number {
-    return team.overrides?.notifyCoalesceMs ?? deps.config().notifyCoalesceMs;
+    return effectiveCoalesceWindowMs(team, deps.config());
   }
 
   /** Post the buffered batch now (timer fire, or an early drain). */

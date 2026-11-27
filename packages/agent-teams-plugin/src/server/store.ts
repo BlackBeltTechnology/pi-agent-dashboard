@@ -52,7 +52,17 @@ export interface CreateTeamInput {
   overrides?: TeamOverrides;
   defaultSkills?: string[];
   defaultTools?: string[];
+  /** Additive fields of the templates-hooks change (all optional; absent = unchanged behaviour). */
+  template?: Team["template"];
+  hooks?: Team["hooks"];
+  leadSpawnToken?: string;
+  leadBindDeadline?: number;
 }
+
+/** Team fields `patchTeam` may set (an `undefined` value clears the field). */
+export type TeamPatch = Partial<
+  Pick<Team, "overrides" | "defaultSkills" | "defaultTools" | "maxTeammates" | "description" | "template" | "hooks" | "plans" | "leadSpawnToken" | "leadBindDeadline">
+>;
 
 export interface AddTaskInput {
   title: string;
@@ -232,6 +242,10 @@ export class TeamStore {
     if (input.overrides !== undefined) team.overrides = input.overrides;
     if (input.defaultSkills !== undefined) team.defaultSkills = input.defaultSkills;
     if (input.defaultTools !== undefined) team.defaultTools = input.defaultTools;
+    if (input.template !== undefined) team.template = input.template;
+    if (input.hooks !== undefined) team.hooks = input.hooks;
+    if (input.leadSpawnToken !== undefined) team.leadSpawnToken = input.leadSpawnToken;
+    if (input.leadBindDeadline !== undefined) team.leadBindDeadline = input.leadBindDeadline;
     this.teams.set(id, team);
     this.mail.set(id, []);
     if (team.leadSessionId) this.index.set(team.leadSessionId, { teamId: id, who: "lead" });
@@ -285,11 +299,19 @@ export class TeamStore {
     return team;
   }
 
-  patchTeam(teamId: string, patch: Partial<Pick<Team, "overrides" | "defaultSkills" | "defaultTools" | "maxTeammates" | "description">>): void {
+  /**
+   * Patch settable team fields; a key whose value is `undefined` is DELETED (so a cleared
+   * `leadSpawnToken` leaves no key in the persisted JSON). `writeThrough` flushes at once
+   * (use it for `template`/`hooks`/`leadSpawnToken`/`leadBindDeadline`, which a restart must see).
+   */
+  patchTeam(teamId: string, patch: TeamPatch, opts: { writeThrough?: boolean } = {}): void {
     const team = this.teams.get(teamId);
     if (!team) return;
-    Object.assign(team, patch);
-    this.commit(team);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete (team as unknown as Record<string, unknown>)[k];
+      else (team as unknown as Record<string, unknown>)[k] = v;
+    }
+    this.commit(team, opts);
   }
 
   private dropIndexFor(team: Team): void {

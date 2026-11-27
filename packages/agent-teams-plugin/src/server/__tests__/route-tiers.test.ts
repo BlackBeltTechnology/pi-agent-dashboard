@@ -13,6 +13,16 @@ import { createUiEnv, type UiEnv } from "../../__tests__/harness/ui-env.js";
 const STOP = "/api/plugins/agent-teams/teams/:id/members/:name/stop";
 const SHUTDOWN = "/api/plugins/agent-teams/teams/:id/shutdown";
 
+/** Rows added by add-agent-teams-templates-hooks (tasks 1.3, 3.1, 3.7, 5.5, 6.8): all mounted by `templates-routes.ts`; the tier assertions below pin them. */
+const TEMPLATES_HOOKS_ROWS: ReadonlyArray<readonly [method: string, path: string, tier: Tier]> = [
+  ["GET", "/api/plugins/agent-teams/templates", "observe"],
+  ["GET", "/api/plugins/agent-teams/teams/:id/plans", "observe"],
+  ["POST", "/api/plugins/agent-teams/teams/start", "operate"],
+  ["POST", "/api/plugins/agent-teams/teams/:id/members/:name/plan-decision", "operate"],
+  ["POST", "/api/plugins/agent-teams/hook-trust", "operate"],
+  ["DELETE", "/api/plugins/agent-teams/hook-trust", "operate"],
+];
+
 const envs: UiEnv[] = [];
 afterEach(async () => {
   await Promise.all(envs.splice(0).map((e) => e.close()));
@@ -37,8 +47,24 @@ describe("ROUTE_TIERS rows (S27)", () => {
     await e.get(`/teams/${team.id}`);
     await e.post(`/teams/${team.id}/members/alice/stop`);
     await e.post(`/teams/${team.id}/shutdown`);
+    // The templates-hooks routes: the matched pattern is recorded even when the call is refused (400/403/404).
+    const api = "/api/plugins/agent-teams";
+    await e.app.inject({ method: "GET", url: `${api}/templates?cwd=/nowhere` });
+    await e.app.inject({ method: "GET", url: `${api}/teams/${team.id}/plans` });
+    await e.app.inject({ method: "POST", url: `${api}/teams/start`, payload: {} });
+    await e.app.inject({ method: "POST", url: `${api}/teams/${team.id}/members/alice/plan-decision`, payload: {} });
+    await e.app.inject({ method: "POST", url: `${api}/hook-trust`, payload: {} });
+    await e.app.inject({ method: "DELETE", url: `${api}/hook-trust?cwd=/nowhere&hash=h` });
     const rows = ROUTE_TIERS.filter((r) => r.path.startsWith("/api/plugins/agent-teams/")).map((r) => `${r.method} ${r.path}`);
     expect(rows.sort()).toEqual([...new Set(seen)].sort());
+    expect(rows).toHaveLength(10);
+  });
+});
+
+describe("templates-hooks ROUTE_TIERS rows", () => {
+  it.each(TEMPLATES_HOOKS_ROWS)("%s %s is tier %s", (method, route, tier) => {
+    expect(hasRouteTier(method, route), route).toBe(true);
+    expect(routeTier(method, route), route).toBe(tier);
   });
 });
 
