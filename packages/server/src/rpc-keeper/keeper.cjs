@@ -43,7 +43,7 @@ if (!sessionId || typeof sessionId !== "string") {
 const SESSIONS_DIR = path.join(os.homedir(), ".pi", "dashboard", "sessions");
 try {
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
-} catch (_e) { /* ignore — fs.openSync below will fail with a clearer error */ }
+} catch (_e) { /* ignore — the socket bind / sidecar write below fails with a clearer error */ }
 
 // Socket / pipe path conventions per spec (Decision 3 in design.md)
 const isWindows = process.platform === "win32";
@@ -109,27 +109,40 @@ if (TEST_FAULTS.length > 0) {
 // Logger
 // ---------------------------------------------------------------------------
 
+// PI_KEEPER_CAPTURE_PI_OUTPUT === "1" (set by the dashboard from
+// config.keeperLog.capturePiOutput, and removed by it when the toggle is off)
+// gates ALL keeper log output: the keeper-<id>.log file, its lifecycle log()
+// lines, the rotation machinery, and pi's stdout/stderr. Off (the default) →
+// no log file is opened at all. See change: keeper-log-toggle-gates-all-output.
+const captureEnabled = process.env.PI_KEEPER_CAPTURE_PI_OUTPUT === "1";
+
 let logFd;
-try {
-  logFd = fs.openSync(logPath, "a");
-} catch (e) {
-  process.stderr.write(`[keeper ${sessionId}] FATAL: cannot open log ${logPath}: ${e && e.message}\n`);
-  process.exit(2);
+if (captureEnabled) {
+  try {
+    logFd = fs.openSync(logPath, "a");
+  } catch (e) {
+    process.stderr.write(`[keeper ${sessionId}] FATAL: cannot open log ${logPath}: ${e && e.message}\n`);
+    process.exit(2);
+  }
 }
 
 // Rotation core, created after logFd exists (the throttled size check runs at
 // the top of every log() call, and its failure WARNs route through log()).
+// null when capture is off — there is no file to bound.
 // See keeper-log-rotation.cjs for the truncate-in-place contract.
-const logRotation = createKeeperLogRotation({
-  logFd,
-  logPath,
-  log: (line) => log(`[rotation] ${line}`),
-  maxBytes: LOG_MAX_BYTES,
-  checkIntervalMs: LOG_CHECK_INTERVAL_MS,
-  fs: rotationFs,
-});
+const logRotation = captureEnabled
+  ? createKeeperLogRotation({
+      logFd,
+      logPath,
+      log: (line) => log(`[rotation] ${line}`),
+      maxBytes: LOG_MAX_BYTES,
+      checkIntervalMs: LOG_CHECK_INTERVAL_MS,
+      fs: rotationFs,
+    })
+  : null;
 
 function log(line) {
+  if (!captureEnabled) return;
   if (logRotation) logRotation.rotateIfNeeded();
   try {
     fs.writeSync(logFd, `[${new Date().toISOString()}] ${line}\n`);
@@ -358,12 +371,12 @@ function spawnPi() {
   const env = buildPiEnv(process.env, piLaunchCount === 1);
 
   // Opt-in capture of pi's stdout/stderr into keeper-<id>.log. Default OFF:
-  // pi's output is discarded (stdio "ignore" → /dev/null) so the log can't
-  // balloon to GB. When PI_KEEPER_CAPTURE_PI_OUTPUT === "1" (set by the
-  // dashboard from config.keeperLog.capturePiOutput), pi's stdout/stderr are
-  // appended to the keeper log fd. The keeper's own lifecycle log() lines are
-  // written either way. See change: add-keeper-output-capture-toggle.
-  const capturePiOutput = process.env.PI_KEEPER_CAPTURE_PI_OUTPUT === "1";
+  // pi's output is discarded (stdio "ignore" → /dev/null) and no keeper log
+  // exists at all. When on (captureEnabled, above), pi's stdout/stderr are
+  // appended to the keeper log fd alongside the lifecycle log() lines.
+  // See changes: add-keeper-output-capture-toggle,
+  // keeper-log-toggle-gates-all-output.
+  const capturePiOutput = captureEnabled;
   delete env.PI_KEEPER_CAPTURE_PI_OUTPUT;
   // Keeper-internal tuning is not pi's business (and pi's env is observable
   // downstream): strip the rotation knobs and the test-fault switch exactly
@@ -439,8 +452,10 @@ async function main() {
   // call site: with capture on, growth is entirely child-driven, so a keeper
   // that logs nothing for an hour would otherwise never check. unref()'d —
   // it must not keep the process alive past pi's exit. Its callback is fully
-  // guarded inside the rotation module (design D3).
-  logRotation.start();
+  // guarded inside the rotation module (design D3). No rotation exists when
+  // capture is off — unguarded, this would reject main() and kill every
+  // default keeper. See change: keeper-log-toggle-gates-all-output.
+  if (logRotation) logRotation.start();
 
   // 3. Spawn pi.
   piChild = spawnPi();

@@ -33,6 +33,9 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Keeper logging off means off.** The Settings > Developer toggle "Capture pi session output (debug)" (`keeperLog.capturePiOutput`) now gates all keeper log output. Off (the default): a new headless session writes no `keeper-<id>.log` and no `keeper-launch-<id>.log`. On: unchanged (lifecycle lines + pi output with in-place rotation, startup stderr in the launch log). An inherited `PI_KEEPER_CAPTURE_PI_OUTPUT` in the server's environment can no longer turn logging on behind the toggle. The `PI_CRASHED` message now says to enable the toggle (off) or names both log files (on). Also fixes a leaked file descriptor per headless session start. Existing empty launch logs are not deleted automatically; to clean them up once:
+  - POSIX: `find ~/.pi/dashboard/sessions -name 'keeper-launch-*.log' -size 0 -mmin +60 -delete`
+  - PowerShell: `Get-ChildItem $HOME\.pi\dashboard\sessions\keeper-launch-*.log | Where-Object { $_.Length -eq 0 -and $_.LastWriteTime -lt (Get-Date).AddHours(-1) } | Remove-Item`
 - **BREAKING: pi 1.6.0 is the new floor and lockstep pin** (`piCompatibility.minimum` = `recommended` = `1.6.0`; every `@earendil-works` pi peer `>=1.6.0`, optional; devDeps `^1.6.0`). A session on pi below 1.6.0 shows the below-floor warning: update with `npm install -g @earendil-works/pi-coding-agent@1.6.0`. The Docker image installs pi 1.6.0.
 - **`cacheWarming` defaults to `"idle"`.** Unset dashboard setting now means `"idle"` (pi 1.5.1 default). Stored `"streaming"` stays valid.
 - **`!` command killed on timeout reports exit code 143.** pi 1.6.0 `pi.exec` returns 128+signal; was 0. Killed `!` commands now show as failed.

@@ -12,6 +12,7 @@
  *   - design.md Decisions 4 + 8
  */
 import {
+  closeSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -347,10 +348,33 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
 
     // Per-spawn log for the parent-side stdio capture. The keeper itself
     // writes its primary log to `keeper-<sid>.log`; this captures any
-    // bootstrap stderr (e.g. keeper failed to open its own log).
-    const launchLogPath = path.join(sessionsDir, `keeper-launch-${sessionId}.log`);
+    // bootstrap stderr (e.g. keeper failed to open its own log). Opened only
+    // when capture is on (the env var process-manager sets from config) —
+    // off means no keeper log files at all. The parent's fd is closed after
+    // spawn on every path (the child keeps its inherited copy).
+    // See change: keeper-log-toggle-gates-all-output.
     let logFd: number | undefined;
-    try { logFd = openSync(launchLogPath, "a"); } catch { logFd = undefined; }
+    if (env.PI_KEEPER_CAPTURE_PI_OUTPUT === "1") {
+      const launchLogPath = path.join(sessionsDir, `keeper-launch-${sessionId}.log`);
+      try { logFd = openSync(launchLogPath, "a"); } catch { logFd = undefined; }
+    }
+    try {
+      return await spawnKeeperWithLogFd(sessionId, cwd, env, logFd, piArgs, piCmd);
+    } finally {
+      if (logFd !== undefined) {
+        try { closeSync(logFd); } catch { /* never turn a spawn result into a rejection */ }
+      }
+    }
+  }
+
+  async function spawnKeeperWithLogFd(
+    sessionId: string,
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+    logFd: number | undefined,
+    piArgs?: string[],
+    piCmd?: string[],
+  ): Promise<KeeperSpawnResult> {
 
     // Forward pi argv to the keeper via env var (avoids shell-quoting
     // pitfalls of stuffing them into argv). Keeper reads PI_KEEPER_PI_ARGS

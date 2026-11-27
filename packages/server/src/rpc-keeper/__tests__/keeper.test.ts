@@ -127,8 +127,15 @@ async function spawnKeeper(opts: SpawnKeeperOptsExt = {}): Promise<SpawnedKeeper
     writeFileSync(piShimDest, readFileSync(shimSrc, "utf8"), { mode: 0o755 });
   }
 
+  // Hermeticity: scrub any inherited PI_KEEPER_CAPTURE_PI_OUTPUT (any case)
+  // so a dev shell exporting it cannot falsify the "no log file" scenarios.
+  // Tests opt in via extraEnv. See change: keeper-log-toggle-gates-all-output.
+  const inherited: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(inherited)) {
+    if (key.toUpperCase() === "PI_KEEPER_CAPTURE_PI_OUTPUT") delete inherited[key];
+  }
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...inherited,
     HOME: home,
     PATH: opts.noPathShim
       // Scrub PATH so bare `spawn("pi", ...)` cannot find pi. Forces the
@@ -336,7 +343,7 @@ describe.skipIf(process.platform === "win32")("rpc-keeper (Unix UDS)", () => {
     const k = track(
       await spawnKeeper({
         noPathShim: true,
-        extraEnv: { PI_KEEPER_PI_CMD: JSON.stringify([process.execPath, mockPiAbs]) },
+        extraEnv: { PI_KEEPER_CAPTURE_PI_OUTPUT: "1", PI_KEEPER_PI_CMD: JSON.stringify([process.execPath, mockPiAbs]) },
       }),
     );
     await readyKeeper(k);
@@ -388,7 +395,7 @@ describe.skipIf(process.platform === "win32")("rpc-keeper (Unix UDS)", () => {
     // PI_KEEPER_PI_CMD is malformed JSON — keeper must log and fall back.
     const k = track(
       await spawnKeeper({
-        extraEnv: { PI_KEEPER_PI_CMD: "not json at all" },
+        extraEnv: { PI_KEEPER_CAPTURE_PI_OUTPUT: "1", PI_KEEPER_PI_CMD: "not json at all" },
       }),
     );
     await readyKeeper(k);
@@ -410,7 +417,7 @@ describe.skipIf(process.platform === "win32")("rpc-keeper (Unix UDS)", () => {
     // Shape check: empty array is rejected, falls back to bare "pi" via PATH.
     const k = track(
       await spawnKeeper({
-        extraEnv: { PI_KEEPER_PI_CMD: "[]" },
+        extraEnv: { PI_KEEPER_CAPTURE_PI_OUTPUT: "1", PI_KEEPER_PI_CMD: "[]" },
       }),
     );
     await readyKeeper(k);
@@ -472,20 +479,91 @@ describe.skipIf(process.platform === "win32")("rpc-keeper (Unix UDS)", () => {
     await killAndAwait(k);
   }, 10_000);
 
-  it("add-keeper-output-capture-toggle: capture OFF (default) discards pi stdout, keeps lifecycle log", async () => {
+  // test-plan #E1 — capture OFF (default) writes NO keeper log at all, while
+  // the keeper still serves RPC. Inverts the pre-change "keeps lifecycle log"
+  // test. See change: keeper-log-toggle-gates-all-output.
+  it("E1: capture OFF (default) writes no keeper log, keeper still forwards RPC", async () => {
     const marker = "MOCK_PI_STDOUT_MARKER_OFF";
     const k = track(await spawnKeeper({ extraEnv: { MOCK_PI_STDOUT: marker } }));
     await readyKeeper(k);
 
-    const klog = readFileSync(keeperLogFor(k), "utf8");
-    // Branch taken: keeper lifecycle records capture disabled.
-    expect(klog).toContain("pi output capture: disabled");
-    // pi's stdout marker was routed to /dev/null, NOT the keeper log.
-    expect(klog).not.toContain(marker);
-    // Keeper's own lifecycle breadcrumbs still present.
-    expect(klog).toMatch(/keeper starting:/);
-    expect(klog).toMatch(/spawning pi /);
+    await writeLineToKeeper(k, '{"type":"prompt","message":"e1-off","id":"1"}');
+    await waitFor(() => existsSync(k.mockPiLog) && readFileSync(k.mockPiLog, "utf8").includes("e1-off"));
+    expect(existsSync(keeperLogFor(k))).toBe(false);
 
+    const result = await killAndAwait(k);
+    expect(result.code).toBe(0);
+    expect(existsSync(keeperLogFor(k))).toBe(false);
+  }, 10_000);
+
+  // test-plan #E3 — no rotation machinery armed when capture is off: a short
+  // check interval must not crash the keeper (guards logRotation.start()).
+  it("E3: capture OFF arms no rotation — keeper stays alive across many intervals", async () => {
+    const k = track(await spawnKeeper({ extraEnv: { PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50" } }));
+    await readyKeeper(k);
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Liveness: the socket still accepts a line and pi still receives it.
+    await writeLineToKeeper(k, '{"type":"prompt","message":"e3-off","id":"1"}');
+    await waitFor(() => existsSync(k.mockPiLog) && readFileSync(k.mockPiLog, "utf8").includes("e3-off"));
+    expect(existsSync(keeperLogFor(k))).toBe(false);
+
+    const result = await killAndAwait(k);
+    expect(result.code).toBe(0);
+  }, 10_000);
+
+  // test-plan #E4 — only exactly "1" enables capture.
+  it("E4: capture is enabled only by exactly \"1\"", async () => {
+    for (const value of ["", "0", "true", "yes"]) {
+      const k = track(await spawnKeeper({ extraEnv: { PI_KEEPER_CAPTURE_PI_OUTPUT: value } }));
+      await readyKeeper(k);
+      expect(existsSync(keeperLogFor(k)), `value ${JSON.stringify(value)}`).toBe(false);
+      await killAndAwait(k);
+    }
+  }, 20_000);
+
+  // test-plan #E5 — PID sidecars are still written with capture off.
+  it("E5: capture OFF still writes the .pid and .pi-pid sidecars", async () => {
+    const k = track(await spawnKeeper());
+    await readyKeeper(k);
+    await waitFor(() => existsSync(piPidPathFor(k)));
+    expect(readFileSync(pidPathFor(k), "utf8").trim()).toBe(String(k.child.pid));
+    const piPid = Number(readFileSync(piPidPathFor(k), "utf8").trim());
+    expect(Number.isInteger(piPid) && piPid > 0).toBe(true);
+    expect(await findChildPids(k.child.pid!)).toContain(piPid);
+    await killAndAwait(k);
+  }, 10_000);
+
+  // test-plan #X1 — pi missing with capture off leaves no file behind.
+  it("X1 (capture off): pi binary missing exits non-zero and leaves no log or socket", async () => {
+    const k = track(
+      await spawnKeeper({
+        noPathShim: true,
+        extraEnv: { PI_KEEPER_PI_CMD: JSON.stringify(["/does/not/exist/pi-xyz"]) },
+      }),
+    );
+    const result = await Promise.race([
+      k.exited,
+      new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((_, reject) =>
+        setTimeout(() => reject(new Error("keeper did not exit within 2s")), 2000),
+      ),
+    ]);
+    expect(result.code).not.toBe(0);
+    expect(existsSync(keeperLogFor(k))).toBe(false);
+    expect(existsSync(sockPathFor(k))).toBe(false);
+  }, 8_000);
+
+  // test-plan #X2 — stale-socket recovery still works with capture off.
+  it("X2 (capture off): stale socket is recovered and no log is written", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    mkdirSync(sessionsDirIn(home), { recursive: true });
+    writeFileSync(sockPathIn(home, sessionId), "", { mode: 0o600 });
+
+    const k = track(await spawnKeeper({ sessionId, home }));
+    await readyKeeper(k);
+    expect(existsSync(sockPathFor(k))).toBe(true);
+    expect(existsSync(keeperLogFor(k))).toBe(false);
     await killAndAwait(k);
   }, 10_000);
 
@@ -503,6 +581,7 @@ describe.skipIf(process.platform === "win32")("rpc-keeper (Unix UDS)", () => {
     );
     const klog = readFileSync(keeperLogFor(k), "utf8");
     expect(klog).toContain("pi output capture: enabled");
+    expect(klog).toMatch(/keeper starting:/);
     expect(klog).toContain(marker);
 
     await killAndAwait(k);
@@ -536,7 +615,7 @@ describe.skipIf(process.platform === "win32")("rpc-keeper (Unix UDS)", () => {
   }, 10_000);
 
   it("E18: the .pi-pid sidecar exists before the 'keeper ready' log line", async () => {
-    const k = track(await spawnKeeper());
+    const k = track(await spawnKeeper({ extraEnv: { PI_KEEPER_CAPTURE_PI_OUTPUT: "1" } }));
     await waitFor(() => existsSync(keeperLogFor(k)) && readFileSync(keeperLogFor(k), "utf8").includes("keeper ready"));
     // By the time 'keeper ready' is written, the post-spawn .pi-pid write has
     // already run (code orders 3b before the crash-window ready log).
@@ -571,7 +650,7 @@ describe.skipIf(process.platform === "win32")("rpc-keeper (Unix UDS)", () => {
     mkdirSync(sessionsDirIn(home), { recursive: true });
     mkdirSync(piPidPathIn(home, sessionId), { recursive: true });
 
-    const k = track(await spawnKeeper({ sessionId, home }));
+    const k = track(await spawnKeeper({ sessionId, home, extraEnv: { PI_KEEPER_CAPTURE_PI_OUTPUT: "1" } }));
     await readyKeeper(k); // keeper survived the crash window → still running
 
     // pi is alive: a forwarded line reaches the mock-pi log.
@@ -707,7 +786,9 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
   it("E8: env fallback — unset/empty/non-numeric/zero all resolve to the 128 MiB default (logged at startup)", async () => {
     for (const variant of [undefined, "", "abc", "0"]) {
       const extraEnv: NodeJS.ProcessEnv =
-        variant === undefined ? {} : { PI_KEEPER_LOG_MAX_BYTES: variant };
+        variant === undefined
+          ? { PI_KEEPER_CAPTURE_PI_OUTPUT: "1" }
+          : { PI_KEEPER_CAPTURE_PI_OUTPUT: "1", PI_KEEPER_LOG_MAX_BYTES: variant };
       const k = track(await spawnKeeper({ extraEnv }));
       await readyKeeper(k);
       const klog = readFileSync(keeperLogFor(k), "utf8");
@@ -720,7 +801,7 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
 
   it("E8b: a valid env value resolves as-is (no coercion)", async () => {
     const k = track(
-      await spawnKeeper({ extraEnv: { PI_KEEPER_LOG_MAX_BYTES: "65536", PI_KEEPER_LOG_CHECK_INTERVAL_MS: "250" } }),
+      await spawnKeeper({ extraEnv: { PI_KEEPER_CAPTURE_PI_OUTPUT: "1", PI_KEEPER_LOG_MAX_BYTES: "65536", PI_KEEPER_LOG_CHECK_INTERVAL_MS: "250" } }),
     );
     await readyKeeper(k);
     const klog = readFileSync(keeperLogFor(k), "utf8");
@@ -757,7 +838,7 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
     const sessionId = makeSessionId();
     const home = makeShortHome();
     seedLog(home, sessionId, 65_536 - 1536); // 64 000 B; +~600 B keeper lines < 65 536
-    const k = track(await spawnKeeper({ sessionId, home, extraEnv: { PI_KEEPER_LOG_MAX_BYTES: "65536", PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50" } }));
+    const k = track(await spawnKeeper({ sessionId, home, extraEnv: { PI_KEEPER_CAPTURE_PI_OUTPUT: "1", PI_KEEPER_LOG_MAX_BYTES: "65536", PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50" } }));
     await readyKeeper(k);
     // Several check intervals must elapse with the seed prefix intact.
     await new Promise((r) => setTimeout(r, 400));
@@ -771,7 +852,7 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
     const sessionId = makeSessionId();
     const home = makeShortHome();
     seedLog(home, sessionId, 65_536); // exactly the cap; +keeper overhead crosses it
-    const k = track(await spawnKeeper({ sessionId, home, extraEnv: { PI_KEEPER_LOG_MAX_BYTES: "65536", PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50" } }));
+    const k = track(await spawnKeeper({ sessionId, home, extraEnv: { PI_KEEPER_CAPTURE_PI_OUTPUT: "1", PI_KEEPER_LOG_MAX_BYTES: "65536", PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50" } }));
     await readyKeeper(k);
     await waitFor(() => logSize(home, sessionId) < 65_536, 3_000);
     const content = readFileSync(keeperLogIn(home, sessionId), "utf8");
@@ -910,6 +991,7 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
         sessionId,
         home,
         extraEnv: {
+          PI_KEEPER_CAPTURE_PI_OUTPUT: "1",
           PI_KEEPER_TEST_FAULTS: "ftruncate", // fd truncate throws EPERM
           PI_KEEPER_LOG_MAX_BYTES: "65536",
           PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50",

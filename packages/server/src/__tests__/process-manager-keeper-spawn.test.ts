@@ -354,6 +354,66 @@ describe("spawnHeadless — keeperLog env plumbing (E6)", () => {
     expect(env.PI_KEEPER_LOG_MAX_BYTES).toBe("65536");
     expect(env.PI_KEEPER_LOG_CHECK_INTERVAL_MS).toBe("250");
   });
+
+  // ── The toggle is the only switch (keeper-log-toggle-gates-all-output) ──
+  it("E8: an inherited env var (any case) cannot enable logging when the toggle is off", async () => {
+    seedKeeperLog({ capturePiOutput: false });
+    const keys = ["PI_KEEPER_CAPTURE_PI_OUTPUT", "pi_keeper_capture_pi_output"];
+    const prior = keys.map((k) => process.env[k]);
+    for (const k of keys) process.env[k] = "1";
+    try {
+      const env = await spawnHeadlessCapturingEnv();
+      expect(Object.keys(env).filter((k) => k.toUpperCase() === "PI_KEEPER_CAPTURE_PI_OUTPUT")).toEqual([]);
+      // The sanitizing works on a copy — the server's own env is untouched.
+      for (const k of keys) expect(process.env[k]).toBe("1");
+    } finally {
+      keys.forEach((k, i) => {
+        if (prior[i] === undefined) delete process.env[k];
+        else process.env[k] = prior[i];
+      });
+    }
+  });
+
+  it("E9: config on sets PI_KEEPER_CAPTURE_PI_OUTPUT=1", async () => {
+    seedKeeperLog({ capturePiOutput: true });
+    const env = await spawnHeadlessCapturingEnv();
+    expect(env.PI_KEEPER_CAPTURE_PI_OUTPUT).toBe("1");
+  });
+
+  async function spawnHeadlessCrashing() {
+    const fakeChild = new FakeKeeperChild(66666);
+    setTimeout(() => fakeChild.emit("exit", 1, null), 20);
+    const { km, state } = makeFakeKeeperManager({
+      spawnResult: {
+        success: true,
+        pid: 66666,
+        sockPath: "/fake/sessions/x.sock",
+        process: fakeChild as unknown as import("node:child_process").ChildProcess,
+      },
+    });
+    setKeeperManager(km);
+    const result = await spawnPiSession(tmpCwd, { strategy: "headless" });
+    return { result, transportId: state.spawnCalls[0].sessionId };
+  }
+
+  it("X6: PI_CRASHED with capture off names the toggle, not a log file", async () => {
+    seedKeeperLog({ capturePiOutput: false });
+    const { result } = await spawnHeadlessCrashing();
+    expect(result.code).toBe("PI_CRASHED");
+    expect(result.message).toContain("code 1");
+    expect(result.message).toContain("Capture pi session output");
+    expect(result.message).not.toContain("keeper-");
+    expect(result.stderr).toBeUndefined();
+  });
+
+  it("X7: PI_CRASHED with capture on names both keeper log files", async () => {
+    seedKeeperLog({ capturePiOutput: true });
+    const { result, transportId } = await spawnHeadlessCrashing();
+    expect(result.code).toBe("PI_CRASHED");
+    expect(result.message).toContain("code 1");
+    expect(result.message).toContain(`keeper-${transportId}.log`);
+    expect(result.message).toContain(`keeper-launch-${transportId}.log`);
+  });
 });
 
 // ── Heap ceiling rides the pi invocation, never the keeper ────────────────

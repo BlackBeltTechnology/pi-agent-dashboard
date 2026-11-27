@@ -2026,7 +2026,7 @@ export const huCatalog: Record<string, string> = {
   "settings.bypassUrls": "Kihagyandó URL-előtagok",
   "settings.bypassUrlsHint": "soronként egy — ezekre az útvonalakra irányuló kérések átugorják a hitelesítést",
   "settings.capturePiOutput": "Pi-munkamenet kimenetének rögzítése (hibakeresés)",
-  "settings.capturePiOutputHint": "Minden munkamenet teljes pi stdout/stderr kimenetét a keeper-<id>.log fájlba archiválja hibakeresés céljából. Hosszú munkameneteknél jelentős lemezterületet fogyaszt — hagyd kikapcsolva, kivéve ha egy munkamenetet diagnosztizálsz. Az újonnan indított munkamenetekre vonatkozik.",
+  "settings.capturePiOutputHint": "Keeper-naplókat ír az új munkamenetekhez: az életciklus-sorok és a munkamenet teljes pi stdout/stderr kimenete a keeper-<id>.log fájlba, az indítási hibák a keeper-launch-<id>.log fájlba kerülnek. Hosszú munkameneteknél jelentős lemezterületet fogyaszt — hagyd kikapcsolva, kivéve ha egy munkamenetet diagnosztizálsz. Kikapcsolva az új munkamenetek nem írnak keeper-naplófájlt.",
   "settings.showPluginInternals": "Bővítmények belső adatainak megjelenítése",
   "settings.showPluginInternalsHint": "Megmutatja, mely UI-helyekhez járul hozzá egy bővítmény, a beállítási oldalán. Azonnal érvényes, csak ebben a böngészőben.",
   "settings.changeSummaryTable": "Fordulónkénti változásösszegzés",

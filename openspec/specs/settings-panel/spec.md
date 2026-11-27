@@ -871,11 +871,18 @@ The section SHALL contain:
 - **THEN** the client POSTs `{ all: true }` to `/api/openspec/update`
 - **AND** the per-cwd staleness badges refresh from `/api/openspec/update-status`
 
-### Requirement: Capture pi session output toggle in General tab
-The Settings panel General tab SHALL render a "Capture pi session output (debug)" toggle alongside the diagnostic tooling (`DiagnosticsSection` / `ToolsSection` / `SpawnFailuresSection`). The toggle SHALL be bound to `config.keeperLog.capturePiOutput`, SHALL default to off when the field is absent, and SHALL include explanatory help text noting that capture is for debugging and consumes disk. Changes SHALL be included in the save diff and persisted via the config write endpoint.
+### Requirement: Capture pi session output toggle in Developer section
+The Settings panel SHALL render a "Capture pi session output (debug)" toggle in the Developer section, alongside the diagnostic tooling (`DiagnosticsSection` / `ToolsSection` / `SpawnFailuresSection`). The toggle SHALL be bound to `config.keeperLog.capturePiOutput` and SHALL default to off when the field is absent. Changes SHALL be included in the save diff and persisted via the config write endpoint.
+
+The toggle's help text SHALL state three things:
+- when on, each session's keeper lifecycle and full pi stdout/stderr are archived into `keeper-<id>.log` for debugging and consume disk;
+- when off, new sessions write no keeper log files at all;
+- the setting applies to new sessions only.
+
+The help text SHALL be localized for every shipped locale (en, hu, zh-CN) and SHALL follow the user-facing copy rule ("new session", never "spawn").
 
 #### Scenario: Toggle reflects current config
-- **WHEN** the General tab renders with `config.keeperLog.capturePiOutput === false` (or absent)
+- **WHEN** the Developer section renders with `config.keeperLog.capturePiOutput === false` (or absent)
 - **THEN** the "Capture pi session output (debug)" toggle SHALL be off
 
 #### Scenario: Toggling on persists to config
@@ -884,8 +891,12 @@ The Settings panel General tab SHALL render a "Capture pi session output (debug)
 - **AND** the config write endpoint SHALL persist the value
 
 #### Scenario: Toggle placed with diagnostic tools
-- **WHEN** the General tab is displayed
+- **WHEN** the Developer settings section is displayed
 - **THEN** the toggle SHALL appear in the same region as the diagnostics sections, not under an unrelated section
+
+#### Scenario: Help text states off disables all keeper logs
+- **WHEN** the toggle renders in any shipped locale
+- **THEN** its help text SHALL state that, when off, new sessions write no keeper log files
 
 ### Requirement: Provider save never persists the masked sentinel as an apiKey
 
