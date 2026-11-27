@@ -312,11 +312,11 @@ The flow graph SHALL render a skipped node in the pending style plus the word `s
 - **THEN** the `triage` graph node SHALL show `fix` as its chosen route
 
 ### Requirement: Static YAML preview keeps object-form branches
-The static flow YAML parser SHALL accept object-form branch targets (`{ to, means }`, `{ to, for_each }`) in addition to string targets, and SHALL produce an edge to each `to` target.
+The not-started flow pipeline that builds a graph from flow YAML (used by Open flow, `flow_open` and the `flow_write` card) SHALL accept object-form branch targets (`{ to, means }`, `{ to, for_each }`) in addition to string targets, and SHALL produce an edge to each `to` target.
 
 #### Scenario: Object-form branch kept
 - **WHEN** a flow YAML declares a branch `{ to: "fix", means: "bug found" }`
-- **THEN** the static preview graph SHALL include an edge to `fix`
+- **THEN** the graph built from that YAML SHALL include an edge to `fix`
 
 ### Requirement: Flow commands travel as plugin_action
 The flows plugin server SHALL handle `plugin_action { pluginId: "flows", action }` for exactly six actions: `flow.abort`, `flow.toggle-autonomous`, `flow.dismiss-summary`, `flow.run`, `flow.delete` and `flow.set-edit-mode`, relaying fixed event names into the target session through `ctx.emitEventToSession`. An unknown action SHALL be logged and dropped. An invalid payload SHALL emit nothing. A session whose driver is `acp` SHALL be refused with `UNSUPPORTED_FOR_ACP` before any relay.

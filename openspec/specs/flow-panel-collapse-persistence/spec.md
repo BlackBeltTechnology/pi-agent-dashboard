@@ -9,8 +9,8 @@ TBD - created by archiving change fix-flow-ui-graph-zoom-summary. Update Purpose
 
 The collapse/expand state of the flow socket SHALL persist per session across remounts and page reloads, so a user who collapses a session's flow panel does not have to collapse it again every time that session re-renders. Three collapse states are persisted, each keyed by session id:
 
-- the **whole-panel collapse** of the completed-flow `FlowSummary` (its `panelCollapsed`),
-- the **live `FlowDashboard` collapse** (its `collapsed`), and
+- the **whole-panel collapse** of the completed flow panel (summary mode, collapse kind `summary`),
+- the **idle / live `FlowDashboard` collapse** (collapse kind `dashboard`), and
 - the **Agent cards section** open state inside the expanded `FlowDashboard` (collapse kind `cards`).
 
 State SHALL be stored on the frontend in `localStorage`, under keys namespaced by both purpose and session id (e.g. `dashboard:flow-summary-collapsed:<sessionId>` and `dashboard:flow-dashboard-collapsed:<sessionId>`). Reads and writes SHALL be wrapped so a `localStorage` failure (quota, disabled storage, private mode) degrades to in-memory state without throwing. A session with no stored state SHALL default to **collapsed** for the panel and for the Agent cards section: the flow panel SHALL never expand on its own when a flow starts, progresses, completes or fails. It SHALL expand only when the user expands it, when the user chooses Open flow… (an explicit request to see that flow), or when the session's agent calls `flow_open` to show a flow (see `flow-open-tool`). The Agent cards section SHALL open only when the user opens it or clicks a graph node. The user's choice SHALL persist per session as before. Persistence SHALL be scoped per session id: collapsing one session's panel SHALL NOT change another session's persisted state. The Summaries-list subsection toggle and the agent-row expansion remain ephemeral (not persisted) in this change.
@@ -33,7 +33,7 @@ State SHALL be stored on the frontend in `localStorage`, under keys namespaced b
 
 #### Scenario: Live dashboard collapse persists independently
 - **WHEN** the user collapses the live `FlowDashboard` for a session
-- **THEN** that collapse SHALL be restored for the same session on remount, independently of the `FlowSummary` whole-panel collapse
+- **THEN** that collapse SHALL be restored for the same session on remount, independently of the completed panel's whole-panel collapse
 
 #### Scenario: localStorage failure degrades gracefully
 - **WHEN** reading or writing `localStorage` throws (disabled/quota/private mode)
