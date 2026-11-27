@@ -408,7 +408,7 @@ export function FlowDashboard({
           {headerActions}
           <button
             onClick={onDismiss}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+            className="text-[11px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
           >
             <Icon path={mdiCloseCircleOutline} size={0.4} className="inline mr-0.5" />Dismiss
           </button>
