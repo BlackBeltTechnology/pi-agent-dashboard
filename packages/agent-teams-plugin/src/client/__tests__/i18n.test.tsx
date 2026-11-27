@@ -14,9 +14,11 @@ import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-ru
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { announcementLines } from "../announcements.js";
+import { APPROVAL_TABLES } from "../approval-i18n.js";
 import { makeTranslate, resolveLocale, type Tables } from "../lazy-i18n.js";
 import { MailEntryCard } from "../MailEntryCard.js";
 import { MAIL_TABLES } from "../mail-i18n.js";
+import { START_TABLES } from "../start-i18n.js";
 import { MEMBER_STATUS, TASK_BLOCKED, TASK_STATUS, TEAM_STATUS, URGENT_MARKER } from "../status-map.js";
 import { TeamHeader } from "../TeamHeader.js";
 import { TEAM_VIEW_TABLES } from "../team-view-i18n.js";
@@ -31,6 +33,8 @@ const MODULES: Array<[string, Tables]> = [
   ["Team view", TEAM_VIEW_TABLES],
   ["mail card", MAIL_TABLES],
   ["tool renderers", TOOL_TABLES],
+  ["approval + playbook cards (templates-hooks)", APPROVAL_TABLES],
+  ["Start team dialog (templates-hooks)", START_TABLES],
 ];
 const vars = (s: string): string[] => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1] as string).sort();
 const CLIENT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

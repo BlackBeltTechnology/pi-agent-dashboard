@@ -310,6 +310,51 @@
       "file": "packages/agent-teams-plugin/src/server/spawn.ts",
       "text": " did not reconnect after the server restart (respawn with resume:true)",
       "reason": "agent-facing / log-only: error detail returned to the lead model or a server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/extension-points.ts",
+      "text": "the spawn resolver",
+      "reason": "agent-facing / log-only: server-side seam label in an error detail, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/extension-points.ts",
+      "text": "agent-teams: a spawn resolver is already registered",
+      "reason": "log-only: server startup error, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/ops.ts",
+      "text": "agent-teams: spawn resolver threw: ",
+      "reason": "log-only: server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/ops.ts",
+      "text": "spawn resolution failed",
+      "reason": "agent-facing: error detail returned to the lead model, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/runtime.ts",
+      "text": "this mode cannot spawn a lead",
+      "reason": "agent-facing / log-only: refusal detail for the start op, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/start-phase.ts",
+      "text": "spawn failed: ",
+      "reason": "agent-facing: coalesced lead notice text for failed eager members, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/start-phase.ts",
+      "text": "agent-teams: eager spawn refused team=",
+      "reason": "log-only: server log line, not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/template-render.ts",
+      "text": "spawned for you right after you start",
+      "reason": "agent-facing: lead playbook text (a prompt for the lead model), not dashboard copy"
+    },
+    {
+      "file": "packages/agent-teams-plugin/src/server/template-render.ts",
+      "text": "not spawned yet: spawn each with TeammateSpawn when needed",
+      "reason": "agent-facing: lead playbook text (a prompt for the lead model), not dashboard copy"
     }
   ]
 }

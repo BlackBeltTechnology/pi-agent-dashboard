@@ -75,6 +75,11 @@ const SPECS: readonly ToolSpec[] = [
       noMcp: { type: "boolean", description: "Start without MCP servers (cheaper)" },
       noContextFiles: { type: "boolean", description: "Start without AGENTS.md discovery (cheaper)" },
       resume: { type: "boolean", description: "Resume a gone or disconnected teammate of this name from its recorded session" },
+      agent: str("Teammate type: the name of an agent definition (.pi/agents/<agent>.md) whose model, tools and prompt this teammate starts from"),
+      requirePlanApproval: {
+        enum: [true, false, "user"],
+        description: 'Make the teammate plan read-only first: true = you approve its plan with PlanDecision, "user" = only the user may approve. A team template can set a floor you cannot lower.',
+      },
     }, ["name", "prompt"]),
   },
   {
@@ -148,6 +153,24 @@ const SPECS: readonly ToolSpec[] = [
     label: "Respond to shutdown",
     description: "Answer the lead's shutdown request: approve (you stop after your current turn) or reject with a reason because you must keep working.",
     parameters: obj({ approve: { type: "boolean" }, reason: str("Required when rejecting") }, ["approve"]),
+  },
+  {
+    op: "PlanSubmit",
+    label: "Submit plan",
+    description:
+      "Plan mode only: submit your plan for approval. Until it is approved you can only read; explore first, then submit one concise plan. Approval comes back as a message; do not start changing anything before it arrives. If it is rejected, revise and submit again.",
+    parameters: obj({ plan: str("The plan: what you will change and how (plain text, keep it short)") }, ["plan"]),
+  },
+  {
+    op: "PlanDecision",
+    label: "Decide plan",
+    description: `Approve or reject a teammate's submitted plan by its plan id (shown in the plan request). Approving lets the teammate start working; rejecting returns it to planning with your feedback. If the team requires the user's approval, this fails with user_decision_required. ${PEER_TRUST}`,
+    parameters: obj({
+      member: str("Teammate name"),
+      planId: str("Plan id from the plan request, e.g. p1"),
+      approve: { type: "boolean" },
+      feedback: str("Reason or requested changes (shown to the teammate)"),
+    }, ["member", "planId", "approve"]),
   },
   {
     op: "TeamDelete",

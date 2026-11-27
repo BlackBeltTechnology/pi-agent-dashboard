@@ -151,6 +151,7 @@ function buildSpawnSpec(input: {
   const base: ResolvedSpawnSpec = {
     cwd: prepared.cwd,
     ...(prepared.model ? { model: prepared.model } : {}),
+    ...(prepared.thinkingLevel ? { thinkingLevel: prepared.thinkingLevel } : {}),
     ...(prepared.tools ? { tools: [...prepared.tools] } : {}),
     ...(prepared.skills ? { skills: [...prepared.skills] } : {}),
     noMcp: prepared.noMcp,

@@ -1,0 +1,96 @@
+/**
+ * en / zh-CN / hu string table of the lazy approval + playbook card module
+ * (customTypes `agent-teams-approval` and `agent-teams-playbook`; design D11).
+ * Identical key sets in all three locales (`i18n.test.tsx`). Not in the eager catalog.
+ * See change: add-agent-teams-templates-hooks.
+ */
+import type { Tables } from "./lazy-i18n.js";
+
+const en = {
+  "plan.title": "Plan from {member}",
+  "plan.ref": "Plan {id} · team {team}",
+  "plan.label": "Plan approval request from {member}",
+  "plan.approve": "Approve",
+  "plan.reject": "Reject",
+  "plan.feedbackLabel": "Feedback for {member} (optional)",
+  "plan.feedbackPlaceholder": "Say what to change…",
+  "plan.sending": "Sending…",
+  "plan.state.pending": "Waiting for a decision",
+  "plan.state.approved": "Approved",
+  "plan.state.rejected": "Rejected",
+  "plan.state.superseded": "Replaced by a newer plan",
+  "plan.state.cancelled": "Cancelled",
+  "plan.alreadyDecided": "This plan was already decided.",
+  "plan.unknown": "This plan no longer exists.",
+  "plan.forbidden": "You cannot decide this plan.",
+  "plan.error": "The decision could not be sent. Try again.",
+  "plan.feedbackTooLong": "The feedback is too long. Shorten it and try again.",
+  "decision.approved": "Plan {id} approved",
+  "decision.rejected": "Plan {id} rejected",
+  "decision.title": "Plan decision",
+  "hookFeedback.title": "Quality gate feedback",
+  "playbook.title": "Team playbook",
+  "playbook.template": "Template {name}",
+  "playbook.goal": "Goal: {goal}",
+  "playbook.label": "Team playbook, template {name}",
+} as const;
+
+const zhCN: Record<keyof typeof en, string> = {
+  "plan.title": "来自 {member} 的计划",
+  "plan.ref": "计划 {id} · 团队 {team}",
+  "plan.label": "来自 {member} 的计划审批请求",
+  "plan.approve": "批准",
+  "plan.reject": "拒绝",
+  "plan.feedbackLabel": "给 {member} 的反馈（可选）",
+  "plan.feedbackPlaceholder": "说明需要修改的地方…",
+  "plan.sending": "正在发送…",
+  "plan.state.pending": "等待决定",
+  "plan.state.approved": "已批准",
+  "plan.state.rejected": "已拒绝",
+  "plan.state.superseded": "已被更新的计划取代",
+  "plan.state.cancelled": "已取消",
+  "plan.alreadyDecided": "此计划已有决定。",
+  "plan.unknown": "此计划已不存在。",
+  "plan.forbidden": "你无权决定此计划。",
+  "plan.error": "无法发送决定，请重试。",
+  "plan.feedbackTooLong": "反馈过长，请缩短后重试。",
+  "decision.approved": "计划 {id} 已批准",
+  "decision.rejected": "计划 {id} 已拒绝",
+  "decision.title": "计划决定",
+  "hookFeedback.title": "质量关卡反馈",
+  "playbook.title": "团队手册",
+  "playbook.template": "模板 {name}",
+  "playbook.goal": "目标：{goal}",
+  "playbook.label": "团队手册，模板 {name}",
+};
+
+const hu: Record<keyof typeof en, string> = {
+  "plan.title": "Terv tőle: {member}",
+  "plan.ref": "{id}. terv · csapat: {team}",
+  "plan.label": "Tervjóváhagyási kérés tőle: {member}",
+  "plan.approve": "Jóváhagyás",
+  "plan.reject": "Elutasítás",
+  "plan.feedbackLabel": "Visszajelzés neki: {member} (nem kötelező)",
+  "plan.feedbackPlaceholder": "Írd le, mit változtasson…",
+  "plan.sending": "Küldés…",
+  "plan.state.pending": "Döntésre vár",
+  "plan.state.approved": "Jóváhagyva",
+  "plan.state.rejected": "Elutasítva",
+  "plan.state.superseded": "Újabb terv váltotta fel",
+  "plan.state.cancelled": "Visszavonva",
+  "plan.alreadyDecided": "Erről a tervről már döntöttek.",
+  "plan.unknown": "Ez a terv már nem létezik.",
+  "plan.forbidden": "Ezt a tervet nem te döntheted el.",
+  "plan.error": "A döntést nem sikerült elküldeni. Próbáld újra.",
+  "plan.feedbackTooLong": "A visszajelzés túl hosszú. Rövidítsd, és próbáld újra.",
+  "decision.approved": "{id}. terv jóváhagyva",
+  "decision.rejected": "{id}. terv elutasítva",
+  "decision.title": "Tervdöntés",
+  "hookFeedback.title": "Minőségkapu visszajelzése",
+  "playbook.title": "Csapat forgatókönyve",
+  "playbook.template": "Sablon: {name}",
+  "playbook.goal": "Cél: {goal}",
+  "playbook.label": "Csapat forgatókönyve, sablon: {name}",
+};
+
+export const APPROVAL_TABLES: Tables = { en, "zh-CN": zhCN, hu };

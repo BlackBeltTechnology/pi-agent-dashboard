@@ -22,7 +22,7 @@ import { createExtensionPoints } from "../server/extension-points.js";
 import { createTeamsRuntime } from "../server/runtime.js";
 import { CUSTOM_TYPE_IDLE, CUSTOM_TYPE_MAIL, CUSTOM_TYPE_NOTICE } from "../shared/mail-format.js";
 import { AGENT_TEAMS_EVENT_CHANGED, AGENT_TEAMS_PLUGIN_ID } from "../shared/plugin-id.js";
-import { LANE_TYPES, TEAM_OPS } from "../shared/protocol.js";
+import { CORE_TEAM_OPS, LANE_TYPES } from "../shared/protocol.js";
 import { createFakeHostCtx, createFakeRuntimeHost, FakeClock } from "./harness/index.js";
 
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -143,17 +143,18 @@ describe("manifest claims (S11)", () => {
     expect(claimsManifest.id).toBe("agent-teams");
   });
 
-  it("declares exactly 1 badge + 1 overlay route + 3 custom-entry + 11 tool-renderer claims", () => {
-    expect(claims).toHaveLength(16);
+  it("declares exactly 1 badge + 1 overlay route + 5 custom-entry + 1 folder section + 11 tool-renderer claims", () => {
+    expect(claims).toHaveLength(19);
     expect(bySlot("session-card-badge")).toHaveLength(1);
     expect(bySlot("shell-overlay-route")).toHaveLength(1);
-    expect(bySlot("custom-entry-renderer")).toHaveLength(3);
+    expect(bySlot("custom-entry-renderer")).toHaveLength(5);
+    expect(bySlot("sidebar-folder-section")).toHaveLength(1);
     expect(bySlot("tool-renderer")).toHaveLength(11);
   });
 
   it("claims exactly the 11 team tools, each mapped to one of the 4 component families", () => {
     const tools = bySlot("tool-renderer");
-    expect(tools.map((c) => c.toolName).sort()).toEqual([...TEAM_OPS].sort());
+    expect(tools.map((c) => c.toolName).sort()).toEqual([...CORE_TEAM_OPS].sort());
     expect(new Set(tools.map((c) => c.toolName)).size).toBe(11);
     expect(new Set(tools.map((c) => c.component))).toEqual(new Set(Object.values(FAMILY_COMPONENTS)));
     for (const c of tools) expect(c.component, String(c.toolName)).toBe(FAMILY_COMPONENTS[TOOL_FAMILIES[c.toolName as keyof typeof TOOL_FAMILIES]]);
@@ -170,9 +171,17 @@ describe("manifest claims (S11)", () => {
   });
 
   it("claims the three mail customTypes with one lazy card", () => {
-    const cards = bySlot("custom-entry-renderer");
+    const cards = bySlot("custom-entry-renderer").filter((c) => c.component === "MailEntryCard");
     expect(cards.map((c) => c.customType).sort()).toEqual([CUSTOM_TYPE_IDLE, CUSTOM_TYPE_MAIL, CUSTOM_TYPE_NOTICE].sort());
     for (const c of cards) expect(c).toMatchObject({ component: "MailEntryCard", module: "./src/client/MailEntryCard.tsx" });
+  });
+
+  it("claims the approval and playbook cards and the Start team folder action, all lazy (templates-hooks, 7.2-7.4)", () => {
+    const cards = bySlot("custom-entry-renderer").filter((c) => c.component !== "MailEntryCard");
+    expect(cards.map((c) => c.customType).sort()).toEqual(["agent-teams-approval", "agent-teams-playbook"]);
+    expect(cards.find((c) => c.customType === "agent-teams-approval")).toMatchObject({ component: "ApprovalCard", module: "./src/client/ApprovalCard.tsx" });
+    expect(cards.find((c) => c.customType === "agent-teams-playbook")).toMatchObject({ component: "PlaybookCard", module: "./src/client/PlaybookCard.tsx" });
+    expect(bySlot("sidebar-folder-section")[0]).toMatchObject({ component: "StartTeamFolderAction", module: "./src/client/StartTeamFolderAction.tsx" });
   });
 
   it("claims the Team view as a content overlay route at depth 2 under the session", () => {
@@ -205,7 +214,7 @@ describe("lazy modules (9.1, D9)", () => {
   const moduleFiles = [...new Set(lazy.map((c) => c.module as string))].sort();
 
   it("every lazy claim's module is package-relative, exists, and exports its component by name", () => {
-    expect(lazy).toHaveLength(15);
+    expect(lazy).toHaveLength(18);
     for (const c of lazy) {
       const mod = c.module as string;
       expect(mod.startsWith("./") && !mod.split("/").includes("..")).toBe(true);
@@ -214,7 +223,7 @@ describe("lazy modules (9.1, D9)", () => {
       const src = fs.readFileSync(file, "utf8");
       expect(new RegExp(`export (?:async )?(?:function|const|class) ${c.component}\\b`).test(src), `${mod} exports ${c.component}`).toBe(true);
     }
-    expect(moduleFiles).toEqual(["./src/client/MailEntryCard.tsx", "./src/client/TeamToolRenderers.tsx", "./src/client/TeamView.tsx"]);
+    expect(moduleFiles).toEqual(["./src/client/ApprovalCard.tsx", "./src/client/MailEntryCard.tsx", "./src/client/PlaybookCard.tsx", "./src/client/StartTeamFolderAction.tsx", "./src/client/TeamToolRenderers.tsx", "./src/client/TeamView.tsx"]);
   });
 
   it("the eager entry exports no lazy component and imports none of the lazy modules", () => {
@@ -236,6 +245,11 @@ const REACHED_BY_IMPORT = [
   "src/client/TaskBoard.tsx",
   "src/client/TeamHeader.tsx",
   "src/client/TeamTabs.tsx",
+  // imported by the lazy approval / playbook cards and the Start team dialog (templates-hooks)
+  "src/client/StartTeamDialog.tsx",
+  "src/client/StartTeamParts.tsx",
+  "src/client/approval-parse.ts",
+  "src/client/start-api.ts",
   "src/client/format-cwd.ts",
   "src/client/lazy-i18n.ts",
   "src/client/mail-i18n.ts",
@@ -249,12 +263,12 @@ const REACHED_BY_IMPORT = [
 ];
 
 describe("generated registry and knip (9.2, 9.6)", () => {
-  it("the committed generated registry carries all 16 claims of this plugin and the new emit", () => {
+  it("the committed generated registry carries all 19 claims of this plugin and the new emit", () => {
     const registry = fs.readFileSync(path.join(REPO, "packages/client/src/generated/plugin-registry.tsx"), "utf8");
     const rows = registry.split("\n").filter((l) => l.includes('pluginId: "agent-teams"'));
-    expect(rows).toHaveLength(16);
-    for (const op of TEAM_OPS) expect(rows.some((r) => r.includes(`toolName: "${op}"`)), op).toBe(true);
-    expect(rows.filter((r) => r.includes("lazyClaim(")).length).toBe(15);
+    expect(rows).toHaveLength(19);
+    for (const op of CORE_TEAM_OPS) expect(rows.some((r) => r.includes(`toolName: "${op}"`)), op).toBe(true);
+    expect(rows.filter((r) => r.includes("lazyClaim(")).length).toBe(18);
     expect(rows.find((r) => r.includes("session-card-badge"))).toContain("predicate: isTeamSession");
     expect(registry).toContain('"agent-teams:changed"');
   });
