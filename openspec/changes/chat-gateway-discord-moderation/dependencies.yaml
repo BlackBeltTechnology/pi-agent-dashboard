@@ -1,0 +1,9 @@
+blocked_by:
+  - change: chat-gateway-multi-guild
+    reason: "consumes guilds.<id> record, reserved moderation key, isGuildAdmin, team.authorizeServerRequest, per-server disarm, CommandLogEntry.guildId"
+  - change: chat-gateway-query-mode
+    reason: "!mod is added to B's chat-command parser (src/server/query/commands.ts) and pre-prompt match (both modes); D's chat-gateway-tier-authorization delta copies B's text"
+  - change: chat-gateway-agent-tools
+    reason: "discord_moderate uses C's bridge entry, discord/* request lane, AGENT_TOOL_CONFIRM_META, agentTools switch, GATEWAY_HARD_DENY, spawned_session_denied and session:<id> principal; D's chat-gateway delta copies C's text"
+related:
+  - add-supervised-tool-approval

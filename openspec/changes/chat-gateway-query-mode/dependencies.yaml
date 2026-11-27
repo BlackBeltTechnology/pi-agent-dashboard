@@ -1,0 +1,6 @@
+blocked_by:
+  - change: chat-gateway-multi-guild
+    reason: "builds on its per-server record (guilds.<id>), the mode field, the reserved guilds.<id>.query / guilds.<id>.index keys, the 0 = unlimited convention, team.authorizeServerRequest, isGuildAdmin, the live server write lane and the per-server disarm latch; MODIFIES its `Query-mode servers refuse interactive actions` requirement and its delta of `Reach dashboard sessions from chat` — rebase onto A's archived text"
+related:
+  - chat-gateway-agent-tools  # blocked by B; B no longer MODIFIES chat-gateway 'Hard in-session tool policy for spawned sessions' (!ask spawns no session), so C copies that requirement from the main spec/A's delta; C reuses B's index search
+  - chat-gateway-discord-moderation
