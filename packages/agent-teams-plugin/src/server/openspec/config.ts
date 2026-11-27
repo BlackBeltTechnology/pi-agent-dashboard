@@ -68,6 +68,9 @@ export function isValidBranchRef(ref: unknown): ref is string {
 
 export type OpenspecConfigReader = (opts?: { effectiveMaxTeammates?: number }) => OpenspecConfigResult;
 
+/** One leading `origin/` (the remote qualifier) is not part of the branch name; the result stays a valid ref (`origin/` alone never validates). */
+const stripOrigin = (ref: string): string => (ref.startsWith("origin/") && isValidBranchRef(ref.slice(7)) ? ref.slice(7) : ref);
+
 /**
  * `getRaw` returns the raw `openspec*` values (`TeamsConfig.openspecRaw`); read PER CALL so a change applies
  * without a restart. Warnings and clamp lines are logged once per distinct value.
@@ -102,7 +105,9 @@ export function createOpenspecConfigReader(getRaw: () => Readonly<Record<string,
     };
     const ref = (key: string, def: string): { v: string } | { error: string } => {
       const v = raw[key] === undefined ? def : raw[key];
-      return isValidBranchRef(v) ? { v } : { error: key };
+      // Canonicalize once: a leading `origin/` is the remote qualifier. Every consumer (worktree fork base,
+      // shipped-gate fetch/ls-tree, preflight base probe) prepends `origin/` itself, so it must not stay in the name.
+      return isValidBranchRef(v) ? { v: stripOrigin(v) } : { error: key };
     };
     const shipSkill = name("openspecShipSkill", OPENSPEC_DEFAULTS.shipSkill);
     const reviewSkill = name("openspecReviewSkill", OPENSPEC_DEFAULTS.reviewSkill);

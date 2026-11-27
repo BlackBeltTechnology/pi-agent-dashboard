@@ -102,6 +102,25 @@ describe("names and refs (7.10 #E5)", () => {
     expect(reader({ openspecMergeBase: v }).read().ok).toBe(valid);
   });
 
+  // Review B1: `origin/develop` is a valid value, but every consumer prepends `origin/` itself
+  // (worktree fork base, shipped-gate fetch + ls-tree, preflight base probe) => `origin/origin/develop`.
+  // The reader canonicalizes ONCE: one leading `origin/` is the remote qualifier, never part of the branch name.
+  it.each([
+    ["develop", "develop"],
+    ["origin/develop", "develop"],
+    ["origin/release/1.x", "release/1.x"],
+    ["origin/origin/x", "origin/x"],
+  ])("base/merge %j reaches every consumer as the bare branch %j", (v, bare) => {
+    const c = ok(reader({ openspecWorktreeBase: v, openspecMergeBase: v }).read());
+    expect(c.worktreeBase).toBe(bare);
+    expect(c.mergeBase).toBe(bare);
+  });
+
+  it("a bare `origin/` is not a branch: invalid_config", () => {
+    expect(reader({ openspecWorktreeBase: "origin/" }).read().ok).toBe(false);
+    expect(reader({ openspecMergeBase: "origin/" }).read().ok).toBe(false);
+  });
+
   it("agrees with `git check-ref-format --branch` for every value that is not option-like", () => {
     for (const [v] of refs) {
       if (v.startsWith("-") || v.includes("@{")) continue;
