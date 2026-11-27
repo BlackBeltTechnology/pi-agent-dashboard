@@ -9,7 +9,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import { isValidEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import { isValidHostApiRange } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
-import { isValidVersionRange } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/version-range.js";
+import { isValidVersionRange } from "./version-range-syntax.js";
 import { normalizeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
 import {
   FILE_HANDLER_COPY_SUFFIX_RE,

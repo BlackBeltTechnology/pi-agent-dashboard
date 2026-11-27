@@ -44,7 +44,7 @@ function mk(id: string, extra: Record<string, unknown> = {}, files: Record<strin
     claims: [{ slot: "settings-section", component: "X" }],
     client: "./src/client.tsx",
     clientBundle: "./dist/client/index.js",
-    hostApi: "^1.0.0",
+    hostApi: "^2.0.0",
     ...extra,
   };
   fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: id, version: "1.0.0", "pi-dashboard-plugin": manifest }));
@@ -92,7 +92,7 @@ describe("E76 admission and one refusal reason per condition", () => {
   it.each([
     ["untrusted", () => { mk("ext"); return registry({ declared: ["flows"] }); }],
     ["pin-mismatch", () => { mk("ext"); return registry({ declared: ["flows"], trust: [{ id: "ext", clientSha256: "f".repeat(64) }] }); }],
-    ["host-api", () => { mk("ext", { hostApi: "^2.0.0" }); return registry({ declared: ["flows"] }); }],
+    ["host-api", () => { mk("ext", { hostApi: "^3.0.0" }); return registry({ declared: ["flows"] }); }],
     ["no-bundle", () => { mk("ext", { clientBundle: undefined }); return registry({ declared: ["flows"] }); }],
     ["build-undeclared", () => { mk("ext"); return registry({}); }],
     ["disabled", () => { mk("ext"); return registry({ declared: ["flows"], disabled: new Set(["ext"]) }); }],
@@ -144,7 +144,7 @@ describe("E77 precedence and sha-less entries", () => {
   });
 
   it("(c) host-api + disabled → host-api", () => {
-    mk("ext", { hostApi: "^2.0.0" });
+    mk("ext", { hostApi: "^3.0.0" });
     expect(registry({ declared: ["flows"], disabled: new Set(["ext"]) }).resolveClient(row("ext"))?.refusedReason).toBe("host-api");
   });
 

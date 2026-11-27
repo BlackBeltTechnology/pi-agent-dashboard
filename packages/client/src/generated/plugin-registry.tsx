@@ -763,7 +763,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "requires": {
             "piExtensions": [
                 "@blackbelt-technology/pi-dashboard-subagents"
-            ]
+            ],
+            "piExtensionVersions": {
+                "@blackbelt-technology/pi-dashboard-subagents": ">=0.7.0"
+            }
         },
         "eventTypes": [
             "subagent_*"

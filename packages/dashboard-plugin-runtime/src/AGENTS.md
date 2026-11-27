@@ -49,3 +49,4 @@ Files in this directory. One row per source file.
 | `slot-registry.ts` | `createSlotRegistry()` — typed `Map<SlotId, ClaimEntry[]>` pre-sorted by `(priority, pluginId)`. → see `slot-registry.ts.AGENTS.md` |
 | `ui-primitive-context.tsx` | React context provider + lookup hooks for UI primitives. Exports `UiPrimitiveProvider`,… → see `ui-primitive-context.tsx.AGENTS.md` |
 | `ui-primitive-registry.ts` | Runtime data structure for UI primitives. Exports `UiPrimitiveRegistry` (opaque, private `_impls` map),… → see `ui-primitive-registry.ts.AGENTS.md` |
+| `version-range-syntax.ts` | `isValidVersionRange(range)`. Dependency-free semver range syntax check (`||`, `^ ~ < > =`, x-ranges, hyphen). Used by `manifest-validator.ts` for `requires.piExtensionVersions`; runs in Vite build so no `semver`. See change: move-subagents-to-plugin. |

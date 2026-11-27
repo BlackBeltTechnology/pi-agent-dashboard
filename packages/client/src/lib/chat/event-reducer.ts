@@ -667,6 +667,37 @@ function reviveElidedRow(next: SessionState, idx: number): void {
   next.toolCalls = seedRunningToolCall(next.toolCalls, row, next.assistantInferenceSeq);
 }
 
+/** Body of the generic settle heal: the turn ended, the tool's result never arrived. */
+export const TOOL_STOPPED_SENTINEL_BODY = "tool stopped — result not received";
+
+/**
+ * Generic neutral settle heal: a tool call cannot outlive its parent's settle. Every
+ * top-level tool row with progress `details` still `running` (row + `toolCalls` entry) after the plugin finalizers
+ * ran — none registered, or each declined — stops spinning with a generic body and
+ * `resultMissing`. The `toolCalls` entry stays `running` so the stale reconcile can still
+ * fetch the authoritative result. See change: move-subagents-to-plugin (D8).
+ */
+function neutralSettleRunningRows(state: SessionState, timestamp: number): SessionState {
+  let messages: SessionState["messages"] | undefined;
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const m = state.messages[i];
+    if (m.role !== "toolResult" || m.toolStatus !== "running" || !m.toolCallId) continue;
+    if (state.toolCalls.get(m.toolCallId)?.status !== "running") continue;
+    // Only rows that carry structured progress `details` (a delegating tool streaming its
+    // own state); plain tools (bash, read, …) are left to the stale reconcile (E15).
+    if (!m.toolDetails) continue;
+    messages ??= [...state.messages];
+    messages[i] = {
+      ...m,
+      toolStatus: "complete",
+      result: TOOL_STOPPED_SENTINEL_BODY,
+      duration: m.startedAt ? timestamp - m.startedAt : undefined,
+      toolDetails: { ...(m.toolDetails ?? {}), status: "completed", healedBy: "turn_settled", resultMissing: true },
+    };
+  }
+  return messages ? { ...state, messages } : state;
+}
+
 /** Options core hands a tool-row finalizer: re-entry into this reducer for synthesized events. */
 function finalizerOpts(isLive: boolean | undefined) {
   return { isLive, reduce: (s: SessionState, e: DashboardEvent) => reduceEvent(s, e) };
@@ -1890,6 +1921,8 @@ export function reduceEvent(
         for (const finalizer of listToolRowFinalizers<SessionState>()) {
           healed = finalizer.onTurnSettled?.(healed, event, finalizerOpts(isLive)) ?? healed;
         }
+        // Generic fallback: no finalizer (plugin disabled) or a declining one.
+        healed = neutralSettleRunningRows(healed, event.timestamp);
         if (healed !== next) return healed;
       }
       break;

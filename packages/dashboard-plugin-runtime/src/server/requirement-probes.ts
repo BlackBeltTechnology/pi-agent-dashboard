@@ -26,7 +26,7 @@ import type {
   PluginRequirements,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { PluginRequirementReport } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
-import { versionSatisfies } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/version-range.js";
+import { versionSatisfies } from "./version-range.js";
 import { sourcesMatch } from "@blackbelt-technology/pi-dashboard-shared/source-matching.js";
 import { probeModelProxy } from "./service-probes/model-proxy.js";
 

@@ -4873,7 +4873,7 @@ Follow-up change names. None exist yet. Create via `openspec change new <name>`.
 | Cluster | Members | Owner change |
 |---|---|---|
 | openspec-init affordances | `openspec-init-affordances-folder`, `openspec-init-affordances-session-card`, `openspec-board-drop`, `openspec-board-worktree-availability` | `fix-e2e-openspec-init-affordances` |
-| subagent | `subagent-tick-throttle`, `subagent-pull-measurements`, `subagent-thin-tick-liveness`, `subagent-pull-under-load`, `subagent-inspector`, `subagent-detail-dialog` | `fix-e2e-subagent-cluster` (related #679) |
+| subagent | `subagent-inspector`, `subagent-detail-dialog` | `fix-e2e-subagent-cluster` (related #679) |
 | chat scroll / virtualization | `selection-anchor`, `chat-transcript-virtualization`, `scroll-to-top`, `replay-in-flight-pill` | `fix-e2e-chat-geometry` |
 | queue / image / prompt lifecycle | `followup-image-queue`, `optimistic-prompt`, `pending-prompt-recovery`, `package-queue-visible` | `fix-e2e-prompt-queue` |
 | restart / boot / session lifecycle | `ended-session-endedat`, `status-reconcile`, `durable-session-diff`, `faux-ask`, `keeper-restart-survival`, `tmux-session-shutdown`, `spawn-correlation-recovery` | `fix-e2e-restart-cluster` (CANDIDATE: shares #832 root cause, restart axis) |

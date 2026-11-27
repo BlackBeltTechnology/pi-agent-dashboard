@@ -8,4 +8,4 @@ Optional string `clientBundle` / `clientStyles` (package-relative prebuilt clien
 
 Optional `emits`: static array of exact event names the plugin may emit into sessions (distinct from inbound `eventTypes`). Rejected with an error naming `emits`: non-array, non-string/empty/whitespace-bearing entry, entry >128 chars, >64 entries, reserved prefix (`roles:` `role:` `model:` `prompt:` `dashboard:` `ui:`, case-insensitive). Absent/`[]` = emits nothing. Exports `MAX_EMITS_ENTRIES`, `MAX_EMITS_ENTRY_LENGTH`. See change: harden-git-terminal-plugin-boundaries (D16).
 
-Validates `requires.piExtensionVersions` (object name→range; empty name / non-string / invalid semver range → `ManifestValidationError`) via shared `isValidVersionRange`. See change: move-subagents-to-plugin.
+Validates `requires.piExtensionVersions` (object name→range; empty name / non-string / invalid semver range → `ManifestValidationError`) via in-house `isValidVersionRange` (`./version-range-syntax.ts`; no `semver` in Vite build). See change: move-subagents-to-plugin.

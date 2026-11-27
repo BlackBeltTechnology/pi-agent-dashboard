@@ -155,7 +155,7 @@ describe("refreshPluginDiscovery — a pi-package server grant loads the never-l
     fs.writeFileSync(path.join(dir, "server.mjs"), `export default async () => { (globalThis.__refreshSpy ||= []).push(${JSON.stringify(id)}); };\n`);
     fs.writeFileSync(
       path.join(dir, "package.json"),
-      JSON.stringify({ name: `pi-${id}`, version: "1.0.0", "pi-dashboard-plugin": { id, displayName: id, claims: [], server: "./server.mjs", hostApi: "^1.0.0" } }),
+      JSON.stringify({ name: `pi-${id}`, version: "1.0.0", "pi-dashboard-plugin": { id, displayName: id, claims: [], server: "./server.mjs", hostApi: "^2.0.0" } }),
     );
     fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [`npm:pi-${id}`] }));
     return { agentDir };

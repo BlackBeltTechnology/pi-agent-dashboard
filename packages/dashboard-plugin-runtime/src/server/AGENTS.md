@@ -34,4 +34,5 @@ Files in this directory. One row per source file.
 | `runtime-client-listing.ts` | `buildRuntimeClientListing(admitted)` / `toListingEntry` / `assetUrl(id,sha,rel)`: payload of `GET… → see `runtime-client-listing.ts.AGENTS.md` |
 | `runtime-client-registry.ts` | `createRuntimeClientRegistry(deps)` → `{resolveClient(status), getAdmittedRuntimePlugins(),… → see `runtime-client-registry.ts.AGENTS.md` |
 | `server-context.ts` | `createServerPluginContext(deps, pluginId)` factory — creates `ServerPluginContext` scoped to plugin with… → see `server-context.ts.AGENTS.md` |
+| `version-range.ts` | `versionSatisfies(version, range)` (`undefined` = version not semver). Server-only `semver` wrapper for `requirement-probes.ts`; `semver` declared in runtime `package.json`. Not in shared (stays dep-free). See change: move-subagents-to-plugin. |
 | `ws-route-registry.ts` | Plugin-owned WS route scopes (add-browser-relay D1). `WsRouteRegistry` + singleton `getWsRouteRegistry()`… → see `ws-route-registry.ts.AGENTS.md` |

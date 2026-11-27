@@ -94,6 +94,8 @@ describe("flows-plugin bridge: payloads forwarded verbatim (E5)", () => {
       isCoreChannel: () => false,
     });
     registry.attach();
+    // The server's ownership table releases held declarations (D1).
+    registry.setOwnership({ eventTypes: { "flow_*": "flows" } });
     activate(pi);
     const payloads = [
       { stepId: "s", nodeKind: "code-decision" },
@@ -166,6 +168,8 @@ describe("flows-plugin bridge: persists run dismissals (T7)", () => {
       isCoreChannel: () => false,
     });
     registry.attach();
+    // The server's ownership table releases held declarations (D1).
+    registry.setOwnership({ eventTypes: { "flow_*": "flows" } });
     activate(pi);
     expect(() => pi.events.emit("flow:summary-dismissed", { runId: "r1" })).not.toThrow();
     expect(sent).toContain("flow_summary_dismissed");

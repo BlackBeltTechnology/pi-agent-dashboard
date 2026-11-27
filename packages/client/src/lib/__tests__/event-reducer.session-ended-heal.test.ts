@@ -12,7 +12,7 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { disableSubagentsPlugin, registerSubagentsReducerSlice, subagentsOf } from "../../test-support/subagents-reducer-slice.js";
-import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
+import { createInitialState, reduceEvent, type SessionState, TOOL_STOPPED_SENTINEL_BODY } from "../chat/event-reducer.js";
 
 function apply(events: DashboardEvent[], from: SessionState = createInitialState()): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), from);
@@ -321,7 +321,7 @@ describe("session_ended heal — subagents plugin disabled (test-plan #X4)", () 
     ]);
     const row = s.messages.findLast((m) => m.toolCallId === "A");
     expect(row?.toolStatus).toBe("complete");
-    expect(row?.result).toBe("subagent stopped — result not received");
+    expect(row?.result).toBe(TOOL_STOPPED_SENTINEL_BODY);
     expect(row?.toolDetails?.resultMissing).toBe(true);
     expect(row?.toolDetails?.healedBy).toBe("turn_settled");
     expect(subagentsOf(s).size).toBe(0);

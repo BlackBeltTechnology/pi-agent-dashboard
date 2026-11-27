@@ -24,31 +24,31 @@ describe("evaluateHostApi — decision table", () => {
 
   it("pi-package / installed with an unsatisfied range: incompatible and refused", () => {
     for (const source of ["pi-package", "installed"] as const) {
-      const v = evaluateHostApi({ ...base, source, range: "^2.0.0" });
-      expect(v.status).toEqual({ range: "^2.0.0", compatible: false });
+      const v = evaluateHostApi({ ...base, source, range: "^3.0.0" });
+      expect(v.status).toEqual({ range: "^3.0.0", compatible: false });
       expect(v.refuse).toBe(true);
       expect(v.reason).toContain("host-api");
-      expect(v.reason).toContain("^2.0.0");
+      expect(v.reason).toContain("^3.0.0");
     }
   });
 
   it("a range that is newer than the host by a minor is incompatible", () => {
-    // One minor newer than host 1.5.0 (update-flows-plugin).
-    expect(evaluateHostApi({ ...base, source: "installed", range: "^1.6.0" }).status?.compatible).toBe(false);
+    // One minor newer than host 2.0.0 (move-subagents-to-plugin).
+    expect(evaluateHostApi({ ...base, source: "installed", range: "^2.1.0" }).status?.compatible).toBe(false);
   });
 
   it("workspace / bundled with an unsatisfied range: warn, never refuse", () => {
     for (const source of ["workspace", "bundled"] as const) {
-      const v = evaluateHostApi({ ...base, source, range: "^2.0.0" });
-      expect(v.status).toEqual({ range: "^2.0.0", compatible: false });
+      const v = evaluateHostApi({ ...base, source, range: "^3.0.0" });
+      expect(v.status).toEqual({ range: "^3.0.0", compatible: false });
       expect(v.refuse).toBe(false);
       expect(v.warn).toBe(true);
     }
   });
 
   it("a satisfied range is compatible and silent", () => {
-    const v = evaluateHostApi({ ...base, source: "installed", range: "^1.0.0" });
-    expect(v).toMatchObject({ status: { range: "^1.0.0", compatible: true }, refuse: false, warn: false });
+    const v = evaluateHostApi({ ...base, source: "installed", range: "^2.0.0" });
+    expect(v).toMatchObject({ status: { range: "^2.0.0", compatible: true }, refuse: false, warn: false });
   });
 
   it("pi-package without hostApi is incompatible and the reason names hostApi", () => {
@@ -108,10 +108,10 @@ describe("discovery + status — host API gate", () => {
     const installedDir = path.join(tmpDir, "installed");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
-    writePlugin(path.join(tmpDir, "packages"), "ws", { id: "ws", displayName: "WS", claims: [], server: "./server.mjs", client: "./c.tsx", hostApi: "^2.0.0" }, true);
-    writePlugin(installedDir, "inst", { id: "inst", displayName: "Inst", claims: [], server: "./server.mjs", client: "./c.tsx", hostApi: "^2.0.0" }, true);
+    writePlugin(path.join(tmpDir, "packages"), "ws", { id: "ws", displayName: "WS", claims: [], server: "./server.mjs", client: "./c.tsx", hostApi: "^3.0.0" }, true);
+    writePlugin(installedDir, "inst", { id: "inst", displayName: "Inst", claims: [], server: "./server.mjs", client: "./c.tsx", hostApi: "^3.0.0" }, true);
     writePlugin(installedDir, "inst-plain", { id: "inst-plain", displayName: "Plain", claims: [], server: "./server.mjs" }, true);
-    writePlugin(installedDir, "inst-ok", { id: "inst-ok", displayName: "Ok", claims: [], hostApi: "^1.0.0" });
+    writePlugin(installedDir, "inst-ok", { id: "inst-ok", displayName: "Ok", claims: [], hostApi: "^2.0.0" });
 
     const plugins = discoverPlugins(tmpDir, [{ dir: installedDir, source: "installed" }]);
     expect(Object.fromEntries(plugins.map((p) => [p.manifest.id, p.source]))).toEqual({
@@ -121,7 +121,7 @@ describe("discovery + status — host API gate", () => {
       "inst-ok": "installed",
     });
     // workspace mismatch warns naming plugin + range
-    expect(warn.mock.calls.flat().join("\n")).toMatch(/ws.*\^2\.0\.0/s);
+    expect(warn.mock.calls.flat().join("\n")).toMatch(/ws.*\^3\.0\.0/s);
 
     // listing: the refused plugin is absent from the client registry selection
     const listed = selectClientRegistryPlugins(plugins, { isProd: false }).map((p) => p.manifest.id);
@@ -143,7 +143,7 @@ describe("discovery + status — host API gate", () => {
     expect(inst).toMatchObject({
       source: "installed",
       loaded: false,
-      hostApi: { range: "^2.0.0", compatible: false },
+      hostApi: { range: "^3.0.0", compatible: false },
       client: { delivery: "refused", refusedReason: "host-api" },
     });
     expect(inst?.error).toContain("host-api");
@@ -152,7 +152,7 @@ describe("discovery + status — host API gate", () => {
     const ws = store.getStatus("ws");
     // The server entry IS attempted for workspace (vitest cannot import a tmp
     // file, so a later import error is expected; it must not be a host-api one).
-    expect(ws).toMatchObject({ source: "workspace", hostApi: { range: "^2.0.0", compatible: false } });
+    expect(ws).toMatchObject({ source: "workspace", hostApi: { range: "^3.0.0", compatible: false } });
     expect(ws?.error ?? "").not.toMatch(/^host-api:/);
     expect(ws?.client).toBeUndefined();
     expect(created).toContain("ws");
@@ -162,7 +162,7 @@ describe("discovery + status — host API gate", () => {
     expect(store.getStatus("inst-plain")?.error ?? "").not.toMatch(/^host-api:/);
     expect(store.getStatus("inst-plain")?.hostApi).toBeUndefined();
     expect(created).toContain("inst-plain");
-    expect(store.getStatus("inst-ok")).toMatchObject({ loaded: true, hostApi: { range: "^1.0.0", compatible: true } });
+    expect(store.getStatus("inst-ok")).toMatchObject({ loaded: true, hostApi: { range: "^2.0.0", compatible: true } });
   });
 
   it("an installed plugin with a clientBundle and no hostApi is refused", async () => {

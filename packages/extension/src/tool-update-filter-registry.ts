@@ -146,25 +146,26 @@ export class ToolUpdateFilterRegistry {
       return;
     }
     try {
-      if (!raw || typeof raw !== "object") return void this.stats.refused++;
+      if (!raw || typeof raw !== "object") { this.stats.refused++; return; }
       const pluginId = own(raw, "pluginId");
       const toolName = own(raw, "toolName");
       const dropRaw = own(raw, "dropPaths");
-      if (typeof pluginId !== "string" || !PLUGIN_ID_RE.test(pluginId)) return void this.stats.refused++;
-      if (typeof toolName !== "string" || !TOOL_NAME_RE.test(toolName)) return void this.stats.refused++;
+      if (typeof pluginId !== "string" || !PLUGIN_ID_RE.test(pluginId)) { this.stats.refused++; return; }
+      if (typeof toolName !== "string" || !TOOL_NAME_RE.test(toolName)) { this.stats.refused++; return; }
       if (!Array.isArray(dropRaw) || dropRaw.length < 1 || dropRaw.length > MAX_DROP_PATHS) {
-        return void this.stats.refused++;
+        this.stats.refused++;
+        return;
       }
       const dropPaths: string[][] = [];
       for (const p of dropRaw) {
         const parsed = parsePath(p);
-        if (!parsed) return void this.stats.refused++;
+        if (!parsed) { this.stats.refused++; return; }
         dropPaths.push(parsed);
       }
       const when = parseWhen(own(raw, "when"));
-      if (when === false) return void this.stats.refused++;
+      if (when === false) { this.stats.refused++; return; }
       // Only the plugin whose manifest claims the tool may filter it.
-      if (this.claims.get(toolName) !== pluginId) return void this.stats.refused++;
+      if (this.claims.get(toolName) !== pluginId) { this.stats.refused++; return; }
       this.filters.set(toolName, { pluginId, dropPaths, ...(when ? { when } : {}) });
       this.stats.declared = this.filters.size;
     } catch {

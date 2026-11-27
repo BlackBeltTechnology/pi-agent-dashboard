@@ -330,18 +330,17 @@ See change: add-acp-session-driver.
 - `registerEventBusForwarding`. `packages/extension/src/flow-event-wiring.ts`.
 - ONE `pi.events.on(channel, ...)` subscription per declared channel.
 - `on()` observes every emitter.
-- Declared set = keys of `SUBAGENT_EVENT_MAP` + optional `extraMaps` (currently none passed). `FLOW_EVENT_MAP` removed; flow channels plugin-declared.
+- Declared set = plugin-declared channels via `extraMaps`. Core maps removed (`FLOW_EVENT_MAP`, `SUBAGENT_EVENT_MAP`).
 - Channel list IS the contract. Undeclared channel -> never forwarded.
 - New channel -> new map entry. Identity entry when no rename wanted.
 - Retired: wildcard forwarding of any unknown channel. Unimplementable without an emit intercept.
 
 **Forward gates.** `forwardBusEvent`, same file.
 
-- Subagent channel -> forward only when `sessionReady && isActive() && connection.isConnected`.
-- Else buffer latest-wins per agent in `SubagentFrameBuffer`. Flushed on re-register / reconnect.
-- Other declared channel -> forward when `sessionReady && isActive()`.
+- Plugin `latest`-group channel -> buffered latest-wins in `StreamForwardBuffer` while not forwardable. Flushed on re-register / reconnect.
+- Declared channel -> forward when `sessionReady && isActive()`.
 - Forwarding failure never propagates to the emitter.
-- Forwarding failure drops that live frame. Nothing re-sends it. Subagent frames are the exception (buffered).
+- Forwarding failure drops that live frame. Nothing re-sends it. `latest`-group frames are the exception (buffered).
 
 **Teardown.** dispose returned by `registerEventBusForwarding`.
 
@@ -393,7 +392,7 @@ See change: add-acp-session-driver.
 - `flow:flow-started` / `flow:complete` `stream`, keyed `flowName`.
 - `flow:auto-decision` `stream`, keyed `agentName`.
 - `summary-*` and `autonomous-mode-changed` `live`.
-- Core `FLOW_EVENT_MAP` removed. `SUBAGENT_EVENT_MAP` stays core (`packages/extension/src/flow-event-wiring.ts`).
+- Core `FLOW_EVENT_MAP` and `SUBAGENT_EVENT_MAP` removed. Channels plugin-declared (`packages/extension/src/flow-event-wiring.ts`).
 - Flows disabled → no flow events forwarded.
 
 **Retention.** `StreamForwardBuffer` (`packages/extension/src/stream-forward-buffer.ts`).
@@ -448,118 +447,41 @@ See change: add-acp-session-driver.
 - KNOWN BLOCKER: pi flushes custom entries only after first assistant message.
 - `/api/health` `pluginEntries`: `declaredReplayTypes`, `replayedPluginEntries`, `rejectedPluginActions`.
 
-### Subagent Timeline Push/Pull Split (change: reduce-subagent-details-payload)
+### Subagent delivery via plugin seams (change: move-subagents-to-plugin)
 
-**Why thin ticks.**
+Replaces the core thin-tick push/pull split (change: reduce-subagent-details-payload). Core names no subagent contract.
 
-- Producer builds ONE `snapshotDetails()` object.
-- Feeds BOTH carriers: `subagents:*` EventBus frame + pi-core `tool_execution_update`.
-- `entries[]` append-only → tick size grows linearly with run length.
-- Long run = fat intermediate ticks.
-- Solution: strip timeline from intermediate ticks.
-- Push terminal frame fat.
-- Pull full timeline on demand.
+**Boundary.**
 
-**Strip module.**
+- Core carries no `subagents:*` channel, event map, frame buffer, strip, or resync frame.
+- Enforced by `scripts/check-subagent-boundary.mjs`. Runs in `npm test`.
+- Deleted from core: `SUBAGENT_EVENT_MAP`, `SubagentFrameBuffer`, `subagent-frame-strip.ts`, `subagent-forward-sites.ts`, `subagent_resync_request`, `useSubagentResyncCadence.ts`, `PI_DASHBOARD_SUBAGENT_STRIP`, tick throttle.
+- Deleted e2e: tick-throttle, pull-measurements, thin-tick-liveness, pull-under-load specs.
 
-- File: `packages/extension/src/subagent-frame-strip.ts`.
-- Exports `stripSubagentEntries`, `stripForForward`, `NON_TERMINAL_STATUSES`.
-- Strips `details.entries` on FORWARD path when frame status `queued` or `running`.
+**Generic seams.**
 
-**Allowlist, never negation.**
+- Ownership: plugin manifest declares owned channels/event types. Server sends `plugin_ownership` table (`packages/server/src/plugin-ownership.ts`).
+- Buffer: `StreamForwardBuffer` supports `latest` `group` + per-plugin `maxKeys`. Latest-wins per group key.
+- Tool-update filter: bridge event `dashboard:register-tool-update-filter`. Registry `packages/extension/src/tool-update-filter-registry.ts`. Plugin filters `tool_execution_update` carrier.
+- Server policies: `ctx.registerStorePolicy`, `registerDeliveryPolicy`, `registerReplayCarry`, `onSessionStatusEnded`, `appendEvent`. Registry `packages/server/src/plugin-policy-registry.ts`. Runtime types `packages/dashboard-plugin-runtime/src/server/plugin-policies.ts`.
+- Replay carry: server sends `plugin_event_carry` frame after `history_window`, before first `event_replay`.
+- Client state: `SessionState.pluginState` + `useSessionPluginState`. Reducer finalizer lookup `findFinalizerForEventType`.
+- Version gate: manifest `requires.piExtensionVersions`. Subagents plugin `>=0.7.0`.
 
-- `NON_TERMINAL_STATUSES` = explicit allowlist.
-- Never `!terminal`.
-- `AgentStatus` also has `stopped`; negation would strip it and lose that run's timeline.
-- `stopped` counts as terminal: never stripped.
+**Subagents plugin implementations.**
 
-**Strip clones.**
+- `packages/subagents-plugin/src/bridge/index.ts` — forward channels, latest-wins buffer, tool-update filter, registry reconcile on `subagents:list`.
+- `server/store-policy.ts` — store trim/keep rules for subagent events.
+- `server/delivery-policy.ts` — per-connection delivery rules.
+- `server/session-end-heal.ts` — `onSessionStatusEnded` heal of non-terminal agents.
+- `server/replay-carry.ts` — `plugin_event_carry` payload for reconnect.
+- `client/pluginState.ts` — plugin-owned reducer state in `SessionState.pluginState`.
 
-- Strip CLONES data.
-- `SubagentFrameBuffer` retains frames BY REFERENCE.
-- Mutating strip would corrupt the pull source.
-- Fat snapshot survives intact for resync.
+**Invariants kept.**
 
-**Call-site allowlist.**
-
-- Strip applied at explicit call sites.
-- NEVER inside `sendEventForward`.
-- Sites: EventBus forward path (`flow-event-wiring.ts` `forwardBusEvent`).
-- Sites: buffered-frame flush + resync reply (`packages/extension/src/subagent-forward-sites.ts` — `flushBufferedSubagentFrames` strips, `serveSubagentResync` does NOT).
-- Sites: `tool_execution_update` carrier in `bridge.ts`.
-- Strip inside `sendEventForward` would strip the resync reply.
-- EventBus-only strip would leak every frame drained by the buffer.
-
-**Terminal frames never stripped.**
-
-- `completed`/`failed`/`aborted`/`stopped`/`error` forward full.
-- Terminal frame = durable record behind `tool_execution_end` backfill.
-- Second independent terminal guard: `stripForForward(data, channel)` never strips when `channel` in `TERMINAL_CHANNELS` (`subagents:completed`, `subagents:failed`).
-- Guard fires regardless of `details.status`.
-- Both signals must be wrong to lose a timeline.
-
-**Full-snapshot invariant preserved.**
-
-- Every frame still an idempotent FULL snapshot.
-- Latest-supersedes.
-- No delta encoding.
-- No wire key.
-- No version negotiation.
-- No producer change.
-- Dropped thin tick leaves no permanent hole.
-
-**Pull path.**
-
-- Client requests `subagent_resync_request`.
-- Bridge answers from retained fat snapshot as synthetic `subagents:started` frame.
-
-**Server resync locator.**
-
-- `locateSubagentTimeline` (`packages/server/src/persistence/memory-event-store.ts`) now also matches `subagent_*` eventTypes carrying `details.entries`.
-- Before: resync reply fell to generic pass.
-- Before: any array > 20 items became string `"[array truncated]"`.
-- Before: reducer rendered no timeline.
-- Head-tail budget now applies: head + `⋯ N steps hidden ⋯` sentinel + tail.
-- `DEFAULT_MAX_EVENT_DATA_SIZE` = 262144.
-
-**Open-inspector liveness.**
-
-- File: `packages/client/src/hooks/useSubagentResyncCadence.ts`.
-- Mounted detail view re-fires `subagent_resync_request` on backoff cadence.
-- Base 2000 ms, doubles per idle tick, ceiling 30000 ms, resets on entry growth.
-- ONE timer per subagent → inline inspector + popout do not double-fire.
-- No `emptyTimeline` precondition on this trigger (open-time trigger keeps it).
-
-**Requester-scoped delivery.**
-
-- Request carries `requestId`.
-- Bridge echoes it on reply as `__resyncRequestId`.
-- Server routes reply to that one connection (`packages/server/src/pairing/subagent-resync-routing.ts`, `ResyncRequesterRegistry`, TTL 30000 ms).
-- Unknown/expired token falls back to normal broadcast.
-
-**Counters.**
-
-- `storeTrim.subagentTicks` / `subagentTickBytes` / `subagentFatTicks` / `subagentTickFatBytes` on `/api/health` (additive).
-- Bridge `SubagentFrameStats.resyncCadence` counts pull-loop requests.
-
-**Rollback. PARTIAL, not total.**
-
-- One flag: `PI_DASHBOARD_SUBAGENT_STRIP=0` forwards unstripped.
-- Flag disables STRIPPING ONLY.
-- Wire payload returns to pre-change shape: intermediate ticks fat again.
-- These stay ACTIVE under the flag: `locateSubagentTimeline` `subagent_*` gate.
-- Stay active: resync cadence in `useSubagentResyncCadence.ts`.
-- Stay active: requester-scoped routing (`requestId` / `__resyncRequestId`).
-- Stay active: additive `storeTrim` subagent-tick counters.
-- Each of those is additive or a bug fix. None depends on the strip.
-- No producer, protocol, or store rollback exists to do.
-
-**Known regression, stated deliberately.**
-
-- Run dying with NO terminal frame (crash/kill) leaves only thin ticks in store.
-- Recovery needs a LIVE bridge with agent still in the 64-slot `SubagentFrameBuffer`.
-- Evicted or post-reset agents answer `resyncNoop`.
-- Client keeps its last rendered state.
+- Every frame = idempotent FULL snapshot. Latest-supersedes.
+- Terminal frames (`completed`/`failed`/`aborted`/`stopped`/`error`) never stripped.
+- Dropped intermediate tick leaves no permanent hole.
 
 ### Subagent concurrency and stop (change: subagent-queue-visibility)
 
@@ -1181,7 +1103,7 @@ sequenceDiagram
 
 **Relationship to existing capabilities:**
 - `interactive-ui-dialogs` / `ui-proxy` / PromptBus — handle one-shot `ctx.ui.*` dialogs (request/response, awaited). The extension-ui-system handles persistent push-based descriptors (no awaiting). Orthogonal mechanisms; both ship.
-- `extension-ui-forwarding` (per-channel declared-set forwarding) — bridge forwards via one `pi.events.on` subscription per declared channel (`registerEventBusForwarding`). Channels: core `SUBAGENT_EVENT_MAP` + plugin-declared via `dashboard:register-event-forward`. RPC probe channels (`flow:list-flows`, `roles:*`, `model:resolve`, `ui:list-modules`…) kept out of core map; plugin declarations naming one not rejected. No `emit` wrapper. The new system is the *declarative* path for UI specifically. No authored spec — file removed (0-byte placeholder since initial commit). See change: repair-corrupted-main-specs. See change: skip-rpc-probes-in-event-forwarder.
+- `extension-ui-forwarding` (per-channel declared-set forwarding) — bridge forwards via one `pi.events.on` subscription per declared channel (`registerEventBusForwarding`). Channels: plugin-declared (no core map) via `dashboard:register-event-forward`. RPC probe channels (`flow:list-flows`, `roles:*`, `model:resolve`, `ui:list-modules`…) kept out of core map; plugin declarations naming one not rejected. No `emit` wrapper. The new system is the *declarative* path for UI specifically. No authored spec — file removed (0-byte placeholder since initial commit). See change: repair-corrupted-main-specs. See change: skip-rpc-probes-in-event-forwarder.
 - pi-flows: in Phase 3 pi-flows itself adopts the system to surface registered workflows (breadcrumb), gates, and cards (agent-metric) for any flow-using extension automatically.
 
 **No-dashboard fallback:** When no bridge is connected, `ui:list-modules` is never emitted; extension listeners are dormant; slash commands fall back to existing text-output behavior. Extensions remain pi-runnable in pure-pi mode without code changes.

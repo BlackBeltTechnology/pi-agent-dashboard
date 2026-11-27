@@ -12,6 +12,7 @@ import {
   createInitialState,
   reduceEvent,
   type SessionState,
+  TOOL_STOPPED_SENTINEL_BODY,
 } from "../chat/event-reducer.js";
 
 // Never-empty fallback bodies the subagents plugin's finalizer stamps (the plugin owns the constants).
@@ -353,12 +354,12 @@ function linkRow(s: SessionState, toolCallId: string, agentId: string): SessionS
   };
 }
 
-// ── The neutral settle heal is the plugin finalizer's `onTurnSettled` ─────────
-// Core asks every enabled finalizer at `agent_settled` and names no tool; a finalizer that
-// declines (or has no `onTurnSettled`) leaves the row alone.
+// ── The neutral settle heal: plugin finalizer first, generic core fallback ────
+// Core asks every enabled finalizer at `agent_settled` and names no tool; a row no finalizer
+// finalized (declined / none registered) gets the generic neutral heal.
 // See change: decouple-plugins-from-core (design D5 item 9; test-plan #E48),
 // move-subagents-to-plugin (D8).
-describe("settle heal runs through every finalizer's onTurnSettled (E48)", () => {
+describe("declining Agent finalizer falls back to the neutral settle heal (E48)", () => {
   afterEach(() => {
     registerSubagentsReducerSlice();
   });
@@ -379,11 +380,14 @@ describe("settle heal runs through every finalizer's onTurnSettled (E48)", () =>
     expect(row(s, "B").toolDetails?.healedBy).toBe("turn_settled");
   });
 
-  it("a finalizer that declines onTurnSettled leaves the row running (core heals nothing by name)", () => {
+  it("a finalizer that declines onTurnSettled falls back to the generic neutral heal", () => {
     const running = apply([start("B"), tick("B", "ag-B", "B working")]);
     decline();
     const s = apply([settled()], running);
-    expect(row(s, "B").toolStatus).toBe("running");
+    expect(row(s, "B").toolStatus).toBe("complete");
+    expect(row(s, "B").result).toBe(TOOL_STOPPED_SENTINEL_BODY);
+    expect(row(s, "B").toolDetails?.resultMissing).toBe(true);
+    expect(row(s, "B").toolDetails?.healedBy).toBe("turn_settled");
   });
 
   it("every registered finalizer is asked at agent_settled", () => {
