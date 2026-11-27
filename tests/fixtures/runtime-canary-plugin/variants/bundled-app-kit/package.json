@@ -11,7 +11,7 @@
     "id": "runtime-canary-bundled-app-kit",
     "displayName": "Runtime Canary variant: bundled-app-kit (fixture)",
     "fixture": true,
-    "hostApi": "^1.0.0",
+    "hostApi": "^2.0.0",
     "clientBundle": "./dist/client/index.js",
     "claims": [
       {

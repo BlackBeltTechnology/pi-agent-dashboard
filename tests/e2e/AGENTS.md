@@ -275,6 +275,7 @@ One row per file.
 | `subagent-inspector.spec.ts` | → `subagent-inspector.spec.ts.AGENTS.md` |
 | `subagent-live-timeline.spec.ts` | → `subagent-live-timeline.spec.ts.AGENTS.md` |
 | `subagent-stop-finalize.spec.ts` | → `subagent-stop-finalize.spec.ts.AGENTS.md` |
+| `subagent-windowed-replay-carry.spec.ts` | L3 #F4. Fake bridge forwards subagent_created/started/entry (pluginId "subagents") then maxReplayEvents+300 filler. Cold open asserts dock row type+task, no `unknown`, history_window + plugin_event_carry frames, detail view lists entries 0..5. Skips if window off. See change: move-subagents-to-plugin. |
 | `submodule-folder-grouping.spec.ts` | → `submodule-folder-grouping.spec.ts.AGENTS.md` |
 | `streaming-latch-heal.spec.ts` | → `streaming-latch-heal.spec.ts.AGENTS.md` |
 | `superseded-heal.spec.ts` | → `superseded-heal.spec.ts.AGENTS.md` |

@@ -31,7 +31,7 @@ function mk(id: string, files = 50): void {
   for (let i = 1; i < files; i++) fs.writeFileSync(path.join(dir, "dist", "client", `chunk-${i}.js`), `export const n = ${i};\n`);
   fs.writeFileSync(
     path.join(dir, "package.json"),
-    JSON.stringify({ name: id, version: "1.0.0", "pi-dashboard-plugin": { id, displayName: id, claims: [], client: "./src/c.tsx", clientBundle: "./dist/client/index.js", hostApi: "^1.0.0" } }),
+    JSON.stringify({ name: id, version: "1.0.0", "pi-dashboard-plugin": { id, displayName: id, claims: [], client: "./src/c.tsx", clientBundle: "./dist/client/index.js", hostApi: "^2.0.0" } }),
   );
   getPluginStatusStore().setStatus({ id, displayName: id, enabled: true, loaded: true, claims: 0 });
 }

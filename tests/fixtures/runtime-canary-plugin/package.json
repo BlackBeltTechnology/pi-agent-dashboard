@@ -15,7 +15,7 @@
     "displayName": "Runtime Canary (fixture)",
     "fixture": true,
     "priority": 1000,
-    "hostApi": "^1.0.0",
+    "hostApi": "^2.0.0",
     "clientBundle": "./dist/client/index.js",
     "clientStyles": "./dist/client/client.css",
     "i18nCatalog": "catalog",

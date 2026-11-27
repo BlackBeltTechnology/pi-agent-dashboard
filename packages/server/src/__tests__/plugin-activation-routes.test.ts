@@ -644,7 +644,7 @@ describe("runtime client admission through status + listing (E76, E77)", () => {
       JSON.stringify({
         name: id,
         version: "1.0.0",
-        "pi-dashboard-plugin": { id, displayName: id, claims: [], client: "./src/c.tsx", clientBundle: "./dist/client/index.js", hostApi: "^1.0.0", ...extra },
+        "pi-dashboard-plugin": { id, displayName: id, claims: [], client: "./src/c.tsx", clientBundle: "./dist/client/index.js", hostApi: "^2.0.0", ...extra },
       }),
     );
   }
@@ -664,7 +664,7 @@ describe("runtime client admission through status + listing (E76, E77)", () => {
   it.each([
     ["untrusted", () => { mk("ext"); config(); }, ["flows"]],
     ["pin-mismatch", () => { mk("ext"); config(); grantClientTrust("ext", SHA); }, ["flows"]],
-    ["host-api", () => { mk("ext", { hostApi: "^2.0.0" }); config(); }, ["flows"]],
+    ["host-api", () => { mk("ext", { hostApi: "^3.0.0" }); config(); }, ["flows"]],
     ["no-bundle", () => { mk("ext", { clientBundle: undefined }); config(); }, ["flows"]],
     ["build-undeclared", () => { mk("ext"); config(); }, undefined],
     ["disabled", () => { mk("ext"); config({ ext: { enabled: false } }); }, ["flows"]],
@@ -779,7 +779,7 @@ describe("runtime-client routes: listing, trust grant / revoke, admission log (E
       JSON.stringify({
         name: id,
         version: "1.0.0",
-        "pi-dashboard-plugin": { id, displayName: id, claims: [], client: "./src/c.tsx", clientBundle: "./dist/client/index.js", hostApi: "^1.0.0", ...extra },
+        "pi-dashboard-plugin": { id, displayName: id, claims: [], client: "./src/c.tsx", clientBundle: "./dist/client/index.js", hostApi: "^2.0.0", ...extra },
       }),
     );
   }
@@ -983,7 +983,7 @@ describe("pi-package server trust through the endpoint (E61 c–e, E81)", () => 
     fs.writeFileSync(path.join(dir, "server.mjs"), `export default () => { (globalThis.__trustSpy ||= []).push("ok"); };\n`);
     fs.writeFileSync(
       path.join(dir, "package.json"),
-      JSON.stringify({ name: "pi-ok", version: "1.0.0", "pi-dashboard-plugin": { id: "okplug", displayName: "ok", claims: [], server: "./server.mjs", hostApi: "^1.0.0" } }),
+      JSON.stringify({ name: "pi-ok", version: "1.0.0", "pi-dashboard-plugin": { id: "okplug", displayName: "ok", claims: [], server: "./server.mjs", hostApi: "^2.0.0" } }),
     );
     fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:pi-ok"] }));
     (globalThis as { __trustSpy?: string[] }).__trustSpy = [];

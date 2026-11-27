@@ -64,13 +64,23 @@ export interface PluginOwnership {
  * `getPlugins` is read per call (discovery is cached by the loader); the owner
  * list is rebuilt only when the returned array identity changes.
  */
+const REFRESH_MS = 1_000;
+
 export function createPluginOwnership(getPlugins: () => readonly OwnershipPluginLike[]): PluginOwnership {
   const stats: PluginOwnershipStats = { rejectedMisstamped: 0 };
   let cachedFor: readonly OwnershipPluginLike[] | undefined;
   let cachedTable: PluginOwnershipMessage = { type: "plugin_ownership", eventTypes: {}, toolClaims: {} };
   let owners: EventTypeOwner[] = [];
 
-  const refresh = (): void => {
+  // `getPlugins` (plugin discovery) probes the filesystem for its cache key, so the
+  // per-event ingest path re-reads it at most once per REFRESH_MS; `table()`
+  // (session_register) always re-reads. Measured: an unthrottled read per
+  // `event_forward` cut replay ingest ~20% (large-resume-replay F4).
+  let readAt = Number.NEGATIVE_INFINITY;
+  const refresh = (force = false): void => {
+    const now = Date.now();
+    if (!force && now - readAt < REFRESH_MS) return;
+    readAt = now;
     const plugins = getPlugins();
     if (plugins === cachedFor) return;
     cachedFor = plugins;
@@ -86,7 +96,7 @@ export function createPluginOwnership(getPlugins: () => readonly OwnershipPlugin
 
   return {
     table() {
-      refresh();
+      refresh(true);
       return cachedTable;
     },
     acceptForward(eventType, pluginId) {

@@ -37,7 +37,7 @@ cat > "$PLUGIN/package.json" <<JSON
   "pi-dashboard-plugin": {
     "id": "$ID",
     "displayName": "QA serveApp fixture",
-    "hostApi": "^1.0.0",
+    "hostApi": "^2.0.0",
     "clientBundle": "./dist/client/index.js",
     "server": "./server.js",
     "claims": [{ "slot": "settings-section", "component": "Settings" }]
