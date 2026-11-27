@@ -3,7 +3,6 @@ import {
   byTestId,
   reloadTranscript,
   sendPrompt,
-  setSubagentTickThrottle,
   spawnFreshGitSession,
 } from "./helpers/index.js";
 
@@ -266,25 +265,12 @@ async function seedPoisonedV1Entry(page: Page, sessionId: string): Promise<void>
   }, sessionId);
 }
 
-// ── Subagent tick throttle: replay-side rows (change: reduce-bridge-tick-bandwidth)
-//
-// This carrier's user-visible job is REPLAY, not liveness: it is what a mid-run
-// page reload folds. So its staleness bound is asserted where it lives — on the
-// events the SERVER stored — rather than on a reloaded DOM, which the ephemeral
-// 250 ms carrier plus the resync refresh within milliseconds (a DOM sample would
-// measure catch-up, not staleness).
-test.describe("subagent tick throttle — replay", () => {
-  const W = 500;
-
-  // P3 (consecutive STORED Agent ticks within one window) moved to
-  // tests/e2e/subagent-tick-throttle.spec.ts: it needs the synthetic Agent-tick
-  // producer (PI_SYNTH_AGENT_TICKS=1 arm) to sustain a stored tick stream.
-  // See change: reduce-bridge-tick-bandwidth.
-
+// ── Subagent replay row. The tick throttle it once ran under was removed.
+// See change: move-subagents-to-plugin.
+test.describe("subagent replay — terminal fold", () => {
   test("F3: a reload of a finished subagent run folds to the terminal snapshot", async ({ page }) => {
     test.setTimeout(240_000);
     await page.goto("/");
-    await setSubagentTickThrottle(page, W);
 
     const card = await spawnFreshGitSession(page);
     await card.click();

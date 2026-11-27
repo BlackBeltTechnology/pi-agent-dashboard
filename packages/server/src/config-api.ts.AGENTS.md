@@ -4,7 +4,7 @@ Config REST helpers: `readRawConfig` (the config file's RAW JSON, unknown keys i
 
 `deleteAuthProvider(id, {force})` — raw read → delete one key from `auth.providers` → raw write. NOT `writeConfigPartial` (spread-only merge cannot express a removal) and NOT `readConfigRedacted()` (would persist `***` over every surviving provider's real `clientSecret`). Idempotent; refuses the LAST provider without `force` (`reason:"last-provider"`) because zero providers at runtime is auth ENFORCED with no login path, not auth disabled. Backs `DELETE /api/config/auth/providers/:id`. See change: config-override-oauth-redirect-base (D9).
 
-Adds `migrateSubagentTickThrottle()` — the one-shot boot rewrite of a materialized `subagentTickThrottleMs: 0` to `DEFAULT_SUBAGENT_TICK_THROTTLE_MS`, marked by `subagentTickThrottleMigrated`. The MARKER, not the value, decides: a `0` written after the marker exists is a deliberate opt-out and is kept. Goes through `writeConfigPartial` (the only merge-preserving writer, so unrelated user keys survive). Called from `cli.ts` `main()` beside `ensureConfig()` — never from `loadConfig`, which every bridge process calls and which must never write. See change: heal-orphaned-tool-cards-on-session-end.
+`migrateSubagentTickThrottle()` removed; stale `subagentTickThrottleMs`/`subagentTickThrottleMigrated` keys dropped on settings save (config-api.ts ~L506). See change: move-subagents-to-plugin.
 
 `serverHeap` value change now sets `restartRequired` (`/api/restart` re-reads + re-stamps the ceiling); `coldStartRequired` REMOVED from `WriteConfigResult` and the PUT response. See change: guard-server-heap-and-store-coupling (D5).
 

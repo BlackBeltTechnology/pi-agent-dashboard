@@ -18,6 +18,7 @@ import {
 import { createSubagentsStorePolicy } from "../../../subagents-plugin/src/server/store-policy.js";
 import { createPluginPolicyRegistry } from "../plugin-policy-registry.js";
 import { createSubagentsPolicyRegistry } from "./setup/subagents-policies.js";
+import { subagentsOf } from "../../../subagents-plugin/src/client/pluginState.js";
 
 /**
  * Every subagent rule lives in the subagents plugin's store policy now
@@ -2761,8 +2762,8 @@ describe("liveTail clear-sentinel subsumption + fold equivalence", () => {
     const fold = (events: DashboardEvent[]) => events.reduce((s, e) => reduceEvent(s, e), createInitialState());
     const full = fold(raw);
     const compacted = fold(store.getEvents("s", 1).map((e) => e.event));
-    expect(compacted.subagents.get("a1")).toEqual(full.subagents.get("a1"));
-    expect(full.subagents.get("a1")?.liveTail).toEqual(CLEARED);
+    expect(subagentsOf(compacted).get("a1")).toEqual(subagentsOf(full).get("a1"));
+    expect(subagentsOf(full).get("a1")?.liveTail).toEqual(CLEARED);
   });
 });
 

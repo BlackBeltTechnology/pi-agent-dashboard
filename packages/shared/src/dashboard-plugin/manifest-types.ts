@@ -266,6 +266,13 @@ export interface PluginRequirements {
   /** pi extension package identifiers (matched via the same logic
       RECOMMENDED_EXTENSIONS uses: name / id / source / displayName). */
   piExtensions?: string[];
+  /**
+   * Minimum installed version per pi extension package name (semver range,
+   * e.g. `">=0.7.0"`). An unmet range is listed in `missingRequirements` as
+   * `<name> <range>`. A git/local install without a valid version counts as
+   * satisfied (warning in plugin status). See change: move-subagents-to-plugin (D9).
+   */
+  piExtensionVersions?: Record<string, string>;
   /** Binaries that must resolve on PATH via the tool-registry. */
   binaries?: string[];
   /** Named service probes (closed built-in registry; "model-proxy" only in V1). */

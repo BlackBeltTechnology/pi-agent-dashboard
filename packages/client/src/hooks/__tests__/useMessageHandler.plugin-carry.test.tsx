@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
 import { HISTORY_GAP_ROW_ID, type HistoryGapState } from "../../lib/chat/history-gap.js";
 import { type MessageHandlerSetters, useMessageHandler } from "../useMessageHandler.js";
+import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
 
 const SID = "s1";
 const ev = (eventType: string, data: Record<string, unknown>): DashboardEvent => ({ eventType, timestamp: 1, data });
@@ -68,7 +69,7 @@ describe("plugin_event_carry client path", () => {
     expect(state.messages.some((m) => m.id === HISTORY_GAP_ROW_ID)).toBe(true);
     expect(h.get().gaps.get(SID)!.gapCount).toBe(12019);
     expect(h.get().maxSeqs.get(SID)).toBe(maxSeq);
-    expect(state.subagents.get("a1")?.entries?.length).toBe(89);
+    expect(subagentsOf(state).get("a1")?.entries?.length).toBe(89);
   });
 
   it("carry before a head-tail replay survives the replay's reset", () => {
@@ -76,7 +77,7 @@ describe("plugin_event_carry client path", () => {
     h.fire(windowMsg);
     h.fire(carry90());
     h.fire(headTailReplay());
-    expect(h.get().states.get(SID)!.subagents.get("a1")?.entries?.length).toBe(89);
+    expect(subagentsOf(h.get().states.get(SID)!).get("a1")?.entries?.length).toBe(89);
   });
 
   it("F2: backfilling a range that contains a carried seq leaves the timeline with index 5 once", () => {
@@ -92,7 +93,7 @@ describe("plugin_event_carry client path", () => {
       servedTo: 9007,
       remainingGapCount: 100,
     } as ServerToBrowserMessage);
-    const entries = h.get().states.get(SID)!.subagents.get("a1")!.entries!;
+    const entries = subagentsOf(h.get().states.get(SID)!).get("a1")!.entries!;
     expect(entries.filter((e) => e !== undefined)).toHaveLength(89);
     expect(entries[5]).toEqual({ kind: "text", text: "s5" });
   });

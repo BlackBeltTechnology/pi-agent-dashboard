@@ -24,7 +24,7 @@ import {
   type MinimalChatStatus,
   MinimalChatView,
 } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
-import { isTerminalSubagentStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+import { isTerminalSubagentStatus } from "../subagent-types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type React from "react";
 import { type MutableRefObject, useRef } from "react";

@@ -4,7 +4,7 @@
  * See change: finalize-agent-card-on-subagent-stop.
  */
 
-import { registerToolRowFinalizer } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { findToolRowFinalizer, registerToolRowFinalizer, unregisterSessionReducers } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
@@ -12,8 +12,9 @@ import {
   createInitialState,
   reduceEvent,
   type SessionState,
-  SUBAGENT_STOPPED_SENTINEL_BODY,
 } from "../chat/event-reducer.js";
+import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
+import { SUBAGENT_STOPPED_SENTINEL_BODY } from "../../../../subagents-plugin/src/client/toolRowFinalizer.js";
 
 // Never-empty fallback bodies the subagents plugin's finalizer stamps (the plugin owns the constants).
 const SUBAGENT_DONE_NO_RESULT = "subagent finished";
@@ -128,7 +129,7 @@ describe("subagent terminal event finalizes its Agent card", () => {
     s = linkRow(s, "X", "ag-X");
     s = apply([failed("ag-X", "parent session ended", { healedBy: "session_ended" })], s);
     expect(row(s, "X").toolStatus).toBe("running");
-    expect(s.subagents.get("ag-X")?.status).toBe("completed");
+    expect(subagentsOf(s).get("ag-X")?.status).toBe("completed");
   });
 
   it("terminal row is never touched (E8)", () => {
@@ -149,7 +150,7 @@ describe("subagent terminal event finalizes its Agent card", () => {
     const s = apply([completed("ag-Z", "z")], before);
     expect(s.messages).toEqual(before.messages);
     expect([...s.toolCalls.entries()]).toEqual([...before.toolCalls.entries()]);
-    expect(s.subagents.get("ag-Z")?.status).toBe("completed");
+    expect(subagentsOf(s).get("ag-Z")?.status).toBe("completed");
   });
 
   it("elided rows are untouched by subagent stop and by settle (E10)", () => {
@@ -191,7 +192,7 @@ describe("parent settle finalizes any Agent card still running", () => {
     expect(y.toolDetails?.healedBy).toBe("turn_settled");
     expect(y.toolDetails?.resultMissing).toBe(true);
     expect(s.toolCalls.get("Y")?.status).toBe("running");
-    expect(s.subagents.get("ag-Y")?.status).not.toBe("completed");
+    expect(subagentsOf(s).get("ag-Y")?.status).not.toBe("completed");
   });
 
   it("settle with a known completed subagent uses its result (E12)", () => {
@@ -354,9 +355,12 @@ function linkRow(s: SessionState, toolCallId: string, agentId: string): SessionS
   };
 }
 
-// ── A finalizer that declines falls back to the neutral core heal ────────────
-// See change: decouple-plugins-from-core (design D5 item 9; test-plan #E48).
-describe("declining Agent finalizer falls back to the neutral settle heal (E48)", () => {
+// ── The neutral settle heal is the plugin finalizer's `onTurnSettled` ─────────
+// Core asks every enabled finalizer at `agent_settled` and names no tool; a finalizer that
+// declines (or has no `onTurnSettled`) leaves the row alone.
+// See change: decouple-plugins-from-core (design D5 item 9; test-plan #E48),
+// move-subagents-to-plugin (D8).
+describe("settle heal runs through every finalizer's onTurnSettled (E48)", () => {
   afterEach(() => {
     registerSubagentsReducerSlice();
   });
@@ -366,24 +370,30 @@ describe("declining Agent finalizer falls back to the neutral settle heal (E48)"
       toolName: "Agent",
       onToolExecution: () => undefined,
       onSessionEvent: () => undefined,
+      onTurnSettled: () => undefined,
     });
 
-  it("a running row at turn settle gets the sentinel body", () => {
-    const running = apply([start("B"), tick("B", "ag-B", "B working")]);
-    decline();
-    const s = apply([settled()], running);
+  it("a running row at turn settle gets the sentinel body from the plugin finalizer", () => {
+    const s = apply([start("B"), tick("B", "ag-B", "B working"), settled()]);
     expect(row(s, "B").toolStatus).toBe("complete");
     expect(row(s, "B").result).toBe(SUBAGENT_STOPPED_SENTINEL_BODY);
     expect(row(s, "B").toolDetails?.resultMissing).toBe(true);
     expect(row(s, "B").toolDetails?.healedBy).toBe("turn_settled");
   });
 
-  it("a declined subagent_completed leaves the row to the neutral settle heal", () => {
-    const s0 = apply([start("A"), tick("A", "ag-A", "A working")]);
+  it("a finalizer that declines onTurnSettled leaves the row running (core heals nothing by name)", () => {
+    const running = apply([start("B"), tick("B", "ag-B", "B working")]);
     decline();
-    // subagent_completed under a declining finalizer: slice is registered, finalizer declines → no row finalize.
-    const s1 = apply([completed("ag-A", "done A"), settled()], s0);
-    expect(row(s1, "A").result).toBe(SUBAGENT_STOPPED_SENTINEL_BODY);
-    expect(row(s1, "A").toolDetails?.resultMissing).toBe(true);
+    const s = apply([settled()], running);
+    expect(row(s, "B").toolStatus).toBe("running");
+  });
+
+  it("every registered finalizer is asked at agent_settled", () => {
+    const running = apply([start("B"), tick("B", "ag-B", "B working")]);
+    registerToolRowFinalizer("other-plugin", { toolName: "Other", onTurnSettled: vi.fn(() => undefined) });
+    const other = findToolRowFinalizer("Other")!;
+    apply([settled()], running);
+    unregisterSessionReducers("other-plugin");
+    expect(other.onTurnSettled).toHaveBeenCalledTimes(1);
   });
 });

@@ -681,23 +681,6 @@ FIXSRV
     [ -e "${STUB_FETCH_EXT_DIR}/node_modules" ] || ln -sfn /app/node_modules "${STUB_FETCH_EXT_DIR}/node_modules"
   fi
 
-  # --- Synthetic Agent-tick producer (throttle L3, change: reduce-bridge-tick-
-  # bandwidth) --- Registers an `Agent` tool that streams tool_execution_update
-  # frames at a deterministic cadence (via a `[[ticks:N@Mms]]` sentinel) for the
-  # cadence rows (F1/P1/P2/P3/F5). It SHADOWS the real subagents Agent tool
-  # (first-registration-wins), so it is staged ONLY under PI_SYNTH_AGENT_TICKS=1
-  # and `register_subagents` is SKIPPED below — the two never coexist. The
-  # nested-faux subagent cannot be scripted in the harness (see change
-  # measurement.md, Bug 2), so a synthetic same-shape producer is the L3
-  # substrate.
-  SYNTH_EXT_DIR="${PI_DIR}/agent/extensions/faux-agent-ticks"
-  if [ "${PI_SYNTH_AGENT_TICKS:-}" = "1" ] && [ -f "${FAUX_SRC}/faux-agent-ticks.ext.ts" ] && [ ! -f "${SYNTH_EXT_DIR}/index.ts" ]; then
-    mkdir -p "${SYNTH_EXT_DIR}"
-    cp "${FAUX_SRC}/faux-agent-ticks.ext.ts" "${SYNTH_EXT_DIR}/index.ts"
-    ln -sfn /app/node_modules "${SYNTH_EXT_DIR}/node_modules"
-    echo "[test-entrypoint] PI_SYNTH_AGENT_TICKS: staged synthetic Agent-tick producer → ${SYNTH_EXT_DIR}"
-  fi
-
   # Also seed pi's own settings.json defaultProvider+defaultModel (read at pi
   # startup) so the faux model is selected even before the bridge gate runs.
   # The merge decision-table + file wrapper live in the standalone module so the
@@ -928,14 +911,7 @@ JSON
       ' "${SETTINGS}" "${SA_GLOBAL}" "/app/packages/extension" \
         && echo "[test-entrypoint] registered pi-dashboard-subagents (tool_execution_update producer)"
     }
-    # Skip the real subagents producer on the synthetic-tick arm: the synthetic
-    # `Agent` tool owns the tool name there (first-registration-wins), and the
-    # two must never coexist. See change: reduce-bridge-tick-bandwidth.
-    if [ "${PI_SYNTH_AGENT_TICKS:-}" = "1" ]; then
-      echo "[test-entrypoint] PI_SYNTH_AGENT_TICKS=1: skipping subagents producer (synthetic Agent tool owns the tool name)"
-    else
-      register_subagents
-    fi
+    register_subagents
 
     case "${PI_TEST_PEERS}" in
       both)

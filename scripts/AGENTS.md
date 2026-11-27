@@ -14,6 +14,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/check-mockups.test.mjs` | → `__tests__/check-mockups.test.mjs.AGENTS.md` |
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations`, `emptyFilterViolations` and `main` directly… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
 | `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` CLI on tmp `packages/*` trees (test-plan #E1–#E8) + r… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
+| `__tests__/check-subagent-boundary.test.mjs` | `check-subagent-boundary.mjs` CLI on tmp trees (#E39: `subagent_*` case, prose, SUBAGENTSTATE, allowlisted route-tier row) + real tree clean (#E40). See change: move-subagents-to-plugin. |
 | `__tests__/client-sinks.test.mjs` | `check-client-sinks.mjs` tests. See change: harden-client-sinks. |
 | `__tests__/discord-release-announce.test.mjs` | → see `__tests__/discord-release-announce.test.mjs.AGENTS.md` |
 | `__tests__/e2e-canary-seed.test.mjs` | → see `__tests__/e2e-canary-seed.test.mjs.AGENTS.md` |
@@ -125,6 +126,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `check-mockups.mjs` | → `check-mockups.mjs.AGENTS.md` |
 | `check-pi-settings-paths.mjs` | Guard, run by ci.yml: no machine-specific path or empty resource filter in committed `.pi/settings.json`… → see `check-pi-settings-paths.mjs.AGENTS.md` |
 | `check-plugin-boundary.mjs` | Core/plugin import ratchet for `ship-it` step 4.4 + `npm run… → see `check-plugin-boundary.mjs.AGENTS.md` |
+| `check-subagent-boundary.mjs` | Tree-wide gate over `packages/{extension,server,shared,client,dashboard-plugin-runtime}/src`: D9 case-insensitive denylist (`subagent_*`, `subagents:`, `SubagentState*`, `.subagents`, ...). Exempt tests/`test-support`/`generated`/i18n. Allowlist `subagent-boundary-allowlist.json`; stale row warns. Prints `file:line`, exit 1. Run first by `npm test`; `npm run check:subagent-boundary`. See change: move-subagents-to-plugin. |
 | `codeql-anchor/plugin-routes.mjs` | → `codeql-anchor/plugin-routes.mjs.AGENTS.md` |
 | `host-api-surface.mjs` | Host API surface snapshot + bump gate. `--write` regenerates… → see `host-api-surface.mjs.AGENTS.md` |
 | `check-skill-frontmatter.mjs` | Skill frontmatter guard, run by ci.yml. Exit non-zero iff >=1 error; warnings never fail. → see `check-skill-frontmatter.mjs.AGENTS.md` |
@@ -184,6 +186,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `spec-collateral.mjs` | Advisory OpenSpec post-archive contradiction scan; exit 0/2, never 1. → see `spec-collateral.mjs.AGENTS.md` |
 | `split-large-agents.mjs` | One-off Node script. Splits over-large directory `AGENTS.md` file-based. → see `split-large-agents.mjs.AGENTS.md` |
 | `stop-dashboard.sh` | Stops pi-dashboard server. Reads port from ~/.pi/dashboard/config.json (default 8000); lsof -ti :PORT; SIGTERM, SIGKILL fallback after 5s. |
+| `subagent-boundary-allowlist.json` | `{file, pattern, reason}` rows forgiving a hit line for `check-subagent-boundary.mjs`. Cross-plugin registries only (shipped `custom-event-groups.ts`, route-tier table). See change: move-subagents-to-plugin. |
 | `sync-versions-spec.js` | Pure helper extracted from sync-versions.js for unit tests. → see `sync-versions-spec.js.AGENTS.md` |
 | `sync-versions.js` | Post-bump release helper. Reads every workspace `package.json`, enforces lockstep versions, rewrites every… → see `sync-versions.js.AGENTS.md` |
 | `test-standalone-npm-install-docker.sh` | Docker smoke: packs workspaces + root, launches clean Linu… → see `test-standalone-npm-install-docker.sh.AGENTS.md` |

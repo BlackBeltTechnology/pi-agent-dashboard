@@ -5,7 +5,7 @@
  *
  * Server replay suites fold recorded events through the client reducer
  * (`memory-event-store`, `collapse-replay-equivalence`) and assert
- * `SessionState.subagents`; the subagent writers live in the plugin, so those
+ * `SessionState.pluginState`; the subagent writers live in the plugin, so those
  * suites need both registered (design D5 item 11). Mirror of the client's
  * `src/test-support/subagents-reducer-slice.ts`.
  *

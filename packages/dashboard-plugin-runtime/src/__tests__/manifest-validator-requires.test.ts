@@ -121,3 +121,30 @@ describe("manifest validator — dependsOn", () => {
     expect(() => validateManifest({ ...base, dependsOn: ["a", "a"] })).toThrow(/duplicate/);
   });
 });
+
+describe("manifest validator — requires.piExtensionVersions (E37)", () => {
+  const NAME = "@blackbelt-technology/pi-dashboard-subagents";
+
+  it("accepts a valid semver range map", () => {
+    const m = validateManifest({ ...base, requires: { piExtensions: [NAME], piExtensionVersions: { [NAME]: ">=0.7.0" } } });
+    expect(m.requires).toEqual({ piExtensions: [NAME], piExtensionVersions: { [NAME]: ">=0.7.0" } });
+  });
+
+  it("rejects an invalid range", () => {
+    expect(() => validateManifest({ ...base, requires: { piExtensionVersions: { x: "not-a-range" } } })).toThrow(
+      ManifestValidationError,
+    );
+  });
+
+  it("rejects an empty name, non-string range, and non-object map", () => {
+    expect(() => validateManifest({ ...base, requires: { piExtensionVersions: { "": ">=1.0.0" } } })).toThrow(
+      ManifestValidationError,
+    );
+    expect(() => validateManifest({ ...base, requires: { piExtensionVersions: { x: 1 } } })).toThrow(
+      ManifestValidationError,
+    );
+    expect(() => validateManifest({ ...base, requires: { piExtensionVersions: [">=1.0.0"] } })).toThrow(
+      ManifestValidationError,
+    );
+  });
+});

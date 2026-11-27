@@ -2,7 +2,7 @@
  * Session event reducer slice of the subagents plugin.
  *
  * Folds the producer's `subagent_created|started|entry|delta` frames into
- * `SessionState.subagents`. The shell registers this slice on the plugin's
+ * the plugin's `SessionState.pluginState` slot. The shell registers this slice on the plugin's
  * behalf (the client entry exports it as `sessionEventReducer`) and applies it
  * in the pure event reducer before the default branch; with the plugin
  * disabled the slice does not run and the events fold into the owned-event
@@ -27,20 +27,19 @@ import {
   type SubagentState,
   type SubagentTimelineEntry,
   setSubagentState,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+} from "../subagent-types.js";
+import { type PluginStateSlice, subagentsOf, withSubagentMap } from "./pluginState.js";
 
 /** The part of the shell's session state this slice reads and writes. */
-export interface SubagentSessionSlice {
-  subagents: Map<string, SubagentState>;
-}
+export type SubagentSessionSlice = PluginStateSlice;
 
 function withSubagents<S extends SubagentSessionSlice>(
   state: S,
   write: (map: Map<string, SubagentState>) => void,
 ): S {
-  const subagents = new Map(state.subagents);
+  const subagents = new Map(subagentsOf(state));
   write(subagents);
-  return { ...state, subagents };
+  return withSubagentMap(state, subagents);
 }
 
 type Data = Record<string, unknown>;
@@ -140,7 +139,7 @@ const created: Reduce = (state, data, timestamp) => {
 const started: Reduce = (state, data, timestamp) => {
   const id = data.id as string;
   if (typeof id !== "string" || !id) return state;
-  const existing = state.subagents.get(id);
+  const existing = subagentsOf(state).get(id);
   // Terminal never regresses, except a revivable heal (the producer is provably alive).
   if (isTerminalSubagentStatus(existing?.status) && !REVIVABLE_HEALS.has(existing?.healedBy)) return state;
   return withSubagents(state, (subagents) => {
@@ -167,7 +166,7 @@ const entryFrame: Reduce = (state, data, timestamp) => {
   const { agentId, index, entry } = data;
   if (typeof agentId !== "string" || typeof index !== "number" || !Number.isInteger(index) || index < 0) return state;
   if (!entry || typeof entry !== "object") return state;
-  const existing = state.subagents.get(agentId);
+  const existing = subagentsOf(state).get(agentId);
   const blockId = typeof data.blockId === "number" ? data.blockId : undefined;
   if (existing?.entries?.[index] && blockId === undefined) return state; // duplicate
   return withSubagents(state, (subagents) => {
@@ -198,7 +197,7 @@ const deltaFrame: Reduce = (state, data, timestamp) => {
   if (typeof agentId !== "string" || !isIndex(blockId) || !isIndex(offset)) return state;
   if (kind !== "thinking" && kind !== "text") return state;
   const text = typeof data.text === "string" ? data.text : "";
-  const existing = state.subagents.get(agentId);
+  const existing = subagentsOf(state).get(agentId);
   const liveBlock = applyLiveBlockPiece(existing, { blockId, kind, offset, text });
   if (!liveBlock || liveBlock === existing?.liveBlock) return state;
   return withSubagents(state, (subagents) => {

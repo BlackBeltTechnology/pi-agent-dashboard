@@ -274,11 +274,7 @@ One row per file.
 | `subagent-detail-dialog.spec.ts` | → `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | → `subagent-inspector.spec.ts.AGENTS.md` |
 | `subagent-live-timeline.spec.ts` | → `subagent-live-timeline.spec.ts.AGENTS.md` |
-| `subagent-pull-measurements.spec.ts` | → `subagent-pull-measurements.spec.ts.AGENTS.md` |
-| `subagent-pull-under-load.spec.ts` | → `subagent-pull-under-load.spec.ts.AGENTS.md` |
 | `subagent-stop-finalize.spec.ts` | → `subagent-stop-finalize.spec.ts.AGENTS.md` |
-| `subagent-thin-tick-liveness.spec.ts` | → `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |
-| `subagent-tick-throttle.spec.ts` | → `subagent-tick-throttle.spec.ts.AGENTS.md` |
 | `submodule-folder-grouping.spec.ts` | → `submodule-folder-grouping.spec.ts.AGENTS.md` |
 | `streaming-latch-heal.spec.ts` | → `streaming-latch-heal.spec.ts.AGENTS.md` |
 | `superseded-heal.spec.ts` | → `superseded-heal.spec.ts.AGENTS.md` |

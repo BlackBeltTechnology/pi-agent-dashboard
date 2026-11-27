@@ -6,7 +6,7 @@
  * The subagent writers left the core reducer (the slice owns
  * `subagent_created|started|entry|delta`, the finalizer owns the terminal
  * events, the `partialResult` hydration and the `/resume` backfill), so the core
- * replay suites that assert `SessionState.subagents` need both registered. A
+ * replay suites that assert `SessionState.pluginState` need both registered. A
  * test that needs the plugin DISABLED/absent calls `disableSubagentsPlugin()`
  * and restores with `registerSubagentsReducerSlice()` in `afterEach`.
  *

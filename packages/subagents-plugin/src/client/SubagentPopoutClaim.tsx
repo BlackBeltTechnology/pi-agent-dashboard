@@ -7,7 +7,7 @@
  *   - Receives `session: DashboardSession | undefined` (resolved by the slot
  *     consumer via `useShellSession(params.sessionId)`).
  *   - Cold-open subscribes to the parent session via `usePluginSend`.
- *   - Reads subagent state via the transitional `useSessionSubagents` primitive.
+ *   - Reads subagent state via the plugin's own `useSessionSubagents` hook (over `useSessionPluginState`).
  *   - Renders the existing `SubagentPopoutPage` body.
  *
  * Replaces the shell-side direct import + `useRoute` dispatch that
@@ -18,13 +18,12 @@
 import React, { useEffect, useRef } from "react";
 import {
   usePluginSend,
-  useSessionSubagents,
   useShellConnectionStatus,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useSessionSubagents } from "./pluginState.js";
 import { SubagentPopoutPage } from "./SubagentPopoutPage.js";
 import type { SessionStateLike } from "./SubagentDetailView.js";
-import type { SubagentState } from "./types.js";
 
 export interface SubagentPopoutClaimProps {
   params: Record<string, string>;
@@ -36,11 +35,7 @@ export function SubagentPopoutClaim({ params, session, onBack }: SubagentPopoutC
   const sessionId = params.sessionId ?? "";
   const agentId = params.agentId ?? "";
   const send = usePluginSend();
-  // Downcast the runtime's structural `SubagentStateSnapshot` map back to this
-  // plugin's concrete `SubagentState`. The two don't share an index signature,
-  // so TS requires the cast to route through `unknown`. The shell upcasts the
-  // matching map at the closure boundary in App.tsx.
-  const subagents = useSessionSubagents(sessionId) as unknown as ReadonlyMap<string, SubagentState>;
+  const subagents = useSessionSubagents(sessionId);
   const connectionStatus = useShellConnectionStatus();
 
   // Cold-open subscribe exactly once for this claim instance, AFTER the

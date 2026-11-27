@@ -11,4 +11,4 @@ export type {
   SubagentLiveTail,
   SubagentState,
   SubagentTimelineEntry,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+} from "../subagent-types.js";

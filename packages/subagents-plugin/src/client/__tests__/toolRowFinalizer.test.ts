@@ -1,6 +1,6 @@
 /**
  * The subagents plugin's `Agent` tool-row finalizer: pure hooks over the shell's
- * session state, the sole writer of `SessionState.subagents` besides the slice.
+ * session state, the sole writer of `subagentsOf(SessionState)` besides the slice.
  * Shell-level replay coverage (live vs `/resume` commute, heal guards end to end)
  * lives in the client reducer suites, which register this finalizer through the
  * vitest setup file; these tests pin the hook contract in isolation, with a fake
@@ -10,13 +10,14 @@
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
-import { type AgentFinalizerState, SUBAGENT_DONE_NO_RESULT, toolRowFinalizers } from "../toolRowFinalizer.js";
+import { type AgentFinalizerState, SUBAGENT_DONE_NO_RESULT, SUBAGENT_STOPPED_SENTINEL_BODY, toolRowFinalizers } from "../toolRowFinalizer.js";
+import { subagentSlot, subagentsOf } from "../pluginState.js";
 
 const finalizer = toolRowFinalizers[0];
 const ev = (eventType: string, data: Record<string, unknown>, timestamp = 1000): DashboardEvent => ({ eventType, timestamp, data });
 
 const state = (over: Partial<AgentFinalizerState> = {}): AgentFinalizerState => ({
-  subagents: new Map(),
+  pluginState: subagentSlot(new Map()),
   messages: [],
   toolCalls: new Map(),
   ...over,
@@ -41,10 +42,10 @@ describe("Agent tool-row finalizer", () => {
       ev("subagent_completed", { id: "ag-1", result: "R", details: { agentId: "ag-1", agentSessionId: "s-9" } }),
     );
     expect(after).toBeDefined();
-    const sub = after!.subagents.get("ag-1");
+    const sub = subagentsOf(after!).get("ag-1");
     expect(sub).toMatchObject({ status: "completed", result: "R" });
-    expect(after!.subagents.get("s-9")).toBe(sub);
-    expect(before.subagents.size).toBe(0);
+    expect(subagentsOf(after!).get("s-9")).toBe(sub);
+    expect(subagentsOf(before).size).toBe(0);
   });
 
   it("subagent_completed stops the subagent's running row through the shell's reduce (trigger timestamp, trigger heal marker)", () => {
@@ -69,16 +70,16 @@ describe("Agent tool-row finalizer", () => {
   it("a healedBy terminal never changes a subagent that is already completed/failed", () => {
     const done = finalizer.onSessionEvent!(state(), ev("subagent_completed", { id: "ag-1", result: "R" }))!;
     const healed = finalizer.onSessionEvent!(done, ev("subagent_failed", { id: "ag-1", error: "x", healedBy: "session_ended" }))!;
-    expect(healed.subagents.get("ag-1")).toMatchObject({ status: "completed", result: "R" });
-    expect(healed.subagents.get("ag-1")?.healedBy).toBeUndefined();
+    expect(subagentsOf(healed).get("ag-1")).toMatchObject({ status: "completed", result: "R" });
+    expect(subagentsOf(healed).get("ag-1")?.healedBy).toBeUndefined();
   });
 
   it("a heal records provenance on a running subagent; a real terminal clears it", () => {
-    const running = state({ subagents: new Map([["ag-1", { id: "ag-1", type: "t", description: "d", status: "running" }]]) });
+    const running = state({ pluginState: subagentSlot(new Map([["ag-1", { id: "ag-1", type: "t", description: "d", status: "running" }]]))});
     const healed = finalizer.onSessionEvent!(running, ev("subagent_failed", { id: "ag-1", error: "x", healedBy: "session_ended" }))!;
-    expect(healed.subagents.get("ag-1")?.healedBy).toBe("session_ended");
+    expect(subagentsOf(healed).get("ag-1")?.healedBy).toBe("session_ended");
     const real = finalizer.onSessionEvent!(healed, ev("subagent_completed", { id: "ag-1", result: "R" }))!;
-    expect(real.subagents.get("ag-1")?.healedBy).toBeUndefined();
+    expect(subagentsOf(real).get("ag-1")?.healedBy).toBeUndefined();
   });
 
   it("declines events it does not settle", () => {
@@ -86,19 +87,24 @@ describe("Agent tool-row finalizer", () => {
     expect(finalizer.onToolExecution?.(state(), ev("tool_execution_start", { toolCallId: "A", toolName: "Agent" }))).toBeUndefined();
   });
 
-  it("agent_settled finalizes only rows whose subagent is already terminal; the rest are declined to the neutral heal", () => {
+  it("onTurnSettled finalizes rows whose subagent is already terminal; the rest get the neutral heal", () => {
     const reduce = vi.fn((s: AgentFinalizerState, _e: DashboardEvent) => ({ ...s }));
     const s0 = state({
       messages: [runningRow("A", "ag-A"), runningRow("B", "ag-B")],
       toolCalls: new Map([["A", { status: "running" }], ["B", { status: "running" }]]),
-      subagents: new Map([["ag-A", { id: "ag-A", type: "t", description: "d", status: "completed", result: "done A" }]]),
+      pluginState: subagentSlot(new Map([["ag-A", { id: "ag-A", type: "t", description: "d", status: "completed", result: "done A" }]])),
     });
-    const out = finalizer.onSessionEvent?.(s0, ev("agent_settled", {}), { reduce });
+    const out = finalizer.onTurnSettled?.(s0, ev("agent_settled", {}), { reduce });
     expect(out).toBeDefined();
     expect(reduce).toHaveBeenCalledTimes(1);
     expect(reduce.mock.calls[0][1].data).toMatchObject({ toolCallId: "A", healedBy: "turn_settled", result: "done A" });
-    // No terminal subagent at all → decline.
-    expect(finalizer.onSessionEvent?.(state({ messages: [runningRow("B", "ag-B")], toolCalls: new Map([["B", { status: "running" }]]) }), ev("agent_settled", {}), { reduce })).toBeUndefined();
+    // Row B (no terminal subagent) gets the neutral settle heal; `agent_settled` is not an `onSessionEvent` type.
+    const rowB = out!.messages.find((m) => m.toolCallId === "B")!;
+    expect(rowB).toMatchObject({ toolStatus: "complete", result: SUBAGENT_STOPPED_SENTINEL_BODY });
+    expect(rowB.toolDetails).toMatchObject({ healedBy: "turn_settled", resultMissing: true });
+    expect(finalizer.onSessionEvent?.(s0, ev("agent_settled", {}), { reduce })).toBeUndefined();
+    // Nothing running → decline.
+    expect(finalizer.onTurnSettled?.(state({}), ev("agent_settled", {}), { reduce })).toBeUndefined();
   });
 
   it("tool_execution_update hydrates running under both keys; a late tick never regresses a terminal subagent", () => {
@@ -108,16 +114,16 @@ describe("Agent tool-row finalizer", () => {
       partialResult: { content: [], details: { agentId: "ag-1", agentSessionId: "s-9", status: "running", subagentType: "Explore", description: "d" } },
     });
     const out = finalizer.onToolExecution!(state({ messages: [row], toolCalls: new Map([["A", { status: "running" }]]) }), tick)!;
-    expect(out.subagents.get("ag-1")).toMatchObject({ status: "running", type: "Explore" });
-    expect(out.subagents.get("s-9")).toBe(out.subagents.get("ag-1"));
+    expect(subagentsOf(out).get("ag-1")).toMatchObject({ status: "running", type: "Explore" });
+    expect(subagentsOf(out).get("s-9")).toBe(subagentsOf(out).get("ag-1"));
 
     const terminal = state({
       messages: [row],
       toolCalls: new Map([["A", { status: "running" }]]),
-      subagents: new Map([["ag-1", { id: "ag-1", type: "t", description: "d", status: "completed", result: "R" }]]),
+      pluginState: subagentSlot(new Map([["ag-1", { id: "ag-1", type: "t", description: "d", status: "completed", result: "R" }]])),
     });
     const late = finalizer.onToolExecution!(terminal, tick, { reduce: (s) => s });
-    expect(late!.subagents.get("ag-1")?.status).toBe("completed");
+    expect(subagentsOf(late!).get("ag-1")?.status).toBe("completed");
   });
 
   it("revives a subagent only when its terminal state came from the session_ended heal AND the row was reopened", () => {
@@ -125,23 +131,23 @@ describe("Agent tool-row finalizer", () => {
     const tick = ev("tool_execution_update", { toolCallId: "A", partialResult: { content: [], details: { agentId: "ag-1", status: "running" } } });
     const priorHealedRow = { ...runningRow("A", "ag-1"), toolStatus: "error", toolDetails: { agentId: "ag-1", healedBy: "session_ended" } };
     // After the shell's row-half reopen the row is running; `prior` still shows the healed row.
-    const post = state({ messages: [runningRow("A", "ag-1")], toolCalls: new Map([["A", { status: "running" }]]), subagents: new Map([["ag-1", healedSub]]) });
+    const post = state({ messages: [runningRow("A", "ag-1")], toolCalls: new Map([["A", { status: "running" }]]), pluginState: subagentSlot(new Map([["ag-1", healedSub]]))});
     const prior = { ...post, messages: [priorHealedRow] };
     const out = finalizer.onToolExecution!(post, tick, { prior })!;
-    expect(out.subagents.get("ag-1")).toMatchObject({ status: "running" });
-    expect(out.subagents.get("ag-1")?.healedBy).toBeUndefined();
-    expect(out.subagents.get("ag-1")?.error).toBeUndefined();
+    expect(subagentsOf(out).get("ag-1")).toMatchObject({ status: "running" });
+    expect(subagentsOf(out).get("ag-1")?.healedBy).toBeUndefined();
+    expect(subagentsOf(out).get("ag-1")?.error).toBeUndefined();
 
     // A REAL failure (no heal marker) is not revived.
-    const realFail = state({ ...post, subagents: new Map([["ag-1", { ...healedSub, healedBy: undefined, error: "model refused" }]]) });
+    const realFail = state({ ...post, pluginState: subagentSlot(new Map([["ag-1", { ...healedSub, healedBy: undefined, error: "model refused" }]]))});
     const out2 = finalizer.onToolExecution!(realFail, tick, { prior: { ...realFail, messages: [priorHealedRow] }, reduce: (s) => s });
-    expect(out2!.subagents.get("ag-1")?.status).toBe("failed");
-    expect(out2!.subagents.get("ag-1")?.error).toBe("model refused");
+    expect(subagentsOf(out2!).get("ag-1")?.status).toBe("failed");
+    expect(subagentsOf(out2!).get("ag-1")?.error).toBe("model refused");
   });
 
   it("tool_execution_end backfill merges non-undefined fields; a healedBy end never changes a terminal subagent", () => {
     const base = state({
-      subagents: new Map([["ag-1", { id: "ag-1", type: "Explore", description: "d", status: "running", toolUses: 5 }]]),
+      pluginState: subagentSlot(new Map([["ag-1", { id: "ag-1", type: "Explore", description: "d", status: "running", toolUses: 5 }]])),
     });
     const end = ev("tool_execution_end", {
       toolCallId: "A",
@@ -151,15 +157,15 @@ describe("Agent tool-row finalizer", () => {
       details: { agentId: "ag-1", agentSessionId: "s-9" },
     });
     const out = finalizer.onToolExecution!(base, end)!;
-    const sub = out.subagents.get("ag-1")!;
+    const sub = subagentsOf(out).get("ag-1")!;
     expect(sub).toMatchObject({ status: "completed", result: "done", toolUses: 5, type: "Explore" });
-    expect(out.subagents.get("s-9")).toBe(sub);
+    expect(subagentsOf(out).get("s-9")).toBe(sub);
 
     const healEnd = ev("tool_execution_end", { toolCallId: "A", toolName: "Agent", result: "ended", isError: true, healedBy: "session_ended", details: { agentId: "ag-1" } });
     expect(finalizer.onToolExecution!(out, healEnd)).toBeUndefined();
     // A heal on a running subagent records provenance.
     const healed = finalizer.onToolExecution!(base, healEnd)!;
-    expect(healed.subagents.get("ag-1")).toMatchObject({ status: "failed", healedBy: "session_ended" });
+    expect(subagentsOf(healed).get("ag-1")).toMatchObject({ status: "failed", healedBy: "session_ended" });
   });
 
   it("declines a non-Agent end and an end without an agent id", () => {
@@ -183,8 +189,8 @@ describe("Agent finalizer vs an elided-row revive (test-plan #F8, #F9)", () => {
 
   it("#F8: a terminal subagent's late tick restores the elided status and drops the seeded entry", () => {
     const subagents = new Map([["ag-1", { id: "ag-1", status: "completed" } as never]]);
-    const prior = state({ subagents, messages: [elidedRow], toolCalls: new Map() });
-    const post = state({ subagents, messages: [revivedRow], toolCalls: new Map([["R", { status: "running" }]]) });
+    const prior = state({ pluginState: subagentSlot(subagents), messages: [elidedRow], toolCalls: new Map() });
+    const post = state({ pluginState: subagentSlot(subagents), messages: [revivedRow], toolCalls: new Map([["R", { status: "running" }]]) });
     const out = finalizer.onToolExecution!(post, tick("ag-1"), { prior, reduce: (s) => s })!;
     expect(out.messages[0].toolStatus).toBe("elided");
     expect(out.toolCalls.has("R")).toBe(false);
@@ -199,7 +205,7 @@ describe("Agent finalizer vs an elided-row revive (test-plan #F8, #F9)", () => {
     const out = finalizer.onToolExecution!(post, tick("ag-2"), { prior, reduce: (s) => s })!;
     expect(out.messages[0].toolStatus).toBe("running");
     expect(out.toolCalls.get("R")?.status).toBe("running");
-    expect(out.subagents.get("ag-2")?.status).toBe("running");
+    expect(subagentsOf(out).get("ag-2")?.status).toBe("running");
   });
 });
 
@@ -208,15 +214,15 @@ describe("background mark survives terminal writes (D1, D6)", () => {
   const bgRunning = { id: "docs-writer", type: "t", description: "d", status: "running" as const, background: true as const };
 
   it("a real subagent_completed keeps the mark", () => {
-    const out = finalizer.onSessionEvent!(state({ subagents: new Map([["docs-writer", bgRunning]]) }), ev("subagent_completed", { id: "docs-writer", result: "ok" }))!;
-    expect(out.subagents.get("docs-writer")).toMatchObject({ status: "completed", background: true });
+    const out = finalizer.onSessionEvent!(state({ pluginState: subagentSlot(new Map([["docs-writer", bgRunning]]))}), ev("subagent_completed", { id: "docs-writer", result: "ok" }))!;
+    expect(subagentsOf(out).get("docs-writer")).toMatchObject({ status: "completed", background: true });
   });
 
   it("the synthesized session_ended heal fails it and keeps the mark (#X2)", () => {
     const out = finalizer.onSessionEvent!(
-      state({ subagents: new Map([["docs-writer", bgRunning]]) }),
+      state({ pluginState: subagentSlot(new Map([["docs-writer", bgRunning]]))}),
       ev("subagent_failed", { id: "docs-writer", error: "parent session ended", healedBy: "session_ended" }),
     )!;
-    expect(out.subagents.get("docs-writer")).toMatchObject({ status: "failed", error: "parent session ended", background: true });
+    expect(subagentsOf(out).get("docs-writer")).toMatchObject({ status: "failed", error: "parent session ended", background: true });
   });
 });

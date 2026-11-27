@@ -24,16 +24,18 @@
  * See change: add-composer-dock (task 3.3, design D4);
  * show-background-subagents-in-dock (D3, D4).
  */
-import { ComposerDockRow, useSessionSubagents, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useProducerBelowFloor } from "./producerFloor.js";
+import { ComposerDockRow, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import {
   countSteps,
   isTerminalSubagentStatus,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+} from "../subagent-types.js";
 import { mdiOpenInNew, mdiRobotOutline, mdiTrayArrowDown } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useRef } from "react";
 import { Link } from "wouter";
+import { useSessionSubagents } from "./pluginState.js";
 import { isBackgroundSubagent } from "./sessionEventReducer.js";
 import { clearSubagentStop, requestSubagentStop, useSubagentStopState } from "./subagentStop.js";
 import type { SubagentState } from "./types.js";
@@ -156,9 +158,8 @@ export function SubagentDockRow({ sessionId, sub }: { sessionId: string; sub: Su
 /** Shared body of both claims; `background` selects the kind and the noun. */
 function useDockGroup({ session, mode, reportSummary }: DockGroupProps, background: boolean) {
   const t = useT();
-  // Downcast the runtime's structural snapshot map to this plugin's `SubagentState`
-  // (same cast as `SubagentPopoutClaim`).
-  const all = useSessionSubagents(session.id) as unknown as ReadonlyMap<string, SubagentState>;
+  const belowFloor = useProducerBelowFloor();
+  const all = useSessionSubagents(session.id);
   const active = useMemo(() => subagentsOfKind(all, background, isLive), [all, background]);
   const count = active.length;
   // The dock prints `noun` verbatim after `count`, so it must agree with the count.
@@ -189,7 +190,16 @@ function useDockGroup({ session, mode, reportSummary }: DockGroupProps, backgrou
     }
   }, [mode, all, background, session.id]);
 
-  if (mode === "summary" || count === 0) return null;
+  if (mode === "summary") return null;
+  // Below the producer floor: one update notice (foreground group only) instead of rows.
+  if (belowFloor !== undefined) {
+    return background ? null : (
+      <div data-testid="subagent-producer-update-notice" className="px-2 py-1 text-xs text-[var(--text-secondary)]">
+        {t("producerUpdateNotice", { range: belowFloor }, "Update pi-dashboard-subagents ({range}) to see subagents here.")}
+      </div>
+    );
+  }
+  if (count === 0) return null;
   return (
     <>
       {active.map((sub) => (

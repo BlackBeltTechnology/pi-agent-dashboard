@@ -38,7 +38,7 @@ function inContainer(script: string): string {
  * SUBSTRATE — a long-sleeping bash call (`faux:session-death-open-tool`), NOT a
  * nested faux subagent. A faux subagent cannot be kept alive in the harness:
  * its inner `createAgentSession` resolves an empty faux response queue and
- * completes in ~400 ms (documented in `subagent-tick-throttle.spec.ts`), so
+ * completes in ~400 ms, so
  * there is no window to kill it in. The SUBAGENT half of the heal is therefore
  * asserted at L1 against the real server + browser gateway
  * (`packages/server/src/__tests__/session-end-orphan-heal.test.ts` #X1); what

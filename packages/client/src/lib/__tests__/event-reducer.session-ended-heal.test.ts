@@ -13,6 +13,7 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 import { afterEach, describe, expect, it } from "vitest";
 import { disableSubagentsPlugin, registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
+import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
 
 function apply(events: DashboardEvent[], from: SessionState = createInitialState()): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), from);
@@ -69,8 +70,8 @@ describe("session_ended heal — reducer guards", () => {
 
     expect(s.toolCalls.get("A")?.status).toBe("error");
     expect(s.messages.findLast((m) => m.toolCallId === "A")?.toolStatus).toBe("error");
-    expect(s.subagents.get("ag-1")?.status).toBe("failed");
-    expect(s.subagents.get("ag-1")?.error).toBe("parent session ended");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("failed");
+    expect(subagentsOf(s).get("ag-1")?.error).toBe("parent session ended");
   });
 
   it("keeps the live Agent snapshot on the healed row (review fix)", () => {
@@ -116,11 +117,11 @@ describe("session_ended heal — reducer guards", () => {
     ]);
 
     const viaBackfill = reduceEvent(before, healEnd(5, "A", "ag-1"));
-    expect(viaBackfill.subagents.get("ag-1")?.status).toBe("completed");
+    expect(subagentsOf(viaBackfill).get("ag-1")?.status).toBe("completed");
     expect(viaBackfill.toolCalls.get("A")?.status).toBe("error");
 
     const viaFail = reduceEvent(viaBackfill, healSubagentFail(6, "ag-1"));
-    expect(viaFail.subagents.get("ag-1")?.status).toBe("completed");
+    expect(subagentsOf(viaFail).get("ag-1")?.status).toBe("completed");
     expect(viaFail.toolCalls.get("A")?.status).toBe("error");
   });
 
@@ -177,23 +178,23 @@ describe("session_ended heal — reopened by a live tick", () => {
 
   it("records the heal marker on the subagent and clears it on real writes (test-plan #F6)", () => {
     const healed = apply([subagentStarted(1, "ag-1"), healSubagentFail(2, "ag-1")]);
-    expect(healed.subagents.get("ag-1")?.healedBy).toBe("session_ended");
+    expect(subagentsOf(healed).get("ag-1")?.healedBy).toBe("session_ended");
 
     const restarted = reduceEvent(healed, subagentStarted(3, "ag-1"));
-    expect(restarted.subagents.get("ag-1")?.healedBy).toBeUndefined();
+    expect(subagentsOf(restarted).get("ag-1")?.healedBy).toBeUndefined();
 
     const realDone = reduceEvent(healed, subagentCompleted(3, "ag-1"));
-    expect(realDone.subagents.get("ag-1")?.healedBy).toBeUndefined();
+    expect(subagentsOf(realDone).get("ag-1")?.healedBy).toBeUndefined();
 
     const viaEnd = apply([asstStart(1), toolStart(2, "A"), liveTick(3, "A", "ag-1"), healEnd(4, "A", "ag-1")]);
-    expect(viaEnd.subagents.get("ag-1")?.healedBy).toBe("session_ended");
+    expect(subagentsOf(viaEnd).get("ag-1")?.healedBy).toBe("session_ended");
     const realBackfill = reduceEvent(viaEnd, {
       eventType: "tool_execution_end",
       timestamp: 5,
       data: { toolCallId: "A", toolName: "Agent", result: "done", isError: false, details: { agentId: "ag-1" } },
     });
-    expect(realBackfill.subagents.get("ag-1")?.healedBy).toBeUndefined();
-    expect(realBackfill.subagents.get("ag-1")?.status).toBe("completed");
+    expect(subagentsOf(realBackfill).get("ag-1")?.healedBy).toBeUndefined();
+    expect(subagentsOf(realBackfill).get("ag-1")?.status).toBe("completed");
   });
 
   it("reopens the row, the toolCalls entry and the subagent (test-plan #F1)", () => {
@@ -206,7 +207,7 @@ describe("session_ended heal — reopened by a live tick", () => {
     expect(s.toolCalls.get("A")?.status).toBe("running");
     expect(row?.duration).toBeUndefined();
     expect(row?.toolDetails?.healedBy).toBeUndefined();
-    const sub = s.subagents.get("ag-1");
+    const sub = subagentsOf(s).get("ag-1");
     expect(sub?.status).toBe("running");
     expect(sub?.healedBy).toBeUndefined();
     expect(sub?.error).toBeUndefined();
@@ -225,7 +226,7 @@ describe("session_ended heal — reopened by a live tick", () => {
     const row = s.messages.findLast((m) => m.toolCallId === "A");
     expect(row?.toolStatus).toBe("complete");
     expect(row?.result).toBe("done");
-    expect(s.subagents.get("ag-1")?.status).toBe("completed");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("completed");
   });
 
   it("a real terminal row is not reopened (test-plan #F3)", () => {
@@ -244,8 +245,8 @@ describe("session_ended heal — reopened by a live tick", () => {
       healEnd(5, "A", "ag-1"),
     ]);
     const s = reduceEvent(before, liveTick(10, "A", "ag-1"));
-    expect(s.subagents.get("ag-1")?.status).toBe("failed");
-    expect(s.subagents.get("ag-1")?.error).toBe("model refused");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("failed");
+    expect(subagentsOf(s).get("ag-1")?.error).toBe("model refused");
   });
 
   it("other heals keep their behaviour (test-plan #F5)", () => {
@@ -267,14 +268,14 @@ describe("session_ended heal — reopened by a live tick", () => {
     const stopped = apply([asstStart(1), toolStart(2, "A"), liveTick(3, "A", "ag-1"), subagentCompleted(4, "ag-1")]);
     const s2 = reduceEvent(stopped, liveTick(5, "A", "ag-1"));
     expect(s2.messages.findLast((m) => m.toolCallId === "A")?.toolStatus).toBe("complete");
-    expect(s2.subagents.get("ag-1")?.status).toBe("completed");
+    expect(subagentsOf(s2).get("ag-1")?.status).toBe("completed");
   });
 });
 
 // ── Subagents plugin disabled: the generic heals stay in core ────────────────
 // With the plugin off no finalizer is registered: the server-synthesized end
 // still stops the Agent row, the neutral settle heal still runs, a live tick
-// still reopens the row — and `SessionState.subagents` is never written; the
+// still reopens the row — and `subagentsOf(SessionState)` is never written; the
 // synthesized `subagent_failed` folds into the owned group row.
 // See change: decouple-plugins-from-core (design D5 items 8-9; test-plan #X4).
 describe("session_ended heal — subagents plugin disabled (test-plan #X4)", () => {
@@ -285,15 +286,15 @@ describe("session_ended heal — subagents plugin disabled (test-plan #X4)", () 
   it("Agent card heals without the plugin; subagent_failed folds into the group row", () => {
     disableSubagentsPlugin();
     const before = apply([asstStart(1), toolStart(2, "A"), liveTick(3, "A", "ag-1")]);
-    const subagentsBefore = before.subagents;
+    const subagentsBefore = subagentsOf(before);
     const s = apply([healEnd(4, "A", "ag-1"), healSubagentFail(5, "ag-1")], before);
 
     const row = s.messages.findLast((m) => m.toolCallId === "A");
     expect(row?.toolStatus).toBe("error");
     expect(row?.result).toBe("parent session ended");
     expect(s.toolCalls.get("A")?.status).toBe("error");
-    expect(s.subagents).toBe(subagentsBefore);
-    expect(s.subagents.size).toBe(0);
+    expect(subagentsOf(s)).toBe(subagentsBefore);
+    expect(subagentsOf(s).size).toBe(0);
     const group = s.messages.find((m) => (m as { ownedGroup?: unknown }).ownedGroup);
     expect(group).toMatchObject({ role: "rawEvent", toolName: "subagent_failed", ownedGroup: { ownerId: "subagents", count: 1 } });
   });
@@ -301,14 +302,14 @@ describe("session_ended heal — subagents plugin disabled (test-plan #X4)", () 
   it("a live tick on a session_ended row reopens the row and leaves subagents untouched", () => {
     disableSubagentsPlugin();
     const healed = apply([asstStart(1), toolStart(2, "A"), healEnd(3, "A", "ag-1")]);
-    const subagentsBefore = healed.subagents;
+    const subagentsBefore = subagentsOf(healed);
     const s = reduceEvent(healed, liveTick(10, "A", "ag-1"));
     const row = s.messages.findLast((m) => m.toolCallId === "A");
     expect(row?.toolStatus).toBe("running");
     expect(row?.toolDetails?.healedBy).toBeUndefined();
     expect(row?.duration).toBeUndefined();
     expect(s.toolCalls.get("A")?.status).toBe("running");
-    expect(s.subagents).toBe(subagentsBefore);
+    expect(subagentsOf(s)).toBe(subagentsBefore);
   });
 
   it("a running Agent row at turn settle gets the neutral sentinel body", () => {
@@ -324,6 +325,6 @@ describe("session_ended heal — subagents plugin disabled (test-plan #X4)", () 
     expect(row?.result).toBe("subagent stopped — result not received");
     expect(row?.toolDetails?.resultMissing).toBe(true);
     expect(row?.toolDetails?.healedBy).toBe("turn_settled");
-    expect(s.subagents.size).toBe(0);
+    expect(subagentsOf(s).size).toBe(0);
   });
 });

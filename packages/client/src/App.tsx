@@ -215,8 +215,7 @@ const FolderHomeContainer = lazy(() =>
   import("./components/folder/FolderHomeContainer.js").then((m) => ({ default: m.FolderHomeContainer })),
 );
 
-import type { SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { applyPluginConfigUpdate, ContentHeaderStickySlot, ContentInlineFooterSlot, ContentViewSlot, createSlotRegistry, EMPTY_SUBAGENTS, EmbeddedAppReturnPill, EmbeddedAppShellProvider, FolderMenuProvider, initPluginConfigs, PluginContextProvider, registerSessionEventReducer, registerToolRowFinalizer, ShellHeadlessSlot, ShellOverlayRouteSlot, ShellSessionsProvider, useShellOverlayRouteDepth, useShellOverlayRouteMatched, useShellOverlayRoutePresentation } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { applyPluginConfigUpdate, ContentHeaderStickySlot, ContentInlineFooterSlot, ContentViewSlot, createSlotRegistry, EmbeddedAppReturnPill, EmbeddedAppShellProvider, FolderMenuProvider, initPluginConfigs, PluginContextProvider, registerSessionEventReducer, registerToolRowFinalizer, ShellHeadlessSlot, ShellOverlayRouteSlot, ShellSessionsProvider, useShellOverlayRouteDepth, useShellOverlayRouteMatched, useShellOverlayRoutePresentation } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
@@ -262,10 +261,6 @@ import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 // Stable empty references for plugin context's session-state primitives.
 // See change: route-flow-asks-to-upper-slot + add-flow-agent-popout.
 const EMPTY_INTERACTIVE_REQUESTS: readonly never[] = Object.freeze([]);
-
-// `useSessionSubagents` returns the runtime's shared frozen `EMPTY_SUBAGENTS` for a
-// session with no subagents. Shell state holds the stricter `SubagentState`
-// which is upcast at the closure boundary below.
 
 import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
@@ -1893,13 +1888,13 @@ export default function App() {
   // Built via `makeToolContext` so the `fileLink` renderer is attached — a
   // hand-built literal here silently loses file-mention linkification with no
   // type error. See change: cleanup-import-cycles (D4b).
-  // Depend on the SELECTED session's `subagents` map, not the whole
+  // Depend on the SELECTED session's `pluginState` map, not the whole
   // `sessionStates` map: any other session's update minted a new context and
   // re-rendered every consumer, replacing the foreground transcript's markdown
-  // DOM. `ToolContext.session` is narrowed to the `subagents`-bearing subset so
+  // DOM. `ToolContext.session` is narrowed to the `pluginState`-bearing subset so
   // the type matches what is actually kept fresh. See change:
-  // fix-long-session-ux-degradation (D7).
-  const selectedSubagents = selectedId ? sessionStates.get(selectedId)?.subagents : undefined;
+  // fix-long-session-ux-degradation (D7), move-subagents-to-plugin (D8).
+  const selectedPluginState = selectedId ? sessionStates.get(selectedId)?.pluginState : undefined;
   // `canvas` is the scalar ownership slice (key / sourceCallId / chipDeclarationId):
   // the memo moves only when one of them does, never on a phase/title/version change.
   // See change: improve-canvas-html-and-url-ux (D8).
@@ -1907,10 +1902,10 @@ export default function App() {
   const toolContext: ToolContext = useMemo(() => makeToolContext({
     cwd: selectedCwd,
     sessionId: selectedId,
-    session: selectedSubagents ? { subagents: selectedSubagents } : undefined,
+    session: selectedPluginState ? { pluginState: selectedPluginState } : undefined,
     canvas: canvasScalars,
     send,
-  }), [selectedCwd, selectedId, selectedSubagents, canvasScalars, send]);
+  }), [selectedCwd, selectedId, selectedPluginState, canvasScalars, send]);
 
   const contextUsageMap = useMemo(
     () => buildContextUsageMap(sessionStates, sessions),
@@ -3202,13 +3197,7 @@ export default function App() {
         useSessionInteractiveRequests={(sid) =>
           sessionStates.get(sid)?.interactiveRequests ?? EMPTY_INTERACTIVE_REQUESTS
         }
-        useSessionSubagents={(sid) =>
-          // Upcast `Map<string, SubagentState>` to `ReadonlyMap<string, SubagentStateSnapshot>`.
-          // `SubagentState` is structurally compatible with `SubagentStateSnapshot` but TS
-          // can't bridge the `Record<string, unknown>` index-signature requirement directly,
-          // so we route the cast through `unknown`. Plugins downcast at their boundary.
-          ((sessionStates.get(sid)?.subagents ?? EMPTY_SUBAGENTS) as unknown as ReadonlyMap<string, SubagentStateSnapshot>)
-        }
+        useSessionPluginState={(pluginId, sid) => sessionStates.get(sid)?.pluginState.get(pluginId)}
         connectionStatus={
           status === "connected" || status === "connecting" ? status : "disconnected"
         }

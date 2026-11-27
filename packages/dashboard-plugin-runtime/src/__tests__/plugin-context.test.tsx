@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyPluginConfigUpdate,
   CurrentPluginLayer,
-  EMPTY_SUBAGENTS,
   initPluginConfigs,
   PluginContextProvider,
   useAllSessions,
@@ -14,7 +13,7 @@ import {
   usePluginLogger,
   usePluginMessage,
   usePluginSocket,
-  useSessionSubagents,
+  useSessionPluginState,
 } from "../plugin-context.js";
 import { createSlotRegistry } from "../slot-registry.js";
 
@@ -344,39 +343,36 @@ describe("usePluginSocket", () => {
   });
 });
 
-// useSessionSubagents (test-plan #E49): returns the shell-resolved map, the shared
-// frozen EMPTY_SUBAGENTS for an unknown session, and re-renders when the plugin's
-// slice writes a new map for that session.
-describe("useSessionSubagents", () => {
-  type Snap = { id: string; status: string };
-  const mapOf = (...subs: Snap[]) => new Map(subs.map((x) => [x.id, x])) as ReadonlyMap<string, Snap>;
+// useSessionPluginState: returns the shell-resolved slot of one plugin for a session,
+// undefined for an unknown plugin/session or outside a provider, and re-renders when the
+// plugin's slice writes a new value for that session.
+describe("useSessionPluginState", () => {
+  type Slot = ReadonlyMap<string, { id: string }>;
+  type Store = { get: () => Map<string, Map<string, unknown>>; subscribe: (cb: () => void) => () => void };
 
-  function Harness({
-    store,
-    sessionId,
-    onRender,
-  }: {
-    store: { get: () => Map<string, ReadonlyMap<string, Snap>>; subscribe: (cb: () => void) => () => void };
+  function Harness({ store, pluginId, sessionId, onRender }: {
+    store: Store;
+    pluginId: string;
     sessionId: string;
-    onRender: (m: ReadonlyMap<string, { id: string }>) => void;
+    onRender: (v: unknown) => void;
   }) {
     const state = React.useSyncExternalStore(store.subscribe, store.get);
     return (
       <PluginContextProvider
         registry={createSlotRegistry()}
-        useSessionSubagents={(sid) => state.get(sid) ?? EMPTY_SUBAGENTS}
+        useSessionPluginState={(pid, sid) => state.get(sid)?.get(pid)}
       >
-        <SubagentsReader sessionId={sessionId} onRender={onRender} />
+        <Reader pluginId={pluginId} sessionId={sessionId} onRender={onRender} />
       </PluginContextProvider>
     );
   }
 
-  function SubagentsReader({ sessionId, onRender }: { sessionId: string; onRender: (m: ReadonlyMap<string, { id: string }>) => void }) {
-    onRender(useSessionSubagents(sessionId));
+  function Reader({ pluginId, sessionId, onRender }: { pluginId: string; sessionId: string; onRender: (v: unknown) => void }) {
+    onRender(useSessionPluginState(pluginId, sessionId));
     return null;
   }
 
-  function makeStore(initial: Map<string, ReadonlyMap<string, Snap>>) {
+  function makeStore(initial: Map<string, Map<string, unknown>>) {
     let state = initial;
     const listeners = new Set<() => void>();
     return {
@@ -385,44 +381,50 @@ describe("useSessionSubagents", () => {
         listeners.add(cb);
         return () => listeners.delete(cb);
       },
-      /** What the subagents slice does: replace the session's map with a new one holding one more entry. */
-      append(sessionId: string, snap: Snap) {
-        const prev = state.get(sessionId) ?? (EMPTY_SUBAGENTS as ReadonlyMap<string, Snap>);
-        state = new Map(state).set(sessionId, new Map([...prev, [snap.id, snap]]) as ReadonlyMap<string, Snap>);
+      /** What a plugin slice does: replace the session's slot with a new map holding one more entry. */
+      append(sessionId: string, pluginId: string, entry: { id: string }) {
+        const prev = (state.get(sessionId)?.get(pluginId) ?? new Map()) as Slot;
+        const nextSession = new Map(state.get(sessionId) ?? []).set(pluginId, new Map([...prev, [entry.id, entry]]));
+        state = new Map(state).set(sessionId, nextSession);
         for (const l of listeners) l();
       },
     };
   }
 
-  it("returns the session's map for a known id and the shared EMPTY_SUBAGENTS for an unknown id", () => {
-    const store = makeStore(new Map([["sess_1", mapOf({ id: "a1", status: "running" })]]));
-    const seen: Array<ReadonlyMap<string, { id: string }>> = [];
-    render(<Harness store={store} sessionId="sess_1" onRender={(m) => seen.push(m)} />);
-    expect(seen.at(-1)).toBe(store.get().get("sess_1"));
-    expect(seen.at(-1)?.get("a1")).toEqual({ id: "a1", status: "running" });
+  const slotOf = (...ids: string[]) => new Map(ids.map((id) => [id, { id }]));
 
-    const unknown: Array<ReadonlyMap<string, { id: string }>> = [];
-    render(<Harness store={store} sessionId="never-existed" onRender={(m) => unknown.push(m)} />);
-    expect(unknown.at(-1)).toBe(EMPTY_SUBAGENTS);
+  it("returns the plugin's slot for a known session and undefined for an unknown plugin or session", () => {
+    const store = makeStore(new Map([["sess_1", new Map([["subagents", slotOf("a1")]])]]));
+    const seen: unknown[] = [];
+    render(<Harness store={store} pluginId="subagents" sessionId="sess_1" onRender={(v) => seen.push(v)} />);
+    expect(seen.at(-1)).toBe(store.get().get("sess_1")!.get("subagents"));
+
+    const otherPlugin: unknown[] = [];
+    render(<Harness store={store} pluginId="flows" sessionId="sess_1" onRender={(v) => otherPlugin.push(v)} />);
+    expect(otherPlugin.at(-1)).toBeUndefined();
+
+    const unknown: unknown[] = [];
+    render(<Harness store={store} pluginId="subagents" sessionId="never-existed" onRender={(v) => unknown.push(v)} />);
+    expect(unknown.at(-1)).toBeUndefined();
   });
 
-  it("re-renders once, with the new entry, when the slice appends to the session's map", () => {
-    const store = makeStore(new Map([["sess_1", mapOf({ id: "a1", status: "running" })]]));
-    const seen: Array<ReadonlyMap<string, { id: string }>> = [];
-    render(<Harness store={store} sessionId="sess_1" onRender={(m) => seen.push(m)} />);
+  it("re-renders once, with the new entry, when the slice appends to the slot", () => {
+    const store = makeStore(new Map([["sess_1", new Map([["subagents", slotOf("a1")]])]]));
+    const seen: unknown[] = [];
+    render(<Harness store={store} pluginId="subagents" sessionId="sess_1" onRender={(v) => seen.push(v)} />);
     const rendersBefore = seen.length;
-    act(() => store.append("sess_1", { id: "a2", status: "running" }));
+    act(() => store.append("sess_1", "subagents", { id: "a2" }));
     expect(seen.length - rendersBefore).toBe(1);
-    expect([...seen.at(-1)!.keys()]).toEqual(["a1", "a2"]);
+    expect([...(seen.at(-1) as Slot).keys()]).toEqual(["a1", "a2"]);
   });
 
-  it("outside a PluginContextProvider it returns EMPTY_SUBAGENTS (soft contract)", () => {
-    let got: ReadonlyMap<string, { id: string }> | undefined;
-    function Reader() {
-      got = useSessionSubagents("sess_1");
+  it("outside a PluginContextProvider it returns undefined (soft contract)", () => {
+    let got: unknown = "unset";
+    function Outside() {
+      got = useSessionPluginState("subagents", "sess_1");
       return null;
     }
-    render(<Reader />);
-    expect(got).toBe(EMPTY_SUBAGENTS);
+    render(<Outside />);
+    expect(got).toBeUndefined();
   });
 });

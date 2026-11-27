@@ -277,8 +277,6 @@ export {
   MIN_HEAP_MB,
   type ServerHeapConfig,
   type SessionHeapConfig,
-  SUBAGENT_HEAP_GUIDANCE_MB,
-  subagentHeapBudget,
 } from "./heap-limits.js";
 /**
  * Memory-limit types + defaults live in a BROWSER-SAFE module and are

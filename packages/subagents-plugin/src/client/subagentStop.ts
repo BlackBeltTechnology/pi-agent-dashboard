@@ -19,6 +19,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { catalog } from "../i18n.js";
+import { subagentsOf } from "./pluginState.js";
 
 /** How long a stop may stay unconfirmed before the control re-enables. */
 export const STOP_CONFIRM_TIMEOUT_MS = 10_000;
@@ -150,7 +151,7 @@ export function agentRowStatus(
     // Row healed from the subagent map before the tool's own end arrived.
     const agentId = str(toolDetails?.agentId);
     const sub = agentId
-      ? (session as { subagents?: ReadonlyMap<string, { status?: string; stopReason?: string }> } | undefined)?.subagents?.get(agentId)
+      ? subagentsOf(session as { pluginState?: ReadonlyMap<string, unknown> } | undefined).get(agentId)
       : undefined;
     if (sub?.status !== "stopped") return undefined;
     stopReason = sub.stopReason;

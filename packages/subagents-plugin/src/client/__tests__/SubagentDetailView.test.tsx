@@ -17,6 +17,7 @@ import { type DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 import { sessionEventReducer, type SubagentSessionSlice } from "../sessionEventReducer.js";
 import { type SessionStateLike, SubagentDetailView } from "../SubagentDetailView.js";
 import type { SubagentState } from "../types.js";
+import { subagentSlot, subagentsOf } from "../pluginState.js";
 
 // Mock markdown renderer — just pass-through the content so we can assert on it.
 const MockMarkdown: React.FC<{ content: string }> = ({ content }) => <div data-testid="md">{content}</div>;
@@ -446,11 +447,11 @@ describe("SubagentDetailView — untracked end (#F5)", () => {
       timestamp: 1000,
       data: { id: "a1", type: "Explore", description: "search" },
     };
-    let state: SubagentSessionSlice = sessionEventReducer.reduce({ subagents: new Map() }, started);
+    let state: SubagentSessionSlice = sessionEventReducer.reduce({ pluginState: subagentSlot(new Map())}, started);
     for (let i = 0; i < 5; i++) state = sessionEventReducer.reduce(state, ev(i));
     const view = (st: SubagentSessionSlice) => withUiPrimitiveProvider(
       { "ui:markdown-content": MockMarkdown },
-      <SubagentDetailView session={st} agentId="a1" />,
+      <SubagentDetailView session={{ subagents: subagentsOf(st) }} agentId="a1" />,
     );
     const { rerender } = render(view(state));
     const rendered = () => screen.queryAllByText(/^entry-\d+$/).length;

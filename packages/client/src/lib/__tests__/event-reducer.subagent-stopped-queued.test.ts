@@ -12,6 +12,7 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
+import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
 
 const ev = (eventType: string, data: Record<string, unknown>, timestamp = 1000): DashboardEvent => ({
   eventType,
@@ -61,7 +62,7 @@ const row = (s: SessionState, id: string) => s.messages.find((m) => m.toolCallId
 describe("stopped subagent through the shell reducer", () => {
   it("#E11 reduce: subagent_completed{stopped} records stopped + stopReason and finalizes the row non-error", () => {
     const s = apply([start("A"), tick("A", "ag-1"), stoppedEvent("ag-1", "queued")]);
-    expect(s.subagents.get("ag-1")).toMatchObject({ status: "stopped", stopReason: "queued" });
+    expect(subagentsOf(s).get("ag-1")).toMatchObject({ status: "stopped", stopReason: "queued" });
     expect(row(s, "A").toolStatus).toBe("complete");
     expect(row(s, "A").toolDetails).toMatchObject({ status: "stopped", stopReason: "queued" });
   });
@@ -73,23 +74,23 @@ describe("stopped subagent through the shell reducer", () => {
     const s = finish(apply([start("A"), tick("A", "ag-1")]));
     expect(row(s, "A").toolStatus).toBe("complete");
     expect(row(s, "A").toolDetails?.status).toBe("stopped");
-    expect(s.subagents.get("ag-1")?.status).toBe("stopped");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("stopped");
   });
 
   it("#X6 session-end heal, a late tick and the parent settle leave it stopped", () => {
     let s = apply([start("A"), tick("A", "ag-1"), stoppedEvent("ag-1")]);
     s = apply([healSubagentFail("ag-1"), healEnd("A", "ag-1")], s);
-    expect(s.subagents.get("ag-1")?.status).toBe("stopped");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("stopped");
     expect(row(s, "A").toolStatus).toBe("complete");
     expect(row(s, "A").toolDetails?.status).toBe("stopped");
 
     s = apply([tick("A", "ag-1", "running", 8000)], s);
-    expect(s.subagents.get("ag-1")?.status).toBe("stopped");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("stopped");
     expect(row(s, "A").toolStatus).toBe("complete");
     expect(row(s, "A").toolDetails?.status).toBe("stopped");
 
     s = apply([ev("agent_settled", {}, 9000)], s);
-    expect(s.subagents.get("ag-1")?.status).toBe("stopped");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("stopped");
     expect(row(s, "A").toolDetails?.status).toBe("stopped");
   });
 
@@ -99,7 +100,7 @@ describe("stopped subagent through the shell reducer", () => {
       tick("A", "ag-1"),
       ev("subagent_failed", { id: "ag-1", error: "aborted by parent", details: { agentId: "ag-1", status: "aborted" } }, 4000),
     ]);
-    expect(s.subagents.get("ag-1")?.status).toBe("failed");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("failed");
     expect(row(s, "A").toolStatus).toBe("error");
     expect(row(s, "A").toolDetails?.status).not.toBe("stopped");
   });
@@ -113,7 +114,7 @@ describe("stopped subagent through the shell reducer", () => {
         partialResult: { content: [], details: { agentId: "ag-1", status: "queued", queuePosition: 2, activeSlots: 1, maxConcurrent: 1, stoppable: true } },
       }),
     ]);
-    expect(s.subagents.get("ag-1")).toMatchObject({ queuePosition: 2, activeSlots: 1, maxConcurrent: 1, stoppable: true });
+    expect(subagentsOf(s).get("ag-1")).toMatchObject({ queuePosition: 2, activeSlots: 1, maxConcurrent: 1, stoppable: true });
     expect(row(s, "A").toolStatus).toBe("running");
   });
 });

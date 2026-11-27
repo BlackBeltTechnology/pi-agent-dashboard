@@ -14,6 +14,7 @@ import { createInitialState, reduceEvent } from "../../../client/src/lib/chat/ev
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createPluginEventAppender } from "../plugin-append-event.js";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
+import { subagentsOf } from "../../../subagents-plugin/src/client/pluginState.js";
 import { createSubagentsPolicyRegistry } from "./setup/subagents-policies.js";
 import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
@@ -367,6 +368,9 @@ describe("plugin status-ended fan-out (test-plan #E25)", () => {
 });
 
 describe("tool-call heal identity comes from the claiming plugin's policy (test-plan #E27)", () => {
+  /**
+   * @structural-pin boundary: core `open-tool-calls.ts` must name no `agentId` — the absence is the contract, with no runtime seam to observe it
+   */
   it("an Agent call keeps details.agentId, a bash call none; core source names no agentId", async () => {
     const SID = "identity-heal";
     const h = await harness(SID);
@@ -419,9 +423,9 @@ describe("crash without a terminal frame (test-plan #X3)", () => {
     // Replay: fold the stored stream the way a reconnecting browser does.
     let state = createInitialState();
     for (const { event } of stored) state = reduceEvent(state, event);
-    const sub = (state as any).subagents.get("ag-x");
+    const sub = subagentsOf(state).get("ag-x")!;
     expect(sub).toMatchObject({ id: "ag-x", type: "Explore", description: "scan the repo", status: "failed" });
-    expect(sub.entries.filter(Boolean)).toHaveLength(12);
+    expect(sub.entries!.filter(Boolean)).toHaveLength(12);
     h.browser.close();
   });
 });

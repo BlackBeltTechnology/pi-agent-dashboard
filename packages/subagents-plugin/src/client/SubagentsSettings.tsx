@@ -26,7 +26,7 @@ import {
 	useSettingsDraftSource,
 	useT,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { subagentHeapBudget } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
+import { subagentHeapBudget } from "../heap-budget.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 

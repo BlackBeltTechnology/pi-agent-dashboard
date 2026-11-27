@@ -9,12 +9,13 @@
 import { matchesEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import type { SubagentState } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+import type { SubagentState } from "../../subagent-types.js";
 import { type PluginSubagentState, type SubagentSessionSlice, sessionEventReducer } from "../sessionEventReducer.js";
 import { type AgentFinalizerState, toolRowFinalizers } from "../toolRowFinalizer.js";
+import { subagentSlot, subagentsOf } from "../pluginState.js";
 
 const ev = (eventType: string, data: Record<string, unknown>): DashboardEvent => ({ eventType, timestamp: 1000, data });
-const empty = (): SubagentSessionSlice => ({ subagents: new Map() });
+const empty = (): SubagentSessionSlice => ({ pluginState: subagentSlot(new Map())});
 
 describe("subagents sessionEventReducer", () => {
   it("owns the four stream events plus completed/failed (written by the finalizer, 4.6)", () => {
@@ -46,9 +47,9 @@ describe("subagents sessionEventReducer", () => {
     const before = empty();
     const after = sessionEventReducer.reduce(before, ev("subagent_started", { id: "a", type: "Explore", description: "d" }));
     expect(after).not.toBe(before);
-    expect(after.subagents).not.toBe(before.subagents);
-    expect(before.subagents.size).toBe(0);
-    expect(after.subagents.get("a")).toMatchObject({ status: "running", type: "Explore", startedAt: 1000 });
+    expect(subagentsOf(after)).not.toBe(subagentsOf(before));
+    expect(subagentsOf(before).size).toBe(0);
+    expect(subagentsOf(after).get("a")).toMatchObject({ status: "running", type: "Explore", startedAt: 1000 });
   });
 
   it.each([
@@ -72,7 +73,7 @@ describe("subagents sessionEventReducer", () => {
 // See change: show-background-subagents-in-dock (task 1.1, test-plan #E1).
 describe("background flag on the subagent state (D1)", () => {
   const reduceAll = (events: DashboardEvent[]) => events.reduce((s, e) => sessionEventReducer.reduce(s, e), empty());
-  const bg = (s: SubagentSessionSlice, id = "a") => (s.subagents.get(id) as { background?: true } | undefined)?.background;
+  const bg = (s: SubagentSessionSlice, id = "a") => (subagentsOf(s).get(id) as { background?: true } | undefined)?.background;
 
   it("(a) created{background:true} marks the subagent; later frames without the field keep it", () => {
     const s1 = reduceAll([ev("subagent_created", { id: "a", type: "t", description: "d", details: { background: true } })]);
@@ -94,7 +95,7 @@ describe("background flag on the subagent state (D1)", () => {
       ev("subagent_created", { id: "a", details: { background: false } }),
       ev("subagent_started", { id: "a", details: {} }),
     ]);
-    expect(Object.hasOwn(s.subagents.get("a")!, "background")).toBe(false);
+    expect(Object.hasOwn(subagentsOf(s).get("a")!, "background")).toBe(false);
   });
 
   it("a later frame with background:false never clears the mark", () => {
@@ -108,12 +109,12 @@ describe("background flag on the subagent state (D1)", () => {
 
 // See change: fix-background-subagent-ghost-rows (test-plan #E14 slice half, #F4).
 describe("subagents sessionEventReducer — lastFrameAt + untracked revive", () => {
-  const reduce = (state: { subagents: Map<string, SubagentState> }, eventType: string, data: Record<string, unknown>, timestamp: number) =>
-    sessionEventReducer.reduce(state, { eventType, timestamp, data }) as { subagents: Map<string, SubagentState> };
-  const last = (s: { subagents: Map<string, SubagentState> }, id: string) => (s.subagents.get(id) as PluginSubagentState | undefined)?.lastFrameAt;
+  const reduce = (state: SubagentSessionSlice, eventType: string, data: Record<string, unknown>, timestamp: number) =>
+    sessionEventReducer.reduce(state, { eventType, timestamp, data }) as SubagentSessionSlice;
+  const last = (s: SubagentSessionSlice, id: string) => (subagentsOf(s).get(id) as PluginSubagentState | undefined)?.lastFrameAt;
 
   it("stamps lastFrameAt from created/started/entry/delta, same object under agentSessionId (#E14)", () => {
-    let s = { subagents: new Map<string, SubagentState>() };
+    let s = { pluginState: subagentSlot(new Map<string, SubagentState>()) };
     s = reduce(s, "subagent_created", { id: "A", type: "t", description: "d", details: { agentSessionId: "S7" } }, 100);
     expect(last(s, "A")).toBe(100);
     s = reduce(s, "subagent_started", { id: "A" }, 200);
@@ -122,15 +123,15 @@ describe("subagents sessionEventReducer — lastFrameAt + untracked revive", () 
     expect(last(s, "A")).toBe(300);
     s = reduce(s, "subagent_delta", { agentId: "A", blockId: 1, offset: 0, kind: "text", text: "y" }, 400);
     expect(last(s, "A")).toBe(400);
-    expect(s.subagents.get("S7")).toBe(s.subagents.get("A"));
+    expect(subagentsOf(s).get("S7")).toBe(subagentsOf(s).get("A"));
   });
 
   it("subagent_started revives an untracked background subagent, keeping the background mark (#F4)", () => {
     const ended: PluginSubagentState = {
       id: "A", type: "t", description: "d", status: "failed", healedBy: "untracked", error: "x", background: true,
     };
-    const s = reduce({ subagents: new Map([["A", ended as SubagentState]]) }, "subagent_started", { id: "A" }, 500);
-    const a = s.subagents.get("A") as PluginSubagentState;
+    const s = reduce({ pluginState: subagentSlot(new Map([["A", ended as SubagentState]]))}, "subagent_started", { id: "A" }, 500);
+    const a = subagentsOf(s).get("A") as PluginSubagentState;
     expect(a.status).toBe("running");
     expect(a.healedBy).toBeUndefined();
     expect(a.background).toBe(true);
@@ -141,13 +142,13 @@ describe("subagents sessionEventReducer — lastFrameAt + untracked revive", () 
 describe("subagents slice + finalizer — idempotency, reconcile, display, truncation", () => {
   const finalizer = toolRowFinalizers[0];
   type S = AgentFinalizerState;
-  const fresh = (): S => ({ subagents: new Map(), messages: [], toolCalls: new Map() });
+  const fresh = (): S => ({ pluginState: subagentSlot(new Map()), messages: [], toolCalls: new Map() });
   const apply = (s: S, eventType: string, data: Record<string, unknown>, timestamp = 1000): S => {
     const e = ev(eventType, data);
     e.timestamp = timestamp;
     return (finalizer.onSessionEvent!(s, e) ?? sessionEventReducer.reduce(s, e)) as S;
   };
-  const get = (s: S, id: string) => s.subagents.get(id) as PluginSubagentState | undefined;
+  const get = (s: S, id: string) => subagentsOf(s).get(id) as PluginSubagentState | undefined;
   const entry = { kind: "text", text: "x", ts: 1 };
 
   describe("applying the same event twice equals applying it once (#E34)", () => {

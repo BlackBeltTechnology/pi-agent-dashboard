@@ -24,6 +24,7 @@ import {
 } from "../../../client/src/lib/chat/event-reducer.js";
 import "../../../client/src/test-support/subagents-reducer-slice.js"; // the reducer's subagent_* arms are a plugin slice now (decouple-plugins-from-core)
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { subagentsOf } from "../../../subagents-plugin/src/client/pluginState.js";
 
 const AGENT_ID = "agent-1";
 const SESSION_ID = "as-v7";
@@ -320,17 +321,17 @@ describe("collapse ↔ client-reducer replay equivalence", () => {
     expect(collapsedMsg?.result).toEqual(fullMsg?.result);
     expect(collapsedMsg?.toolDetails).toEqual(fullMsg?.toolDetails);
 
-    const fullSub = full.subagents.get(AGENT_ID);
-    const collapsedSub = collapsed.subagents.get(AGENT_ID);
+    const fullSub = subagentsOf(full).get(AGENT_ID);
+    const collapsedSub = subagentsOf(collapsed).get(AGENT_ID);
     expect(collapsedSub).toEqual(fullSub);
     // `type`/`description` are FIRST-wins — assert them BY VALUE, not merely
     // present, or the pin's whole purpose goes unverified.
     expect(collapsedSub?.type).toBe(fullSub?.type);
     expect(collapsedSub?.description).toBe(fullSub?.description);
     // Dual-index: reachable under the v4 agentId AND the v7 agentSessionId.
-    expect(full.subagents.get(SESSION_ID)).toBeDefined();
-    expect(collapsed.subagents.get(SESSION_ID)).toBeDefined();
-    expect(collapsed.subagents.get(SESSION_ID)).toEqual(full.subagents.get(SESSION_ID));
+    expect(subagentsOf(full).get(SESSION_ID)).toBeDefined();
+    expect(subagentsOf(collapsed).get(SESSION_ID)).toBeDefined();
+    expect(subagentsOf(collapsed).get(SESSION_ID)).toEqual(subagentsOf(full).get(SESSION_ID));
   }
 
   it("F1: the collapsed subsequence folds to the same state as the full one", () => {
@@ -338,8 +339,8 @@ describe("collapse ↔ client-reducer replay equivalence", () => {
     // The fixture must actually exercise first-wins, or F2's pin mutation is
     // the only thing proving it.
     const full = fold([...preamble(), ...f1Updates()]);
-    expect(full.subagents.get(AGENT_ID)?.type).toBe("Explore");
-    expect(full.subagents.get(AGENT_ID)?.description).toBe("d-first");
+    expect(subagentsOf(full).get(AGENT_ID)?.type).toBe("Explore");
+    expect(subagentsOf(full).get(AGENT_ID)?.description).toBe("d-first");
   });
 
   it("F2: F1 FAILS when the subsumption gate is removed", () => {
@@ -350,8 +351,8 @@ describe("collapse ↔ client-reducer replay equivalence", () => {
     const updates = f1Updates();
     const full = fold([...preamble(), ...updates]);
     const mutated = fold([...preamble(), ...selectRetained(updates, { gate: false })]);
-    expect(full.subagents.get(SESSION_ID)).toBeDefined();
-    expect(mutated.subagents.get(SESSION_ID)).toBeUndefined();
+    expect(subagentsOf(full).get(SESSION_ID)).toBeDefined();
+    expect(subagentsOf(mutated).get(SESSION_ID)).toBeUndefined();
   });
 
   it("F2: F1 FAILS when creating-tick pinning is removed", () => {
@@ -361,9 +362,9 @@ describe("collapse ↔ client-reducer replay equivalence", () => {
     const updates = f1Updates();
     const full = fold([...preamble(), ...updates]);
     const mutated = fold([...preamble(), ...selectRetained(updates, { pin: false })]);
-    expect(full.subagents.get(AGENT_ID)?.type).toBe("Explore");
-    expect(mutated.subagents.get(AGENT_ID)?.type).toBe("Other");
-    expect(mutated.subagents.get(AGENT_ID)?.description).toBe("d-late");
+    expect(subagentsOf(full).get(AGENT_ID)?.type).toBe("Explore");
+    expect(subagentsOf(mutated).get(AGENT_ID)?.type).toBe("Other");
+    expect(subagentsOf(mutated).get(AGENT_ID)?.description).toBe("d-late");
   });
 
   it("E10: the creating tick's type/description survive many subsuming updates", () => {
@@ -380,7 +381,7 @@ describe("collapse ↔ client-reducer replay equivalence", () => {
     // Creating tick present…
     expect(fixtureIds(retained)).toContain("c");
     // …and the folded entry keeps its values, BY VALUE.
-    const sub = fold([...preamble(), ...retained]).subagents.get(AGENT_ID);
+    const sub = subagentsOf(fold([...preamble(), ...retained])).get(AGENT_ID);
     expect(sub?.type).toBe("Explore");
     expect(sub?.description).toBe("d-first");
   });
@@ -481,8 +482,8 @@ describe("collapse ↔ client-reducer replay equivalence — end-triggered drop"
     expect(collapsedMsg?.result).toEqual(fullMsg?.result);
     expect(collapsedMsg?.toolDetails).toEqual(fullMsg?.toolDetails);
     expect(collapsedMsg?.toolStatus).toEqual(fullMsg?.toolStatus);
-    expect(collapsed.subagents.get(AGENT_ID)).toEqual(full.subagents.get(AGENT_ID));
-    expect(collapsed.subagents.get(SESSION_ID)).toEqual(full.subagents.get(SESSION_ID));
+    expect(subagentsOf(collapsed).get(AGENT_ID)).toEqual(subagentsOf(full).get(AGENT_ID));
+    expect(subagentsOf(collapsed).get(SESSION_ID)).toEqual(subagentsOf(full).get(SESSION_ID));
   }
 
   it("F1: Agent completed — tail dropped, folded state equal", () => {
@@ -550,7 +551,7 @@ describe("streamed subagent timeline survives collapse + replay compaction", () 
     for (const ev of raw) store.insertEvent("s1", ev);
     const retained = store.getEvents("s1", 0);
     const pick = (s: SessionState) => {
-      const sub = s.subagents.get(AGENT_ID)!;
+      const sub = subagentsOf(s).get(AGENT_ID)!;
       return { entries: sub.entries, liveBlock: sub.liveBlock, closedBlockMax: sub.closedBlockMax, status: sub.status };
     };
     const fromRaw = pick(fold(raw));

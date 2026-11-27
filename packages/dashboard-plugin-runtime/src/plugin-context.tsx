@@ -52,34 +52,7 @@ export interface InteractiveUiRequestSnapshot {
   result?: unknown;
 }
 
-/**
- * Snapshot shape of subagent state as exposed to plugins. Structurally
- * typed to avoid pulling in the subagents-plugin's full state type from
- * here — the runtime stays plugin-agnostic.
- *
- * Transitional: subagent state currently lives in the shell's central
- * reducer. A follow-up change will move it into the subagents-plugin
- * reducer (mirror of `pluginize-flows-via-registry`). When that lands,
- * `useSessionSubagents` keeps the same contract but reads from the plugin's
- * own reducer instead of shell state.
- *
- * See change: add-flow-agent-popout.
- */
-// Structural minimum: any subagent record exposing an `id` is assignable.
-// Plugins downcast (via `as unknown as ReadonlyMap<string, FullType>`) to
-// the full producer-defined shape. Dropping the `Record<string, unknown>`
-// intersection lets the shell's actual `SubagentState` (which has typed
-// fields, not an index signature) flow through `useSessionSubagents`
-// without coercion. See change: add-flow-agent-popout.
-export type SubagentStateSnapshot = { id: string };
-
 const EMPTY_INTERACTIVE_REQUESTS: readonly InteractiveUiRequestSnapshot[] = Object.freeze([]);
-/**
- * Shared frozen empty map: what `useSessionSubagents` returns for an unknown
- * session id (and the shell reuses for a session with no subagents), so
- * subscribers keep a stable reference. Host-only export.
- */
-export const EMPTY_SUBAGENTS: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
 /**
  * Frozen empty config — the STABLE snapshot for a never-set plugin id.
  * `getConfig` returns a fresh `{}` for an unset id, which would make
@@ -159,13 +132,13 @@ export interface PluginContextValue {
    */
   useSessionInteractiveRequests(sessionId: string): readonly InteractiveUiRequestSnapshot[];
   /**
-   * Access the per-session subagent state map. Transitional read bridge
-   * while subagent state lives in the shell reducer; will be re-pointed
-   * at the subagents-plugin's own reducer in a follow-up.
+   * Access one plugin's opaque per-session client state slot
+   * (`SessionState.pluginState.get(pluginId)`). `undefined` when the plugin
+   * has written nothing for that session.
    *
-   * See change: add-flow-agent-popout.
+   * See change: move-subagents-to-plugin (D8).
    */
-  useSessionSubagents(sessionId: string): ReadonlyMap<string, SubagentStateSnapshot>;
+  useSessionPluginState(pluginId: string, sessionId: string): unknown;
   /** Get plugin config for a specific plugin id. */
   getPluginConfig(pluginId: string): Record<string, unknown>;
   /** Subscribe to plugin config updates. Returns an unsubscribe fn. */
@@ -359,23 +332,17 @@ export function useSessionInteractiveRequests(
 }
 
 /**
- * @public — reactive: read the per-session subagent state map.
+ * @public — reactive: read one plugin's opaque per-session state slot
+ * (`SessionState.pluginState`). The plugin that owns `pluginId` narrows the
+ * value. Returns `undefined` for an unknown session, a plugin with no state,
+ * or outside a `<PluginContextProvider>`.
  *
- * Transitional bridge while subagent state lives in the shell reducer.
- * Returns the same value reference until a new event for that session
- * changes the map. Returns the shared `EMPTY_SUBAGENTS` frozen-Map for
- * unknown session ids.
- *
- * See change: add-flow-agent-popout.
+ * See change: move-subagents-to-plugin (D8).
  */
-export function useSessionSubagents(
-  sessionId: string,
-): ReadonlyMap<string, SubagentStateSnapshot> {
-  // Soft contract: returns the empty map when called outside a
-  // `<PluginContextProvider>` (e.g. in shell unit tests).
+export function useSessionPluginState(pluginId: string, sessionId: string): unknown {
   const ctx = useContext(PluginReactContext);
-  if (!ctx) return EMPTY_SUBAGENTS;
-  return ctx.useSessionSubagents(sessionId);
+  if (!ctx) return undefined;
+  return ctx.useSessionPluginState(pluginId, sessionId);
 }
 
 /**
@@ -543,13 +510,13 @@ export interface PluginContextProviderProps {
    */
   connectionStatus?: "connecting" | "connected" | "disconnected" | "offline" | "auth_required";
   /**
-   * Resolver returning the per-session subagent state map. Wired by the
-   * shell from its event-reducer state. When omitted, the provider returns
-   * the empty map for every session.
+   * Resolver returning one plugin's per-session state slot. Wired by the shell
+   * from its event-reducer state. When omitted, the provider returns
+   * `undefined` for every plugin and session.
    *
-   * See change: add-flow-agent-popout.
+   * See change: move-subagents-to-plugin (D8).
    */
-  useSessionSubagents?: (sessionId: string) => ReadonlyMap<string, SubagentStateSnapshot>;
+  useSessionPluginState?: (pluginId: string, sessionId: string) => unknown;
   /**
    * Currently-selected session id (from URL `/session/:id`). Plugins
    * read it via `useSelectedSessionId()`. See change:
@@ -634,7 +601,7 @@ export function PluginContextProvider({
   send: sendFn,
   pluginRouter: routerProp,
   useSessionInteractiveRequests: useSessionInteractiveRequestsProp,
-  useSessionSubagents: useSessionSubagentsProp,
+  useSessionPluginState: useSessionPluginStateProp,
   connectionStatus,
   ws,
   t: tProp,
@@ -655,12 +622,10 @@ export function PluginContextProvider({
     },
     [useSessionInteractiveRequestsProp],
   );
-  const useSessionSubagentsFn = useCallback(
-    (sessionId: string): ReadonlyMap<string, SubagentStateSnapshot> => {
-      if (useSessionSubagentsProp) return useSessionSubagentsProp(sessionId);
-      return EMPTY_SUBAGENTS;
-    },
-    [useSessionSubagentsProp],
+  const useSessionPluginStateFn = useCallback(
+    (pluginId: string, sessionId: string): unknown =>
+      useSessionPluginStateProp ? useSessionPluginStateProp(pluginId, sessionId) : undefined,
+    [useSessionPluginStateProp],
   );
   const useShellConnectionStatusFn = useCallback(
     () => connectionStatus ?? "disconnected",
@@ -703,7 +668,7 @@ export function PluginContextProvider({
     useSelectedSessionId: useSelectedSessionIdFn,
     useSessionEvents: useSessionEventsHookImpl,
     useSessionInteractiveRequests: useSessionInteractiveRequestsFn,
-    useSessionSubagents: useSessionSubagentsFn,
+    useSessionPluginState: useSessionPluginStateFn,
     useShellConnectionStatus: useShellConnectionStatusFn,
     getPluginConfig: getConfig,
     subscribePluginConfig: subscribeConfig,

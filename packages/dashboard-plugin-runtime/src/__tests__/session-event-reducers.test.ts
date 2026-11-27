@@ -8,8 +8,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   __resetSessionReducersForTests,
+  findFinalizerForEventType,
   findSessionEventReducer,
   findToolRowFinalizer,
+  listToolRowFinalizers,
   registerSessionEventReducer,
   registerToolRowFinalizer,
   setSessionReducerEnabledSet,
@@ -69,5 +71,39 @@ describe("tool-row finalizers", () => {
     expect(findToolRowFinalizer("bash")).toBeUndefined();
     setSessionReducerEnabledSet(new Set());
     expect(findToolRowFinalizer("Agent")).toBeUndefined();
+  });
+});
+
+describe("finalizer lookup by owned event type (move-subagents-to-plugin D8)", () => {
+  it("resolves the finalizer of the plugin whose slice owns the type, never by tool name", () => {
+    const owner = { toolName: "Anything", onSessionEvent: <S,>(s: S) => s };
+    const other = { toolName: "Other", onSessionEvent: <S,>(s: S) => s };
+    registerSessionEventReducer("p", slice("p_done", "p_*"));
+    registerSessionEventReducer("q", slice("q_done"));
+    registerToolRowFinalizer("q", other);
+    registerToolRowFinalizer("p", owner);
+    expect(findFinalizerForEventType("p_done")).toBe(owner);
+    expect(findFinalizerForEventType("q_done")).toBe(other);
+    expect(findFinalizerForEventType("unowned")).toBeUndefined();
+  });
+
+  it("is undefined when the owner is disabled or has no onSessionEvent finalizer", () => {
+    registerSessionEventReducer("p", slice("p_done"));
+    registerToolRowFinalizer("p", { toolName: "T", onToolExecution: <S,>(s: S) => s });
+    expect(findFinalizerForEventType("p_done")).toBeUndefined();
+    registerToolRowFinalizer("p", { toolName: "T2", onSessionEvent: <S,>(s: S) => s });
+    expect(findFinalizerForEventType("p_done")).toBeDefined();
+    setSessionReducerEnabledSet(new Set());
+    expect(findFinalizerForEventType("p_done")).toBeUndefined();
+  });
+
+  it("listToolRowFinalizers returns every enabled finalizer (who onTurnSettled is called on)", () => {
+    const a = { toolName: "A", onTurnSettled: <S,>(s: S) => s };
+    const b = { toolName: "B" };
+    registerToolRowFinalizer("p", a);
+    registerToolRowFinalizer("q", b);
+    expect(listToolRowFinalizers()).toEqual([a, b]);
+    setSessionReducerEnabledSet(new Set(["q"]));
+    expect(listToolRowFinalizers()).toEqual([b]);
   });
 });

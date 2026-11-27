@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, type ChatMessage, carryInteractiveRequests, carryPendingPrompt, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, regroupOwnedEvents, resolveInteractiveRequest, retailPendingInteractiveRows, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 import { derivePendingFreeFloating } from "../chat/pending-free-floating.js";
 import { setEventTypeOwners } from "../plugins/event-type-owners.js";
+import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
@@ -1743,12 +1744,12 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      const byAgentId = state.subagents.get("a4-agent-id");
+      const byAgentId = subagentsOf(state).get("a4-agent-id");
       expect(byAgentId).toBeDefined();
       expect(byAgentId?.status).toBe("running");
       expect(byAgentId?.entries).toHaveLength(1);
       // Dual-indexed: a v7 runner-id deep-link resolves the SAME state.
-      expect(state.subagents.get("v7-runner-id")).toBe(byAgentId);
+      expect(subagentsOf(state).get("v7-runner-id")).toBe(byAgentId);
     });
 
     // A late/reordered running partial must not regress a terminal state that a
@@ -1785,7 +1786,7 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      expect(state.subagents.get("a4-agent-id")?.status).toBe("completed");
+      expect(subagentsOf(state).get("a4-agent-id")?.status).toBe("completed");
     });
 
     it("should complete Agent tool with duration", () => {
@@ -1953,8 +1954,8 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      expect(state.subagents.size).toBe(1);
-      const sub = state.subagents.get("sub-1")!;
+      expect(subagentsOf(state).size).toBe(1);
+      const sub = subagentsOf(state).get("sub-1")!;
       expect(sub.id).toBe("sub-1");
       expect(sub.type).toBe("Explore");
       expect(sub.description).toBe("Search codebase");
@@ -1975,10 +1976,10 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      expect(state.subagents.get("sub-1")!.status).toBe("running");
+      expect(subagentsOf(state).get("sub-1")!.status).toBe("running");
       // Preserves original fields
-      expect(state.subagents.get("sub-1")!.type).toBe("Explore");
-      expect(state.subagents.get("sub-1")!.description).toBe("Search codebase");
+      expect(subagentsOf(state).get("sub-1")!.type).toBe("Explore");
+      expect(subagentsOf(state).get("sub-1")!.description).toBe("Search codebase");
     });
 
     it("should handle subagent_started without prior created event", () => {
@@ -1990,7 +1991,7 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      const sub = state.subagents.get("sub-1")!;
+      const sub = subagentsOf(state).get("sub-1")!;
       expect(sub.status).toBe("running");
       expect(sub.type).toBe("Plan");
     });
@@ -2020,7 +2021,7 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      const sub = state.subagents.get("sub-1")!;
+      const sub = subagentsOf(state).get("sub-1")!;
       expect(sub.status).toBe("completed");
       expect(sub.result).toBe("Found 5 relevant files");
       expect(sub.durationMs).toBe(3000);
@@ -2051,7 +2052,7 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      const sub = state.subagents.get("sub-1")!;
+      const sub = subagentsOf(state).get("sub-1")!;
       expect(sub.status).toBe("failed");
       expect(sub.error).toBe("Max turns exceeded");
       expect(sub.durationMs).toBe(2000);
@@ -2091,9 +2092,9 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      expect(state.subagents.size).toBe(2);
-      expect(state.subagents.get("sub-1")!.status).toBe("completed");
-      expect(state.subagents.get("sub-2")!.status).toBe("failed");
+      expect(subagentsOf(state).size).toBe(2);
+      expect(subagentsOf(state).get("sub-1")!.status).toBe("completed");
+      expect(subagentsOf(state).get("sub-2")!.status).toBe("failed");
     });
 
     // move-subagents-to-plugin (D8): never the literal "unknown"; falls back to the short id.
@@ -2106,7 +2107,7 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      const sub = state.subagents.get("sub-1")!;
+      const sub = subagentsOf(state).get("sub-1")!;
       expect(sub.type).toBe("sub-1");
       expect(sub.description).toBe("");
     });
@@ -2121,7 +2122,7 @@ describe("command_feedback events", () => {
           data: { id: "sub-1", type: "Explore", description: "" },
         },
       ]);
-      const sub = state.subagents.get("sub-1")!;
+      const sub = subagentsOf(state).get("sub-1")!;
       expect(sub.entries).toBeUndefined();
       expect(sub.activity).toBeUndefined();
     });
@@ -2143,7 +2144,7 @@ describe("command_feedback events", () => {
           },
         },
       ]);
-      const sub = state.subagents.get("sub-1")!;
+      const sub = subagentsOf(state).get("sub-1")!;
       expect(sub.entries).toEqual(entries);
       expect(sub.activity).toBe("reading /x");
       expect(sub.displayName).toBe("my-agent");
@@ -2168,7 +2169,7 @@ describe("command_feedback events", () => {
           data: { id: "s", type: "x", description: "", details: { entries: second } },
         },
       ]);
-      const sub = state.subagents.get("s")!;
+      const sub = subagentsOf(state).get("s")!;
       expect(sub.entries).toEqual(second);
       expect(sub.entries!.length).toBe(3);
     });
@@ -2181,7 +2182,7 @@ describe("command_feedback events", () => {
           data: { id: "s", type: "x", description: "" },
         },
       ]);
-      expect(state.subagents.get("s")!.startedAt).toBe(1234);
+      expect(subagentsOf(state).get("s")!.startedAt).toBe(1234);
     });
 
     // --- D3: empty-array overwrite guard (fix-subagent-live-detail-reliability) ---
@@ -2204,7 +2205,7 @@ describe("command_feedback events", () => {
           data: { id: "s", type: "x", description: "", details: { entries: [] } },
         },
       ]);
-      const sub = state.subagents.get("s")!;
+      const sub = subagentsOf(state).get("s")!;
       expect(sub.entries).toEqual(three);
       expect(sub.entries!.length).toBe(3);
     });
@@ -2232,7 +2233,7 @@ describe("command_feedback events", () => {
           data: { id: "s", type: "x", description: "", details: { entries: five } },
         },
       ]);
-      const sub = state.subagents.get("s")!;
+      const sub = subagentsOf(state).get("s")!;
       expect(sub.entries).toEqual(five);
       expect(sub.entries!.length).toBe(5);
     });
@@ -2271,7 +2272,7 @@ describe("command_feedback events", () => {
         },
       ]);
 
-      const sub = state.subagents.get("sub_abc");
+      const sub = subagentsOf(state).get("sub_abc");
       expect(sub).toBeDefined();
       expect(sub!.status).toBe("completed");
       expect(sub!.result).toBe("Done.");
@@ -2302,7 +2303,7 @@ describe("command_feedback events", () => {
           },
         },
       ]);
-      const sub = state.subagents.get("sub_xyz");
+      const sub = subagentsOf(state).get("sub_xyz");
       expect(sub).toBeDefined();
       expect(sub!.status).toBe("failed");
       expect(sub!.error).toBe("aborted by user");
@@ -2336,7 +2337,7 @@ describe("command_feedback events", () => {
           },
         },
       ]);
-      const sub = state.subagents.get("sub_abc")!;
+      const sub = subagentsOf(state).get("sub_abc")!;
       expect(sub.displayName).toBe("liveName"); // not clobbered
       expect(sub.durationMs).toBe(1234); // updated
       expect(sub.status).toBe("completed"); // updated by backfill
@@ -2362,7 +2363,7 @@ describe("command_feedback events", () => {
           },
         },
       ]);
-      expect(state.subagents.size).toBe(before.subagents.size); // unchanged
+      expect(subagentsOf(state).size).toBe(subagentsOf(before).size); // unchanged
     });
 
     it("backfill is a no-op when details.agentId is missing", () => {
@@ -2384,7 +2385,7 @@ describe("command_feedback events", () => {
           },
         },
       ]);
-      expect(state.subagents.size).toBe(0);
+      expect(subagentsOf(state).size).toBe(0);
     });
 
     it("existing toolDetails write path remains intact (regression guard)", () => {
@@ -2411,7 +2412,7 @@ describe("command_feedback events", () => {
       const toolMsg = state.messages.find((m) => m.toolCallId === "tc1");
       expect(toolMsg?.toolDetails).toBeDefined();
       expect((toolMsg?.toolDetails as Record<string, unknown> | undefined)?.agentId).toBe("sub_abc");
-      expect(state.subagents.get("sub_abc")?.displayName).toBe("explorer");
+      expect(subagentsOf(state).get("sub_abc")?.displayName).toBe("explorer");
     });
   });
 
@@ -2427,8 +2428,8 @@ describe("command_feedback events", () => {
           data: { id: "A", type: "Explore", description: "d", details: { agentSessionId: "S" } },
         },
       ]);
-      const byAgentId = state.subagents.get("A");
-      const bySession = state.subagents.get("S");
+      const byAgentId = subagentsOf(state).get("A");
+      const bySession = subagentsOf(state).get("S");
       expect(byAgentId).toBeDefined();
       expect(bySession).toBe(byAgentId); // SAME reference
       expect(byAgentId!.id).toBe("A"); // canonical v4 id, even via the v7 key
@@ -2448,9 +2449,9 @@ describe("command_feedback events", () => {
           data: { id: "A", result: "ok", details: { agentSessionId: "S" } },
         },
       ]);
-      expect(state.subagents.get("A")!.status).toBe("completed");
-      expect(state.subagents.get("S")!.status).toBe("completed");
-      expect(state.subagents.get("S")).toBe(state.subagents.get("A"));
+      expect(subagentsOf(state).get("A")!.status).toBe("completed");
+      expect(subagentsOf(state).get("S")!.status).toBe("completed");
+      expect(subagentsOf(state).get("S")).toBe(subagentsOf(state).get("A"));
     });
 
     it("E2: single-key when the frame carries no agentSessionId (no alias)", () => {
@@ -2461,9 +2462,9 @@ describe("command_feedback events", () => {
           data: { id: "A", type: "Explore", description: "d" },
         },
       ]);
-      expect(state.subagents.get("A")).toBeDefined();
-      expect(state.subagents.get("A")!.agentSessionId).toBeUndefined();
-      expect(state.subagents.size).toBe(1); // exactly one key for the run
+      expect(subagentsOf(state).get("A")).toBeDefined();
+      expect(subagentsOf(state).get("A")!.agentSessionId).toBeUndefined();
+      expect(subagentsOf(state).size).toBe(1); // exactly one key for the run
     });
 
     it("E3: backfill dual-indexes a completed Agent run under both ids", () => {
@@ -2485,8 +2486,8 @@ describe("command_feedback events", () => {
           },
         },
       ]);
-      const byAgentId = state.subagents.get("A");
-      const bySession = state.subagents.get("S");
+      const byAgentId = subagentsOf(state).get("A");
+      const bySession = subagentsOf(state).get("S");
       expect(byAgentId).toBeDefined();
       expect(bySession).toBe(byAgentId);
       expect(byAgentId!.id).toBe("A");
@@ -2512,8 +2513,8 @@ describe("command_feedback events", () => {
           },
         },
       ]);
-      expect(state.subagents.get("A")).toBeDefined();
-      expect(state.subagents.size).toBe(1);
+      expect(subagentsOf(state).get("A")).toBeDefined();
+      expect(subagentsOf(state).size).toBe(1);
     });
 
     it("E6: an unknown id (neither agentId nor agentSessionId) resolves to undefined", () => {
@@ -2524,7 +2525,7 @@ describe("command_feedback events", () => {
           data: { id: "A", type: "Explore", description: "d", details: { agentSessionId: "S" } },
         },
       ]);
-      expect(state.subagents.get("unknown-id")).toBeUndefined();
+      expect(subagentsOf(state).get("unknown-id")).toBeUndefined();
     });
 
     it("X1: graceful degrade — no agentSessionId anywhere → reducer creates no alias key", () => {
@@ -2540,8 +2541,8 @@ describe("command_feedback events", () => {
           data: { id: "A", result: "ok" },
         },
       ]);
-      expect(state.subagents.get("A")).toBeDefined();
-      expect(state.subagents.size).toBe(1); // no S alias
+      expect(subagentsOf(state).get("A")).toBeDefined();
+      expect(subagentsOf(state).size).toBe(1); // no S alias
     });
   });
 });

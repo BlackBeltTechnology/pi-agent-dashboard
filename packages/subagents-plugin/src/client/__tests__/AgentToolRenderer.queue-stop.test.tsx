@@ -23,6 +23,7 @@ import {
 } from "../subagentStop.js";
 import type { SubagentState } from "../types.js";
 import { AgentToolRenderer, withHostPrimitives } from "./agent-test-harness.js";
+import { subagentSlot, subagentsOf } from "../pluginState.js";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -37,7 +38,7 @@ beforeAll(() => {
 });
 
 const SID = "sess-1";
-const session = { subagents: new Map<string, SubagentState>() };
+const session = { pluginState: subagentSlot(new Map<string, SubagentState>()) };
 
 function card(details: Record<string, unknown>, status: "running" | "complete" = "running") {
   return withHostPrimitives(
@@ -167,7 +168,7 @@ describe("row status (claim rowStatus)", () => {
 
   it("stopped from the row details or from the subagent map", () => {
     expect(agentRowStatus({ status: "stopped", stopReason: "queued" }, undefined)?.state).toBe("stopped");
-    const s = { subagents: new Map([["ag-1", { status: "stopped", stopReason: "running" }]]) };
+    const s = { pluginState: subagentSlot(new Map([["ag-1", { status: "stopped", stopReason: "running" } as SubagentState]])) };
     expect(agentRowStatus({ status: "completed", agentId: "ag-1" }, s)?.state).toBe("stopped");
     expect(agentRowStatus({ status: "running" }, undefined)).toBeUndefined();
     expect(agentRowStatus(undefined, undefined)).toBeUndefined();
@@ -328,7 +329,7 @@ describe("foreground ghost ended by an unknown stop answer (#F3)", () => {
     // Reduce the session's answer through the real finalizer; capture the row end it emits.
     const reduce = vi.fn((s: never) => s);
     const state = {
-      subagents: new Map<string, SubagentState>([["ag-1", { id: "ag-1", type: "Explore", description: "probe", status: "running" }]]),
+      pluginState: subagentSlot(new Map<string, SubagentState>([["ag-1", { id: "ag-1", type: "Explore", description: "probe", status: "running" }]])),
       messages: [{ role: "toolResult", toolName: "Agent", toolStatus: "running", toolCallId: "tc-1", toolDetails: { agentId: "ag-1", ...running } }],
       toolCalls: new Map([["tc-1", { status: "running" }]]),
     };
@@ -337,7 +338,7 @@ describe("foreground ghost ended by an unknown stop answer (#F3)", () => {
       { eventType: "subagent_stop_result", timestamp: 2, data: { agentId: "ag-1", outcome: "ignored", phase: "unknown", answeredAt: 1 } },
       { reduce },
     )!;
-    expect(next.subagents.get("ag-1")).toMatchObject({ status: "failed", healedBy: "untracked" });
+    expect(subagentsOf(next).get("ag-1")).toMatchObject({ status: "failed", healedBy: "untracked" });
     expect(reduce).toHaveBeenCalledTimes(1);
     const end = (reduce.mock.calls[0] as unknown as [unknown, { data: { isError: boolean; healedBy: string; details: Record<string, unknown> } }])[1];
     expect(end.data).toMatchObject({ isError: true, healedBy: "untracked" });

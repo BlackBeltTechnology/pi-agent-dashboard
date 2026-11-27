@@ -375,3 +375,53 @@ describe("paths TTL cache (#P3)", () => {
     expect(stats).toBe(statsAfterFirst);
   });
 });
+
+describe("piExtensionVersions (E37)", () => {
+  const NAME = "@blackbelt-technology/pi-dashboard-subagents";
+  const requires = { piExtensions: [NAME], piExtensionVersions: { [NAME]: ">=0.7.0" } };
+  const depsWith = (rec: { source?: string; name?: string; installedPath?: string }, version: string | undefined) =>
+    ({
+      listInstalled: async () => [{ name: NAME, ...rec }],
+      readInstalledVersion: async () => version,
+    }) satisfies RequirementProbeDeps;
+
+  it("0.6.0 is listed missing as `<name> <range>`", async () => {
+    const report = await runRequirementProbesFor(requires, depsWith({}, "0.6.0"));
+    expect(missingFromReport(report)).toContain(`${NAME} >=0.7.0`);
+  });
+
+  it.each(["0.7.0", "0.8.1"])("%s satisfies the range", async (v) => {
+    const report = await runRequirementProbesFor(requires, depsWith({}, v));
+    expect(missingFromReport(report)).toEqual([]);
+    expect(report.piExtensions.every((e) => e.satisfied)).toBe(true);
+  });
+
+  it("an install with no readable version (git/local) is satisfied with a warning", async () => {
+    const report = await runRequirementProbesFor(requires, depsWith({ source: "git:github.com/x/y" }, undefined));
+    expect(missingFromReport(report)).toEqual([]);
+    expect(report.piExtensions.find((e) => e.name === NAME)?.warning).toMatch(/version/i);
+  });
+
+  it("a non-semver version string is satisfied with a warning", async () => {
+    const report = await runRequirementProbesFor(requires, depsWith({}, "local-build"));
+    expect(missingFromReport(report)).toEqual([]);
+    expect(report.piExtensions.find((e) => e.name === NAME)?.warning).toBeTruthy();
+  });
+
+  it("not installed → plain name missing (no range entry)", async () => {
+    const report = await runRequirementProbesFor(requires, { listInstalled: async () => [], readInstalledVersion: async () => "0.8.1" });
+    expect(missingFromReport(report)).toEqual([NAME]);
+  });
+
+  it("default reader reads <installedPath>/package.json", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "pi-ext-"));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: NAME, version: "0.6.0" }));
+    const report = await runRequirementProbesFor(requires, {
+      listInstalled: async () => [{ name: NAME, installedPath: dir }],
+    });
+    expect(missingFromReport(report)).toEqual([`${NAME} >=0.7.0`]);
+  });
+});

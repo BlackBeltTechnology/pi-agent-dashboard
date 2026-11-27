@@ -1,0 +1,9 @@
+{
+  "entries": [
+    {
+      "file": "packages/shared/src/custom-event-groups.ts",
+      "pattern": "\\^subagents:",
+      "reason": "Shipped custom-event-groups registry: matches subagent entries in the cross-plugin Settings → event-group list by pattern string; core imports no subagent module."
+    }
+  ]
+}

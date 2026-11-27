@@ -6,10 +6,11 @@
  * See change: finalize-agent-card-on-subagent-stop (D6); decouple-plugins-from-core (task 4.5).
  */
 import { describe, expect, it } from "vitest";
+import { subagentSlot } from "../pluginState.js";
 import { isAgentResultNotReceived } from "../resultPending.js";
 
 const session = (result?: string) => ({
-  subagents: new Map([["ag", { id: "ag", type: "t", description: "d", status: "completed", ...(result ? { result } : {}) }]]),
+  pluginState: subagentSlot(new Map([["ag", { id: "ag", type: "t", description: "d", status: "completed", ...(result ? { result } : {}) }]])),
 });
 
 describe("isAgentResultNotReceived (F9)", () => {

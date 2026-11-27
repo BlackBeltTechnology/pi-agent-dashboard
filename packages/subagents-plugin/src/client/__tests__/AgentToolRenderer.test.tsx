@@ -9,6 +9,7 @@ import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SubagentState } from "../types.js";
 import { AgentToolRenderer, type ToolContext, withHostPrimitives } from "./agent-test-harness.js";
+import { subagentSlot } from "../pluginState.js";
 
 // The renderer and SubagentDetailView read the host primitives through
 // useUiPrimitive; every render is wrapped in a provider carrying them.
@@ -16,8 +17,8 @@ function wrapInProviders(ui: React.ReactElement) {
   return withHostPrimitives(ui);
 }
 
-type SessionState = { subagents: Map<string, SubagentState> };
-const createInitialState = (): SessionState => ({ subagents: new Map() });
+type SessionState = { pluginState: Map<string, unknown> };
+const createInitialState = (): SessionState => ({ pluginState: subagentSlot(new Map()) });
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -41,13 +42,13 @@ function makeContext(
 
 function sessionWithAgent(agentId: string, sub: Partial<SubagentState> = {}): SessionState {
   const s = createInitialState();
-  s.subagents = new Map([[agentId, {
+  s.pluginState = subagentSlot(new Map([[agentId, {
     id: agentId,
     type: "Explore",
     description: "",
     status: "running",
     ...sub,
-  } as SubagentState]]);
+  } as SubagentState]]));
   return s;
 }
 
@@ -327,7 +328,7 @@ describe("AgentToolRenderer — background started card (D2)", () => {
 
   it("the card markup never changes while the background run progresses or ends (#F5)", () => {
     const sub = (status: SubagentState["status"]) =>
-      ({ subagents: new Map([["sub-1", { id: "sub-1", type: "docs-writer", description: "write the docs", status, background: true } as SubagentState]]) });
+      ({ pluginState: subagentSlot(new Map([["sub-1", { id: "sub-1", type: "docs-writer", description: "write the docs", status, background: true } as SubagentState]])) });
     const { container, rerender } = renderBg("complete", "running", sub("running"));
     const first = container.innerHTML;
     for (const status of ["completed", "failed", "stopped"] as const) {

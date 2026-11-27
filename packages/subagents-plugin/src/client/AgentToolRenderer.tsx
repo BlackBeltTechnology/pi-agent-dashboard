@@ -24,7 +24,7 @@ import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashbo
 import {
   readLiveTail,
   type SubagentLiveTail,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+} from "../subagent-types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
   mdiArrowDown,
@@ -38,7 +38,8 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { subagentsOf } from "./pluginState.js";
 import { type SessionStateLike, SubagentDetailView } from "./SubagentDetailView.js";
 import {
   noteSubagentRunning,
@@ -331,7 +332,12 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
   const promptText = args?.prompt ? String(args.prompt) : undefined;
 
   const sessionId = context?.sessionId;
-  const session = context?.session as SessionStateLike | undefined;
+  const pluginState = (context?.session as { pluginState?: Map<string, unknown> } | undefined)?.pluginState;
+  // The tool context carries the shell's generic `pluginState`; narrow it to this plugin's slot.
+  const session = useMemo<SessionStateLike | undefined>(
+    () => (pluginState ? { subagents: subagentsOf({ pluginState }) } : undefined),
+    [pluginState],
+  );
   const agentId = details?.agentId;
   // Popout affordance is enabled only when both the agent id and the session
   // state are available (SubagentDetailView needs both). Disabled otherwise
