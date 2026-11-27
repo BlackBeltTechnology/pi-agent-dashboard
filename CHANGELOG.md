@@ -12,6 +12,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Saving an automation keeps it disabled.** The editor now carries keys it does not show (`disabled`, `maxConcurrentSpawns`) through Save instead of silently re-arming a disabled automation.
 - **CSP violation reports now reach the dashboard on plain-http installs.** Chromium and Firefox dropped every report while the policy carried `report-to` + `Reporting-Endpoints`, so the `/api/health` `cspReports` counters stayed at zero. Dashboard and live-preview policies now use `report-uri` only.
 
 ### Added
@@ -33,6 +34,9 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (automation plugin client):** `CreateAutomationDialog` is no longer exported from the automation plugin client barrel; the editor is the inline `AutomationEditor`. No in-repo consumer.
+- **Automations are edited inline on the board.** Edit, the name or the trigger summary expand that card into the editor (Edit becomes "Close editor"); + Create Automation adds a draft card at the top of the list; the folder menu "New automation" item opens the board with the draft open. One editor at a time: switching or closing with unsaved changes shows Discard / Save & switch (Save & close). A sticky save bar shows the write path, the unsaved count and Cancel / Save (or Create with the next run). On phones, planned trigger kinds fold into one "+N coming soon" chip.
+- **Text fields render with a visible border.** The dashboard now defines the `.input` class (theme tokens) used by the automation editor and the flows input wiring.
 - **Keeper logging off means off.** The Settings > Developer toggle "Capture pi session output (debug)" (`keeperLog.capturePiOutput`) now gates all keeper log output. Off (the default): a new headless session writes no `keeper-<id>.log` and no `keeper-launch-<id>.log`. On: unchanged (lifecycle lines + pi output with in-place rotation, startup stderr in the launch log). An inherited `PI_KEEPER_CAPTURE_PI_OUTPUT` in the server's environment can no longer turn logging on behind the toggle. The `PI_CRASHED` message now says to enable the toggle (off) or names both log files (on). Also fixes a leaked file descriptor per headless session start. Existing empty launch logs are not deleted automatically; to clean them up once:
   - POSIX: `find ~/.pi/dashboard/sessions -name 'keeper-launch-*.log' -size 0 -mmin +60 -delete`
   - PowerShell: `Get-ChildItem $HOME\.pi\dashboard\sessions\keeper-launch-*.log | Where-Object { $_.Length -eq 0 -and $_.LastWriteTime -lt (Get-Date).AddHours(-1) } | Remove-Item`

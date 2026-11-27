@@ -1011,34 +1011,80 @@ test.describe("automation overlay scroll", () => {
     expect(cell.left).toBeGreaterThanOrEqual(wrapBox.left - 1);
   });
 
-  // F3 — the Create Automation dialog's Save stays reachable at both sizes.
+  // F3 — the inline draft's Create stays reachable at both sizes
+  // (was the modal dialog; change: inline-automation-editor).
   for (const size of [
     { width: 375, height: 667 },
     { width: 1440, height: 900 },
   ]) {
-    test(`F3: create dialog Save is reachable at ${size.width}×${size.height}`, async ({ page }) => {
+    test(`F3: draft Create is reachable at ${size.width}×${size.height}`, async ({ page }) => {
       await page.setViewportSize(size);
       const board = await openBoard(page);
       await board.getByTestId("automation-create-btn").click();
-      const dialog = page.getByTestId("create-automation-dialog");
-      await expect(dialog).toBeVisible();
-      await dialog.getByTestId("create-advanced-toggle").click();
-      await expect(dialog.getByTestId("create-advanced")).toBeVisible();
-      await dialog.evaluate(async (el) => {
-        const panel = Array.from(el.querySelectorAll<HTMLElement>("*")).find((n) => {
-          const o = getComputedStyle(n).overflowY;
-          return o === "auto" || o === "scroll";
-        });
-        if (panel) panel.scrollTop = panel.scrollHeight;
+      const draft = board.getByTestId("automation-draft");
+      await expect(draft).toBeVisible();
+      await expect(page.getByTestId("create-automation-dialog")).toHaveCount(0);
+      await expect(draft.getByTestId("editor-loading")).toHaveCount(0);
+      await draft.getByTestId("create-advanced-toggle").click();
+      await expect(draft.getByTestId("create-advanced")).toBeVisible();
+      await draft.getByTestId("create-advanced").evaluate(async (el) => {
+        el.scrollIntoView({ block: "end" });
         await new Promise((r) => requestAnimationFrame(() => r(null)));
       });
-      expectInside(await boxOf(dialog.getByTestId("create-submit")), VIEWPORT_BOX(page), `Save @${size.width}`);
-      const hit = await dialog.getByTestId("create-submit").evaluate((el) => {
+      const submit = draft.getByTestId("create-submit");
+      expectInside(await boxOf(submit), VIEWPORT_BOX(page), `Create @${size.width}`);
+      const hit = await submit.evaluate((el) => {
         const r = el.getBoundingClientRect();
         const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
         return !!at && (at === el || el.contains(at));
       });
-      expect(hit, `Save @${size.width} is occluded`).toBe(true);
+      expect(hit, `Create @${size.width} is occluded`).toBe(true);
     });
   }
+
+  // test-plan #F11 (inline-automation-editor) — a tall editor on the last card:
+  // the sticky save bar stays on screen, Back stays visible, and the board is
+  // still the ONLY vertical scroller (auto-growing prompt, no nested scroller).
+  test("F11: save bar stays reachable with a long prompt; one scroller", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const board = await openBoard(page);
+    const panel = page.getByTestId("plugin-overlay");
+    const last = SBS_NAMES[11]!;
+    await expect(board.getByTestId(`automation-def-${last}`)).toBeVisible({ timeout: 25_000 });
+    await board.getByTestId(`edit-${last}`).click();
+    const editor = board.getByTestId(`automation-editor-folder:${last}`);
+    await expect(editor).toBeVisible();
+    await expect(editor.getByTestId("editor-loading")).toHaveCount(0);
+    await editor.getByTestId("create-action-core.prompt").click();
+    await editor
+      .getByTestId("create-prompt")
+      .fill(Array.from({ length: 60 }, (_, i) => `- prompt line ${i + 1}`).join("\n"));
+
+    const saveBar = editor.getByTestId("editor-save-bar");
+    const back = board.getByTestId("automation-board-back");
+    const panelBox = await boxOf(panel);
+    // Bottom: the save bar sits at its natural end of the card.
+    await scrollToEnd(board);
+    expectInside(await boxOf(saveBar), panelBox, "save bar (board at end)");
+    await expect(back).toBeVisible();
+    // Editor top at the board top: the card overflows the viewport, the bar sticks.
+    await page.getByTestId(`automation-def-${last}`).evaluate(async (el) => {
+      el.scrollIntoView({ block: "start" });
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+    });
+    const card = await boxOf(page.getByTestId(`automation-def-${last}`));
+    expect(card.bottom, "editing card is not taller than the panel").toBeGreaterThan(panelBox.bottom);
+    expectInside(await boxOf(saveBar), panelBox, "save bar (sticky)");
+    await expect(back).toBeVisible();
+
+    const scrollers = await panel.evaluate((el) =>
+      Array.from(el.querySelectorAll<HTMLElement>("*"))
+        .filter((n) => {
+          const o = getComputedStyle(n).overflowY;
+          return (o === "auto" || o === "scroll") && n.scrollHeight > n.clientHeight + 4;
+        })
+        .map((n) => n.getAttribute("data-testid") ?? n.tagName),
+    );
+    expect(scrollers).toEqual(["automation-board"]);
+  });
 });

@@ -335,6 +335,36 @@
   border-radius: inherit;
 }
 
+/* Host text-control class. Plugins already style `input` / `select` /
+   `textarea` with `className="input"` (automation editor, flows input
+   wiring); the host never defined it, so they rendered borderless. Tokens
+   only; `:where()` keeps specificity 0 so an app's own `.input` and any
+   utility (`w-full`, `font-mono`, …) win. See change: inline-automation-editor. */
+@layer components {
+  :where(.input) {
+    border: 1px solid var(--border-secondary);
+    border-radius: 0.25rem;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+  :where(.input):focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
+  }
+  :where(.input)[aria-invalid="true"] {
+    border-color: var(--severity-error-border);
+  }
+  :where(.input):disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
 /* ── Clickable-cursor restore (Tailwind v4) ──────────────────────
    Tailwind v4 Preflight dropped the v3 default of `cursor: pointer` on
    <button>, so native buttons render the arrow cursor on hover. Restore

@@ -308,7 +308,7 @@ Author rules:
 
 - Do NOT export lazy component from plugin main client entry.
 - Do NOT import `module` from eager code.
-- Secondary heavy children: `lazy()` inside plugin. Example: automation `FolderAutomationSection` lazy-loads `CreateAutomationDialog`.
+- Secondary heavy children: `lazy()` inside plugin. Example: flows `FlowEditMenu.tsx` lazy-loads `FlowEditPopover`.
 
 Compatibility:
 

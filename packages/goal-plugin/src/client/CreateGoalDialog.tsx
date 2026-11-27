@@ -3,13 +3,11 @@
  *
  * Both goal create surfaces (`FolderGoalsSection · + Goal`,
  * `GoalsBoardClaim · + New Goal`) open this one dialog instead of rendering
- * the form inline, for parity with the automation plugin's
- * `CreateAutomationDialog`. The overlay + card classes are copied verbatim
- * from that dialog so the two plugins present an identical create surface.
+ * the form inline. It keeps its own overlay + card classes (fixed inset-0
+ * backdrop, `max-w-lg` card).
  *
- * The dialog owns the `createGoal(cwd, payload)` POST (mirrors
- * `CreateAutomationDialog` calling `createAutomation` itself); the caller
- * supplies `onCreated` for post-create side-effects (refetch / navigate).
+ * The dialog owns the `createGoal(cwd, payload)` POST; the caller supplies
+ * `onCreated` for post-create side-effects (refetch / navigate).
  * `GoalForm` is reused unchanged — same fields, same payload, same testids.
  *
  * See change: redesign-goal-create-dialog (tasks 1.1–1.3). Mockup screen A.

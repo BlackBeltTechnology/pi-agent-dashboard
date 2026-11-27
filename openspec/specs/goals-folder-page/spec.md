@@ -2,7 +2,9 @@
 
 ## Purpose
 Folder-scoped goals. Dashboard owns durable `GoalRecord` (objective, criteria, status, linked sessions) per cwd; the @ricoyudog/pi-goal-hermes extension owns live loop state, associated by `goalId`. Surfaces a `Goals (N) →` folder nav slot, a goals board, and a goal detail page that links 1:N sessions and opens their chat views (including hidden driver/worker sessions).
+
 ## Requirements
+
 ### Requirement: Folder-scoped goal record store
 
 The system SHALL persist goals as cwd-keyed `GoalRecord` entries durable across restarts, mirroring the OpenSpec group store (atomic write, per-folder).
@@ -107,9 +109,8 @@ The goal create affordance SHALL open a single shared modal dialog containing th
 `GoalForm`, rather than rendering the form inline. The dialog SHALL be opened from both
 the folder actions menu's `CREATE`-group goal-create item (registered by
 `FolderGoalsSection`) and the board `+ New Goal` affordance (`GoalsBoardClaim`) — one
-shared component. The dialog overlay SHALL mirror the
-plugin create-dialog pattern (`fixed inset-0 z-50 … bg-black/40`, centered `max-w-lg`
-card) established by the automation plugin's `CreateAutomationDialog`. The `GoalForm`
+shared component. The dialog overlay SHALL use a centered modal pattern
+(`fixed inset-0 z-50 … bg-black/40`, centered `max-w-lg` card). The `GoalForm`
 fields and the `createGoal` payload SHALL be unchanged from
 `sophisticate-goal-authoring-and-control`.
 
@@ -135,4 +136,3 @@ fields and the `createGoal` payload SHALL be unchanged from
 
 - **WHEN** the user clicks the backdrop or the dialog's close control
 - **THEN** the dialog SHALL close without creating a goal
-

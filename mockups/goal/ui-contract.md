@@ -7,7 +7,7 @@ not listed, add the token to the theme layer first, then cite it here.
 
 Tokens are owned by the dashboard theme layer (the real client's `:root` / `[data-theme]`); the
 mockup mirrors them in its `<style>` `:root` block. This file references them by name; it does not
-redefine them. Grounded against shipped `GoalForm.tsx` + `CreateAutomationDialog.tsx`.
+redefine them. Grounded against shipped `GoalForm.tsx` + `CreateGoalDialog.tsx`.
 
 ## Tokens (authority)
 
@@ -76,7 +76,7 @@ One row per recurring surface. Token recipe only — every instance must match.
 |-----------------|--------------------------------------------------------------------------------------|
 | dialog overlay  | `fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4`; backdrop-click closes |
 | dialog card     | bg `--bg-primary`, radius 12, `max-w-lg max-h-[90vh] overflow-auto`, padding 16        |
-| dialog header   | bare title `New <noun> · <folder>` (`text-base font-semibold`) + ✕ `aria-label`; no breadcrumb (parity with `CreateAutomationDialog`) |
+| dialog header   | bare title `New <noun> · <folder>` (`text-base font-semibold`) + ✕ `aria-label`; no breadcrumb |
 | field label     | `text-[10px] uppercase font-semibold` `--text-tertiary`                               |
 | text input      | bg `--bg-secondary`, border `--border-subtle`, text `--text-secondary`, focus `indigo-400` |
 | primary button  | text `--indigo`, border `--indigo-strong`, bg `--indigo-bg`; disabled `opacity-50`     |
