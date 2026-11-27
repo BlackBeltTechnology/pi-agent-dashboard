@@ -9,6 +9,7 @@ import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SubagentState } from "../types.js";
 import { AgentToolRenderer, type ToolContext, withHostPrimitives } from "./agent-test-harness.js";
+import { subagentSlot } from "../pluginState.js";
 
 // The renderer and SubagentDetailView read the host primitives through
 // useUiPrimitive; every render is wrapped in a provider carrying them.
@@ -16,8 +17,8 @@ function wrapInProviders(ui: React.ReactElement) {
   return withHostPrimitives(ui);
 }
 
-type SessionState = { subagents: Map<string, SubagentState> };
-const createInitialState = (): SessionState => ({ subagents: new Map() });
+type SessionState = { pluginState: Map<string, unknown> };
+const createInitialState = (): SessionState => ({ pluginState: subagentSlot(new Map()) });
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -41,13 +42,13 @@ function makeContext(
 
 function sessionWithAgent(agentId: string, sub: Partial<SubagentState> = {}): SessionState {
   const s = createInitialState();
-  s.subagents = new Map([[agentId, {
+  s.pluginState = subagentSlot(new Map([[agentId, {
     id: agentId,
     type: "Explore",
     description: "",
     status: "running",
     ...sub,
-  } as SubagentState]]);
+  } as SubagentState]]));
   return s;
 }
 
@@ -102,31 +103,6 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(screen.getByText(/No detail available yet/i)).toBeTruthy();
   });
 
-  it("inline expand requests a resync for a running subagent with an empty timeline", () => {
-    const send = vi.fn();
-    // agentId present on the card, but NOT in the subagents map — mirrors a
-    // running subagent viewed after refresh/late-subscribe (map un-hydrated).
-    render(wrapInProviders(
-      <AgentToolRenderer
-        toolName="Agent"
-        args={{ subagent_type: "Explore", prompt: "do work" }}
-        status="running"
-        context={makeContext(createInitialState(), "sess_42", send)}
-        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
-      />
-    ));
-    fireEvent.click(screen.getByTitle(/Expand to inspect/i));
-    // `requestId` is the requester-scoping correlation token (a fresh uuid per
-    // request). See change: reduce-subagent-details-payload (C5).
-    expect(send).toHaveBeenCalledWith({
-      type: "subagent_resync_request",
-      sessionId: "sess_42",
-      agentId: "abc123",
-      requestId: expect.any(String),
-      reason: "open",
-    });
-  });
-
   it("inline expand does NOT resync when the timeline already has entries", () => {
     const send = vi.fn();
     const session = sessionWithAgent("abc123", {
@@ -166,14 +142,7 @@ describe("AgentToolRenderer — expand + popout", () => {
     ));
     fireEvent.click(screen.getByTitle(/Open subagent detail/i));
     expect(await screen.findByRole("dialog")).toBeTruthy();
-    // Assert the OPEN-path guard this test documents, not "no resync at all":
-    // the cadence hook fires its own `reason: "cadence"` resync 2 s after the
-    // view opens, so a slow `findByRole` under load made a broader assertion
-    // fail on a legitimate cadence tick. See change:
-    // contention-harden-real-process-tests.
-    expect(send).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "subagent_resync_request", reason: "open" }),
-    );
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "subagent_resync_request" }));
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
@@ -359,7 +328,7 @@ describe("AgentToolRenderer — background started card (D2)", () => {
 
   it("the card markup never changes while the background run progresses or ends (#F5)", () => {
     const sub = (status: SubagentState["status"]) =>
-      ({ subagents: new Map([["sub-1", { id: "sub-1", type: "docs-writer", description: "write the docs", status, background: true } as SubagentState]]) });
+      ({ pluginState: subagentSlot(new Map([["sub-1", { id: "sub-1", type: "docs-writer", description: "write the docs", status, background: true } as SubagentState]])) });
     const { container, rerender } = renderBg("complete", "running", sub("running"));
     const first = container.innerHTML;
     for (const status of ["completed", "failed", "stopped"] as const) {

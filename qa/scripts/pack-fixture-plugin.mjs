@@ -27,7 +27,7 @@ function manifestFor(id, displayName) {
     "pi-dashboard-plugin": {
       id,
       displayName,
-      hostApi: "^1.0.0",
+      hostApi: "^2.0.0",
       server: "./server.js",
       bridge: "./bridge.js",
       claims: [{ slot: "settings-section", component: "Settings" }],

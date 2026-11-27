@@ -1,0 +1,3 @@
+# runtime-publication.ts — index
+
+Startup publication of the diagnostic `runtime.resolved` block into RAW `~/.pi/dashboard/config.json` (never the typed loader — unknown keys + user-owned `runtime.override` survive byte-identical). Exports `publishResolvedRuntime(rt, {configPath, resourcesPath, warn})` → `{block, written}` (atomic tmp+rename via `writeJsonFile`; corrupt/non-object-`runtime` config → warn + bail, file untouched), `readPublishedRuntimeBlock(configPath)`. Nothing consumes the block for execution — the ladder re-resolves live each start. Wired at the end of `runForeground`. See change: unify-pi-runtime-identity (task 4.1, design D8).

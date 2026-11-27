@@ -1,0 +1,3 @@
+# __tests__/eventbus-rpc-probe-not-forwarded.test.ts — index
+
+Pins that RPC probe channels (`flow:list-flows`, `roles:*`, `model:resolve`, `ui:list-modules`…) never reach `sendEventForward`. Static `forwardedBusChannels()` check + two-facade round trip (sync + async probe) + source guards over `bridge.ts` / `bridge-handlers/*.ts`: `EVENT_BUS_MAP` pinned, `registerEventBusForwarding` 2 args, no `emit` rebinding. Each guard runs on real source + mutant. See change: skip-rpc-probes-in-event-forwarder. `flow:register-agent-extension` in the probe set (function payload). Compat probe + #E19 removed. See change: retire-anthropic-messages-bridge, seed-claude-compat-on-upgrade.

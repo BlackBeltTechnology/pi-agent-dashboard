@@ -37,7 +37,6 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   session_unview: "observe",
   session_view: "observe",
   sessions_page: "observe",
-  subagent_resync_request: "observe",
   subscribe: "observe",
   unsubscribe: "observe",
   watch_files: "observe",

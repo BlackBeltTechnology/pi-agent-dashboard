@@ -20,7 +20,6 @@ const OPS: Array<Record<string, unknown>> = [
   { type: "open_inline_terminal", cwd: "/" },
   { type: "list_files", query: "q" },
   { type: "kill_process", pgid: 1 },
-  { type: "subagent_resync_request", agentId: "a" },
 ];
 
 function ctxFor(driver: "acp" | undefined) {
@@ -29,7 +28,7 @@ function ctxFor(driver: "acp" | undefined) {
   return { feedback, ctx };
 }
 
-const SILENT = new Set(["request_roles", "subagent_resync_request"]);
+const SILENT = new Set(["request_roles"]);
 
 describe("guardAcpBrowserMessage", () => {
   for (const op of OPS) {

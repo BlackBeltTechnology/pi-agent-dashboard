@@ -9,12 +9,12 @@
  * is only forwarded if someone maps its channel. This suite pins that:
  *  - behaviour: probes round-trip through the bus and are never sent;
  *  - source guards: nobody re-wraps `emit`, adds an `extraMaps` argument, or
- *    widens `EVENT_BUS_MAP` in `bridge.ts`. Each guard is a pure function run
+ *    reintroduces a core `EVENT_BUS_MAP` in `bridge.ts` (core maps no channel). Each guard is a pure function run
  *    against the real source AND an inline mutant, so it cannot pass vacuously.
  *
- * @structural-pin bridge.ts cannot be instantiated in a test, so the source guards pin its text: EVENT_BUS_MAP shape, the registerEventBusForwarding call arity and the absence of an emit rebinding.
+ * @structural-pin bridge.ts cannot be instantiated in a test, so the source guards pin its text: absence of a core EVENT_BUS_MAP, the registerEventBusForwarding call arity and the absence of an emit rebinding.
  *
- * See change: skip-rpc-probes-in-event-forwarder.
+ * See change: skip-rpc-probes-in-event-forwarder, move-subagents-to-plugin.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -50,13 +50,10 @@ function stripComments(src: string): string {
   );
 }
 
-/** `EVENT_BUS_MAP` in `bridge.ts` must be exactly `{ ...SUBAGENT_EVENT_MAP }` (flow channels are plugin-declared). */
-function assertEventBusMapPinned(src: string): void {
-  const m = /const EVENT_BUS_MAP\s*:\s*Record<string,\s*string>\s*=\s*\{([^}]*)\}/.exec(stripComments(src));
-  if (!m) throw new Error("EVENT_BUS_MAP literal not found in bridge.ts");
-  const body = m[1].replace(/\s+/g, " ").replace(/,\s*$/, "").trim();
-  if (body !== "...SUBAGENT_EVENT_MAP") {
-    throw new Error(`EVENT_BUS_MAP must be exactly { ...SUBAGENT_EVENT_MAP }, found { ${body} }`);
+/** `bridge.ts` must declare no core `EVENT_BUS_MAP`: plugin channels are plugin-declared, core maps none. */
+function assertNoCoreEventBusMap(src: string): void {
+  if (/\bEVENT_BUS_MAP\b\s*[:=]/.test(stripComments(src))) {
+    throw new Error("bridge.ts must not declare a core EVENT_BUS_MAP");
   }
 }
 
@@ -134,7 +131,10 @@ describe("RPC probes are not forwarded (static set)", () => {
     // flow:* channels are declared by the flows plugin bridge, never core.
     // See change: update-flows-plugin.
     expect(channels).not.toContain("flow:complete");
-    expect(channels).toContain("subagents:completed");
+    // subagent channels are declared by the subagents plugin bridge, never core.
+    // See change: move-subagents-to-plugin.
+    expect(channels).not.toContain("subagents:completed");
+    expect(channels).toEqual([]);
   });
 });
 
@@ -155,7 +155,7 @@ describe("RPC probes are not forwarded (two-facade bus)", () => {
     host.foreignEvents.emit("subagents:completed", { agentId: "a" });
 
     expect(probe.flows).toEqual([{ name: "x" }]);
-    expect(sent.map((s) => s.channel)).toEqual(["subagents:completed"]);
+    expect(sent).toEqual([]);
   });
 
   it("E3: a probe emitted by a foreign facade is answered but not forwarded", () => {
@@ -193,7 +193,7 @@ describe("RPC probes are not forwarded (two-facade bus)", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("E5: core forwards no flow:* channel; only the subagent map", () => {
+  it("E5: core forwards no flow:* or subagents:* channel", () => {
     const host = makeHost();
     const { deps, sent } = makeDeps();
     registerEventBusForwarding(host.bridgeEvents, deps);
@@ -202,7 +202,7 @@ describe("RPC probes are not forwarded (two-facade bus)", () => {
     host.foreignEvents.emit("flow:agent-error", { agentName: "a" });
     host.foreignEvents.emit("subagents:failed", { agentId: "a" });
 
-    expect(sent.map((s) => s.channel)).toEqual(["subagents:failed"]);
+    expect(sent).toEqual([]);
   });
 
   it("E48: the model-list probe is models:get-available; the old flow: name is unanswered", () => {
@@ -261,16 +261,12 @@ describe("source guards over bridge code", () => {
     "bridge-handlers/instance.ts",
   ];
 
-  it("E6: EVENT_BUS_MAP is exactly the subagent map", () => {
+  it("E6: bridge.ts declares no core EVENT_BUS_MAP", () => {
     const src = readBridgeSource("bridge.ts");
-    expect(() => assertEventBusMapPinned(src)).not.toThrow();
+    expect(() => assertNoCoreEventBusMap(src)).not.toThrow();
 
-    const mutant = src.replace(
-      /(const EVENT_BUS_MAP\s*:\s*Record<string,\s*string>\s*=\s*\{)/,
-      '$1 "roles:get-all": "x",',
-    );
-    expect(mutant).not.toBe(src);
-    expect(() => assertEventBusMapPinned(mutant)).toThrow(/EVENT_BUS_MAP/);
+    const mutant = `${src}\nconst EVENT_BUS_MAP: Record<string, string> = { "roles:get-all": "x" };`;
+    expect(() => assertNoCoreEventBusMap(mutant)).toThrow(/EVENT_BUS_MAP/);
   });
 
   it("E7: registerEventBusForwarding is called once with two arguments (no extraMaps)", () => {

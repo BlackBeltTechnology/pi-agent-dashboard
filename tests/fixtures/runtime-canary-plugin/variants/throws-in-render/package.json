@@ -11,7 +11,7 @@
     "id": "runtime-canary-throws-in-render",
     "displayName": "Runtime Canary variant: throws-in-render (fixture)",
     "fixture": true,
-    "hostApi": "^1.0.0",
+    "hostApi": "^2.0.0",
     "clientBundle": "./dist/client/index.js",
     "claims": [
       {

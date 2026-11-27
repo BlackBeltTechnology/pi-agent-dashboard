@@ -9,6 +9,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import { isValidEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import { isValidHostApiRange } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
+import { isValidVersionRange } from "./version-range-syntax.js";
 import { normalizeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
 import {
   FILE_HANDLER_COPY_SUFFIX_RE,
@@ -671,6 +672,29 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
         normalised.push(v);
       }
       out[field] = normalised;
+    }
+    const versions = r.piExtensionVersions;
+    if (versions !== undefined) {
+      if (!versions || typeof versions !== "object" || Array.isArray(versions)) {
+        throw new ManifestValidationError(
+          pluginId,
+          "manifest.requires.piExtensionVersions must be an object of name → semver range if provided",
+        );
+      }
+      const map: Record<string, string> = {};
+      for (const [name, range] of Object.entries(versions as Record<string, unknown>)) {
+        if (name.trim() === "") {
+          throw new ManifestValidationError(pluginId, "manifest.requires.piExtensionVersions has an empty name");
+        }
+        if (!isValidVersionRange(range)) {
+          throw new ManifestValidationError(
+            pluginId,
+            `manifest.requires.piExtensionVersions["${name}"] must be a valid semver range`,
+          );
+        }
+        map[name] = range;
+      }
+      out.piExtensionVersions = map;
     }
     if (Object.keys(out).length > 0) requires = out;
   }

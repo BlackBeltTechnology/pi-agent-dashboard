@@ -14,7 +14,7 @@ import { __resetSessionReducersForTests } from "@blackbelt-technology/dashboard-
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { PLUGIN_REGISTRY } from "../../generated/plugin-registry.js";
-import { disableSubagentsPlugin, registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
+import { disableSubagentsPlugin, registerSubagentsReducerSlice, subagentsOf } from "../../test-support/subagents-reducer-slice.js";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
 import { setEventTypeOwners } from "../plugins/event-type-owners.js";
 
@@ -37,7 +37,7 @@ const started = (details: Record<string, unknown> = {}) =>
 describe("subagent entry stream", () => {
   it("places steps by index, ignores duplicates, emits no raw rows (E9)", () => {
     const s = apply([started(), entry(0), entry(2), entry(1), entry(1)]);
-    const entries = s.subagents.get("a")!.entries!;
+    const entries = subagentsOf(s).get("a")!.entries!;
     expect(entries).toHaveLength(3);
     expect(entries.map((e) => (e as { input: { i: number } }).input.i)).toEqual([0, 1, 2]);
     expect(s.messages.some((m) => JSON.stringify(m).includes("subagent_entry"))).toBe(false);
@@ -48,24 +48,24 @@ describe("subagent entry stream", () => {
     const ten = Array.from({ length: 10 }, (_, i) => entry(i));
     let s = apply([started(), ...ten]);
     s = apply([ev("subagent_completed", { id: "a", result: "ok", details: { agentId: "a", entries: [], entryCount: 10 } })], s);
-    expect(s.subagents.get("a")!.entries).toHaveLength(10);
+    expect(subagentsOf(s).get("a")!.entries).toHaveLength(10);
     let t = apply([started(), ...ten]);
     t = apply([started({ entries: [step(0), step(1), step(2)] })], t);
-    expect(t.subagents.get("a")!.entries).toHaveLength(10);
+    expect(subagentsOf(t).get("a")!.entries).toHaveLength(10);
     const legacy = Array.from({ length: 12 }, (_, i) => step(i));
     t = apply([ev("subagent_completed", { id: "a", result: "ok", details: { agentId: "a", entries: legacy } })], t);
-    expect(t.subagents.get("a")!.entries).toHaveLength(12);
+    expect(subagentsOf(t).get("a")!.entries).toHaveLength(12);
   });
 });
 
 describe("subagent delta stream", () => {
   it("assembles contiguous pieces, ignores covered duplicates, marks gaps (E11)", () => {
     let s = apply([started(), delta(0, 0, "Let me "), delta(0, 7, "check"), delta(0, 3, "me")]);
-    expect(s.subagents.get("a")!.liveBlock).toMatchObject({ blockId: 0, text: "Let me check", end: 12, gap: false });
+    expect(subagentsOf(s).get("a")!.liveBlock).toMatchObject({ blockId: 0, text: "Let me check", end: 12, gap: false });
     s = apply([delta(0, 10, "ck it")], s); // partial overlap → only the uncovered tail
-    expect(s.subagents.get("a")!.liveBlock!.text).toBe("Let me check it");
+    expect(subagentsOf(s).get("a")!.liveBlock!.text).toBe("Let me check it");
     s = apply([delta(0, 30, "x")], s);
-    const lb = s.subagents.get("a")!.liveBlock!;
+    const lb = subagentsOf(s).get("a")!.liveBlock!;
     expect(lb.gap).toBe(true);
     expect(lb.text).toMatch(/^Let me check it .+x$/);
     expect(lb.end).toBe(31);
@@ -73,23 +73,23 @@ describe("subagent delta stream", () => {
 
   it("ignores a late piece of a closed block and pieces after terminal (E12)", () => {
     let s = apply([started(), delta(4, 0, "abc"), entry(0, 4), delta(4, 3, "def")]);
-    expect(s.subagents.get("a")!.liveBlock).toBeUndefined();
+    expect(subagentsOf(s).get("a")!.liveBlock).toBeUndefined();
     s = apply([ev("subagent_completed", { id: "a", result: "ok", details: { agentId: "a" } }), delta(5, 0, "late")], s);
-    expect(s.subagents.get("a")!.liveBlock).toBeUndefined();
+    expect(subagentsOf(s).get("a")!.liveBlock).toBeUndefined();
   });
 
   it("an entry before its final piece shows the entry and no block (E13)", () => {
     const s = apply([started(), delta(2, 0, "thinking…"), entry(0, 2), delta(2, 9, " more")]);
-    const sub = s.subagents.get("a")!;
+    const sub = subagentsOf(s).get("a")!;
     expect(sub.entries).toHaveLength(1);
     expect(sub.liveBlock).toBeUndefined();
   });
 
   it("a new blockId replaces the previous block; an omitted piece leaves a gap", () => {
     let s = apply([started(), delta(0, 0, "one"), delta(1, 0, "two")]);
-    expect(s.subagents.get("a")!.liveBlock).toMatchObject({ blockId: 1, text: "two" });
+    expect(subagentsOf(s).get("a")!.liveBlock).toMatchObject({ blockId: 1, text: "two" });
     s = apply([ev("subagent_delta", { agentId: "a", blockId: 1, kind: "thinking", offset: 3, text: "", omittedLength: 500, final: false }), delta(1, 503, "tail")], s);
-    expect(s.subagents.get("a")!.liveBlock).toMatchObject({ gap: true, end: 507 });
+    expect(subagentsOf(s).get("a")!.liveBlock).toMatchObject({ gap: true, end: 507 });
   });
 });
 
@@ -99,7 +99,7 @@ describe("legacy producer without step events (X4)", () => {
       started({ entries: [step(0)], liveTail: { kind: "thinking", text: "tail" } }),
       ev("subagent_started", { id: "a", details: { agentId: "a", entries: [step(0), step(1)] } }),
     ]);
-    const sub = s.subagents.get("a")!;
+    const sub = subagentsOf(s).get("a")!;
     expect(sub.entries).toHaveLength(2);
     expect(sub.liveTail).toEqual({ kind: "thinking", text: "tail" });
     expect(sub.liveBlock).toBeUndefined();
@@ -150,7 +150,7 @@ describe("plugin-registered session event reducer slice (E41)", () => {
   it("subagents enabled: subagent_started updates `subagents`, adds no raw/group row", () => {
     registerFromEntryExports(new Set(["subagents"]));
     const s = apply([started()]);
-    expect(s.subagents.get("a")?.status).toBe("running");
+    expect(subagentsOf(s).get("a")?.status).toBe("running");
     expect(s.messages).toHaveLength(0);
   });
 
@@ -158,7 +158,7 @@ describe("plugin-registered session event reducer slice (E41)", () => {
     registerFromEntryExports(new Set());
     const before = createInitialState();
     const s = reduceEvent(before, started());
-    expect(s.subagents).toBe(before.subagents);
+    expect(subagentsOf(s)).toBe(subagentsOf(before));
     expect(s.messages).toHaveLength(1);
     expect(s.messages[0]).toMatchObject({ role: "rawEvent", toolName: "subagent_started", ownedGroup: { ownerId: "subagents", count: 1 } });
   });
@@ -168,15 +168,15 @@ describe("plugin-registered session event reducer slice (E41)", () => {
     let s = apply([started()]);
     setSessionReducerEnabledSet(new Set());
     s = apply([entry(0)], s);
-    expect(s.subagents.get("a")?.entries).toBeUndefined();
+    expect(subagentsOf(s).get("a")?.entries).toBeUndefined();
     expect(s.messages.filter((m) => (m as { ownedGroup?: unknown }).ownedGroup)).toHaveLength(1);
     setSessionReducerEnabledSet(new Set(["subagents"]));
     s = apply([entry(0)], s);
-    expect(s.subagents.get("a")?.entries).toHaveLength(1);
+    expect(subagentsOf(s).get("a")?.entries).toHaveLength(1);
   });
 });
 
-// ── The Agent finalizer owns every other writer of SessionState.subagents ────
+// ── The Agent finalizer owns every other writer of subagentsOf(SessionState) ────
 // Durable partialResult hydration + the /resume backfill are plugin code (D5
 // item 8): the dual index (agentId + agentSessionId) shares ONE object, and the
 // live `subagent_completed` path commutes with the replay `tool_execution_end`.
@@ -201,24 +201,24 @@ describe("subagent status writers are plugin hooks", () => {
       startAgent(),
       agentTick({ agentId: "ag-1", agentSessionId: "s-9", status: "running", entries: [e1, e2] }),
     ]);
-    const sub = s.subagents.get("ag-1");
+    const sub = subagentsOf(s).get("ag-1");
     expect(sub?.status).toBe("running");
     expect(sub?.entries).toHaveLength(2);
-    expect(s.subagents.get("s-9")).toBe(sub);
+    expect(subagentsOf(s).get("s-9")).toBe(sub);
   });
 
   it("a non-Agent update leaves `subagents` untouched (E46 b)", () => {
     const before = apply([ev("tool_execution_start", { toolCallId: "r", toolName: "read", args: {} })]);
     const s = reduceEvent(before, agentTick({ agentId: "ag-1", status: "running" }, "r", "read"));
-    expect(s.subagents).toBe(before.subagents);
+    expect(subagentsOf(s)).toBe(subagentsOf(before));
   });
 
   it("plugin off: Agent partialResult does not touch `subagents` (E46 c)", () => {
     disableSubagentsPlugin();
     const before = apply([startAgent()]);
     const s = reduceEvent(before, agentTick({ agentId: "ag-1", agentSessionId: "s-9", status: "running", entries: [e1] }));
-    expect(s.subagents).toBe(before.subagents);
-    expect(s.subagents.size).toBe(0);
+    expect(subagentsOf(s)).toBe(subagentsOf(before));
+    expect(subagentsOf(s).size).toBe(0);
     // The row still renders from the tick's details (collapsed summary + no state).
     expect(s.messages.find((m) => m.toolCallId === "tc")?.toolDetails?.agentId).toBe("ag-1");
   });
@@ -230,7 +230,7 @@ describe("subagent status writers are plugin hooks", () => {
       before,
       ev("tool_execution_end", { toolCallId: "tc", toolName: "Agent", result: "done", isError: false, details: { agentId: "ag-1" } }),
     );
-    expect(s.subagents).toBe(before.subagents);
+    expect(subagentsOf(s)).toBe(subagentsOf(before));
     expect(s.messages.find((m) => m.toolCallId === "tc")?.toolStatus).toBe("complete");
   });
 
@@ -256,12 +256,12 @@ describe("subagent status writers are plugin hooks", () => {
     const base = apply([startAgent(), agentTick({ agentId: "ag-1", agentSessionId: "s-9", subagentType: "Explore", description: "d", status: "running" })]);
     const lr = apply([L, Rend], base);
     const rl = apply([Rend, L], base);
-    const a = lr.subagents.get("ag-1");
-    const b = rl.subagents.get("ag-1");
+    const a = subagentsOf(lr).get("ag-1");
+    const b = subagentsOf(rl).get("ag-1");
     expect(a?.status).toBe("completed");
     expect(a).toEqual(b);
-    expect(lr.subagents.get("s-9")).toBe(a);
-    expect(rl.subagents.get("s-9")).toBe(b);
+    expect(subagentsOf(lr).get("s-9")).toBe(a);
+    expect(subagentsOf(rl).get("s-9")).toBe(b);
   });
 
   it("a replay end-backfill after /resume re-hydrates the map", () => {
@@ -275,9 +275,9 @@ describe("subagent status writers are plugin hooks", () => {
         details: { agentId: "ag-1", agentSessionId: "s-9", subagentType: "Explore", description: "probe" },
       }),
     ]);
-    const sub = s.subagents.get("ag-1");
+    const sub = subagentsOf(s).get("ag-1");
     expect(sub).toMatchObject({ status: "completed", type: "Explore", description: "probe", result: "done" });
-    expect(s.subagents.get("s-9")).toBe(sub);
+    expect(subagentsOf(s).get("s-9")).toBe(sub);
   });
 
   it("a late running tick never regresses a really-terminal subagent", () => {
@@ -287,6 +287,6 @@ describe("subagent status writers are plugin hooks", () => {
       ev("subagent_completed", { id: "ag-1", result: "R" }),
       agentTick({ agentId: "ag-1", status: "running", toolUses: 9 }),
     ]);
-    expect(s.subagents.get("ag-1")?.status).toBe("completed");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("completed");
   });
 });

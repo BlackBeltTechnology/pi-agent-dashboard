@@ -6,11 +6,12 @@
  *
  * See change: fix-background-subagent-ghost-rows (test-plan #E9–#E14, #F3, #F4, #F12, #X4).
  */
-import type { SubagentState } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+import type { SubagentState } from "../../subagent-types.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
 import { type PluginSubagentState, sessionEventReducer } from "../sessionEventReducer.js";
 import { type AgentFinalizerState, toolRowFinalizers } from "../toolRowFinalizer.js";
+import { subagentSlot, subagentsOf } from "../pluginState.js";
 
 const finalizer = toolRowFinalizers[0];
 const ev = (eventType: string, data: Record<string, unknown>, timestamp = 1000): DashboardEvent => ({ eventType, timestamp, data });
@@ -19,6 +20,8 @@ const sub = (id: string, status: SubagentState["status"], extra: Partial<PluginS
   type: "t",
   description: "d",
   status,
+  // Snapshots end only background rows (move-subagents-to-plugin D7); foreground is covered in sessionEventReducer.test.ts.
+  background: true,
   ...extra,
 });
 const stateOf = (subs: PluginSubagentState[], over: Partial<AgentFinalizerState> = {}): AgentFinalizerState => {
@@ -27,7 +30,7 @@ const stateOf = (subs: PluginSubagentState[], over: Partial<AgentFinalizerState>
     subagents.set(s.id, s);
     if (s.agentSessionId) subagents.set(s.agentSessionId, s);
   }
-  return { subagents, messages: [], toolCalls: new Map(), ...over };
+  return { pluginState: subagentSlot(subagents), messages: [], toolCalls: new Map(), ...over };
 };
 const snapshot = (entries: Array<{ agentId: string; status: string }>, takenAt: number) =>
   ev("subagent_registry_snapshot", { scope: "registry", entries, takenAt }, takenAt + 5);
@@ -40,7 +43,7 @@ describe("lastFrameAt freshness stamp (#E14)", () => {
   it("is set by created, started, entry, delta and the Agent progress tick", () => {
     let s: AgentFinalizerState = stateOf([]);
     const stamps: number[] = [];
-    const read = () => (s.subagents.get("A") as PluginSubagentState | undefined)?.lastFrameAt;
+    const read = () => (subagentsOf(s).get("A") as PluginSubagentState | undefined)?.lastFrameAt;
     s = reduceSession(s, ev("subagent_created", { id: "A", type: "t", description: "d", details: { agentSessionId: "S7" } }, 100));
     stamps.push(read()!);
     s = reduceSession(s, ev("subagent_started", { id: "A" }, 200));
@@ -60,7 +63,7 @@ describe("lastFrameAt freshness stamp (#E14)", () => {
     stamps.push(read()!);
     expect(stamps).toEqual([100, 200, 300, 400, 500]);
     // Same object under the runner session id.
-    expect(s.subagents.get("S7")).toBe(s.subagents.get("A"));
+    expect(subagentsOf(s).get("S7")).toBe(subagentsOf(s).get("A"));
   });
 });
 
@@ -74,11 +77,11 @@ describe("registry snapshot reconcile (#E9, #E10, #E11, #E13, #X4)", () => {
       sub("E", "stopped"),
     ]);
     const next = finalizer.onSessionEvent!(s, snapshot([], 1000))!;
-    expect(next.subagents.get("A")).toMatchObject({ status: "failed", healedBy: "untracked" });
-    expect(next.subagents.get("B")).toMatchObject({ status: "failed", healedBy: "untracked" });
-    expect(next.subagents.get("C")).toBe(s.subagents.get("C"));
-    expect(next.subagents.get("D")).toBe(s.subagents.get("D"));
-    expect(next.subagents.get("E")).toBe(s.subagents.get("E"));
+    expect(subagentsOf(next).get("A")).toMatchObject({ status: "failed", healedBy: "untracked" });
+    expect(subagentsOf(next).get("B")).toMatchObject({ status: "failed", healedBy: "untracked" });
+    expect(subagentsOf(next).get("C")).toBe(subagentsOf(s).get("C"));
+    expect(subagentsOf(next).get("D")).toBe(subagentsOf(s).get("D"));
+    expect(subagentsOf(next).get("E")).toBe(subagentsOf(s).get("E"));
   });
 
   it.each([
@@ -89,7 +92,7 @@ describe("registry snapshot reconcile (#E9, #E10, #E11, #E13, #X4)", () => {
   ])("lastFrameAt %s vs takenAt/answeredAt 1000 → %s, for both frames (#E10)", (lastFrameAt, want) => {
     const s = stateOf([sub("A", "running", lastFrameAt === undefined ? {} : { lastFrameAt })]);
     for (const frame of [snapshot([], 1000), stopResult("A", "unknown", 1000)]) {
-      const a = finalizer.onSessionEvent!(s, frame)!.subagents.get("A")!;
+      const a = subagentsOf(finalizer.onSessionEvent!(s, frame)!).get("A")!;
       if (want === "running") expect(a.status, frame.eventType).toBe("running");
       else expect(a, frame.eventType).toMatchObject({ status: "failed", healedBy: "untracked" });
     }
@@ -98,32 +101,32 @@ describe("registry snapshot reconcile (#E9, #E10, #E11, #E13, #X4)", () => {
   it("applies a snapshot's terminal status; a later real end wins (#E11)", () => {
     const s = stateOf([sub("A", "running")]);
     const healed = finalizer.onSessionEvent!(s, snapshot([{ agentId: "A", status: "completed" }], 1000))!;
-    expect(healed.subagents.get("A")).toMatchObject({ status: "completed", healedBy: "session_reconcile" });
-    expect(healed.subagents.get("A")?.result).toBeUndefined();
+    expect(subagentsOf(healed).get("A")).toMatchObject({ status: "completed", healedBy: "session_reconcile" });
+    expect(subagentsOf(healed).get("A")?.result).toBeUndefined();
     const real = finalizer.onSessionEvent!(healed, ev("subagent_completed", { id: "A", result: "R" }, 2000))!;
-    expect(real.subagents.get("A")).toMatchObject({ status: "completed", result: "R" });
-    expect(real.subagents.get("A")?.healedBy).toBeUndefined();
+    expect(subagentsOf(real).get("A")).toMatchObject({ status: "completed", result: "R" });
+    expect(subagentsOf(real).get("A")?.healedBy).toBeUndefined();
   });
 
   it("keeps a subagent listed as running", () => {
     const s = stateOf([sub("A", "running"), sub("B", "running")]);
     const next = finalizer.onSessionEvent!(s, snapshot([{ agentId: "B", status: "running" }], 1000))!;
-    expect(next.subagents.get("A")).toMatchObject({ status: "failed", healedBy: "untracked" });
-    expect(next.subagents.get("B")?.status).toBe("running");
+    expect(subagentsOf(next).get("A")).toMatchObject({ status: "failed", healedBy: "untracked" });
+    expect(subagentsOf(next).get("B")?.status).toBe("running");
   });
 
   it("touches only the session it is reduced into (#E13)", () => {
     const s1 = stateOf([sub("A", "running")]);
     const s2 = stateOf([sub("A", "running")]);
     const next1 = finalizer.onSessionEvent!(s1, snapshot([], 1000))!;
-    expect(next1.subagents.get("A")).toMatchObject({ healedBy: "untracked" });
-    expect(s2.subagents.get("A")?.status).toBe("running");
+    expect(subagentsOf(next1).get("A")).toMatchObject({ healedBy: "untracked" });
+    expect(subagentsOf(s2).get("A")?.status).toBe("running");
   });
 
   it("keeps a subagent created after the snapshot was taken (#X4)", () => {
     const s = stateOf([sub("A", "created", { lastFrameAt: 200 })]);
     const next = finalizer.onSessionEvent!(s, snapshot([], 150))!;
-    expect(next.subagents.get("A")?.status).toBe("created");
+    expect(subagentsOf(next).get("A")?.status).toBe("created");
   });
 });
 
@@ -136,7 +139,7 @@ describe("stop answer reconcile (#E12, #F3)", () => {
   ])("terminal answer with status %s → %j (#E12)", (status, want) => {
     const s = stateOf([sub("A", "running")]);
     const next = finalizer.onSessionEvent!(s, stopResult("A", "terminal", 1000, status))!;
-    expect(next.subagents.get("A")).toMatchObject(want);
+    expect(subagentsOf(next).get("A")).toMatchObject(want);
   });
 
   it("a queued/running answer changes nothing (the real end follows)", () => {
@@ -153,7 +156,7 @@ describe("stop answer reconcile (#E12, #F3)", () => {
       toolCalls: new Map([["tc", { status: "running" }]]),
     });
     const next = finalizer.onSessionEvent!(s, stopResult("A", "unknown", 1000), { reduce })!;
-    expect(next.subagents.get("A")).toMatchObject({ status: "failed", healedBy: "untracked" });
+    expect(subagentsOf(next).get("A")).toMatchObject({ status: "failed", healedBy: "untracked" });
     expect(reduce).toHaveBeenCalledTimes(1);
     expect(reduce.mock.calls[0][1]).toMatchObject({
       eventType: "tool_execution_end",
@@ -166,9 +169,9 @@ describe("revive and projected ends (#F4, #F12)", () => {
   it("a live subagent_started revives an untracked background subagent (#F4)", () => {
     const s = stateOf([sub("A", "running", { background: true })]);
     const ended = finalizer.onSessionEvent!(s, snapshot([], 1000))!;
-    expect(ended.subagents.get("A")).toMatchObject({ healedBy: "untracked" });
+    expect(subagentsOf(ended).get("A")).toMatchObject({ healedBy: "untracked" });
     const revived = reduceSession(ended, ev("subagent_started", { id: "A" }, 2000));
-    const a = revived.subagents.get("A") as PluginSubagentState;
+    const a = subagentsOf(revived).get("A") as PluginSubagentState;
     expect(a.status).toBe("running");
     expect(a.healedBy).toBeUndefined();
     expect(a.background).toBe(true);
@@ -184,8 +187,8 @@ describe("revive and projected ends (#F4, #F12)", () => {
     const next = finalizer.onToolExecution!(s, ev("tool_execution_update", { toolCallId: "tc", partialResult: { details: { agentId: "A" } } }, 3000), {
       prior: s,
     })!;
-    expect(next.subagents.get("A")?.status).toBe("running");
-    expect(next.subagents.get("A")?.healedBy).toBeUndefined();
+    expect(subagentsOf(next).get("A")?.status).toBe("running");
+    expect(subagentsOf(next).get("A")?.healedBy).toBeUndefined();
   });
 
   it("a deferred projected end keeps the 40-step timeline (#F12)", () => {
@@ -195,7 +198,7 @@ describe("revive and projected ends (#F4, #F12)", () => {
       s,
       ev("subagent_completed", { id: "A", result: "cut", details: { status: "completed" }, deferredProjection: true }),
     )!;
-    expect(next.subagents.get("A")?.status).toBe("completed");
-    expect(next.subagents.get("A")?.entries).toHaveLength(40);
+    expect(subagentsOf(next).get("A")?.status).toBe("completed");
+    expect(subagentsOf(next).get("A")?.entries).toHaveLength(40);
   });
 });

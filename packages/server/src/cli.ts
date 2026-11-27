@@ -62,7 +62,6 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 import { terminalSafe } from "@blackbelt-technology/pi-dashboard-shared/terminal-safe.js";
 import { defaultLocalTokenDir, ensureLocalToken, readLocalTokenIfPresent } from "./auth/local-token.js";
-import { migrateSubagentTickThrottle } from "./config-api.js";
 import { classifyDashboardPort, type PortClassification } from "./lifecycle/classify-dashboard-port.js";
 import {
   isModuleNotFoundError,
@@ -1904,10 +1903,6 @@ async function main() {
     process.exit(2);
   }
   ensureConfig();
-  // One-shot: rewrite a pre-flip materialized `subagentTickThrottleMs: 0`.
-  // Boot path only — `loadConfig` is a pure read called by every bridge
-  // process. See change: heal-orphaned-tool-cards-on-session-end (design D5).
-  migrateSubagentTickThrottle();
 
   const rawArgs = process.argv.slice(2);
   const cls = classifyArgv(rawArgs);

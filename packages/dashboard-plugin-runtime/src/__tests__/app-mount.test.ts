@@ -427,7 +427,7 @@ describe("plugin assets route (#E83, #X8, #X9, #P4)", () => {
           client: "./src/c.tsx",
           clientBundle: "./dist/client/client.js",
           clientStyles: "./dist/client/s.css",
-          hostApi: "^1.0.0",
+          hostApi: "^2.0.0",
         },
       }),
     );
@@ -561,7 +561,7 @@ describe("plugin assets route (#E83, #X8, #X9, #P4)", () => {
       JSON.stringify({
         name: "badlayout",
         version: "1.0.0",
-        "pi-dashboard-plugin": { id: "badlayout", displayName: "b", claims: [], client: "./src/c.tsx", clientBundle: "./dist/client.js", server: "./dist/server.js", hostApi: "^1.0.0" },
+        "pi-dashboard-plugin": { id: "badlayout", displayName: "b", claims: [], client: "./src/c.tsx", clientBundle: "./dist/client.js", server: "./dist/server.js", hostApi: "^2.0.0" },
       }),
     );
     fs.writeFileSync(path.join(dir, "dist", "client.js"), "export default 1;\n");

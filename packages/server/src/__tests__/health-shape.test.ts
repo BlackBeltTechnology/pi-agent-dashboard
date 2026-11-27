@@ -302,52 +302,26 @@ describe("GET /api/health — shape", () => {
     expect(typeof storeTrim.evictedSessions).toBe("number");
   });
 
-  // Same additive contract for the subagent-tick byte counters: surfaced on
-  // /api/health via the store's exported TrimStats, nothing pre-existing moved.
-  // See change: reduce-subagent-details-payload (D6, task 9.2).
-  it("storeTrim gains the subagent-tick byte counters additively", async () => {
+  // The subagent-tick byte counters and the bridge tick-throttle roll-up are
+  // removed (the store holds no plugin-specific telemetry). `storeTrim` keeps
+  // its generic fields and gains the owner-pin overflow counter additively.
+  // See change: move-subagents-to-plugin (task 3.3).
+  it("storeTrim and /api/health carry no subagent-tick telemetry", async () => {
     delete process.env.DASHBOARD_STARTER;
     handle = await createTestServer();
     const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
     const body = (await res.json()) as Record<string, unknown>;
     const storeTrim = body.storeTrim as Record<string, unknown>;
-    for (const field of [
-      "subagentTicks",
-      "subagentTickBytes",
-      "subagentFatTicks",
-      "subagentTickFatBytes",
-    ]) {
-      expect(typeof storeTrim[field]).toBe("number");
-      expect(storeTrim[field]).toBe(0);
+    for (const field of ["subagentTicks", "subagentTickBytes", "subagentFatTicks", "subagentTickFatBytes"]) {
+      expect(storeTrim).not.toHaveProperty(field);
     }
+    expect(body).not.toHaveProperty("subagentTickThrottle");
+    expect(typeof storeTrim.pinOverflow).toBe("number");
+    expect(storeTrim.pinOverflow).toBe(0);
     expect(typeof storeTrim.collapsedUpdates).toBe("number");
     expect(typeof storeTrim.evictedSessions).toBe("number");
-  });
-
-  // The throttle's counters are additive on the SAME response: nothing that
-  // shipped before moved, and the four fields are present (all-zero on a fresh
-  // server with no bridge). Asserted in the same commit as the transport, so a
-  // shape drift between bridge heartbeat and route can never land silently.
-  // See change: reduce-bridge-tick-bandwidth (D6, task 4.2).
-  it("gains the subagent-tick throttle counters additively", async () => {
-    delete process.env.DASHBOARD_STARTER;
-    handle = await createTestServer();
-    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    const throttle = body.subagentTickThrottle as Record<string, unknown>;
-    expect(throttle).toBeDefined();
-    expect(Object.keys(throttle).sort()).toEqual([
-      "tickCoalesced",
-      "tickDiscardedAtTerminal",
-      "tickDroppedNotReady",
-      "tickForwarded",
-    ]);
-    for (const v of Object.values(throttle)) expect(v).toBe(0);
-
-    // Pre-existing fields unchanged (the additive half of the contract).
+    // Pre-existing fields unchanged.
     expect(typeof body.pid).toBe("number");
-    expect(typeof body.storeTrim).toBe("object");
     expect(typeof body.droppedFrames).toBe("object");
     expect(Array.isArray(body.agents)).toBe(true);
   });
@@ -364,7 +338,23 @@ describe("GET /api/health — shape", () => {
     expect(pef).toBeDefined();
     expect(Object.keys(pef).sort()).toEqual(["conflicts", "declared", "dropped", "rejected", "retained"]);
     for (const v of Object.values(pef)) expect(v).toBe(0);
-    expect(typeof body.subagentTickThrottle).toBe("object");
+  });
+
+  // Plugin tool-update filter counters, summed across bridges (all-zero with no bridge).
+  // See change: move-subagents-to-plugin (D5, task 2.1).
+  it("reports the plugin tool-update filter counters summed over bridges", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const url = `http://localhost:${handle.httpPort}/api/health`;
+    const zero = ((await (await fetch(url)).json()) as Record<string, unknown>).pluginToolUpdateFilter;
+    expect(zero).toEqual({ declared: 0, refused: 0, applied: 0 });
+    const sm = handle.server.sessionManager;
+    sm.register({ id: "tuf1", cwd: "/repo", source: "tui", startedAt: 1 } as never);
+    sm.update("tuf1", {
+      processMetrics: { toolUpdateFilterDeclared: 1, toolUpdateFilterRefused: 2, toolUpdateFilterApplied: 3 },
+    } as never);
+    const body = (await (await fetch(url)).json()) as Record<string, unknown>;
+    expect(body.pluginToolUpdateFilter).toEqual({ declared: 1, refused: 2, applied: 3 });
   });
 
   // X9: plugin entry replay + rejected plugin actions + as-type conflicts.

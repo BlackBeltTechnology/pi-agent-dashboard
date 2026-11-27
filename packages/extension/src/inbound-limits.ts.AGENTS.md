@@ -1,0 +1,3 @@
+# inbound-limits.ts — index
+
+Inbound bounds. `createInboundLimits({env?,now?,log?})` → `{maxBash,promptBurst,promptRefillPerSec,tryAcquireBash(sessionId)→release?,takePrompt(key),bashInFlight}`. Env `PI_DASHBOARD_BRIDGE_MAX_BASH` (default 4) + `PI_DASHBOARD_BRIDGE_PROMPT_RATE=<burst>/<refill/s>` (default `30/10`); invalid ⇒ default + one log per variable; `0` is invalid, not unlimited. Bucket keyed weakly by the process-global shared state (not the connection: `/reload` and reconnect must not refill it) (reconnect never refills). One instance in `BridgeState.inboundLimits`. See change: harden-bridge-inbound-and-discovery (D17).

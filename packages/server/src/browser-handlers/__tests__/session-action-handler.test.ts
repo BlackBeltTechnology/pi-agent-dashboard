@@ -10,7 +10,6 @@ import {
   handleRetrySession,
   handleSendPrompt,
   handleStopAfterTurn,
-  handleSubagentResyncRequest,
   isSessionProcessGone,
   shouldReopenDashboardZombie,
 } from "../session-action-handler.js";
@@ -161,78 +160,6 @@ describe("handleStopAfterTurn", () => {
     expect(sent[0]).toEqual({
       sessionId: "s1",
       msg: { type: "stop_after_turn", sessionId: "s1" },
-    });
-  });
-});
-
-// See change: fix-subagent-live-detail-reliability (D2).
-describe("handleSubagentResyncRequest", () => {
-  it("forwards a subagent_resync_request to the owning bridge", () => {
-    const { ctx, sent } = makeCtx();
-    handleSubagentResyncRequest(
-      { type: "subagent_resync_request", sessionId: "s1", agentId: "a1" },
-      ctx,
-    );
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toEqual({
-      sessionId: "s1",
-      msg: { type: "subagent_resync_request", sessionId: "s1", agentId: "a1" },
-    });
-  });
-
-  // The WS path casts parsed JSON straight to the message union, so these two
-  // fields arrive unvalidated. See change: reduce-subagent-details-payload (C5).
-  describe("untrusted requestId / reason", () => {
-    it("registers the requester and forwards both fields when they are valid", () => {
-      const { ctx, sent, ws } = makeCtx();
-      const recorded: Array<[string, unknown]> = [];
-      ctx.recordResyncRequester = (id, ws) => recorded.push([id, ws]);
-      handleSubagentResyncRequest(
-        { type: "subagent_resync_request", sessionId: "s1", agentId: "a1", requestId: "r1", reason: "cadence" },
-        ctx,
-      );
-      expect(recorded).toEqual([["r1", ws]]);
-      expect(recorded[0][1]).toBeDefined();
-      expect(sent[0].msg).toEqual({
-        type: "subagent_resync_request",
-        sessionId: "s1",
-        agentId: "a1",
-        requestId: "r1",
-        reason: "cadence",
-      });
-    });
-
-    it.each([
-      ["a number token", 42],
-      ["an object token", { evil: true }],
-      ["an empty token", ""],
-      ["a null token", null],
-    ])("drops %s: nothing registered, reply falls back to broadcast", (_label, requestId) => {
-      const { ctx, sent } = makeCtx();
-      let registered = 0;
-      ctx.recordResyncRequester = () => {
-        registered += 1;
-      };
-      handleSubagentResyncRequest(
-        { type: "subagent_resync_request", sessionId: "s1", agentId: "a1", requestId } as never,
-        ctx,
-      );
-      expect(registered).toBe(0);
-      expect(sent[0].msg).toEqual({ type: "subagent_resync_request", sessionId: "s1", agentId: "a1" });
-    });
-
-    it("drops an unknown reason but keeps a valid requestId", () => {
-      const { ctx, sent } = makeCtx();
-      handleSubagentResyncRequest(
-        { type: "subagent_resync_request", sessionId: "s1", agentId: "a1", requestId: "r1", reason: "hack" } as never,
-        ctx,
-      );
-      expect(sent[0].msg).toEqual({
-        type: "subagent_resync_request",
-        sessionId: "s1",
-        agentId: "a1",
-        requestId: "r1",
-      });
     });
   });
 });

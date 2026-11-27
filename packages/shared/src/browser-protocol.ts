@@ -269,6 +269,20 @@ export interface SessionHistoryWindowMessage {
 }
 
 /**
+ * Gap events one plugin carries across a windowed replay, sent after
+ * `history_window` and before the first `event_replay` on the same delivery
+ * path and class. The client applies them ONLY through the named plugin's
+ * reducer slice and finalizer: no chat rows, no `maxSeq`, no gap bookkeeping.
+ * See change: move-subagents-to-plugin (D2).
+ */
+export interface PluginEventCarryMessage {
+  type: "plugin_event_carry";
+  sessionId: string;
+  pluginId: string;
+  events: Array<{ seq: number; event: DashboardEvent }>;
+}
+
+/**
  * Client request for an explicit seq RANGE inside the gap described by
  * `history_window`. A range — not a `beforeSeq` cursor — because the gap is
  * bounded on both sides and the client knows both bounds.
@@ -1319,6 +1333,7 @@ export type ServerToBrowserMessage =
   | EventMessage
   | EventReplayMessage
   | SessionHistoryWindowMessage
+  | PluginEventCarryMessage
   | HistoryBackfillResultMessage
   | BrowserCommandsListMessage
   | BrowserExtensionUiRequestMessage
@@ -2385,7 +2400,6 @@ export type BrowserToServerMessage =
   | SetSessionTagsBrowserMessage
   | RemoveTagGloballyBrowserMessage
   | RecoveryDismissMessage
-  | SubagentResyncRequestBrowserMessage
   | PromptResyncRequestBrowserMessage
   | BrowserRelaySubscribeMessage
   | BrowserRelayUnsubscribeMessage
@@ -2399,34 +2413,6 @@ export type BrowserToServerMessage =
   | GrantResponseBrowserMessage
   | ProvisionResponseMessage
   | WatchFilesBrowserMessage;
-
-/**
- * Browser → server → bridge: request the latest retained snapshot of a
- * still-running subagent's timeline, to recover after a gap/reconnect without
- * waiting for completion. The server forwards it to the owning bridge, which
- * replies with a synthetic `subagent_started` `event_forward`, or no-ops for an
- * unknown/finished agent (the durable completed-case backfill covers those).
- * See change: fix-subagent-live-detail-reliability (D2).
- */
-export interface SubagentResyncRequestBrowserMessage {
-  type: "subagent_resync_request";
-  sessionId: string;
-  agentId: string;
-  /**
-   * Correlation token so the reply is delivered to THIS connection instead of
-   * fanning out to every subscriber of the session. Optional: an older client
-   * omits it and the reply falls back to the broadcast path.
-   * See change: reduce-subagent-details-payload (C5).
-   */
-  requestId?: string;
-  /**
-   * Why this resync fired: `"open"` = the user opened/expanded the inspector,
-   * `"cadence"` = the D4 v1 open-inspector pull loop. Counted separately by the
-   * bridge so the pull loop is provably not a new firehose.
-   * See change: reduce-subagent-details-payload (D6, task 9.4).
-   */
-  reason?: "open" | "cadence";
-}
 
 /**
  * Browser → server → bridge: ask a session's bridge to re-emit every prompt it

@@ -7,36 +7,38 @@ TBD - created by archiving change add-flow-agent-popout. Update Purpose after ar
 
 ### Requirement: Plugin-runtime primitive `useSessionSubagents`
 
-The dashboard-plugin-runtime SHALL export `useSessionSubagents(sessionId: string): ReadonlyMap<string, SubagentStateSnapshot>`. The hook reads the per-session subagent map in `SessionState.subagents` and re-renders subscribers when the map changes for that session id. The map is written only by the subagents plugin's session event reducer slice and `Agent` tool-row finalizer, which the shell registers and applies (`dashboard-plugin-loader` "Plugins register session event reducer slices"); core reducer code no longer writes it.
+The dashboard-plugin-runtime SHALL export the generic `useSessionPluginState(sessionId: string, pluginId: string): unknown`, which reads the per-session, per-plugin slot of `SessionState` and re-renders subscribers when that slot changes for that session id. The runtime SHALL NOT export a subagent-specific primitive. The subagents plugin SHALL provide `useSessionSubagents(sessionId): ReadonlyMap<string, SubagentState>` itself, on top of `useSessionPluginState`. The slot is written only by the subagents plugin's session event reducer slice and `Agent` tool-row finalizer, which the shell registers and applies (`dashboard-plugin-loader` "Plugins register session event reducer slices"); core reducer code does not write it.
 
-`SubagentStateSnapshot` is a structurally-typed snapshot mirroring `SubagentState`, whose type now lives in `packages/shared/src/dashboard-plugin/subagent-types.ts`. The runtime types it independently so plugins do not pull in the shell package.
+`SubagentState` and every other subagent wire type SHALL live in `packages/subagents-plugin/`. Core packages, including dashboard-plugin-runtime, SHALL NOT type or name it. Requirements in other capabilities that refer to `session.subagents` mean this map, the subagents plugin's view of its slot.
 
-For unknown session ids, and while the subagents plugin is disabled or absent, the hook returns the shared `EMPTY_SUBAGENTS` frozen-Map reference or the map as last written.
-
-The transitional note of the earlier version (subagent state reduced in the shell's central reducer until a follow-up moves it into the plugin) is resolved by `decouple-plugins-from-core`: the reducer slice now lives in the subagents plugin.
+For unknown session ids, and while the subagents plugin is disabled or absent, `useSessionSubagents` returns a shared frozen empty map, or the map as last written.
 
 #### Scenario: Hook returns the shell-resolved map
 
-- **GIVEN** the shell's `sessionStates.get("sess_1")?.subagents` is `Map([["a1", { id: "a1", status: "running" }]])`
-- **AND** App.tsx wires `useSessionSubagents` into `PluginContextProvider`
-- **WHEN** a plugin calls `useSessionSubagents("sess_1")`
-- **THEN** the call SHALL return that map (or an equivalent structurally-typed snapshot)
+- **GIVEN** the subagents plugin's slot of session `sess_1` holds `Map([["a1", { id: "a1", status: "running" }]])`
+- **WHEN** a plugin component calls `useSessionSubagents("sess_1")`
+- **THEN** the call SHALL return that map
 
 #### Scenario: Hook returns empty map for unknown sessions
 
-- **WHEN** a plugin calls `useSessionSubagents("never-existed")`
-- **THEN** the hook SHALL return the shared `EMPTY_SUBAGENTS` reference
+- **WHEN** a plugin component calls `useSessionSubagents("never-existed")`
+- **THEN** the hook SHALL return the shared frozen empty map
 
 #### Scenario: Hook re-renders on session state update
 
-- **WHEN** the subagents plugin's slice appends a new entry to `sessionStates.get("sess_1")?.subagents`
+- **WHEN** the subagents plugin's slice adds an entry to the slot of `sess_1`
 - **AND** a plugin component is subscribed via `useSessionSubagents("sess_1")`
 - **THEN** the component SHALL re-render with the updated map
 
 #### Scenario: No core writer remains
 
 - **WHEN** the subagents plugin is disabled and a session receives `subagent_started`
-- **THEN** `SessionState.subagents` SHALL NOT change, and the event SHALL reach the absent-owner group row
+- **THEN** no `SessionState` slot SHALL change, and the event SHALL reach the absent-owner group row
+
+#### Scenario: Core state has no subagent field
+
+- **WHEN** the core `SessionState` type is inspected
+- **THEN** it SHALL have a generic per-plugin slot and no `subagents` field
 
 ### Requirement: SubagentPopoutClaim consumes the primitive
 

@@ -9,15 +9,17 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubagentState } from "../types.js";
+import { subagentSlot, subagentsOf } from "../pluginState.js";
 
 let subagents: ReadonlyMap<string, SubagentState> = new Map();
 
 vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@blackbelt-technology/dashboard-plugin-runtime")>()),
-  useSessionSubagents: () => subagents,
+  useSessionPluginState: () => subagents,
 }));
 
 const { SubagentDockGroup } = await import("../SubagentDockGroup.js");
+const { sessionEventReducer } = await import("../sessionEventReducer.js");
 
 const NOW = new Date("2026-01-01T00:00:00.000Z").getTime();
 const session = { id: "s1", cwd: "/repo", source: "tui", status: "active", startedAt: 0 } as DashboardSession;
@@ -417,13 +419,13 @@ describe("ghost row cleared by the stop answer (#F1, #F2, #X1)", () => {
   const dw = () => bgSub({ id: "dw", displayName: "docs-writer", stoppable: true, startedAt: NOW });
   /** Reduce `subagent_stop_result {phase:"unknown"}` through the real finalizer into the mocked map. */
   const reduceUnknownAnswer = () => {
-    const state = { subagents: new Map(subagents), messages: [], toolCalls: new Map() };
+    const state = { pluginState: subagentSlot(new Map(subagents)), messages: [], toolCalls: new Map() };
     const next = toolRowFinalizers[0].onSessionEvent!(state, {
       eventType: "subagent_stop_result",
       timestamp: NOW + 1,
       data: { agentId: "dw", outcome: "ignored", phase: "unknown", answeredAt: NOW },
     })!;
-    subagents = next.subagents;
+    subagents = subagentsOf(next);
   };
   const both = () => (
     <>
@@ -484,5 +486,52 @@ describe("ghost row cleared by the stop answer (#F1, #F2, #X1)", () => {
     act(() => vi.advanceTimersByTime(10_000));
     expect(screen.getByTestId("composer-dock-row-meta").textContent).toBe("Still running");
     expect(screen.getByTestId("composer-dock-row")).toBeTruthy();
+  });
+});
+
+// See change: move-subagents-to-plugin (tasks 9.7, 9.8; test-plan #E31, #E32).
+describe("SubagentDockGroup — row from a started frame only", () => {
+  const reduceStarted = (data: Record<string, unknown>) => {
+    const out = sessionEventReducer.reduce({ pluginState: subagentSlot(new Map())}, { eventType: "subagent_started", timestamp: NOW, data });
+    return subagentsOf(out) as ReadonlyMap<string, SubagentState>;
+  };
+
+  it("shows the producer's type, task and name with no created frame (#E31)", () => {
+    subagents = reduceStarted({
+      id: "a1",
+      details: { subagentType: "batch-applier-b", description: "Apply nav-waits-in-rules", displayName: "batch-applier-b" },
+    });
+    renderGroup("rows");
+    expect(screen.getByTestId("composer-dock-row-title").textContent).toBe("batch-applier-b");
+    expect(screen.getByTestId("composer-dock-row-detail").textContent).toBe("Apply nav-waits-in-rules");
+    expect(screen.getByTestId("composer-dock-row-meta").textContent).toBe("batch-applier-b");
+    expect(document.body.textContent).not.toMatch(/unknown/i);
+  });
+
+  it("meta reads `type · N steps` once steps arrive (#E31)", () => {
+    const base = reduceStarted({ id: "a1", details: { subagentType: "batch-applier-b", displayName: "batch-applier-b" } });
+    const withSteps = new Map(base);
+    withSteps.set("a1", { ...base.get("a1")!, entries: [{ kind: "text", text: "a", ts: 1 }, { kind: "text", text: "b", ts: 2 }] });
+    subagents = withSteps;
+    renderGroup("rows");
+    expect(screen.getByTestId("composer-dock-row-meta").textContent).toBe("batch-applier-b · 2 steps");
+  });
+
+  it("no type anywhere: shows displayName, else the short id, never unknown (#E32)", () => {
+    subagents = reduceStarted({ id: "a1", details: { displayName: "my-agent" } });
+    renderGroup("rows");
+    expect(screen.getByTestId("composer-dock-row-title").textContent).toBe("my-agent");
+    cleanup();
+    subagents = reduceStarted({ id: "abcdef123456" });
+    renderGroup("rows");
+    expect(screen.getByTestId("composer-dock-row-title").textContent).toBe("abcdef12");
+    expect(document.body.textContent).not.toMatch(/unknown/i);
+  });
+
+  it("a legacy row whose type is the literal `unknown` still shows the name, else the short id (#E32)", () => {
+    subagents = mapOf(sub({ id: "abcdef123456", type: "unknown", description: "" }));
+    renderGroup("rows");
+    expect(screen.getByTestId("composer-dock-row-title").textContent).toBe("abcdef12");
+    expect(document.body.textContent).not.toMatch(/unknown/i);
   });
 });

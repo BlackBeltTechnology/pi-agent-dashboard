@@ -39,8 +39,7 @@ interface SessionShape {
  * The harness defaults to `tmux`; F1/F2 exercise the headless shape. `fetch`
  * RESOLVES for HTTP error responses, so both the status AND a read-back are
  * asserted — a silently-ignored PUT would otherwise leave `tmux` in place while
- * the spec still claimed to test headless. Same PUT-then-read-back contract as
- * `setSubagentTickThrottle` in `helpers/index.ts`.
+ * the spec still claimed to test headless.
  */
 async function setSpawnStrategy(page: Page, strategy: string): Promise<string> {
   const result = await page.evaluate(async (next: string) => {

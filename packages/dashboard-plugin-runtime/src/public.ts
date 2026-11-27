@@ -50,7 +50,6 @@ export {
   type InteractiveUiRequestSnapshot,
   type PluginLogger,
   type PluginRouter,
-  type SubagentStateSnapshot,
   useAllSessions,
   useCurrentPluginId,
   useLanguage,
@@ -64,8 +63,8 @@ export {
   useSessionData,
   useSessionEvents,
   useSessionInteractiveRequests,
+  useSessionPluginState,
   useSessionState,
-  useSessionSubagents,
   useShellConnectionStatus,
   useT,
 } from "./plugin-context.js";

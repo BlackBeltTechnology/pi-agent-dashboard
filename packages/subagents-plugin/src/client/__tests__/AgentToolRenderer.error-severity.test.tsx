@@ -12,6 +12,8 @@ import { cleanup, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentToolRenderer, type ToolContext, withHostPrimitives } from "./agent-test-harness.js";
+import type { SubagentState } from "../../subagent-types.js";
+import { subagentSlot } from "../pluginState.js";
 
 const ctx: ToolContext = { cwd: "/r" };
 
@@ -213,7 +215,7 @@ describe("AgentToolRenderer — stable running card + live preview", () => {
       timestamp: 1,
       data: { id: "ag1", details: { agentId: "ag1", status: "running", liveTail } },
     });
-    const s1 = sessionEventReducer.reduce({ subagents: new Map() }, frame({ kind: "thinking", text: "xyz" }));
+    const s1 = sessionEventReducer.reduce({ pluginState: subagentSlot(new Map())}, frame({ kind: "thinking", text: "xyz" }));
     const s2 = sessionEventReducer.reduce(s1, frame({ kind: "none", text: "" }));
     const card = (session: unknown) =>
       running({ liveTail: { kind: "thinking", text: "abc" } }, { ...ctx, session } as ToolContext);
@@ -302,7 +304,7 @@ describe("AgentToolRenderer — ticker hold, expanded, no early resync", () => {
   it("A: a clearing tail sends no extra resync request", async () => {
     const { fireEvent } = await import("@testing-library/react");
     const send = vi.fn();
-    const session = { subagents: new Map([["ag1", { id: "ag1", type: "Explore", description: "", status: "running", entries: [{ kind: "text", text: "x", ts: 1 }] }]]) };
+    const session = { pluginState: subagentSlot(new Map([["ag1", { id: "ag1", type: "Explore", description: "", status: "running", entries: [{ kind: "text", text: "x", ts: 1 }] }]]))};
     const context = { ...ctx, sessionId: "s1", session, send } as unknown as ToolContext;
     const wrap = (ui: React.ReactElement) => withHostPrimitives(ui);
     const { getByText, rerender } = render(wrap(card({ kind: "thinking", text: "hmm" }, context)));
@@ -321,12 +323,12 @@ describe("AgentToolRenderer — healed card shows the subagent result", () => {
     cwd: "/r",
     sessionId: "s1",
     session: {
-      subagents: new Map([
+      pluginState: subagentSlot(new Map([
         [
           "ag1",
           { id: "ag1", type: "Explore", description: "d", status: "completed", ...(subResult ? { result: subResult } : {}) },
         ],
-      ]),
+      ])),
     },
   });
   const card = (healedBy: string | undefined, ctxValue: ToolContext, result = "result unavailable — recovered by supersede heal") => (
@@ -367,7 +369,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-subagents-plugin/client", async (ori
 }));
 
 const sub = (over: Record<string, unknown>) =>
-  new Map([["ag", { id: "ag", type: "Explore", description: "d", ...over }]]);
+  new Map<string, SubagentState>([["ag", { id: "ag", type: "Explore", description: "d", ...over } as SubagentState]]);
 
 describe("AgentToolRenderer — finalized by subagent stop", () => {
   it("a healed completion renders done with the subagent's result (F7)", () => {
@@ -378,7 +380,7 @@ describe("AgentToolRenderer — finalized by subagent stop", () => {
         status="complete"
         result="subagent finished"
         toolDetails={{ agentId: "ag", status: "completed", healedBy: "subagent_stopped", displayName: "Explore" }}
-        context={{ ...ctx, session: { subagents: sub({ status: "completed", result: "done A" }) } } as unknown as ToolContext}
+        context={{ ...ctx, session: { pluginState: subagentSlot(sub({ status: "completed", result: "done A" }))} } as unknown as ToolContext}
       />,
     );
     expect(container.querySelector('[data-testid="agent-activity-row"]')).toBeNull();
@@ -398,31 +400,5 @@ describe("AgentToolRenderer — finalized by subagent stop", () => {
     );
     expect(container.querySelector('[data-testid="agent-activity-row"]')).toBeNull();
     expect(getByText("Error:").parentElement?.textContent).toContain("boom");
-  });
-
-  it("a finalized card stops the resync cadence while its subagent is still recorded running (F10)", async () => {
-    vi.useFakeTimers();
-    try {
-      const send = vi.fn();
-      const { getByTitle } = renderAgent(
-        <AgentToolRenderer
-          toolName="Agent"
-          args={{ subagent_type: "Explore", description: "find the thing", prompt: "go" }}
-          status="complete"
-          result="subagent stopped — result not received"
-          toolDetails={{ agentId: "ag", status: "completed", healedBy: "turn_settled", resultMissing: true, displayName: "Explore" }}
-          context={{ ...ctx, sessionId: "s1", send, session: { subagents: sub({ status: "running", entries: [{ kind: "text", text: "x" }] }) } } as unknown as ToolContext}
-        />,
-      );
-      const { fireEvent, act } = await import("@testing-library/react");
-      fireEvent.click(getByTitle("Expand to inspect tool calls & messages"));
-      await act(async () => {
-        vi.advanceTimersByTime(60_000);
-      });
-      const cadence = send.mock.calls.filter(([m]) => m?.type === "subagent_resync_request" && m?.reason === "cadence");
-      expect(cadence).toHaveLength(0);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });

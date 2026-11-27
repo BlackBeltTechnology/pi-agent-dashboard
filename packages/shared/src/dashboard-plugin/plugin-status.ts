@@ -20,7 +20,8 @@ export type BridgeLoadSource = "packages[]" | "dashboardPluginBridges" | "none";
  * See change: add-plugin-activation-ui (Layer 1.5).
  */
 export interface PluginRequirementReport {
-  piExtensions: { name: string; satisfied: boolean }[];
+  /** `warning`: satisfied without a verifiable version (git/local install). See change: move-subagents-to-plugin. */
+  piExtensions: { name: string; satisfied: boolean; warning?: string }[];
   binaries: { name: string; satisfied: boolean; resolvedPath?: string }[];
   services: { name: string; satisfied: boolean; error?: string }[];
   /**

@@ -19,12 +19,14 @@
  * See change: add-plugin-activation-ui (Layer 1.5).
  */
 import { existsSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import type {
   PluginManifest,
   PluginRequirements,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { PluginRequirementReport } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
+import { versionSatisfies } from "./version-range.js";
 import { sourcesMatch } from "@blackbelt-technology/pi-dashboard-shared/source-matching.js";
 import { probeModelProxy } from "./service-probes/model-proxy.js";
 
@@ -34,6 +36,8 @@ export interface InstalledPackageRecord {
   name?: string;
   id?: string;
   displayName?: string;
+  /** Install directory (pi `ConfiguredPackage.installedPath`); its `package.json` carries the version. */
+  installedPath?: string;
 }
 
 /** Minimal tool-registry shape; satisfied by the shared `ToolRegistry`. */
@@ -48,6 +52,12 @@ export interface RequirementProbeDeps {
    * so this module stays free of any server-package dependency.
    */
   listInstalled?: () => Promise<InstalledPackageRecord[]>;
+  /**
+   * Installed version of a matched extension; `undefined` when unknown. Defaults
+   * to reading `<installedPath>/package.json`. Injectable for tests.
+   * See change: move-subagents-to-plugin (D9).
+   */
+  readInstalledVersion?: (record: InstalledPackageRecord) => Promise<string | undefined>;
   /** Optional tool registry adaptor for binary probes. */
   toolRegistry?: ToolRegistryLike;
   /**
@@ -106,7 +116,7 @@ export function installedMatchesName(installed: InstalledPackageRecord, name: st
 export async function probePiExtension(
   name: string,
   deps: RequirementProbeDeps,
-): Promise<{ name: string; satisfied: boolean }> {
+): Promise<{ name: string; satisfied: boolean; warning?: string }> {
   if (!deps.listInstalled) return { name, satisfied: false };
   try {
     const list = await deps.listInstalled();
@@ -114,6 +124,42 @@ export async function probePiExtension(
     return { name, satisfied: found };
   } catch {
     return { name, satisfied: false };
+  }
+}
+
+async function defaultReadInstalledVersion(record: InstalledPackageRecord): Promise<string | undefined> {
+  if (!record.installedPath) return undefined;
+  try {
+    const pkg = JSON.parse(await readFile(join(record.installedPath, "package.json"), "utf8")) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Check one `piExtensionVersions` range against the installed extension.
+ * `unmet`: below range. `warning`: satisfied but version not verifiable
+ * (git/local install, non-semver). Not installed → neither (the plain-name
+ * probe already reports it). See change: move-subagents-to-plugin (D9).
+ */
+async function probePiExtensionVersion(
+  name: string,
+  range: string,
+  deps: RequirementProbeDeps,
+): Promise<{ unmet?: boolean; warning?: string }> {
+  if (!deps.listInstalled) return {};
+  try {
+    const record = (await deps.listInstalled()).find((p) => installedMatchesName(p, name));
+    if (!record) return {};
+    const version = await (deps.readInstalledVersion ?? defaultReadInstalledVersion)(record);
+    const ok = versionSatisfies(version, range);
+    if (ok === undefined) {
+      return { warning: `installed version of ${name} is not verifiable (git/local install); assuming ${range}` };
+    }
+    return ok ? {} : { unmet: true };
+  } catch {
+    return {};
   }
 }
 
@@ -198,6 +244,16 @@ export async function runRequirementProbesFor(
   const piExtensions = await Promise.all(
     piExtNames.map((n) => probePiExtension(n, deps)),
   );
+  for (const [name, range] of Object.entries(req.piExtensionVersions ?? {})) {
+    let entry = piExtensions.find((e) => e.name === name);
+    if (!entry) {
+      entry = await probePiExtension(name, deps);
+      piExtensions.push(entry);
+    }
+    const v = await probePiExtensionVersion(name, range, deps);
+    if (v.unmet) piExtensions.push({ name: `${name} ${range}`, satisfied: false });
+    else if (v.warning) entry.warning = v.warning;
+  }
   const binaries = binNames.map((n) => probeBinary(n, deps));
   const services = await Promise.all(svcNames.map((n) => probeService(n, deps)));
   const paths = (req.paths ?? []).map((p) => probePath(p, deps));

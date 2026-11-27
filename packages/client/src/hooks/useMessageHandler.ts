@@ -4,6 +4,7 @@
  */
 
 import type {
+  PluginEventCarryMessage,
   PreflightReason,
   ServerToBrowserMessage,
   SpawnFailureCode,
@@ -18,7 +19,7 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { addInteractiveRequest, addNotify, applyPromptReceived, carryInteractiveRequests, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, reseatTimedNotifies, retailPendingInteractiveRows, seedRunningToolCall, type SessionState } from "../lib/chat/event-reducer.js";
+import { addInteractiveRequest, addNotify, applyPromptReceived, carryInteractiveRequests, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceCarriedEvent, reduceEvent, reseatTimedNotifies, retailPendingInteractiveRows, seedRunningToolCall, type SessionState } from "../lib/chat/event-reducer.js";
 import {
   createHistoryGapRow,
   createHistoryGapState,
@@ -45,6 +46,15 @@ import { clearTerminalLimitNotices, showTerminalLimitNotice } from "../lib/state
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
 import type { OpenSpecGetInflight } from "./useOpenSpecReconcile.js";
 import type { PendingSpawnEntry } from "./useSessionActions.js";
+
+/** Fold carried plugin events into `state`, each through its own plugin's reducer. */
+function applyCarry(state: SessionState, frames: readonly PluginEventCarryMessage[]): SessionState {
+  let current = state;
+  for (const frame of frames) {
+    for (const { event } of frame.events) current = reduceCarriedEvent(current, frame.pluginId, event);
+  }
+  return current;
+}
 
 /**
  * Merge `carryInteractiveRequests` output into a rebuilt state: pending
@@ -365,6 +375,12 @@ export function useMessageHandler(
    * See change: lazy-load-session-history.
    */
   const historyGapsRef = useRef<Map<string, HistoryGapState>>(new Map());
+  // Plugin gap carries of the CURRENT windowed subscribe, per session. A head-tail
+  // replay's first `event_replay` (firstSeq 1) resets the session state and would
+  // wipe plugin state the carry just wrote, so the carry is re-applied after that
+  // fold. Slice arms are idempotent, so the second application is harmless.
+  // See change: move-subagents-to-plugin (D2).
+  const carryStashRef = useRef<Map<string, PluginEventCarryMessage[]>>(new Map());
   const publishGap = useCallback((sessionId: string, gap: HistoryGapState | undefined) => {
     if (gap) historyGapsRef.current.set(sessionId, gap);
     else historyGapsRef.current.delete(sessionId);
@@ -837,6 +853,7 @@ export function useMessageHandler(
         break;
 
       case "session_state_reset":
+        carryStashRef.current.delete(msg.sessionId);
         setSessionStates((prev) => {
           const next = new Map(prev);
           // Carry `pendingPrompt` across reset: it's optimistic UI state
@@ -1337,8 +1354,32 @@ export function useMessageHandler(
         break;
       }
 
+      /**
+       * Gap events one plugin carries across a windowed replay. Applied ONLY
+       * through that plugin's slice reducer and finalizer: no chat row, no
+       * `maxSeq`, no gap bookkeeping, no persister write, no `publishSessionEvents`.
+       * See change: move-subagents-to-plugin (D2).
+       */
+      case "plugin_event_carry": {
+        const list = carryStashRef.current.get(msg.sessionId) ?? [];
+        list.push(msg);
+        carryStashRef.current.set(msg.sessionId, list);
+        setSessionStates((prev) => {
+          const current = prev.get(msg.sessionId);
+          if (!current) return prev;
+          const reduced = applyCarry(current, [msg]);
+          if (reduced === current) return prev;
+          const next = new Map(prev);
+          next.set(msg.sessionId, reduced);
+          return next;
+        });
+        break;
+      }
+
       case "event_replay": {
         const firstSeq = msg.events.length > 0 ? msg.events[0].seq : null;
+        const stashedCarry = carryStashRef.current.get(msg.sessionId);
+        if (stashedCarry && msg.events.length > 0) carryStashRef.current.delete(msg.sessionId);
         // Reset on every full replay sweep: firstSeq===1 (cold start) OR
         // firstSeq <= maxSeq for this session (server is re-replaying events
         // the client has already accounted for, e.g. paginated reconnect
@@ -1370,6 +1411,8 @@ export function useMessageHandler(
           // across the full-sweep reset — merged AFTER the fold, at the tail, so
           // the fold's toolCallId scans never see the carried rows (design D8
           // of fix-pending-prompt-lost-on-replay).
+          // A reset wiped the plugin state the windowed carry wrote: re-apply it.
+          if (shouldReset && stashedCarry) current = applyCarry(current, stashedCarry);
           if (shouldReset) current = withCarriedInteractiveRequests(current, next.get(msg.sessionId));
           // Re-tail the pending rows after EVERY batch, not only the reset one:
           // a multi-batch full replay appends later transcript rows AFTER the

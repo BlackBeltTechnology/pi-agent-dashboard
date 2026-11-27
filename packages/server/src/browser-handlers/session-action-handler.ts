@@ -1269,37 +1269,6 @@ export function handleKillProcess(
 }
 
 /**
- * Forward a browser subagent-resync request to the owning bridge. The bridge
- * replies with the latest retained snapshot as a synthetic subagent_started
- * event_forward, or no-ops for an unknown/finished agent.
- * See change: fix-subagent-live-detail-reliability (D2).
- */
-export function handleSubagentResyncRequest(
-  msg: Extract<BrowserToServerMessage, { type: "subagent_resync_request" }>,
-  ctx: BrowserHandlerContext,
-): void {
-  // Requester-scoped delivery (C5): remember who asked, and pass the token to
-  // the bridge so it can echo it on the reply. A client that sends no token
-  // still works — its reply takes the ordinary broadcast path.
-  // See change: reduce-subagent-details-payload.
-  // The WS path casts parsed JSON straight to the message union, so these two
-  // fields are untrusted: validate their RUNTIME shape before they reach the
-  // registry or the bridge. A malformed token degrades to fan-out delivery
-  // rather than poisoning the registry.
-  const requestId =
-    typeof msg.requestId === "string" && msg.requestId.length > 0 ? msg.requestId : undefined;
-  const reason = msg.reason === "open" || msg.reason === "cadence" ? msg.reason : undefined;
-  if (requestId) ctx.recordResyncRequester?.(requestId, ctx.ws);
-  ctx.piGateway.sendToSession(msg.sessionId, {
-    type: "subagent_resync_request",
-    sessionId: msg.sessionId,
-    agentId: msg.agentId,
-    ...(requestId ? { requestId } : {}),
-    ...(reason ? { reason } : {}),
-  });
-}
-
-/**
  * Forward a browser prompt-resync request to the owning bridge: the bridge
  * re-emits every prompt its PromptBus is still holding, each carrying the
  * echoed `__resyncRequestId` token, and event-wiring delivers those replies to
@@ -1317,7 +1286,7 @@ export function handlePromptResyncRequest(
 ): void {
   // The WS path casts parsed JSON straight to the message union, so the token
   // is untrusted: validate its RUNTIME shape before it reaches the registry
-  // (same rule as handleSubagentResyncRequest). A malformed token degrades to
+  // (untrusted-token rule). A malformed token degrades to
   // a tokenless request whose reply takes the ordinary fan-out.
   const requestId =
     typeof msg.requestId === "string" && msg.requestId.length > 0 ? msg.requestId : undefined;

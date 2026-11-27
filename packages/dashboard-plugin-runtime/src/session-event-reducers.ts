@@ -78,6 +78,12 @@ export interface ToolRowFinalizer<S = unknown> {
    * settle). Return the new state, or `undefined` to decline.
    */
   onSessionEvent?(state: S, event: SessionEventLike, opts?: ToolRowFinalizerOpts<S>): S | undefined;
+  /**
+   * Called on EVERY enabled finalizer when the turn settles (`agent_settled`): finish or
+   * neutrally heal the tool rows this finalizer owns whose end never arrived. Return the new
+   * state, or `undefined` to decline. See change: move-subagents-to-plugin (D8).
+   */
+  onTurnSettled?(state: S, event: SessionEventLike, opts?: ToolRowFinalizerOpts<S>): S | undefined;
 }
 
 interface SliceEntry {
@@ -144,6 +150,41 @@ export function findToolRowFinalizer<S = unknown>(toolName: string): ToolRowFina
     }
   }
   return undefined;
+}
+
+/**
+ * Finalizer for a session event that carries no `toolName`: the one of the enabled plugin
+ * that OWNS the event's type (its slice lists the type, mirroring the manifest `eventTypes`).
+ * Core never names a tool to find it. Undefined when no enabled plugin owns the type or the
+ * owner has no `onSessionEvent` finalizer. See change: move-subagents-to-plugin (D8).
+ */
+export function findFinalizerForEventType<S = unknown>(eventType: string): ToolRowFinalizer<S> | undefined {
+  for (const entry of slices) {
+    if (!isEnabled(entry.pluginId)) continue;
+    if (!entry.slice.eventTypes.some((p) => matchesEventTypePattern(p, eventType))) continue;
+    const owned = finalizers.find((f) => f.pluginId === entry.pluginId && f.finalizer.onSessionEvent);
+    return owned?.finalizer as unknown as ToolRowFinalizer<S> | undefined;
+  }
+  return undefined;
+}
+
+/** Every enabled plugin's finalizers (registration order): who `onTurnSettled` is called on. */
+export function listToolRowFinalizers<S = unknown>(): ToolRowFinalizer<S>[] {
+  return finalizers.filter((e) => isEnabled(e.pluginId)).map((e) => e.finalizer as unknown as ToolRowFinalizer<S>);
+}
+
+/**
+ * The enabled plugin's OWN slice and finalizers, looked up by plugin id (not by
+ * event type): what a `plugin_event_carry` frame is applied through.
+ * See change: move-subagents-to-plugin (D2).
+ */
+export function findPluginSessionReducers<S = unknown>(
+  pluginId: string,
+): { slice?: SessionEventReducerSlice<S>; finalizers: ToolRowFinalizer<S>[] } {
+  if (!isEnabled(pluginId)) return { finalizers: [] };
+  const slice = slices.find((e) => e.pluginId === pluginId)?.slice as unknown as SessionEventReducerSlice<S> | undefined;
+  const fins = finalizers.filter((e) => e.pluginId === pluginId).map((e) => e.finalizer as unknown as ToolRowFinalizer<S>);
+  return { slice, finalizers: fins };
 }
 
 /** Test helper: forget every registration and the enabled set. */

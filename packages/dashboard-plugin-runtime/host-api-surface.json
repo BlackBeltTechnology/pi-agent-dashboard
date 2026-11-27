@@ -1,5 +1,5 @@
 {
-  "version": "1.5.0",
+  "version": "2.0.0",
   "publicExports": [
     "AutomationActionEditorSlot",
     "ComposerContextGroup",
@@ -47,7 +47,6 @@
     "SlotPill",
     "SlotPillProps",
     "SlotSurface",
-    "SubagentStateSnapshot",
     "TextAreaField",
     "TextField",
     "ToggleField",
@@ -99,8 +98,8 @@
     "useSessionData",
     "useSessionEvents",
     "useSessionInteractiveRequests",
+    "useSessionPluginState",
     "useSessionState",
-    "useSessionSubagents",
     "useSettingsDraftSource",
     "useShellConnectionStatus",
     "useT",
@@ -270,7 +269,7 @@
     "priority": "?number | undefined",
     "projectTypes": "?undefined | { markers: string[]; type: string }[]",
     "replayEntryTypes": "?string[] | undefined",
-    "requires": "?undefined | { binaries?: string[] | undefined; paths?: string[] | undefined; piExtensions?: string[] | undefined; services?: string[] | undefined }",
+    "requires": "?undefined | { binaries?: string[] | undefined; paths?: string[] | undefined; piExtensions?: string[] | undefined; piExtensionVersions?: Record<string, string> | undefined; services?: string[] | undefined }",
     "server": "?string | undefined",
     "vaultBindings": "?string[] | undefined"
   },

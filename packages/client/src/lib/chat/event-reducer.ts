@@ -3,7 +3,7 @@
  * (state, event) → new state
  */
 
-import { findSessionEventReducer, findToolRowFinalizer } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { findFinalizerForEventType, findPluginSessionReducers, findSessionEventReducer, findToolRowFinalizer, listToolRowFinalizers } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   type EventTypeOwner,
   matchEventTypeOwner,
@@ -22,6 +22,7 @@ import {
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { matchesEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import { ownerOfEventType } from "../plugins/event-type-owners.js";
 import { isPluginEntryType } from "../plugins/plugin-entry-types.js";
 import {
@@ -411,28 +412,6 @@ export interface InteractiveUiRequest {
   result?: unknown;
 }
 
-/**
- * Per-step timeline entry for a subagent's run. Populated by the
- * `pi-dashboard-subagents` extension via `details.entries[]` on every
- * `subagents:*` event.
- *
- * Shape mirrors `FlowDetailEntry` (see flows-plugin) for visual consistency.
- * See change: add-subagent-inspector.
- */
-// Subagent timeline types + pure fold helpers live in shared (non-plugin) so the
-// reducer and the subagents plugin share one definition. Re-exported here for
-// shell-side consumers that still reference them via `../lib/event-reducer.js`.
-// See change: decouple-plugins-from-core (task 2.7); add-subagent-inspector.
-export type { SubagentState, SubagentTimelineEntry } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
-export {
-  applyLiveBlockPiece,
-  countSteps,
-  LIVE_BLOCK_GAP_MARKER,
-  readLiveTail,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
-
-import type { SubagentState } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
-
 export interface SessionState {
   messages: ChatMessage[];
   toolCalls: Map<string, ToolCallState>;
@@ -472,8 +451,12 @@ export interface SessionState {
   interactiveRequests: InteractiveUiRequest[];
   /** Whether any Write/Edit tool calls have been seen (for Changed Files button) */
   hasFileChanges: boolean;
-  /** Active subagents from pi-dashboard-subagents (foreground, in-memory). */
-  subagents: Map<string, SubagentState>;
+  /**
+   * Opaque per-plugin client state, keyed by plugin id. Written only by that plugin's
+   * session event reducer slice / finalizer; core never reads a slot.
+   * See change: move-subagents-to-plugin (D8).
+   */
+  pluginState: Map<string, unknown>;
   /** Total turn count (for turnIndex assignment and sliding window offset) */
   turnCount: number;
   /**
@@ -555,7 +538,7 @@ export function createInitialState(): SessionState {
     turnStats: [],
     interactiveRequests: [],
     hasFileChanges: false,
-    subagents: new Map(),
+    pluginState: new Map(),
     turnCount: 0,
     assistantInferenceSeq: 0,
   };
@@ -601,29 +584,8 @@ export function synthesizeSupersededEnd(toolCallId: string, now: number): Dashbo
 }
 
 
-/** Body of the neutral settle heal: the turn ended, the subagent's outcome never arrived. */
-export const SUBAGENT_STOPPED_SENTINEL_BODY = "subagent stopped — result not received";
-
 /** Detail keys that exist only because a heal set them; a real end clears them. */
 const HEAL_ONLY_DETAIL_KEYS = ["healedBy", "resultMissing"] as const;
-
-/**
- * Index of the newest eligible Agent row for a finalize heal (design D2):
- * top-level `toolResult` row, `toolName:"Agent"`, row running, `toolCalls`
- * entry running. `agentId` narrows to the row linked to that subagent.
- */
-function findEligibleAgentRows(state: SessionState, agentId?: string): number[] {
-  const out: number[] = [];
-  for (let i = state.messages.length - 1; i >= 0; i--) {
-    const m = state.messages[i];
-    if (m.role !== "toolResult" || m.toolName !== "Agent" || m.toolStatus !== "running" || !m.toolCallId) continue;
-    if (state.toolCalls.get(m.toolCallId)?.status !== "running") continue;
-    if (agentId !== undefined && m.toolDetails?.agentId !== agentId) continue;
-    out.push(i);
-    if (agentId !== undefined) break;
-  }
-  return out;
-}
 
 /**
  * A live `tool_execution_update` for a row finalized by a `session_ended` heal
@@ -705,31 +667,40 @@ function reviveElidedRow(next: SessionState, idx: number): void {
   next.toolCalls = seedRunningToolCall(next.toolCalls, row, next.assistantInferenceSeq);
 }
 
+/** Body of the generic settle heal: the turn ended, the tool's result never arrived. */
+export const TOOL_STOPPED_SENTINEL_BODY = "tool stopped — result not received";
+
+/**
+ * Generic neutral settle heal: a tool call cannot outlive its parent's settle. Every
+ * top-level tool row with progress `details` still `running` (row + `toolCalls` entry) after the plugin finalizers
+ * ran — none registered, or each declined — stops spinning with a generic body and
+ * `resultMissing`. The `toolCalls` entry stays `running` so the stale reconcile can still
+ * fetch the authoritative result. See change: move-subagents-to-plugin (D8).
+ */
+function neutralSettleRunningRows(state: SessionState, timestamp: number): SessionState {
+  let messages: SessionState["messages"] | undefined;
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const m = state.messages[i];
+    if (m.role !== "toolResult" || m.toolStatus !== "running" || !m.toolCallId) continue;
+    if (state.toolCalls.get(m.toolCallId)?.status !== "running") continue;
+    // Only rows that carry structured progress `details` (a delegating tool streaming its
+    // own state); plain tools (bash, read, …) are left to the stale reconcile (E15).
+    if (!m.toolDetails) continue;
+    messages ??= [...state.messages];
+    messages[i] = {
+      ...m,
+      toolStatus: "complete",
+      result: TOOL_STOPPED_SENTINEL_BODY,
+      duration: m.startedAt ? timestamp - m.startedAt : undefined,
+      toolDetails: { ...(m.toolDetails ?? {}), status: "completed", healedBy: "turn_settled", resultMissing: true },
+    };
+  }
+  return messages ? { ...state, messages } : state;
+}
+
 /** Options core hands a tool-row finalizer: re-entry into this reducer for synthesized events. */
 function finalizerOpts(isLive: boolean | undefined) {
   return { isLive, reduce: (s: SessionState, e: DashboardEvent) => reduceEvent(s, e) };
-}
-
-/**
- * Neutral settle heal (design D4): the turn ended but neither the end nor the
- * subagent's outcome reached this client. The row stops spinning with the
- * sentinel body and `resultMissing`; the `toolCalls` entry stays `running` so
- * the stale reconcile can still fetch the authoritative result. No subagent
- * backfill: an unknown subagent is not recorded as completed. Runs when no Agent
- * finalizer is registered or it declines (the subagents plugin finalizes a row
- * whose subagent already reported a terminal state).
- */
-function neutralSettleAgentRow(state: SessionState, idx: number, timestamp: number): SessionState {
-  const m = state.messages[idx];
-  const messages = [...state.messages];
-  messages[idx] = {
-    ...m,
-    toolStatus: "complete",
-    result: SUBAGENT_STOPPED_SENTINEL_BODY,
-    duration: m.startedAt ? timestamp - m.startedAt : undefined,
-    toolDetails: { ...(m.toolDetails ?? {}), status: "completed", healedBy: "turn_settled", resultMissing: true },
-  };
-  return { ...state, messages };
 }
 
 /** Body of the placeholder end synthesized for a server-vouched eviction. */
@@ -1843,6 +1814,24 @@ export function regroupOwnedEvents(state: SessionState, owners: readonly EventTy
   return { ...state, messages };
 }
 
+/**
+ * Apply one carried gap event (`plugin_event_carry`) through ONLY the named
+ * plugin's slice reducer and `onSessionEvent` finalizer, mirroring the slice
+ * branch of {@link reduceEvent}. No chat row is created and nothing but plugin
+ * state (and an existing tool row the finalizer settles) changes. Returns the
+ * same state when the plugin is disabled or the event is not its own.
+ * See change: move-subagents-to-plugin (D2).
+ */
+export function reduceCarriedEvent(state: SessionState, pluginId: string, event: DashboardEvent): SessionState {
+  const { slice, finalizers } = findPluginSessionReducers<SessionState>(pluginId);
+  if (!slice?.eventTypes.some((p) => matchesEventTypePattern(p, event.eventType))) return state;
+  for (const finalizer of finalizers) {
+    const settled = finalizer.onSessionEvent?.(state, event, finalizerOpts(false));
+    if (settled) return settled;
+  }
+  return slice.reduce(state, event, { isLive: false });
+}
+
 export function reduceEvent(
   state: SessionState,
   event: DashboardEvent,
@@ -1923,17 +1912,17 @@ export function reduceEvent(
       // set lastError on failure. See change: retry-forever-with-stop-control.
       next.retryState = undefined;
       next.retryCancelled = undefined;
-      // A foreground Agent call cannot outlive its parent's settle: finalize any
-      // card still spinning (its end was lost). The registered Agent finalizer is
-      // asked first (known terminal subagent → its outcome); a missing or declining
-      // finalizer leaves the neutral heal to run. See change:
-      // finalize-agent-card-on-subagent-stop (D4), decouple-plugins-from-core (D5 item 9).
+      // Every enabled plugin finalizer gets `onTurnSettled`: a tool call cannot outlive
+      // its parent's settle, so each finalizes (or neutrally heals) the rows it owns whose
+      // end was lost. See change: finalize-agent-card-on-subagent-stop (D4),
+      // move-subagents-to-plugin (D8).
       {
-        let healed: SessionState =
-          findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(next, event, finalizerOpts(isLive)) ?? next;
-        for (const idx of findEligibleAgentRows(healed)) {
-          healed = neutralSettleAgentRow(healed, idx, event.timestamp);
+        let healed: SessionState = next;
+        for (const finalizer of listToolRowFinalizers<SessionState>()) {
+          healed = finalizer.onTurnSettled?.(healed, event, finalizerOpts(isLive)) ?? healed;
         }
+        // Generic fallback: no finalizer (plugin disabled) or a declining one.
+        healed = neutralSettleRunningRows(healed, event.timestamp);
         if (healed !== next) return healed;
       }
       break;
@@ -2614,9 +2603,7 @@ export function reduceEvent(
       // the reopen/revive below restored from one that was already running, and undo
       // the revive for a subagent it records as terminal.
       const finalizer =
-        rowIdx !== -1 && next.messages[rowIdx].toolName === "Agent"
-          ? findToolRowFinalizer<SessionState>("Agent")
-          : undefined;
+        rowIdx !== -1 ? findToolRowFinalizer<SessionState>(next.messages[rowIdx].toolName ?? "") : undefined;
       const prior: SessionState | undefined = finalizer ? { ...next, toolCalls: new Map(next.toolCalls) } : undefined;
       // Any top-level tick — with or without a partial result — revives an elided row.
       // See change: fix-backfill-elides-live-tools (D3).
@@ -2659,7 +2646,7 @@ export function reduceEvent(
             // prior terminal fields, let the rest (stats) merge. (Row-only; the subagents
             // plugin keeps a card of a finished subagent terminal the same way.)
             // See change: finalize-agent-card-on-subagent-stop (D5).
-            if (priorRow.toolName === "Agent" && priorRow.toolStatus !== "running" && priorRow.toolDetails?.healedBy === "turn_settled") {
+            if (finalizer && priorRow.toolStatus !== "running" && priorRow.toolDetails?.healedBy === "turn_settled") {
               const kept: Record<string, unknown> = { ...(next.messages[idx].toolDetails ?? {}) };
               for (const key of ["status", "error", ...HEAL_ONLY_DETAIL_KEYS]) {
                 if (priorRow.toolDetails && key in priorRow.toolDetails) kept[key] = priorRow.toolDetails[key];
@@ -2671,7 +2658,7 @@ export function reduceEvent(
             // Durable live hydration of the subagent inspector map + the late-tick block
             // (a finished subagent keeps its card terminal; finalize on a newly learned
             // stopped subagent) are the Agent finalizer's. None registered, or it declines
-            // → `SessionState.subagents` is untouched.
+            // → no plugin state is written.
             // See change: fix-subagent-live-detail-durable-hydration, decouple-plugins-from-core (4.6).
             const finalized = finalizer?.onToolExecution?.(next, event, { ...finalizerOpts(isLive), prior });
             if (finalized) return finalized;
@@ -2807,13 +2794,13 @@ export function reduceEvent(
       }
 
       // Subagent backfill: a `tool_execution_end` of a completed Agent run
-      // (details.agentId) also feeds `SessionState.subagents` so `/resume` and
+      // (details.agentId) also feeds the owning plugin's state so `/resume` and
       // page-refresh re-hydrate the inspector map (state-replay re-emits only
-      // the end, never `subagent_*`). That write belongs to the subagents
+      // the end, never the live frames). That write belongs to the owning
       // plugin's registered Agent finalizer (merge keeps prior non-undefined
       // fields so live and replay commute; a `healedBy` end never changes a
       // terminal subagent; heal provenance recorded/cleared). None registered,
-      // or it declines → the row is finalized above and `subagents` is untouched.
+      // or it declines → the row is finalized above and no plugin state is written.
       // See change: add-subagent-inspector §12 and design.md Decision 7,
       // decouple-plugins-from-core (4.6).
       {
@@ -3104,17 +3091,17 @@ export function reduceEvent(
       // whether a group row shows (design D5 item 4, R8).
       // See change: decouple-plugins-from-core.
       //
-      // A slice an ENABLED plugin registered for this type runs first (the
-      // subagents plugin owns `subagent_created|started|entry|delta`); its
+      // A slice an ENABLED plugin registered for this type runs first (the owning
+      // plugin's slice); its
       // reduce is pure and returns the state it was given when nothing changed.
       // A disabled plugin has no slice, so its events fold into the group row.
       //
-      // The registered Agent finalizer settles a slice-owned event that stops a
-      // subagent (`subagent_completed|failed`: it writes the terminal state and stops
-      // the Agent row) and declines the rest; a decline leaves the slice to reduce.
+      // The owner's finalizer (resolved from the event type's ownership, never a tool
+      // name) settles a slice-owned event that ends a tool row and declines the rest;
+      // a decline leaves the slice to reduce. See change: move-subagents-to-plugin (D8).
       const slice = findSessionEventReducer<SessionState>(event.eventType);
       if (slice) {
-        const settled = findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(next, event, finalizerOpts(isLive));
+        const settled = findFinalizerForEventType<SessionState>(event.eventType)?.onSessionEvent?.(next, event, finalizerOpts(isLive));
         return settled ?? slice.reduce(next, event, { isLive });
       }
       const owner = ownerOfEventType(event.eventType);

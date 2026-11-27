@@ -176,7 +176,13 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // catalog is 3 badge keys, +46 B); every other string and component is a lazy module. 644,215 B locally, 119 B
 // over the old cap; owner-approved raise: 630 KiB (645,120 B, ~900 B headroom). Smallest KiB step; not a
 // general raise.
-const INDEX_GZ_CAP_BYTES = 630 * 1024;
+//
+// move-subagents-to-plugin (2026-11-27): the eagerly-registered subagents reducer slice + finalizer grew
+// (idempotent arms, `subagents:list` reconcile, the settle heal moved out of core), core gained the generic
+// `plugin_event_carry` handler and generic settle heal, and the plugin catalog gained 2 keys; the deleted
+// resync loop and core subagent code did not fully offset it. 645,479 B locally, 359 B over the old cap;
+// owner-approved raise: 640 KiB (655,360 B, ~9.6 KB headroom). Not a general raise.
+const INDEX_GZ_CAP_BYTES = 640 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

@@ -11,6 +11,7 @@
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
+import { subagentsOf } from "../../test-support/subagents-reducer-slice.js";
 import {
   createInitialState,
   finalizeBackfillSegment,
@@ -165,7 +166,7 @@ describe("revive vs the Agent finalizer (F8, F9)", () => {
   it("F8: a late tick for a subagent the client records terminal leaves the elided card as it was", () => {
     let s = splice(tail(), [toolStart("r", "Agent")]);
     s = reduceEvent(s, evt("subagent_completed", { id: "ag-1", result: "R" }));
-    expect(s.subagents.get("ag-1")?.status).toBe("completed");
+    expect(subagentsOf(s).get("ag-1")?.status).toBe("completed");
     s = reduceEvent(s, agentTick("r", { agentId: "ag-1", status: "running" }));
     expect(row(s, "r")?.toolStatus).toBe("elided");
     expect(s.toolCalls.get("r")?.status).not.toBe("running");
@@ -191,7 +192,7 @@ describe("revive vs the Agent finalizer (F8, F9)", () => {
     let s = splice(tail(), [toolStart("r", "Agent")]);
     s = reduceEvent(s, agentTick("r", { agentId: "ag-2", status: "running" }));
     expect(row(s, "r")?.toolStatus).toBe("running");
-    expect(s.subagents.get("ag-2")?.status).toBe("running");
+    expect(subagentsOf(s).get("ag-2")?.status).toBe("running");
   });
 });
 

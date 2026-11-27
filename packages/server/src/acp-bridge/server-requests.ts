@@ -121,8 +121,8 @@ export function handleServerMessage(m: ServerToExtensionMessage, ctx: ServerRequ
     case "server_restarting":
     case "attach_proposal_changed":
     case "plugin_emit_event":
+    case "plugin_ownership":
     case "preferences_update":
-    case "subagent_resync_request":
     case "vault_snapshot":
     // ACP sessions run no bash/askpass wrapper. See change: add-sudo-credential-prompt.
     case "sudo_credential_response":

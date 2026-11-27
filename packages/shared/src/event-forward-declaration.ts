@@ -15,6 +15,23 @@
 export const REGISTER_EVENT_FORWARD_CHANNEL = "dashboard:register-event-forward";
 export const BRIDGE_READY_CHANNEL = "dashboard:bridge-ready";
 /**
+ * A plugin bridge emits this with a {@link ToolUpdateFilterDeclaration} to drop
+ * data paths from `tool_execution_update` frames of a tool its manifest claims.
+ * See change: move-subagents-to-plugin (D5).
+ */
+export const REGISTER_TOOL_UPDATE_FILTER_CHANNEL = "dashboard:register-tool-update-filter";
+
+/**
+ * Ownership table the server derives from loaded plugin manifests and sends to
+ * each bridge (`plugin_ownership`): manifest `eventTypes` pattern → pluginId and
+ * tool-renderer claim toolName → pluginId. The bridge reads no manifests.
+ * See change: move-subagents-to-plugin (D1).
+ */
+export interface PluginOwnershipTable {
+  eventTypes: Record<string, string>;
+  toolClaims: Record<string, string>;
+}
+/**
  * Bare signal any plugin bridge emits to make the core bridge resend
  * `commands_list` (payload ignored). See change: update-flows-plugin (D4).
  */
@@ -28,11 +45,21 @@ export interface EventForwardChannelSpec {
   delivery: EventForwardDelivery;
   /** Top-level payload field grouping retained messages (latest/stream). */
   key?: string;
+  /**
+   * `latest` only: channels of one plugin naming the same group share ONE
+   * retained slot per key (the newest across the group's channels).
+   */
+  group?: string;
 }
 
 export interface EventForwardDeclaration {
   pluginId: string;
   channels: Record<string, EventForwardChannelSpec>;
+  /**
+   * Retention key budget for this plugin (default 64, ceiling 256). A larger
+   * value is clamped to 256 and counted as a rejection.
+   */
+  maxKeys?: number;
   /**
    * Persisted custom-entry types this plugin owns (its manifest
    * `replayEntryTypes`). The live bridge replays them as recorded protocol
@@ -48,8 +75,11 @@ export interface AcceptedChannelSpec {
   as: string;
   delivery: EventForwardDelivery;
   key?: string;
+  group?: string;
 }
 
+export const DEFAULT_PLUGIN_MAX_KEYS = 64;
+export const MAX_PLUGIN_MAX_KEYS = 256;
 export const MAX_CHANNELS_PER_PLUGIN = 32;
 export const MAX_PLUGIN_CHANNELS_TOTAL = 256;
 
@@ -59,9 +89,10 @@ const AS_RE = /^[a-z0-9_]{1,64}$/;
 const KEY_RE = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
 
 /**
- * Event types a plugin channel may NOT forward as: pi core event types, the
- * core-mapped subagent types, and bridge→server control message types.
- * A plugin hijacking one would inject frames the reducer trusts.
+ * Event types a plugin channel may NOT forward as: pi core event types and
+ * bridge↔server control message types. A plugin hijacking one would inject
+ * frames the reducer trusts. Plugin-owned types are NOT listed here: ownership
+ * comes from the manifest `eventTypes` via the server's `plugin_ownership` table.
  */
 export const RESERVED_EVENT_TYPES: ReadonlySet<string> = new Set([
   // pi core session events
@@ -73,14 +104,12 @@ export const RESERVED_EVENT_TYPES: ReadonlySet<string> = new Set([
   "session_before_compact", "session_before_switch", "session_before_fork", "session_tree",
   "model_select", "user_bash", "auto_compaction_start", "auto_compaction_end",
   "auto_retry_start", "auto_retry_end", "compaction_start", "compaction_end",
-  // core-mapped bus channels
-  "subagent_created", "subagent_started", "subagent_completed", "subagent_failed",
   // bridge control / protocol message types
   "event_forward", "entry_persisted", "session_register", "session_unregister",
   "session_heartbeat", "replay_complete", "commands_list",
   "extension_ui_request", "usage_recorded", "prompt_request", "prompt_dismiss",
   "prompt_cancel", "notify", "plugin_pi_message", "plugin_request", "queue_update",
-  "bridge_diagnostic",
+  "bridge_diagnostic", "plugin_ownership",
 ]);
 
 export type RejectionReason =
@@ -90,6 +119,7 @@ export type RejectionReason =
   | "reserved-as"
   | "delivery"
   | "key"
+  | "group"
   | "per-plugin-cap"
   | "total-cap"
   | "spec-shape";
@@ -100,6 +130,10 @@ export interface ValidationResult {
   pluginId?: string;
   accepted: AcceptedChannelSpec[];
   rejected: Array<{ channel: string; reason: RejectionReason }>;
+  /** Validated `maxKeys` (clamped to the ceiling); absent when not declared / invalid. */
+  maxKeys?: number;
+  /** True when `maxKeys` was invalid or clamped (counted by the registry). */
+  maxKeysRejected?: boolean;
 }
 
 function own(obj: object, k: string): unknown {
@@ -130,7 +164,15 @@ function checkChannelSpec(channel: string, spec: unknown): AcceptedChannelSpec |
   if (RESERVED_EVENT_TYPES.has(as)) return "reserved-as";
   const key = optionalMatch(own(spec, "key"), KEY_RE);
   if (key === false || (delivery !== "live" && key === undefined)) return "key";
-  return { channel, as, delivery, ...(key !== undefined ? { key } : {}) };
+  const group = optionalMatch(own(spec, "group"), KEY_RE);
+  if (group === false || (group !== undefined && delivery !== "latest")) return "group";
+  return {
+    channel,
+    as,
+    delivery,
+    ...(key !== undefined ? { key } : {}),
+    ...(group !== undefined ? { group } : {}),
+  };
 }
 
 /** Parse the declaration header; `undefined` when the envelope is malformed. */
@@ -162,6 +204,15 @@ export function validateDeclaration(
   if (!header) return result;
   result.ok = true;
   result.pluginId = header.pluginId;
+  const rawMax = own(raw as object, "maxKeys");
+  if (rawMax !== undefined) {
+    if (typeof rawMax === "number" && Number.isInteger(rawMax) && rawMax >= 1) {
+      result.maxKeys = Math.min(rawMax, MAX_PLUGIN_MAX_KEYS);
+      if (rawMax > MAX_PLUGIN_MAX_KEYS) result.maxKeysRejected = true;
+    } else {
+      result.maxKeysRejected = true;
+    }
+  }
 
   let perPlugin = opts.existingForPlugin ?? 0;
   let total = opts.existingTotal ?? 0;
@@ -192,4 +243,18 @@ export function isValidKeyValue(v: unknown): v is string | number {
   if (typeof v === "string") return v.length <= 128;
   if (typeof v === "number") return Number.isFinite(v) && String(v).length <= 128;
   return false;
+}
+
+export interface ToolUpdateFilterCondition {
+  /** Dot path of a string value; read as a sibling of each drop path first, else absolute. */
+  path: string;
+  in: string[];
+}
+
+/** Data-only `tool_execution_update` filter declaration (D5). */
+export interface ToolUpdateFilterDeclaration {
+  pluginId: string;
+  toolName: string;
+  dropPaths: string[];
+  when?: ToolUpdateFilterCondition;
 }

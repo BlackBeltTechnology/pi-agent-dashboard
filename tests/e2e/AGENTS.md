@@ -274,11 +274,8 @@ One row per file.
 | `subagent-detail-dialog.spec.ts` | → `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | → `subagent-inspector.spec.ts.AGENTS.md` |
 | `subagent-live-timeline.spec.ts` | → `subagent-live-timeline.spec.ts.AGENTS.md` |
-| `subagent-pull-measurements.spec.ts` | → `subagent-pull-measurements.spec.ts.AGENTS.md` |
-| `subagent-pull-under-load.spec.ts` | → `subagent-pull-under-load.spec.ts.AGENTS.md` |
 | `subagent-stop-finalize.spec.ts` | → `subagent-stop-finalize.spec.ts.AGENTS.md` |
-| `subagent-thin-tick-liveness.spec.ts` | → `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |
-| `subagent-tick-throttle.spec.ts` | → `subagent-tick-throttle.spec.ts.AGENTS.md` |
+| `subagent-windowed-replay-carry.spec.ts` | L3 #F4. Fake bridge sends head-sized filler (HEAD_CAP 200 +20), then subagent_created/started/entry (pluginId "subagents") so they land in the GAP not the head, then maxReplayEvents+300 filler. Cold open asserts dock row type+task, no `unknown`, history_window + plugin_event_carry frames, detail view lists entries 0..5. Skips if window off. See change: move-subagents-to-plugin. |
 | `submodule-folder-grouping.spec.ts` | → `submodule-folder-grouping.spec.ts.AGENTS.md` |
 | `streaming-latch-heal.spec.ts` | → `streaming-latch-heal.spec.ts.AGENTS.md` |
 | `superseded-heal.spec.ts` | → `superseded-heal.spec.ts.AGENTS.md` |

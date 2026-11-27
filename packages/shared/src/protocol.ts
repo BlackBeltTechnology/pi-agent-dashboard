@@ -327,19 +327,6 @@ export interface ProcessMetrics {
    */
   refusedInboundFrames?: number;
   /**
-   * Subagent-tick throttle counters (change: reduce-bridge-tick-bandwidth, D6).
-   * Cumulative for the bridge's lifetime. `tickForwarded`/`tickCoalesced`
-   * describe the throttle's visible work; `tickDiscardedAtTerminal` and
-   * `tickDroppedNotReady` are its ONLY two information-loss modes and are
-   * otherwise entirely invisible in production. Ride the existing heartbeat
-   * metrics transport rather than a new one, and land on `/api/health` both
-   * per-session (via `agents[]`) and summed.
-   */
-  tickForwarded?: number;
-  tickCoalesced?: number;
-  tickDiscardedAtTerminal?: number;
-  tickDroppedNotReady?: number;
-  /**
    * Plugin event-forward registry counters (change:
    * add-plugin-bridge-contributions, D3/D4). `pluginForwardDeclared` is a gauge
    * of accepted plugin channels; the rest are cumulative. `pluginForwardDropped`
@@ -350,6 +337,13 @@ export interface ProcessMetrics {
   pluginForwardConflicts?: number;
   pluginForwardRetained?: number;
   pluginForwardDropped?: number;
+  /**
+   * Plugin tool-update filter counters (change: move-subagents-to-plugin, D5):
+   * declared filters (gauge), refused declarations and applied drops (cumulative).
+   */
+  toolUpdateFilterDeclared?: number;
+  toolUpdateFilterRefused?: number;
+  toolUpdateFilterApplied?: number;
   /**
    * V8 heap ceiling of this process in bytes (`v8.getHeapStatistics()
    * .heap_size_limit`). Without it `heapUsed` is unreadable: "148 MB" means
@@ -415,6 +409,23 @@ export interface EventForwardMessage {
    * See change: fix-large-session-resume-replay (D1).
    */
   replay?: true;
+  /**
+   * Stamped by the bridge's plugin forward registry on every plugin-declared
+   * forward. The server rejects an event of a manifest-owned type whose stamp
+   * is not the owner. See change: move-subagents-to-plugin (D1).
+   */
+  pluginId?: string;
+}
+
+/**
+ * Server → bridge, on every `session_register`: the plugin ownership table built
+ * from loaded manifests (event-type pattern → pluginId, claimed tool → pluginId).
+ * See change: move-subagents-to-plugin (D1).
+ */
+export interface PluginOwnershipMessage {
+  type: "plugin_ownership";
+  eventTypes: Record<string, string>;
+  toolClaims: Record<string, string>;
 }
 
 /**
@@ -1780,6 +1791,7 @@ export interface PluginReplyMessage {
 }
 
 export type ServerToExtensionMessage =
+  | PluginOwnershipMessage
   | ProvisionalAcceptedMessage
   | SessionMoveCommittedMessage
   | ProvisionalRejectedMessage
@@ -1835,7 +1847,6 @@ export type ServerToExtensionMessage =
   | PluginEmitEventExtensionMessage
   | PreferencesUpdateExtensionMessage
   | GitCommitDraftMessage
-  | SubagentResyncRequestExtensionMessage
   | PromptResyncRequestExtensionMessage;
 
 /**
@@ -1864,30 +1875,6 @@ export interface GitCommitDraftResultMessage {
   message: string;
   /** Which ladder rung produced the message. */
   source: "fork-subagent" | "diff-only" | "stub";
-}
-
-/**
- * Server → extension: forward a browser resync request to the owning bridge.
- * The bridge replies with the latest retained `AgentDetails` snapshot of the
- * running subagent as a synthetic `subagent_started` `event_forward`, or no-ops
- * for an unknown/finished agent. See change: fix-subagent-live-detail-reliability (D2).
- */
-export interface SubagentResyncRequestExtensionMessage {
-  type: "subagent_resync_request";
-  sessionId: string;
-  agentId: string;
-  /**
-   * Correlation token from the requesting browser, echoed by the bridge onto
-   * the reply frame (`__resyncRequestId`) so the server can route the reply to
-   * that one connection. See change: reduce-subagent-details-payload (C5).
-   */
-  requestId?: string;
-  /**
-   * Why this resync fired — `"open"` (user opened the inspector) or
-   * `"cadence"` (the D4 v1 pull loop). Counted separately by the bridge.
-   * See change: reduce-subagent-details-payload (D6, task 9.4).
-   */
-  reason?: "open" | "cadence";
 }
 
 /**

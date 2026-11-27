@@ -93,7 +93,10 @@
     "requires": {
       "piExtensions": [
         "@blackbelt-technology/pi-dashboard-subagents"
-      ]
+      ],
+      "piExtensionVersions": {
+        "@blackbelt-technology/pi-dashboard-subagents": ">=0.7.0"
+      }
     },
     "bridge": "./src/bridge/index.ts"
   },

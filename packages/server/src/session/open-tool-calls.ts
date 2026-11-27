@@ -7,26 +7,44 @@
  * stream. When a session reaches its terminal transition, `onEnded` derives the
  * open set from `eventStore.getEvents(sessionId, 1)` and inserts one
  * synthesized terminal event per entry, making the stream self-describing: the
- * reducer's existing `tool_execution_end` / `subagent_failed` arms do the work,
+ * reducer's existing `tool_execution_end` arm does the work,
  * live and on replay.
  *
  * Idempotence comes from the store, not a flag: the synthesized ends land in
  * the same stream, so a second derivation finds nothing open.
  *
+ * Subagent orphan heal (open subagents → a synthesized terminal frame) lives in
+ * the subagents plugin (`ctx.onSessionStatusEnded`); this module names no plugin
+ * contract. See change: move-subagents-to-plugin (D4).
+ *
  * See change: heal-orphaned-tool-cards-on-session-end (design D2, D3, D3b).
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { StoredEvent } from "../persistence/memory-event-store.js";
+import { sanitizeIdentityFields } from "../plugin-policy-registry.js";
 
 /** Result text + `healedBy` marker carried by every event synthesized here. */
 const SESSION_ENDED_RESULT = "parent session ended";
 const SESSION_ENDED_MARKER = "session_ended";
 
+/**
+ * Recovers a claimed tool's identity fields from one of its
+ * `tool_execution_update` events: the claiming plugin's store-policy `identity`
+ * hook (an end-shaped partial `data`), or `undefined` for an unclaimed tool.
+ */
+export type ToolIdentityResolver = (
+  toolName: string,
+  update: DashboardEvent,
+) => Record<string, unknown> | undefined;
+
 export interface OpenToolCall {
   toolCallId: string;
   toolName: string;
-  /** Only for `Agent` calls that ever ticked a subagent snapshot. */
-  agentId?: string;
+  /**
+   * Scalar identity fields the claiming plugin's policy recovered from the
+   * call's latest identity-bearing update; merged into the synthesized end.
+   */
+  identity?: Record<string, unknown>;
 }
 
 /**
@@ -48,9 +66,13 @@ export interface OpenToolCall {
  * hydration. Open starts are deduped by `toolCallId`.
  * See change: fix-replay-fabricates-orphan-end-for-live-calls (D4).
  */
-export function findOpenToolCalls(events: StoredEvent[]): OpenToolCall[] {
+export function findOpenToolCalls(
+  events: StoredEvent[],
+  resolveIdentity?: ToolIdentityResolver,
+): OpenToolCall[] {
   const closed = new Set<string>();
-  const agentIds = new Map<string, string>();
+  // Updates per call, NEWEST first; consulted only for calls found open.
+  const updates = new Map<string, DashboardEvent[]>();
   const open: OpenToolCall[] = [];
 
   for (let i = events.length - 1; i >= 0; i--) {
@@ -66,13 +88,10 @@ export function findOpenToolCalls(events: StoredEvent[]): OpenToolCall[] {
     }
     if (eventType === "tool_execution_update") {
       const id = data.toolCallId;
-      if (typeof id !== "string" || agentIds.has(id)) continue;
-      // The Agent snapshot rides `data.partialResult.details.agentId` — the
-      // path the reducer and the bridge's frame-strip both use. `data.details`
-      // carries nothing here.
-      const partial = data.partialResult as Record<string, unknown> | undefined;
-      const details = partial?.details as Record<string, unknown> | undefined;
-      if (typeof details?.agentId === "string") agentIds.set(id, details.agentId);
+      if (!resolveIdentity || typeof id !== "string") continue;
+      const list = updates.get(id);
+      if (list) list.push(events[i].event);
+      else updates.set(id, [events[i].event]);
       continue;
     }
     if (eventType === "tool_execution_start") {
@@ -92,9 +111,18 @@ export function findOpenToolCalls(events: StoredEvent[]): OpenToolCall[] {
 
   // Walked backwards; report in start order.
   open.reverse();
+  if (!resolveIdentity) return open;
   return open.map((call) => {
-    const agentId = agentIds.get(call.toolCallId);
-    return agentId ? { ...call, agentId } : call;
+    for (const update of updates.get(call.toolCallId) ?? []) {
+      let identity: Record<string, unknown> | undefined;
+      try {
+        identity = sanitizeIdentityFields(resolveIdentity(call.toolName, update));
+      } catch {
+        identity = undefined;
+      }
+      if (identity) return { ...call, identity };
+    }
+    return call;
   });
 }
 
@@ -143,58 +171,19 @@ export function findBackfillOpenToolCalls(
   return candidateIds.filter((id) => open.has(id));
 }
 
-/**
- * Subagents created/started with no terminal event.
- *
- * NOT turn-scoped — a subagent outlives a single `agent_start` — and
- * independent of the tool-call scan: a subagent whose `agentId` never reached a
- * `tool_execution_update` (dropped ticks) is reachable only here.
- */
-export function findOpenSubagents(events: StoredEvent[]): string[] {
-  const seen: string[] = [];
-  const known = new Set<string>();
-  const terminal = new Set<string>();
-
-  for (const { event } of events) {
-    const id = event.data.id;
-    if (typeof id !== "string") continue;
-    if (event.eventType === "subagent_created" || event.eventType === "subagent_started") {
-      if (!known.has(id)) {
-        known.add(id);
-        seen.push(id);
-      }
-    } else if (
-      event.eventType === "subagent_completed" ||
-      event.eventType === "subagent_failed"
-    ) {
-      terminal.add(id);
-    }
-  }
-
-  return seen.filter((id) => !terminal.has(id));
-}
-
 /** The synthesized `tool_execution_end` that terminates an orphaned card. */
 export function synthesizeSessionEndedEnd(call: OpenToolCall, now: number): DashboardEvent {
   return {
     eventType: "tool_execution_end",
     timestamp: now,
     data: {
+      // Owner identity first: the core fields below can never be overridden.
+      ...(call.identity ?? {}),
       toolCallId: call.toolCallId,
       toolName: call.toolName,
       isError: true,
       result: SESSION_ENDED_RESULT,
       healedBy: SESSION_ENDED_MARKER,
-      ...(call.agentId ? { details: { agentId: call.agentId } } : {}),
     },
-  };
-}
-
-/** The synthesized `subagent_failed` that terminates an orphaned subagent. */
-export function synthesizeSessionEndedSubagentFail(id: string, now: number): DashboardEvent {
-  return {
-    eventType: "subagent_failed",
-    timestamp: now,
-    data: { id, error: SESSION_ENDED_RESULT, healedBy: SESSION_ENDED_MARKER },
   };
 }

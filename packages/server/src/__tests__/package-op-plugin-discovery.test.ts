@@ -198,7 +198,7 @@ describe("installs outside the dashboard appear after a restart (E68)", () => {
     fs.mkdirSync(pkgDir, { recursive: true });
     fs.writeFileSync(
       path.join(pkgDir, "package.json"),
-      JSON.stringify({ name: "pi-dashboard-quota", version: "1.0.0", "pi-dashboard-plugin": { id: "quota", displayName: "quota", claims: [], hostApi: "^1.0.0" } }),
+      JSON.stringify({ name: "pi-dashboard-quota", version: "1.0.0", "pi-dashboard-plugin": { id: "quota", displayName: "quota", claims: [], hostApi: "^2.0.0" } }),
     );
     fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:pi-dashboard-quota"] }));
     await settle();

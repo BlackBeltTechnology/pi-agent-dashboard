@@ -4,17 +4,37 @@ import { describe, expect, it, vi } from "vitest";
 import {
   byteTrimSlack,
   capString,
-  createMemoryEventStore,
+  createMemoryEventStore as createStoreRaw,
   DEFAULT_MAX_CACHED_SESSIONS,
   DEFAULT_MAX_EVENT_DATA_SIZE,
   DEFAULT_MAX_STRING_SIZE,
-  __testEndSubsumes as endSubsumes,
+  __testEndSubsumes as endSubsumesGeneric,
   exceedsSerializedSize,
   globalTrimSlack,
   MEASURE_CEILING_FALLBACK,
   measureBytes,
   truncateStrings,
 } from "../persistence/memory-event-store.js";
+import { createPluginPolicyRegistry } from "../plugin-policy-registry.js";
+import { createSubagentsPolicyRegistry, createSubagentsStorePolicy, subagentsOf } from "./setup/subagents-reducer-slice.js";
+
+/**
+ * Every subagent rule lives in the subagents plugin's store policy now
+ * (move-subagents-to-plugin D3). The suite's `createMemoryEventStore` is the
+ * production store with that policy registered through the real registry, so
+ * the existing subagent elision / delta-collapse / collapse-guard assertions run
+ * unchanged against the policy. `createStoreWithoutPolicies` is the
+ * plugin-absent store (generic rules only).
+ */
+const subagentsRegistry = createSubagentsPolicyRegistry();
+const subagentsPolicy = createSubagentsStorePolicy();
+/** End-side gate with the owner's `vetoSupersede` (identity rules) applied. */
+const endSubsumes = (tail: DashboardEvent, end: DashboardEvent) =>
+  endSubsumesGeneric(tail, end, subagentsPolicy);
+const createMemoryEventStore = (...a: Parameters<typeof createStoreRaw>) =>
+  createStoreRaw(a[0], a[1], a[2], a[3], a[4], a[5], a[6], (e) => subagentsRegistry.resolveStorePolicy(e));
+const createStoreWithoutPolicies = (...a: Parameters<typeof createStoreRaw>) =>
+  createStoreRaw(a[0], a[1], a[2], a[3], a[4], a[5], a[6], () => undefined);
 
 function makeEvent(type: string = "test"): DashboardEvent {
   return { eventType: type, timestamp: Date.now(), data: {} };
@@ -714,12 +734,9 @@ describe("memory-event-store", () => {
         // Additive. See change: bound-event-store-by-bytes (D4).
         trimmedBytes: 0,
         evictedBytes: 0,
-        // Additive. See change: reduce-subagent-details-payload (D6).
-        subagentTicks: 0,
-        subagentTickBytes: 0,
-        subagentFatTicks: 0,
-        subagentTickFatBytes: 0,
         collapsedDeltas: 0,
+        // Additive. See change: move-subagents-to-plugin (D3).
+        pinOverflow: 0,
       });
     });
 
@@ -1038,28 +1055,6 @@ describe("memory-event-store", () => {
       expect(kept).not.toBe("[array truncated]");
       expect(Array.isArray(kept)).toBe(true);
       expect(kept).toHaveLength(21);
-    });
-
-    it("D6: counts subagent ticks, splitting fat from thin", () => {
-      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
-      // A thin tick: the strip landed, no timeline on the wire.
-      store.insertEvent("s1", {
-        eventType: "subagent_started",
-        timestamp: Date.now(),
-        data: { id: "ag1", details: { agentId: "ag1", status: "running", toolUses: 2 } },
-      });
-      // A fat tick: a terminal frame or a resync reply.
-      store.insertEvent("s1", startedEvent(Array.from({ length: 5 }, (_, i) => toolEntry(i, 100))));
-      // Not a subagent carrier — must not be counted at all.
-      store.insertEvent("s1", { eventType: "message_start", timestamp: Date.now(), data: { a: 1 } });
-
-      const stats = store.getTrimStats();
-      expect(stats.subagentTicks).toBe(2);
-      expect(stats.subagentFatTicks).toBe(1);
-      expect(stats.subagentTickFatBytes).toBeGreaterThan(0);
-      expect(stats.subagentTickBytes).toBeGreaterThan(stats.subagentTickFatBytes);
-      // Never reset on read.
-      expect(store.getTrimStats().subagentTicks).toBe(2);
     });
 
     it("E4: a non-subagent/non-tool event carrying details.entries still does NOT match", () => {
@@ -2765,8 +2760,8 @@ describe("liveTail clear-sentinel subsumption + fold equivalence", () => {
     const fold = (events: DashboardEvent[]) => events.reduce((s, e) => reduceEvent(s, e), createInitialState());
     const full = fold(raw);
     const compacted = fold(store.getEvents("s", 1).map((e) => e.event));
-    expect(compacted.subagents.get("a1")).toEqual(full.subagents.get("a1"));
-    expect(full.subagents.get("a1")?.liveTail).toEqual(CLEARED);
+    expect(subagentsOf(compacted).get("a1")).toEqual(subagentsOf(full).get("a1"));
+    expect(subagentsOf(full).get("a1")?.liveTail).toEqual(CLEARED);
   });
 });
 
@@ -2873,5 +2868,190 @@ describe("truncateStrings — image data exemption (#416)", () => {
     expect(out.data).not.toBe(big);
     expect(out.data.length).toBeLessThanOrEqual(DEFAULT_MAX_STRING_SIZE + 200);
     expect(out.data).toMatch(/…\[\d+ chars hidden\]…/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin store policy (D3): the store consults the owner's policy for owned
+// event types and claimed tools only; every subagent rule is the subagents
+// plugin's policy. See change: move-subagents-to-plugin (test-plan #E10-#E18).
+// ---------------------------------------------------------------------------
+describe("plugin store policy — subagents plugin through the registry", () => {
+  const CEIL = 20_000;
+  const noPin = () => false;
+  const ev = (eventType: string, data: Record<string, unknown>): DashboardEvent => ({
+    eventType,
+    timestamp: Date.now(),
+    data,
+  });
+  /** 300 resident `subagent_entry` steps (index range), agent a1. */
+  const seedEntries = (store: ReturnType<typeof createMemoryEventStore>, from: number, to: number) => {
+    for (let i = from; i <= to; i++) store.insertEvent("s1", ev("subagent_entry", { agentId: "a1", index: i }));
+  };
+  /** An over-ceiling terminal frame carrying a 300-step timeline. */
+  const bigCompleted = (extraDetails: Record<string, unknown> = {}) =>
+    ev("subagent_completed", {
+      id: "a1",
+      details: {
+        agentId: "a1",
+        status: "completed",
+        entryCount: 300,
+        entries: Array.from({ length: 300 }, (_, i) => ({ kind: "text", text: "x".repeat(100), ts: i })),
+        ...extraDetails,
+      },
+    });
+  const last = (store: ReturnType<typeof createMemoryEventStore>) => {
+    const all = store.getEvents("s1", 0);
+    return all[all.length - 1].event;
+  };
+
+  it("E10: an over-ceiling terminal frame with every step resident elides entries, keeps entryCount", () => {
+    const store = createMemoryEventStore(noPin, undefined, undefined, undefined, CEIL);
+    seedEntries(store, 0, 299);
+    store.insertEvent("s1", bigCompleted());
+    const details = (last(store).data as any).details;
+    expect(details.entries).toEqual([]);
+    expect(details.entryCount).toBe(300);
+  });
+
+  it("E11: a missing resident step blocks elision; the generic path bounds the event", () => {
+    const store = createMemoryEventStore(noPin, undefined, undefined, undefined, CEIL);
+    seedEntries(store, 0, 298);
+    store.insertEvent("s1", bigCompleted());
+    const stored = last(store);
+    const details = (stored.data as any).details;
+    // Not elided: the generic path bounded the array instead of emptying it.
+    expect(Array.isArray(details?.entries) && details.entries.length === 0).toBe(false);
+    expect(details.entryCount).toBe(300);
+    expect(measureBytes(stored.data, CEIL * 10)).toBeLessThanOrEqual(CEIL + 1024);
+  });
+
+  it("E12: the over-size placeholder keeps owner identity fields, each cut to 256 B", () => {
+    const store = createMemoryEventStore(noPin, undefined, undefined, undefined, CEIL);
+    const blobs = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`k${i}`, "y".repeat(3_900)]));
+    store.insertEvent("s1", ev("subagent_completed", { id: "a1", details: { status: "completed", ...blobs } }));
+    const ph = last(store).data as any;
+    expect(ph).toMatchObject({
+      __truncated: true,
+      eventType: "subagent_completed",
+      id: "a1",
+      details: { status: "completed" },
+    });
+    expect(measureBytes(ph, CEIL * 10)).toBeLessThanOrEqual(CEIL);
+
+    store.insertEvent("s1", ev("subagent_completed", { id: "i".repeat(1024), details: { status: "completed", ...blobs } }));
+    const ph2 = last(store).data as any;
+    expect(ph2.__truncated).toBe(true);
+    expect(Buffer.byteLength(ph2.id)).toBe(256);
+    expect(measureBytes(ph2, CEIL * 10)).toBeLessThanOrEqual(CEIL);
+  });
+
+  it("E13: the policy is consulted for an owned type and a claimed tool only", () => {
+    const registry = createPluginPolicyRegistry();
+    registry.setOwnership("subagents", { eventTypes: ["subagent_*"], tools: ["Agent"] });
+    const spy = {
+      bound: vi.fn(() => undefined),
+      onStored: vi.fn(() => undefined),
+      identity: vi.fn(() => undefined),
+    };
+    registry.registerStorePolicy("subagents", spy);
+    const store = createStoreRaw(noPin, 100, 20_000, 4_000, CEIL, 0, 0, (e) => registry.resolveStorePolicy(e));
+    store.insertEvent("s1", ev("subagent_entry", { agentId: "a1", index: 0 }));
+    store.insertEvent("s1", ev("tool_execution_end", { toolCallId: "t1", toolName: "Agent" }));
+    store.insertEvent("s1", ev("tool_execution_end", { toolCallId: "t2", toolName: "bash" }));
+    const consulted = (fn: ReturnType<typeof vi.fn>) =>
+      (fn.mock.calls as unknown as Array<[DashboardEvent]>).map(([e]) => `${e.eventType}:${(e.data as any).toolName ?? ""}`);
+    expect(consulted(spy.bound)).toEqual(["subagent_entry:", "tool_execution_end:Agent"]);
+    expect(consulted(spy.onStored)).toEqual(["subagent_entry:", "tool_execution_end:Agent"]);
+  });
+
+  it("E14: a finished block drops its deltas and only its deltas", () => {
+    const store = createMemoryEventStore(noPin, undefined, undefined, undefined, CEIL);
+    const delta = (blockId: number, offset: number) =>
+      ev("subagent_delta", { agentId: "a1", blockId, offset, text: "t" });
+    for (let i = 0; i < 5; i++) store.insertEvent("s1", delta(2, i));
+    for (let i = 0; i < 2; i++) store.insertEvent("s1", delta(3, i));
+    store.insertEvent("s1", ev("subagent_entry", { agentId: "a1", index: 0, blockId: 2 }));
+    const deltas = store.getEvents("s1", 0).filter((e) => e.event.eventType === "subagent_delta");
+    expect(deltas.filter((e) => (e.event.data as any).blockId === 2)).toHaveLength(0);
+    expect(deltas.filter((e) => (e.event.data as any).blockId === 3)).toHaveLength(2);
+    expect(store.getTrimStats().collapsedDeltas).toBe(5);
+  });
+
+  it("E15: an open agent's created + latest started frame survive the trim; pins cap at 500 and are counted", () => {
+    const filler = () => ev("tool_execution_end", { toolCallId: "f" });
+    // Count-bound trim on every over-cap insert (trimSlack = 0 for cap 5).
+    const pinned = createMemoryEventStore(noPin, 100, 5);
+    pinned.insertEvent("s1", ev("subagent_created", { id: "a1" })); // oldest seq
+    pinned.insertEvent("s1", ev("subagent_started", { id: "a1" }));
+    pinned.insertEvent("s1", ev("subagent_started", { id: "a1", details: { status: "running" } })); // latest
+    for (let i = 0; i < 12; i++) pinned.insertEvent("s1", filler());
+    const types = pinned.getEvents("s1", 0).map((e) => e.event.eventType);
+    expect(types.filter((t) => t === "subagent_created")).toHaveLength(1);
+    const started = pinned.getEvents("s1", 0).filter((e) => e.event.eventType === "subagent_started");
+    expect(started).toHaveLength(1);
+    expect((started[0].event.data as any).details).toEqual({ status: "running" });
+
+    // Control: without the policy the same trim drops them.
+    const bare = createStoreWithoutPolicies(noPin, 100, 5);
+    bare.insertEvent("s1", ev("subagent_created", { id: "a1" }));
+    for (let i = 0; i < 12; i++) bare.insertEvent("s1", filler());
+    expect(bare.getEvents("s1", 0).some((e) => e.event.eventType === "subagent_created")).toBe(false);
+
+    // 501 pin candidates: 500 kept, the oldest one ignored and counted.
+    const many = createMemoryEventStore(noPin, 100, 600);
+    for (let i = 0; i < 501; i++) many.insertEvent("s1", ev("subagent_created", { id: `a${i}` }));
+    for (let i = 0; i < 200; i++) many.insertEvent("s1", filler());
+    const created = many.getEvents("s1", 0).filter((e) => e.event.eventType === "subagent_created");
+    expect(created).toHaveLength(500);
+    expect((created[0].event.data as any).id).toBe("a1"); // a0 was the ignored (oldest) pin
+    expect(many.getTrimStats().pinOverflow).toBe(1);
+  });
+
+  it("E16: the owner veto keeps a retained Agent tail update the end would otherwise subsume", () => {
+    const run = (store: ReturnType<typeof createMemoryEventStore>) => {
+      const update = (extra: Record<string, unknown>) =>
+        mkUpdate("tc1", baseDetails({ agentId: "a1", ...extra }));
+      store.insertEvent("s1", update({})); // creating tick (pinned)
+      const tail = store.insertEvent("s1", update({ activity: "writing" })); // retained tail
+      // End whose identity does NOT match the tail's subagent: still needed.
+      store.insertEvent(
+        "s1",
+        mkEnd("tc1", { toolName: "Agent", result: "done", details: baseDetails({ agentId: "other", activity: "writing" }) }),
+      );
+      return store.getEvents("s1", 0).some((e) => e.seq === tail);
+    };
+    expect(run(createMemoryEventStore(noPin))).toBe(true);
+    // Control: with no policy the generic gate subsumes the tail.
+    expect(run(createStoreWithoutPolicies(noPin))).toBe(false);
+  });
+
+  it("E17: an over-ceiling subagent_delta is stored cut to the owner's bound (envelope, offsets kept)", () => {
+    const store = createMemoryEventStore(noPin, undefined, undefined, undefined, CEIL);
+    const text = "z".repeat(CEIL * 2);
+    store.insertEvent("s1", ev("subagent_delta", { agentId: "a1", blockId: 1, offset: 40, text }));
+    const data = last(store).data as any;
+    expect(data).toMatchObject({ agentId: "a1", blockId: 1, offset: 40, text: "", omittedLength: text.length });
+  });
+
+  it("E18: with no subagents policy registered only the generic rules apply", () => {
+    const store = createStoreWithoutPolicies(noPin, undefined, undefined, undefined, CEIL);
+    seedEntries(store, 0, 299);
+    store.insertEvent("s1", bigCompleted());
+    const data = last(store).data as any;
+    // No entries elision: the generic path bounded the array instead.
+    expect(Array.isArray(data.details?.entries) && data.details.entries.length === 0).toBe(false);
+    // …and an irreducible over-size frame gets the bare placeholder, no owner identity.
+    const blobs = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`k${i}`, "y".repeat(3_900)]));
+    store.insertEvent("s1", ev("subagent_completed", { id: "a1", details: { status: "completed", ...blobs } }));
+    const ph = last(store).data as any;
+    expect(ph.__truncated).toBe(true);
+    expect(ph.id).toBeUndefined();
+    expect(ph.details).toBeUndefined();
+    // No delta collapse either.
+    const s2 = createStoreWithoutPolicies(noPin);
+    s2.insertEvent("s1", ev("subagent_delta", { agentId: "a1", blockId: 2, offset: 0, text: "t" }));
+    s2.insertEvent("s1", ev("subagent_entry", { agentId: "a1", index: 0, blockId: 2 }));
+    expect(s2.getEvents("s1", 0).filter((e) => e.event.eventType === "subagent_delta")).toHaveLength(1);
   });
 });

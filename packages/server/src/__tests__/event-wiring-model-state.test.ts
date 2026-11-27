@@ -46,9 +46,12 @@ function makeRig() {
     id: SID, cwd: "/tmp/model-state-test", source: "dashboard", model: QWEN,
     thinkingLevel: "high", startedAt: 1,
   } as any);
-  const event = (eventType: string, data: Record<string, unknown>, replay = false) =>
+  // `pluginId`: the stamp the bridge's forward registry puts on a plugin-declared forward;
+  // a manifest-owned type without its owner's stamp is rejected (move-subagents-to-plugin D1).
+  const event = (eventType: string, data: Record<string, unknown>, replay = false, pluginId?: string) =>
     piGateway.onEvent(SID, {
       type: "event_forward", sessionId: SID, ...(replay ? { replay: true } : {}),
+      ...(pluginId ? { pluginId } : {}),
       event: { eventType, timestamp: Date.now(), data },
     });
   cleanups.push(() => replayState.controller.release(SID));
@@ -121,8 +124,8 @@ describe("event-wiring: plugin-declared event types (E58)", () => {
     const { eventStore, broadcastEvent, event } = makeRig();
     const decision = { stepId: "triage", labels: ["bug"], routes: [{ branch: "bug", itemCount: 2 }] };
     const started = { flowName: "research", steps: [] };
-    event("flow_decision", decision);
-    event("flow_started", started);
+    event("flow_decision", decision, false, "flows");
+    event("flow_started", started, false, "flows");
     const stored = eventStore.getEvents(SID, 1).map((e) => e.event);
     expect(stored).toEqual(
       expect.arrayContaining([

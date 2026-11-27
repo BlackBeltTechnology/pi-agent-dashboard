@@ -63,8 +63,6 @@ export {
   EditorPaneTabSlot,
   /** @deprecated Import `EditorPaneTabSlotProps` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type EditorPaneTabSlotProps,
-  /** @deprecated Import `EMPTY_SUBAGENTS` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  EMPTY_SUBAGENTS,
   /** @deprecated Import `EmbeddedAppReturnPill` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   EmbeddedAppReturnPill,
   /** @deprecated Import `EmbeddedAppShellProvider` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -81,10 +79,16 @@ export {
   type FolderMenuStore,
   /** @deprecated Import `findEditorPaneTabClaim` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   findEditorPaneTabClaim,
+  /** @deprecated Import `findFinalizerForEventType` from `@blackbelt-technology/dashboard-plugin-runtime/host`. Removed after one minor release. */
+  findFinalizerForEventType,
+  /** @deprecated Import `findPluginSessionReducers` from `@blackbelt-technology/dashboard-plugin-runtime/host`. Removed after one minor release. */
+  findPluginSessionReducers,
   /** @deprecated Import `findSessionEventReducer` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   findSessionEventReducer,
   /** @deprecated Import `findToolRowFinalizer` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   findToolRowFinalizer,
+  /** @deprecated Import `listToolRowFinalizers` from `@blackbelt-technology/dashboard-plugin-runtime/host`. Removed after one minor release. */
+  listToolRowFinalizers,
   /** @deprecated Import `forActionId` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   forActionId,
   /** @deprecated Import `forCommand` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */

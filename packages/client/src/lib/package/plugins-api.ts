@@ -10,7 +10,7 @@ import type {
 import { getApiBase } from "../api/api-context.js";
 
 export interface PluginRequirementReport {
-  piExtensions: { name: string; satisfied: boolean }[];
+  piExtensions: { name: string; satisfied: boolean; warning?: string }[];
   binaries: { name: string; satisfied: boolean; resolvedPath?: string }[];
   services: { name: string; satisfied: boolean; error?: string }[];
   /** Absolute-path existence probes. See change: add-apple-tools-imcp-plugin. */

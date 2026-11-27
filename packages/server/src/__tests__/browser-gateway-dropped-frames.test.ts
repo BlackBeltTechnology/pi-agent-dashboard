@@ -10,14 +10,26 @@
 
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createBrowserGateway, deferKeyOfEvent, frameClassOf, projectDeferredSubagentFrame, SUBAGENT_END_DEFER_TEXT_BYTES } from "../pairing/browser-gateway.js";
+import { createBrowserGateway, deferKeyOfEvent, frameClassOf, projectDeferredEventFrame } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { resetPluginPolicyRegistry } from "../plugin-policy-registry.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
 import { buildLoadGateway, makeStubPiGateway, seedSessions, subscribeWs } from "./helpers/load-fixtures.js";
 import { asWs, attachCapturedWs, buildDebtGateway, TEST_MAX_WS_BUFFER } from "./helpers/status-debt-fixtures.js";
+import { createSubagentsPolicyRegistry, SUBAGENT_END_DEFER_TEXT_BYTES } from "./setup/subagents-reducer-slice.js";
 
 const MAX_WS_BUFFER = 4 * 1024 * 1024; // gateway default
+
+// Subagent defer keys and the bounded deferred copy come from the subagents
+// plugin's delivery policy now: the process-wide registry carries the real one.
+// See change: move-subagents-to-plugin (D10).
+beforeEach(() => {
+  resetPluginPolicyRegistry(createSubagentsPolicyRegistry());
+});
+afterEach(() => {
+  resetPluginPolicyRegistry();
+});
 
 
 /** Fill a subscribed socket's send buffer past MAX_WS_BUFFER via broadcastEvent. */
@@ -723,7 +735,7 @@ describe("deferKeyOfEvent — subagent end and liveness frames (#E15)", () => {
   });
 });
 
-describe("projectDeferredSubagentFrame — bounded copy (#E16)", () => {
+describe("projectDeferredEventFrame — the owner policy's bounded copy (#E16)", () => {
   const dataOf = (m: ServerToBrowserMessage) => (m as unknown as { event: { data: Record<string, unknown> } }).event.data;
   const big = (n: number) => "r".repeat(n);
 
@@ -737,7 +749,7 @@ describe("projectDeferredSubagentFrame — bounded copy (#E16)", () => {
         durationMs: 5,
         details: { status: "completed", entries, liveBlock: { blockId: 1 }, nested: { deep: true }, displayName: "w" },
       });
-      const projected = projectDeferredSubagentFrame(msg);
+      const projected = projectDeferredEventFrame(msg);
       const data = dataOf(projected);
       const details = data.details as Record<string, unknown>;
       expect(details.entries).toBeUndefined();
@@ -756,7 +768,7 @@ describe("projectDeferredSubagentFrame — bounded copy (#E16)", () => {
 
   it("returns stop answers and snapshots unchanged", () => {
     const stop = evFrame("S", "subagent_stop_result", { agentId: "A", phase: "unknown" });
-    expect(projectDeferredSubagentFrame(stop)).toBe(stop);
+    expect(projectDeferredEventFrame(stop)).toBe(stop);
   });
 });
 

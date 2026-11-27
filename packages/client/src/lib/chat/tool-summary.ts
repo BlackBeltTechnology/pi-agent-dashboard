@@ -40,8 +40,6 @@ export const toolSummaries: Record<string, (args?: Record<string, unknown>) => s
   kb_search: (args) => `kb_search ${String(args?.query ?? "")}`.trim(),
   ask_user: (args) => `${String(args?.title ?? "ask_user")}`,
   Agent: (args) => `${args?.subagent_type ?? "Agent"}: ${String(args?.description ?? "")}`,
-  get_subagent_result: (args) => `Get result: ${String(args?.agent_id ?? "")}`,
-  steer_subagent: (args) => `Steer: ${String(args?.agent_id ?? "")}`,
   ctx_execute: (args) => `ctx_execute ${String(args?.language ?? "")}`.trim(),
   ctx_execute_file: (args) => `ctx_execute_file ${String(args?.path ?? "")}`.trim(),
   ctx_batch_execute: (args) =>
@@ -78,8 +76,6 @@ export const toolIcons: Record<string, string> = {
   kb_search: mdiDatabaseSearchOutline,
   ask_user: mdiAccountQuestionOutline,
   Agent: mdiRobotOutline,
-  get_subagent_result: mdiRobotOutline,
-  steer_subagent: mdiRobotOutline,
   ctx_execute: mdiCodeBraces,
   ctx_execute_file: mdiCodeBraces,
   ctx_batch_execute: mdiCodeBraces,

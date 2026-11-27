@@ -43,8 +43,6 @@ describe("E23: a session change drops both buffers", () => {
       mcpRegistrar: { onSessionStart: vi.fn() } as never,
       usageDrain: { baseline: vi.fn(() => undefined) } as never,
       abortLatch: { clear: vi.fn() } as never,
-      subagentFrameBuffer: { reset: vi.fn() } as never,
-      subagentTickThrottle: { reset: vi.fn() } as never,
       coalescer: { clear: vi.fn() } as never,
       bridgeSteer: steer,
       bridgeFollowUp: followUp,

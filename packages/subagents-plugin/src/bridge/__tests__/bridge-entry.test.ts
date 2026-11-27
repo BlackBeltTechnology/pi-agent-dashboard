@@ -2,8 +2,9 @@
  * subagents-plugin bridge entry declares the step + delta streams (test-plan #E26).
  * See change: add-plugin-bridge-contributions.
  *
- * Stop answers + registry snapshot (test-plan #E1–#E8, #X1, #X5).
- * See change: fix-background-subagent-ghost-rows.
+ * Registry snapshot via `subagents:list` (test-plan #E28). The stop-answer
+ * verdict combiner and `subagents:registry` query tests were deleted with their code.
+ * See change: move-subagents-to-plugin (D6, D7).
  */
 
 import {
@@ -12,13 +13,9 @@ import {
   RESERVED_EVENT_TYPES,
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
 import { describe, expect, it } from "vitest";
-import activate, {
-  REGISTRY_QUERY_CHANNEL,
-  REGISTRY_SNAPSHOT_CHANNEL,
-  STOP_CHANNEL,
-  STOP_RESULT_CHANNEL,
-  SUBAGENTS_FORWARD_DECLARATION,
-} from "../index.js";
+import { PluginForwardRegistry } from "../../../../extension/src/plugin-event-forward-registry.js";
+import { ToolUpdateFilterRegistry } from "../../../../extension/src/tool-update-filter-registry.js";
+import activate, { LIST_CHANNEL, REGISTRY_SNAPSHOT_CHANNEL, SUBAGENTS_FORWARD_DECLARATION } from "../index.js";
 
 type Handler = (d: unknown) => void;
 
@@ -42,22 +39,20 @@ function fakePi() {
   };
 }
 
-const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 const ofChannel = (pi: ReturnType<typeof fakePi>, channel: string) =>
   pi.emitted.filter((e) => e.channel === channel).map((e) => e.data as Record<string, unknown>);
 
-/** A producer stub listener pushing one verdict synchronously. */
-const verdictStub = (verdict: Record<string, unknown>) => (d: unknown) => {
-  const data = d as { verdicts?: unknown[] };
-  (data.verdicts ??= []).push(verdict);
-};
-
+const LIFECYCLE = { delivery: "latest", key: "id", group: "lifecycle" };
 const EXPECTED_DECLARATION = {
   pluginId: "subagents",
+  maxKeys: 256,
   channels: {
+    "subagents:created": { as: "subagent_created", ...LIFECYCLE },
+    "subagents:started": { as: "subagent_started", ...LIFECYCLE },
+    "subagents:completed": { as: "subagent_completed", ...LIFECYCLE },
+    "subagents:failed": { as: "subagent_failed", ...LIFECYCLE },
     "subagents:entry": { as: "subagent_entry", delivery: "stream", key: "agentId" },
     "subagents:delta": { as: "subagent_delta", delivery: "stream", key: "agentId" },
-    "subagents:stop_result": { as: "subagent_stop_result", delivery: "latest", key: "agentId" },
     "subagents:registry_snapshot": { as: "subagent_registry_snapshot", delivery: "latest", key: "scope" },
   },
 };
@@ -76,6 +71,60 @@ describe("subagents-plugin bridge entry", () => {
     expect(SUBAGENTS_FORWARD_DECLARATION.pluginId).toBe("subagents");
   });
 
+  // 1.3: the four lifecycle channels forward under their subagent_* names, and
+  // only the newest frame per agent flushes after a reconnect (core maps none).
+  it("forwards the lifecycle channels as subagent_* and flushes only the newest frame per agent", () => {
+    const pi = fakePi();
+    const state = { connected: true };
+    const sent: Array<{ eventType: string; data: Record<string, unknown>; pluginId: string }> = [];
+    const registry = new PluginForwardRegistry(pi.events, {
+      send: (eventType, data, pluginId) => sent.push({ eventType, data, pluginId }),
+      isSessionReady: () => true,
+      isActive: () => true,
+      isConnected: () => state.connected,
+    });
+    registry.setOwnership({ eventTypes: { "subagent_*": "subagents" } });
+    registry.attach(); // re-declares on bridge-ready
+    activate(pi);
+    for (const [ch, eventType] of [
+      ["subagents:created", "subagent_created"],
+      ["subagents:started", "subagent_started"],
+      ["subagents:completed", "subagent_completed"],
+      ["subagents:failed", "subagent_failed"],
+    ] as const) {
+      pi.events.emit(ch, { id: `x-${ch}` });
+      expect(sent.at(-1)).toEqual({ eventType, data: { id: `x-${ch}` }, pluginId: "subagents" });
+    }
+    sent.length = 0;
+    state.connected = false;
+    pi.events.emit("subagents:created", { id: "a1" });
+    pi.events.emit("subagents:started", { id: "a1", n: 1 });
+    pi.events.emit("subagents:started", { id: "a1", n: 2 });
+    pi.events.emit("subagents:completed", { id: "a1" });
+    pi.events.emit("subagents:created", { id: "a2" });
+    state.connected = true;
+    registry.flush();
+    expect(sent.map((m) => [m.eventType, m.data.id])).toEqual([
+      ["subagent_completed", "a1"],
+      ["subagent_created", "a2"],
+    ]);
+  });
+
+  // 2.2: the Agent filter the plugin declares drops the timeline of a running agent.
+  it("declares the Agent tool-update filter that drops entries of a running agent", () => {
+    const pi = fakePi();
+    const filters = new ToolUpdateFilterRegistry(pi.events);
+    filters.attach();
+    filters.setClaims({ Agent: "subagents" });
+    activate(pi);
+    const running = { toolName: "Agent", partialResult: { details: { status: "running", entries: [1, 2] } } };
+    const out = filters.apply("Agent", running) as typeof running;
+    expect(out.partialResult.details).toEqual({ status: "running" });
+    expect(running.partialResult.details.entries).toHaveLength(2);
+    const done = { toolName: "Agent", partialResult: { details: { status: "completed", entries: [1] } } };
+    expect(filters.apply("Agent", done)).toBe(done);
+  });
+
   it("accepts ctx wrapped as { pi } and is a no-op without an event bus", () => {
     const pi = fakePi();
     activate({ pi });
@@ -84,162 +133,122 @@ describe("subagents-plugin bridge entry", () => {
   });
 });
 
-describe("stop answer (#E1–#E3, #E8, #X1)", () => {
-  async function answerFor(verdicts: Array<Record<string, unknown>>) {
-    const pi = fakePi();
-    activate(pi);
-    for (const v of verdicts) pi.events.on(STOP_CHANNEL, verdictStub(v));
-    pi.events.emit(STOP_CHANNEL, { agentId: "A" });
-    await flush();
-    return ofChannel(pi, STOP_RESULT_CHANNEL);
-  }
-
-  it.each([
-    [[{ phase: "unknown" }], { phase: "unknown", outcome: "ignored", status: undefined }],
-    [[{ phase: "terminal", status: "completed" }], { phase: "terminal", outcome: "ignored", status: "completed" }],
-    [[{ phase: "terminal" }], { phase: "terminal", outcome: "ignored", status: undefined }],
-    [[{ phase: "unknown" }, { phase: "running" }], { phase: "running", outcome: "stopped", status: undefined }],
-    [[{ phase: "terminal", status: "stopped" }, { phase: "queued" }], { phase: "queued", outcome: "stopped", status: undefined }],
-    [[{ phase: "unknown" }, { phase: "terminal", status: "failed" }], { phase: "terminal", outcome: "ignored", status: "failed" }],
-  ])("verdicts %j → one combined answer %j (#E1)", async (verdicts, want) => {
-    const answers = await answerFor(verdicts);
-    expect(answers).toHaveLength(1);
-    const [a] = answers;
-    expect(a.agentId).toBe("A");
-    expect(a.phase).toBe(want.phase);
-    expect(a.outcome).toBe(want.outcome);
-    expect(a.status).toBe(want.status);
-    expect(typeof a.answeredAt).toBe("number");
-  });
-
-  it("sends no answer when no producer pushed a verdict (#E1 [], #X1 bridge half)", async () => {
-    expect(await answerFor([])).toHaveLength(0);
-  });
-
-  it("is listener-order independent (#E2)", async () => {
-    for (const before of [true, false]) {
-      const pi = fakePi();
-      if (before) pi.events.on(STOP_CHANNEL, verdictStub({ phase: "running" }));
-      activate(pi);
-      if (!before) pi.events.on(STOP_CHANNEL, verdictStub({ phase: "running" }));
-      pi.events.emit(STOP_CHANNEL, { agentId: "A" });
-      await flush();
-      const answers = ofChannel(pi, STOP_RESULT_CHANNEL);
-      expect(answers, `producer registered ${before ? "before" : "after"}`).toHaveLength(1);
-      expect(answers[0].phase).toBe("running");
-    }
-  });
-
-  it("does not count an asynchronous verdict (#E3)", async () => {
-    const pi = fakePi();
-    activate(pi);
-    pi.events.on(STOP_CHANNEL, verdictStub({ phase: "unknown" }));
-    pi.events.on(STOP_CHANNEL, (d) => {
-      void (async () => {
-        await Promise.resolve();
-        await Promise.resolve();
-        verdictStub({ phase: "running" })(d);
-      })();
-    });
-    pi.events.emit(STOP_CHANNEL, { agentId: "A" });
-    await Promise.resolve(); // one microtask flush: the bridge's read runs here
-    const answers = ofChannel(pi, STOP_RESULT_CHANNEL);
-    expect(answers).toHaveLength(1);
-    expect(answers[0].phase).toBe("unknown");
-  });
-
-  it("answers exactly once per stop across a reload (#E8)", async () => {
-    const pi = fakePi();
-    const unsubs: Array<() => void> = [];
-    const trackingEvents = {
-      emit: pi.events.emit,
-      on: (channel: string, h: Handler) => {
-        const u = pi.events.on(channel, h);
-        unsubs.push(u);
-        return u;
-      },
-    };
-    activate({ events: trackingEvents });
-    for (const u of unsubs.splice(0)) u(); // reload: the loader unsubscribes the old runtime
-    activate({ events: trackingEvents });
-    pi.events.on(STOP_CHANNEL, verdictStub({ phase: "running" }));
-    pi.events.emit(STOP_CHANNEL, { agentId: "A" });
-    await flush();
-    expect(ofChannel(pi, STOP_RESULT_CHANNEL)).toHaveLength(1);
-  });
-});
-
-describe("registry snapshot (#E4–#E7, #X5)", () => {
-  /** A producer stub answering `subagents:registry` with these producer-status entries. */
-  const registryStub = (entries: Array<{ agentId: string; status: string }>) => (d: unknown) => {
-    const q = d as { answered: number; entries: unknown[] };
-    q.answered++;
-    q.entries.push(...entries);
+describe("registry snapshot via subagents:list (#E28)", () => {
+  /** A producer answering `subagents:list` from the first activation only (agent.ts: `out ??=`). */
+  const listStub = (entries: Array<{ agentId: string; status: string }>) => (d: unknown) => {
+    const q = d as { out?: unknown[] };
+    q.out ??= entries;
   };
+  const snaps = (pi: ReturnType<typeof fakePi>) => ofChannel(pi, REGISTRY_SNAPSHOT_CHANNEL);
 
-  it("maps producer statuses to the dashboard vocabulary (#E4)", () => {
+  it("forwards an answered list as a background snapshot", () => {
     const pi = fakePi();
     activate(pi);
-    const statuses = ["queued", "running", "completed", "error", "aborted", "stopped"];
-    pi.events.on(REGISTRY_QUERY_CHANNEL, registryStub(statuses.map((status, i) => ({ agentId: `a${i}`, status }))));
+    pi.events.on(LIST_CHANNEL, listStub([{ agentId: "A", status: "running" }]));
     pi.events.emit(BRIDGE_READY_CHANNEL, {});
-    const [snap] = ofChannel(pi, REGISTRY_SNAPSHOT_CHANNEL);
-    expect((snap.entries as Array<{ status: string }>).map((e) => e.status)).toEqual([
-      "created", "running", "completed", "failed", "failed", "stopped",
+    const [snap, ...rest] = snaps(pi);
+    expect(rest).toHaveLength(0);
+    expect(snap.entries).toEqual([{ agentId: "A", status: "running" }]);
+    expect(snap.scope).toBe("registry");
+    expect(snap.background).toBe(true);
+    expect(typeof snap.takenAt).toBe("number");
+    expect(ofChannel(pi, LIST_CHANNEL)[0].out).toEqual([{ agentId: "A", status: "running" }]);
+  });
+
+  it("emits the query with `out` unset", () => {
+    const pi = fakePi();
+    let seen: { has: boolean; out: unknown } | undefined;
+    pi.events.on(LIST_CHANNEL, (d) => {
+      seen = { has: "out" in (d as object), out: (d as { out?: unknown }).out };
+    });
+    activate(pi);
+    pi.events.emit(BRIDGE_READY_CHANNEL, {});
+    expect(seen).toEqual({ has: true, out: undefined });
+  });
+
+  it("forwards an empty answered list (the session runs nothing)", () => {
+    const pi = fakePi();
+    activate(pi);
+    pi.events.on(LIST_CHANNEL, listStub([]));
+    pi.events.emit(BRIDGE_READY_CHANNEL, {});
+    expect(snaps(pi)).toHaveLength(1);
+    expect(snaps(pi)[0].entries).toEqual([]);
+  });
+
+  it("sends no snapshot when nothing answers, then retries once on the first lifecycle emission", () => {
+    const pi = fakePi();
+    activate(pi);
+    pi.events.emit(BRIDGE_READY_CHANNEL, {});
+    expect(snaps(pi)).toHaveLength(0);
+    expect(ofChannel(pi, LIST_CHANNEL)).toHaveLength(1);
+    // still no producer: one retry, then no more
+    pi.events.emit("subagents:created", { id: "a1" });
+    pi.events.emit("subagents:started", { id: "a1" });
+    expect(ofChannel(pi, LIST_CHANNEL)).toHaveLength(2);
+    expect(snaps(pi)).toHaveLength(0);
+  });
+
+  it("answers late: snapshot arrives after the first subagents:created", () => {
+    const pi = fakePi();
+    activate(pi);
+    pi.events.emit(BRIDGE_READY_CHANNEL, {});
+    expect(snaps(pi)).toHaveLength(0);
+    pi.events.on(LIST_CHANNEL, listStub([{ agentId: "A", status: "running" }]));
+    pi.events.emit("subagents:created", { id: "A" });
+    expect(snaps(pi)).toHaveLength(1);
+    expect(snaps(pi)[0].entries).toEqual([{ agentId: "A", status: "running" }]);
+    pi.events.emit("subagents:started", { id: "A" });
+    expect(snaps(pi)).toHaveLength(1);
+  });
+
+  it("does not retry when bridge-ready was answered", () => {
+    const pi = fakePi();
+    activate(pi);
+    pi.events.on(LIST_CHANNEL, listStub([]));
+    pi.events.emit(BRIDGE_READY_CHANNEL, {});
+    pi.events.emit("subagents:created", { id: "a1" });
+    expect(ofChannel(pi, LIST_CHANNEL)).toHaveLength(1);
+  });
+
+  it("keeps an `idle` entry as idle and maps other producer statuses", () => {
+    const pi = fakePi();
+    activate(pi);
+    const statuses = ["queued", "running", "idle", "completed", "error", "aborted", "stopped", "bogus"];
+    pi.events.on(LIST_CHANNEL, listStub(statuses.map((status, i) => ({ agentId: `a${i}`, status }))));
+    pi.events.emit(BRIDGE_READY_CHANNEL, {});
+    expect((snaps(pi)[0].entries as Array<{ status: string }>).map((e) => e.status)).toEqual([
+      "created", "running", "idle", "completed", "failed", "failed", "stopped",
     ]);
   });
 
-  it("emits a snapshot only when a producer answered (#E5)", () => {
-    // none
-    const none = fakePi();
-    activate(none);
-    none.events.emit(BRIDGE_READY_CHANNEL, {});
-    expect(ofChannel(none, REGISTRY_SNAPSHOT_CHANNEL)).toHaveLength(0);
-    // one producer with 0 entries: still a snapshot (D4) — "this session runs no
-    // subagents", which ends every live one as untracked on the client.
-    const one = fakePi();
-    activate(one);
-    one.events.on(REGISTRY_QUERY_CHANNEL, registryStub([]));
-    one.events.emit(BRIDGE_READY_CHANNEL, {});
-    const oneSnaps = ofChannel(one, REGISTRY_SNAPSHOT_CHANNEL);
-    expect(oneSnaps).toHaveLength(1);
-    expect(oneSnaps[0].entries).toEqual([]);
-    expect(oneSnaps[0].scope).toBe("registry");
-    expect(typeof oneSnaps[0].takenAt).toBe("number");
-    // two producers with 1 + 2 entries
-    const two = fakePi();
-    activate(two);
-    two.events.on(REGISTRY_QUERY_CHANNEL, registryStub([{ agentId: "a", status: "running" }]));
-    two.events.on(REGISTRY_QUERY_CHANNEL, registryStub([{ agentId: "b", status: "queued" }, { agentId: "c", status: "completed" }]));
-    two.events.emit(BRIDGE_READY_CHANNEL, {});
-    const twoSnaps = ofChannel(two, REGISTRY_SNAPSHOT_CHANNEL);
-    expect(twoSnaps).toHaveLength(1);
-    expect(twoSnaps[0].entries).toHaveLength(3);
+  it("uses only the first activation's answer (partial list accepted)", () => {
+    const pi = fakePi();
+    activate(pi);
+    pi.events.on(LIST_CHANNEL, listStub([{ agentId: "A", status: "running" }]));
+    pi.events.on(LIST_CHANNEL, listStub([{ agentId: "B", status: "running" }]));
+    pi.events.emit(BRIDGE_READY_CHANNEL, {});
+    expect(snaps(pi)[0].entries).toEqual([{ agentId: "A", status: "running" }]);
   });
 
-  it("emits the snapshot after that bridge-ready's declare, never on plain activation (#E6)", () => {
+  it("emits the snapshot after that bridge-ready's declare, never on plain activation", () => {
     const pi = fakePi();
-    pi.events.on(REGISTRY_QUERY_CHANNEL, registryStub([]));
+    pi.events.on(LIST_CHANNEL, listStub([]));
     activate(pi);
-    expect(ofChannel(pi, REGISTRY_SNAPSHOT_CHANNEL)).toHaveLength(0);
+    expect(snaps(pi)).toHaveLength(0);
     const mark = pi.emitted.length;
     pi.events.emit(BRIDGE_READY_CHANNEL, {});
     const after = pi.emitted.slice(mark).map((e) => e.channel);
-    const declIdx = after.indexOf(REGISTER_EVENT_FORWARD_CHANNEL);
-    const snapIdx = after.indexOf(REGISTRY_SNAPSHOT_CHANNEL);
-    expect(declIdx).toBeGreaterThanOrEqual(0);
-    expect(snapIdx).toBeGreaterThan(declIdx);
+    expect(after.indexOf(REGISTRY_SNAPSHOT_CHANNEL)).toBeGreaterThan(after.indexOf(REGISTER_EVENT_FORWARD_CHANNEL));
   });
 
-  it("declares both liveness channels as `latest`, outside the reserved types (#E7)", () => {
+  it("declares the snapshot channel as `latest`, outside the reserved types; no stop_result", () => {
     const ch = SUBAGENTS_FORWARD_DECLARATION.channels;
-    expect(ch["subagents:stop_result"]).toEqual({ as: "subagent_stop_result", delivery: "latest", key: "agentId" });
     expect(ch["subagents:registry_snapshot"]).toEqual({ as: "subagent_registry_snapshot", delivery: "latest", key: "scope" });
-    expect(RESERVED_EVENT_TYPES.has("subagent_stop_result")).toBe(false);
+    expect(ch["subagents:stop_result"]).toBeUndefined();
     expect(RESERVED_EVENT_TYPES.has("subagent_registry_snapshot")).toBe(false);
   });
 
-  it("survives a stale runtime whose on/emit throw (#X5)", () => {
+  it("survives a stale runtime whose on/emit throw", () => {
     const emitted: string[] = [];
     const stale = {
       emit: (channel: string) => {
@@ -251,7 +260,6 @@ describe("registry snapshot (#E4–#E7, #X5)", () => {
       },
     };
     expect(() => activate({ events: stale })).not.toThrow();
-    // No listener was wired, so no snapshot and no answer can be produced.
-    expect(emitted.filter((c) => c === REGISTRY_SNAPSHOT_CHANNEL || c === STOP_RESULT_CHANNEL)).toHaveLength(0);
+    expect(emitted.filter((c) => c === REGISTRY_SNAPSHOT_CHANNEL)).toHaveLength(0);
   });
 });

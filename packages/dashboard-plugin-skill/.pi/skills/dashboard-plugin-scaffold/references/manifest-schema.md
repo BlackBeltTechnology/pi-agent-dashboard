@@ -22,7 +22,7 @@ interface PluginManifest {
   displayName: string;
   priority?: number;             // default 1000; first-party uses 100; lower = earlier
   requiredApi: string;           // semver range, e.g. "^0.x"
-  hostApi?: string;              // host API range, e.g. "^1.0.0" (`^MAJOR.MINOR[.PATCH]` or exact); the scaffold writes it
+  hostApi?: string;              // host API range, e.g. "^2.0.0" (`^MAJOR.MINOR[.PATCH]` or exact); the scaffold writes it
   client?: string;               // path to the client SOURCE entry (package-relative; build-time)
   clientBundle?: string;         // path to a PREBUILT ES entry for runtime delivery, in a dedicated dir (e.g. "./dist/client/index.js"); augment mode writes it
   clientStyles?: string;         // prebuilt CSS inside the clientBundle dir (e.g. "./dist/client/client.css"); only when the project has styles
@@ -132,7 +132,7 @@ Enforced by `src/__tests__/forward-compat.test.ts` (items 1-6, both modes, and t
     "displayName": "Acme",
     "priority": 100,
     "requiredApi": "^0.x",
-    "hostApi": "^1.0.0",
+    "hostApi": "^2.0.0",
     "client": "./src/client.tsx",
     "claims": [
       { "slot": "session-card-badge", "component": "AcmeBadge" }

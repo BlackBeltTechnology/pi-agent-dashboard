@@ -9,7 +9,9 @@ import {
   REGISTER_EVENT_FORWARD_CHANNEL,
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
 import { describe, expect, it } from "vitest";
+import { REGISTER_TOOL_UPDATE_FILTER_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
 import { PluginForwardRegistry } from "../plugin-event-forward-registry.js";
+import { ToolUpdateFilterRegistry } from "../tool-update-filter-registry.js";
 import { readBridgeSource } from "./helpers/bridge-source.js";
 
 type Handler = (data: unknown) => void;
@@ -40,17 +42,24 @@ function makeRegistry(
   bus = makeBus(),
   state = { ready: true, active: true, connected: true },
   coreChannels: Record<string, string> = { "subagents:started": "subagent_started" },
+  /** The server's ownership table; `false` = it has not arrived yet. */
+  ownership: { eventTypes: Record<string, string> } | false = { eventTypes: { "subagent_*": "subagents" } },
 ) {
-  const sent: Array<{ eventType: string; data: Record<string, unknown> }> = [];
+  const sent: Array<{ eventType: string; data: Record<string, unknown>; pluginId?: string }> = [];
   const registry = new PluginForwardRegistry(bus, {
-    send: (eventType, data) => sent.push({ eventType, data }),
+    send: (eventType, data, pluginId) => sent.push({ eventType, data, pluginId }),
     isSessionReady: () => state.ready,
     isActive: () => state.active,
     isConnected: () => state.connected,
     isCoreChannel: (c) => c in coreChannels,
   });
+  if (ownership) registry.setOwnership(ownership);
   return { bus, state, sent, registry };
 }
+
+/** `sent` entries without the stamp (the existing assertions predate it). */
+const unstamped = (sent: Array<{ eventType: string; data: Record<string, unknown> }>) =>
+  sent.map(({ eventType, data }) => ({ eventType, data }));
 
 const ENTRY_DECL = {
   pluginId: "subagents",
@@ -69,7 +78,7 @@ describe("PluginForwardRegistry", () => {
     registry.attach();
     bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, ENTRY_DECL);
     bus.emit("subagents:entry", { agentId: "a", index: 0 });
-    expect(sent).toEqual([{ eventType: "subagent_entry", data: { agentId: "a", index: 0 } }]);
+    expect(unstamped(sent)).toEqual([{ eventType: "subagent_entry", data: { agentId: "a", index: 0 } }]);
   });
 
   it("is idempotent for a repeated declaration (E2)", () => {
@@ -207,8 +216,9 @@ describe("PluginForwardRegistry", () => {
       channels: { "p:snap": { delivery: "latest", key: "id" } },
     });
     for (let i = 0; i < 10_000; i++) bus.emit("p:snap", { id: `k${i}` });
-    expect(registry.stats.buffer.keys).toBeLessThanOrEqual(64);
-    expect(registry.stats.buffer.evictedKeys).toBeGreaterThanOrEqual(10_000 - 63);
+    // Budgets are per plugin: `p` holds ≤ 64 keys, plus the subagents stream key.
+    expect(registry.stats.buffer.keys).toBeLessThanOrEqual(64 + 1);
+    expect(registry.stats.buffer.evictedKeys).toBeGreaterThanOrEqual(10_000 - 64);
   });
 
   it("drops live-delivery messages while not ready (generic rule)", () => {
@@ -337,7 +347,7 @@ describe("PluginForwardRegistry: plugin-declared flow channels", () => {
     });
     expect(registry.stats.rejected).toBe(1);
     bus.emit("flow:flow-started", { flowName: "research" });
-    expect(sent).toEqual([{ eventType: "flow_started", data: { flowName: "research" } }]);
+    expect(unstamped(sent)).toEqual([{ eventType: "flow_started", data: { flowName: "research" } }]);
   });
 
   const FLOWS_DECISION = {
@@ -414,27 +424,27 @@ describe("PluginForwardRegistry: plugin-declared flow channels", () => {
     expect(sent[0].data.i).toBe(n - flushed);
   });
 
-  it("shares the 64-key budget with subagent streams (flow P2)", () => {
+  // The shared 64-key budget this test used to pin is replaced by per-plugin
+  // budgets (move-subagents-to-plugin D1): flows keeps its own 64 keys and a
+  // busy subagents plugin can no longer evict a flow key.
+  it("budgets keys per plugin: flows and subagents never evict each other (flow P2)", () => {
     const state = { ready: true, active: true, connected: false };
     const { bus, sent, registry } = makeRegistry(makeBus(), state);
     registry.attach();
     bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, ENTRY_DECL);
     bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOW_DECL);
-    for (let i = 1; i <= 59; i++) bus.emit("subagents:entry", { agentId: `a${i}` });
+    for (let i = 1; i <= 64; i++) bus.emit("subagents:entry", { agentId: `a${i}` });
     for (let i = 1; i <= 5; i++) bus.emit("flow:agent-started", { stepId: `s${i}` });
-    expect(registry.stats.buffer.keys).toBe(64);
+    expect(registry.stats.buffer.keys).toBe(69);
     expect(registry.stats.buffer.evictedKeys).toBe(0);
-    bus.emit("flow:agent-started", { stepId: "s6" });
+    bus.emit("subagents:entry", { agentId: "a65" }); // evicts a1 (subagents' own oldest)
     expect(registry.stats.buffer.evictedKeys).toBe(1);
     state.connected = true;
     registry.flush();
     const keys = sent.map((s) => (s.data.agentId ?? s.data.stepId) as string);
-    expect(keys).toHaveLength(64);
+    expect(keys).toHaveLength(69);
     expect(keys).not.toContain("a1");
-    expect(keys).toEqual([
-      ...Array.from({ length: 58 }, (_, i) => `a${i + 2}`),
-      ...Array.from({ length: 6 }, (_, i) => `s${i + 1}`),
-    ]);
+    expect(keys.filter((k) => k.startsWith("s"))).toEqual(["s1", "s2", "s3", "s4", "s5"]);
   });
 
   it("bounds a stepId key at 2 MiB, newest frame always kept (flow P3)", () => {
@@ -477,7 +487,7 @@ describe("PluginForwardRegistry: plugin-declared flow channels", () => {
     for (const [ch, data] of events) bus.emit(ch, data);
     state.connected = true;
     registry.flush();
-    expect(sent).toEqual([
+    expect(unstamped(sent)).toEqual([
       { eventType: "flow_agent_started", data: { stepId: "build" } },
       { eventType: "flow_agent_complete", data: { stepId: "build" } },
       { eventType: "flow_decision", data: { stepId: "triage" } },
@@ -507,5 +517,312 @@ describe("PluginForwardRegistry: declared replay entry types", () => {
     bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, { pluginId: "p", channels: {}, replayEntryTypes: "x" });
     bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, { pluginId: "q", channels: {}, replayEntryTypes: [1] });
     expect([...registry.replayEntryTypes()]).toEqual(["flow-event"]);
+  });
+});
+
+/**
+ * Manifest ownership of event types, latest groups and per-plugin budgets (D1).
+ * See change: move-subagents-to-plugin (test-plan E1–E5).
+ */
+const lifecycleDecl = (pluginId: string, extra: Record<string, unknown> = {}) => ({
+  pluginId,
+  ...extra,
+  channels: {
+    "subagents:created": { as: "subagent_created", delivery: "latest", key: "id", group: "lifecycle" },
+    "subagents:started": { as: "subagent_started", delivery: "latest", key: "id", group: "lifecycle" },
+    "subagents:completed": { as: "subagent_completed", delivery: "latest", key: "id", group: "lifecycle" },
+  },
+});
+
+describe("PluginForwardRegistry: manifest ownership (D1)", () => {
+  it("E1: only the owner may forward as its manifest type; core types stay reserved", () => {
+    const { bus, sent, registry } = makeRegistry();
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, {
+      pluginId: "subagents",
+      channels: { "subagents:created": { as: "subagent_created", delivery: "live" } },
+    });
+    expect(registry.declaredChannels()).toEqual(["subagents:created"]);
+    expect(registry.stats.rejected).toBe(0);
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, {
+      pluginId: "other",
+      channels: { "other:created": { as: "subagent_created", delivery: "live" } },
+    });
+    expect(registry.declaredChannels()).toEqual(["subagents:created"]);
+    expect(registry.stats.rejected).toBe(1);
+    expect(() =>
+      bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, {
+        pluginId: "subagents",
+        channels: { "subagents:end": { as: "tool_execution_end", delivery: "live" } },
+      }),
+    ).not.toThrow();
+    expect(registry.declaredChannels()).toEqual(["subagents:created"]);
+    expect(registry.stats.rejected).toBe(2);
+    bus.emit("subagents:created", { id: "a" });
+    expect(sent).toEqual([{ eventType: "subagent_created", data: { id: "a" }, pluginId: "subagents" }]);
+  });
+
+  it("E2: a declaration made before the ownership table is held, then becomes active (one forward)", () => {
+    const { bus, sent, registry } = makeRegistry(makeBus(), undefined, {}, false);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, lifecycleDecl("subagents"));
+    expect(registry.declaredChannels()).toEqual([]);
+    bus.emit("subagents:created", { id: "a" }); // no subscription yet
+    expect(sent).toEqual([]);
+    registry.setOwnership({ eventTypes: { "subagent_*": "subagents" } });
+    expect(registry.declaredChannels()).toContain("subagents:created");
+    bus.emit("subagents:created", { id: "a" });
+    expect(sent.map((m) => m.eventType)).toEqual(["subagent_created"]);
+  });
+
+  it("E2b: a held non-owner declaration is refused when the table arrives", () => {
+    const { bus, registry } = makeRegistry(makeBus(), undefined, {}, false);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, lifecycleDecl("other"));
+    registry.setOwnership({ eventTypes: { "subagent_*": "subagents" } });
+    expect(registry.declaredChannels()).toEqual([]);
+    expect(registry.stats.rejected).toBe(3);
+  });
+
+  it("E3: a latest group shares one slot per key — the completed frame supersedes created/started", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, lifecycleDecl("subagents"));
+    bus.emit("subagents:created", { id: "a1" });
+    bus.emit("subagents:started", { id: "a1", n: 1 });
+    bus.emit("subagents:started", { id: "a1", n: 2 });
+    bus.emit("subagents:completed", { id: "a1" });
+    state.connected = true;
+    registry.flush();
+    expect(unstamped(sent)).toEqual([{ eventType: "subagent_completed", data: { id: "a1" } }]);
+  });
+
+  it("E3b: a group is per key and per plugin (other keys and plugins keep their own slot)", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, lifecycleDecl("subagents"));
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, {
+      pluginId: "p",
+      channels: { "p:a": { as: "p_a", delivery: "latest", key: "id", group: "lifecycle" } },
+    });
+    bus.emit("subagents:created", { id: "a1" });
+    bus.emit("subagents:created", { id: "a2" });
+    bus.emit("p:a", { id: "a1" });
+    state.connected = true;
+    registry.flush();
+    expect(sent.map((m) => `${m.pluginId}:${m.eventType}:${m.data.id}`)).toEqual([
+      "subagents:subagent_created:a1",
+      "subagents:subagent_created:a2",
+      "p:p_a:a1",
+    ]);
+  });
+
+  it("E4: budgets are per plugin — 10 flows keys survive; subagents keeps 256 and drops 1 of 257", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOW_DECL);
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, lifecycleDecl("subagents", { maxKeys: 256 }));
+    for (let i = 0; i < 10; i++) bus.emit("flow:agent-started", { stepId: `s${i}` });
+    for (let i = 0; i < 257; i++) bus.emit("subagents:created", { id: `a${i}` });
+    state.connected = true;
+    registry.flush();
+    expect(sent.filter((m) => m.pluginId === "flows")).toHaveLength(10);
+    const subs = sent.filter((m) => m.pluginId === "subagents");
+    expect(subs).toHaveLength(256);
+    expect(subs.map((m) => m.data.id)).not.toContain("a0");
+    expect(registry.stats.buffer.byPlugin.subagents?.dropped).toBe(1);
+    expect(registry.stats.buffer.byPlugin.flows?.dropped ?? 0).toBe(0);
+  });
+
+  it("E4b: without maxKeys a plugin holds 64 keys", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, lifecycleDecl("subagents"));
+    for (let i = 0; i < 65; i++) bus.emit("subagents:created", { id: `a${i}` });
+    state.connected = true;
+    registry.flush();
+    expect(sent).toHaveLength(64);
+  });
+
+  it("E5: maxKeys 257 is clamped to 256 and counted; no throw", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    expect(() =>
+      bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, lifecycleDecl("subagents", { maxKeys: 257 })),
+    ).not.toThrow();
+    expect(registry.stats.rejected).toBe(1);
+    for (let i = 0; i < 300; i++) bus.emit("subagents:created", { id: `a${i}` });
+    state.connected = true;
+    registry.flush();
+    expect(sent).toHaveLength(256);
+  });
+
+  it("stamps the declaring pluginId on every plugin forward", () => {
+    const { bus, sent, registry } = makeRegistry();
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOW_DECL);
+    bus.emit("flow:flow-started", { flowName: "r" });
+    expect(sent[0].pluginId).toBe("flows");
+  });
+
+  it("applies a later ownership table (re-register) without dropping accepted channels", () => {
+    const { bus, registry } = makeRegistry();
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, ENTRY_DECL);
+    registry.setOwnership({ eventTypes: { "subagent_*": "subagents" } });
+    expect(registry.declaredChannels()).toEqual(["subagents:entry", "subagents:delta"]);
+  });
+});
+
+/**
+ * Plugin-declared per-tool `tool_execution_update` filter (D5).
+ * See change: move-subagents-to-plugin (test-plan E6–E9, E43, P1).
+ */
+const AGENT_FILTER = {
+  pluginId: "subagents",
+  toolName: "Agent",
+  dropPaths: ["partialResult.details.entries", "details.entries"],
+  when: { path: "partialResult.details.status", in: ["queued", "running"] },
+};
+
+function makeFilters(claims: Record<string, string> | false = { Agent: "subagents" }) {
+  const bus = makeBus();
+  const filters = new ToolUpdateFilterRegistry(bus);
+  filters.attach();
+  if (claims) filters.setClaims(claims);
+  const declare = (d: unknown) => bus.emit(REGISTER_TOOL_UPDATE_FILTER_CHANNEL, d);
+  return { bus, filters, declare };
+}
+
+const entries = (n: number) => Array.from({ length: n }, (_, i) => ({ kind: "tool", i }));
+
+describe("ToolUpdateFilterRegistry (D5)", () => {
+  it("E6: drops entries of a running Agent update on a copy; the original keeps them", () => {
+    const { filters, declare } = makeFilters();
+    declare(AGENT_FILTER);
+    const original = {
+      toolName: "Agent",
+      partialResult: { details: { status: "running", entries: entries(40), toolUses: 3 } },
+    };
+    const out = filters.apply("Agent", original) as typeof original;
+    expect(out).not.toBe(original);
+    expect(out.partialResult.details).toEqual({ status: "running", toolUses: 3 });
+    expect(original.partialResult.details.entries).toHaveLength(40);
+    // top-level details too (sibling status)
+    const top = { toolName: "Agent", details: { status: "queued", entries: entries(40), id: "x" } };
+    const out2 = filters.apply("Agent", top) as typeof top;
+    expect(out2.details).toEqual({ status: "queued", id: "x" });
+    expect(top.details.entries).toHaveLength(40);
+    expect("entries" in out2.details).toBe(false);
+  });
+
+  it("E7: condition not met → the very same payload (byte-identical)", () => {
+    const { filters, declare } = makeFilters();
+    declare(AGENT_FILTER);
+    const done = { toolName: "Agent", partialResult: { details: { status: "completed", entries: entries(5) } } };
+    expect(filters.apply("Agent", done)).toBe(done);
+    const noStatus = { toolName: "Agent", partialResult: { details: { entries: entries(5) } } };
+    expect(filters.apply("Agent", noStatus)).toBe(noStatus);
+  });
+
+  it("other tools are untouched by the Agent filter", () => {
+    const { filters, declare } = makeFilters();
+    declare(AGENT_FILTER);
+    const bash = { toolName: "bash", partialResult: { details: { status: "running", entries: entries(2) } } };
+    expect(filters.apply("bash", bash)).toBe(bash);
+  });
+
+  it("E8: validation — 16 paths accepted; bad toolName, empty and 17 paths refused and counted", () => {
+    const sixteen = Array.from({ length: 16 }, (_, i) => `a.p${i}`);
+    for (const [decl, ok] of [
+      [{ ...AGENT_FILTER, toolName: 5 }, false],
+      [{ ...AGENT_FILTER, dropPaths: [] }, false],
+      [{ ...AGENT_FILTER, dropPaths: [...sixteen, "a.p16"] }, false],
+      [{ ...AGENT_FILTER, dropPaths: sixteen }, true],
+    ] as const) {
+      const { filters, declare } = makeFilters();
+      expect(() => declare(decl)).not.toThrow();
+      expect(filters.stats).toMatchObject({ declared: ok ? 1 : 0, refused: ok ? 0 : 1 });
+    }
+  });
+
+  it("E8b: unsafe or malformed paths and conditions are refused", () => {
+    for (const bad of [
+      { ...AGENT_FILTER, dropPaths: ["__proto__.x"] },
+      { ...AGENT_FILTER, dropPaths: ["a..b"] },
+      { ...AGENT_FILTER, dropPaths: [7] },
+      { ...AGENT_FILTER, when: { path: "a.status", in: [] } },
+      { ...AGENT_FILTER, when: { path: "a.status", in: [5] } },
+      { ...AGENT_FILTER, when: "running" },
+      null,
+    ]) {
+      const { filters, declare } = makeFilters();
+      expect(() => declare(bad)).not.toThrow();
+      expect(filters.stats).toMatchObject({ declared: 0, refused: 1 });
+    }
+  });
+
+  it("E9: only the claiming plugin may filter a tool; the claimant's filter stays in force", () => {
+    const { filters, declare } = makeFilters({ Agent: "subagents" });
+    declare({ ...AGENT_FILTER, pluginId: "other", dropPaths: ["partialResult.details.status"] });
+    expect(filters.stats.refused).toBe(1);
+    declare(AGENT_FILTER);
+    declare({ ...AGENT_FILTER, pluginId: "other" });
+    expect(filters.stats.refused).toBe(2);
+    const update = { partialResult: { details: { status: "running", entries: entries(3) } } };
+    const out = filters.apply("Agent", update) as typeof update;
+    expect(out.partialResult.details).toEqual({ status: "running" });
+  });
+
+  it("holds declarations until the claims table arrives", () => {
+    const { filters, declare } = makeFilters(false);
+    declare(AGENT_FILTER);
+    const update = { partialResult: { details: { status: "running", entries: entries(3) } } };
+    expect(filters.apply("Agent", update)).toBe(update);
+    filters.setClaims({ Agent: "subagents" });
+    expect(filters.stats.declared).toBe(1);
+    expect(filters.apply("Agent", update)).not.toBe(update);
+  });
+
+  it("an unclaimed tool cannot be filtered", () => {
+    const { filters, declare } = makeFilters({});
+    declare(AGENT_FILTER);
+    expect(filters.stats).toMatchObject({ declared: 0, refused: 1 });
+  });
+
+  it("E43: a producer-shaped subagents:started progress tick forwards deep-equal (no core strip)", () => {
+    const { bus, sent, registry } = makeRegistry(makeBus(), undefined, {});
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, lifecycleDecl("subagents"));
+    const tick = {
+      id: "ag1",
+      details: { agentId: "ag1", status: "running", toolUses: 4, entries: entries(40), activity: "reading" },
+    };
+    bus.emit("subagents:started", tick);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].data).toEqual(tick);
+    expect(sent[0].data).toBe(tick);
+  });
+
+  it("P1: broadcast bytes per Agent tick grow ≤ 2x from 10 → 100 timeline entries", () => {
+    const { filters, declare } = makeFilters();
+    declare(AGENT_FILTER);
+    const bytes = (n: number) =>
+      JSON.stringify({
+        type: "event_forward",
+        event: {
+          eventType: "tool_execution_update",
+          data: filters.apply("Agent", {
+            toolName: "Agent",
+            partialResult: { details: { status: "running", entries: entries(n).map((e) => ({ ...e, out: "x".repeat(600) })) } },
+          }),
+        },
+      }).length;
+    expect(bytes(100) / bytes(10)).toBeLessThanOrEqual(2);
   });
 });

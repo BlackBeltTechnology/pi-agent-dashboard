@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { isValidHostApiRange, PLUGIN_HOST_API_VERSION, satisfiesHostApi, satisfiesHostApiRange } from "../host-api.js";
 
 describe("PLUGIN_HOST_API_VERSION", () => {
-  it("is the current 1.5.0 contract", () => {
+  it("is the current 2.0.0 contract", () => {
     // 1.4.0: tool-renderer claim gains rowStatus / stop / stopLabel (change: subagent-queue-visibility).
     // 1.5.0: manifest field `replayEntryTypes` (change: update-flows-plugin).
-    expect(PLUGIN_HOST_API_VERSION).toBe("1.5.0");
+    // 2.0.0: `useSessionSubagents` / `SubagentStateSnapshot` removed, `useSessionPluginState` and
+    //        manifest `requires.piExtensionVersions` added (change: move-subagents-to-plugin).
+    expect(PLUGIN_HOST_API_VERSION).toBe("2.0.0");
   });
 });
 
@@ -55,9 +57,9 @@ describe("isValidHostApiRange", () => {
 
 describe("satisfiesHostApi", () => {
   it("is bound to PLUGIN_HOST_API_VERSION", () => {
-    expect(satisfiesHostApi("^1.0.0")).toBe(true);
-    expect(satisfiesHostApi("^1.5.0")).toBe(true);
-    expect(satisfiesHostApi("^1.6.0")).toBe(false);
-    expect(satisfiesHostApi("^2.0.0")).toBe(false);
+    expect(satisfiesHostApi("^1.0.0")).toBe(false);
+    expect(satisfiesHostApi("^2.0.0")).toBe(true);
+    expect(satisfiesHostApi("^2.1.0")).toBe(false);
+    expect(satisfiesHostApi("^3.0.0")).toBe(false);
   });
 });

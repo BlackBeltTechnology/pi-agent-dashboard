@@ -12,8 +12,6 @@ import { feedPollingEvent, scheduleModelRecheckOnSelect } from "../bridge-pollin
 import { SURFACE_MESSAGE } from "../empty-actionable-guard.js";
 import { mapEventToProtocol, redactBeforeSettleContext, redactCompactionEntry } from "../event-forwarder.js";
 import { flushesParkedText } from "../message-update-coalescer.js";
-import { stripForForward } from "../subagent-frame-strip.js";
-import { isSubagentTick } from "../subagent-tick-throttle.js";
 import { inlineToolResultImages } from "../tool-result-image-inliner.js";
 import { classifyTurnActionability } from "../turn-actionability.js";
 import type { BridgeInstance } from "./instance.js";
@@ -542,12 +540,6 @@ export function registerEnrichedForwarders(inst: BridgeInstance): void {
         } catch { /* non-fatal */ }
       }
 
-      // The `tool_execution_update` carrier is structurally disjoint from the
-      // EventBus path (pi core event → `pi.on()` → `connection.send`), but one
-      // `snapshotDetails()` object feeds both — so stripping one carrier only
-      // is a half-fix. `tool_execution_end` is terminal and stays fat.
-      // See change: reduce-subagent-details-payload (D2, task 3.8).
-      //
       // `session_compact` is forwarded WITHOUT its `compactionEntry`. pi >= 0.86
       // fills that entry's `systemMessage` with the same prompt-sections +
       // tool-declaration checkpoint the system-role arms above drop, and carries
@@ -566,26 +558,13 @@ export function registerEnrichedForwarders(inst: BridgeInstance): void {
           ? redactCompactionEntry(event as Record<string, unknown>)
           : event;
       const msg = mapEventToProtocol(inst.sessionId, forwardEvent);
-      let heldByThrottle = false;
+      // Per-tool payload reduction declared by the plugin claiming the tool
+      // (copy, never mutate the producer's object). Other tools forward 1:1.
+      // See change: move-subagents-to-plugin (D5).
       if (eventType === "tool_execution_update") {
-        msg.event.data = stripForForward(msg.event.data as Record<string, unknown>);
-        // Agent ticks only (allowlist predicate) — every other tool's update
-        // stream forwards 1:1. `offer` returns false when it has taken
-        // ownership of the frame and will send (or discard) it later.
-        // See change: reduce-bridge-tick-bandwidth (D2).
-        if (isSubagentTick(event) && typeof event.toolCallId === "string") {
-          heldByThrottle = !inst.subagentTickThrottle.offer(event.toolCallId, msg, inst.sessionId);
-        }
+        msg.event.data = inst.toolUpdateFilters.apply(event.toolName, msg.event.data as Record<string, unknown>);
       }
-      if (eventType === "tool_execution_end" && typeof event.toolCallId === "string") {
-        // Terminal: DISCARD any held tick rather than flushing it. This carrier
-        // never carries terminal state, so a held frame is a strictly stale
-        // intermediate snapshot; flushing it would race the overwrite that
-        // visibly re-opens a finished tool row. Runs before the send so no held
-        // frame can interleave after the end event.
-        inst.subagentTickThrottle.onTerminal(event.toolCallId);
-      }
-      if (!heldByThrottle) inst.connection.send(msg);
+      inst.connection.send(msg);
 
       // Native `agent_settled` (pi ≥ 0.80.4, guaranteed at the 0.85.1 floor) is
       // the single terminal signal; the bridge forwards it above and the

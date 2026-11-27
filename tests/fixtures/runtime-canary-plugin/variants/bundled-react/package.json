@@ -11,7 +11,7 @@
     "id": "runtime-canary-bundled-react",
     "displayName": "Runtime Canary variant: bundled-react (fixture)",
     "fixture": true,
-    "hostApi": "^1.0.0",
+    "hostApi": "^2.0.0",
     "clientBundle": "./dist/client/index.js",
     "claims": [
       {

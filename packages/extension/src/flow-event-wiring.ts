@@ -1,10 +1,9 @@
 /**
- * EventBus forwarding wiring for the CORE-mapped channels (pi-subagents
- * lifecycle only) plus the generic `dashboard:commands-changed` resend seam.
- *
- * pi-flows channels are NOT core: the flows plugin bridge declares them through
- * `dashboard:register-event-forward` (plugin-event-forward-registry.ts).
- * See change: update-flows-plugin (D1, D4).
+ * Generic EventBus forwarding helpers plus the `dashboard:commands-changed`
+ * resend seam. Core maps NO plugin channel: subagent and flow channels are
+ * declared by their plugin bridges through `dashboard:register-event-forward`
+ * (plugin-event-forward-registry.ts).
+ * See change: update-flows-plugin (D1, D4), move-subagents-to-plugin.
  */
 
 import { COMMANDS_CHANGED_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
@@ -13,8 +12,7 @@ import { filterHiddenCommands } from "./bridge-context.js";
 
 /**
  * Deps the EventBus forwarding wiring needs from the bridge. The bridge owns
- * the transport (`sendEventForward`), the readiness gates, and the subagent
- * frame buffer; this module owns WHICH channels are forwarded and HOW they are
+ * the transport (`sendEventForward`) and the readiness gates; this module owns WHICH channels are forwarded and HOW they are
  * observed. See change: fix-automation-run-lifecycle.
  */
 export interface EventBusForwardingDeps {
@@ -26,26 +24,10 @@ export interface EventBusForwardingDeps {
   isActive: () => boolean;
   /** True while the WebSocket transport is actually open. */
   isConnected: () => boolean;
-  /** Subagent-channel predicate + latest-wins buffer (reconcilable state). */
-  subagent: {
-    isSubagentChannel: (channel: string) => boolean;
-    markForwarded: (channel: string, data: Record<string, unknown>) => void;
-    buffer: (channel: string, data: Record<string, unknown>) => boolean;
-    /**
-     * Drop the cumulative `details.entries` timeline from a NON-terminal
-     * subagent frame before it goes on the wire. MUST clone — the buffer
-     * retains frames by reference, so the fat pull source stays fat.
-     * See change: reduce-subagent-details-payload (D2).
-     */
-    stripForForward: (data: Record<string, unknown>, channel?: string) => Record<string, unknown>;
-  };
 }
 
 /**
- * Forward one EventBus frame, applying the gates the bridge has always applied:
- * subagent frames forward live only when ready AND the transport is open (else
- * they are buffered latest-wins per agent); every other channel forwards when
- * ready. Forwarding failure MUST never propagate to the emitter.
+ * Forward one EventBus frame when ready and active. Forwarding failure MUST never propagate to the emitter.
  * See change: fix-automation-run-lifecycle.
  */
 export function forwardBusEvent(
@@ -55,32 +37,13 @@ export function forwardBusEvent(
 ): void {
   try {
     const eventData = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-    if (deps.subagent.isSubagentChannel(channel)) {
-      if (deps.isSessionReady() && deps.isActive() && deps.isConnected()) {
-        // Buffer the FAT frame, forward the thin one. The strip clones, so the
-        // retained snapshot (the resync source) keeps its full timeline.
-        deps.sendEventForward(channel, deps.subagent.stripForForward(eventData, channel));
-        deps.subagent.markForwarded(channel, eventData);
-      } else if (!deps.subagent.buffer(channel, eventData)) {
-        console.warn(
-          `[dashboard] subagent frame dropped (no agentId) channel=${channel} while not ready`,
-        );
-      }
-    } else if (deps.isSessionReady() && deps.isActive()) {
+    if (deps.isSessionReady() && deps.isActive()) {
       deps.sendEventForward(channel, eventData);
     }
   } catch {
     /* forwarding failure must never break event delivery */
   }
 }
-
-/** Map of pi-subagents event names to dashboard protocol event types */
-export const SUBAGENT_EVENT_MAP: Record<string, string> = {
-  "subagents:created": "subagent_created",
-  "subagents:started": "subagent_started",
-  "subagents:completed": "subagent_completed",
-  "subagents:failed": "subagent_failed",
-};
 
 /** Minimal shape of the host event surface this module uses. */
 interface PiEventsLike {
@@ -90,16 +53,14 @@ interface PiEventsLike {
 
 /**
  * Every EventBus channel the bridge forwards. Derived from the rename maps so a
- * mapped channel can never be silently unforwarded.
+ * mapped channel can never be silently unforwarded. Core keeps no map today.
  * See change: fix-automation-run-lifecycle.
  */
-export const EVENT_BUS_MAP_FOR_TEST: Record<string, string> = {
-  ...SUBAGENT_EVENT_MAP,
-};
+export const EVENT_BUS_MAP_FOR_TEST: Record<string, string> = {};
 
 export function forwardedBusChannels(extraMaps: Array<Record<string, string>> = []): string[] {
   const keys = new Set<string>();
-  for (const map of [SUBAGENT_EVENT_MAP, ...extraMaps]) {
+  for (const map of extraMaps) {
     for (const channel of Object.keys(map)) keys.add(channel);
   }
   return [...keys];

@@ -94,15 +94,6 @@ function handleSessionChange(inst: BridgeInstance, ctx: any, usageSeed?: ReturnT
   // sessionId on its session_register. See change: inject-session-context-into-agent.
   inst.attachedChange = null;
   inst.shared.attachedChange = null;
-  // Drop retained subagent frames/snapshots on a real session switch — the
-  // new/fork/resumed session's subagents are unrelated to the outgoing one.
-  // See change: fix-subagent-live-detail-reliability.
-  inst.subagentFrameBuffer.reset();
-  // Same disposal point for the tick throttle: clear every armed trailing
-  // timer and drop every held frame, so nothing from the outgoing session
-  // can fire against the new one.
-  // See change: reduce-bridge-tick-bandwidth (D3).
-  inst.subagentTickThrottle.reset();
   // A session boundary invalidates the CONTENT itself (unlike a reconnect), so
   // drop any parked text snapshot and cancel its window rather than flushing
   // it into the new session. See change:
@@ -662,10 +653,10 @@ export function registerSessionStart(inst: BridgeInstance): void {
       payload: {},
     });
 
-    // Flush any subagent frames buffered during the not-ready window (D1) so a
-    // reconnect/discovery/reload gap self-heals instead of leaving a running
-    // subagent's detail empty. See change: fix-subagent-live-detail-reliability.
-    inst.flushPendingSubagentFrames();
+    // Flush plugin latest/stream messages retained during the not-ready window
+    // so a reconnect/discovery/reload gap self-heals. See change:
+    // add-plugin-bridge-contributions, move-subagents-to-plugin.
+    inst.pluginForwardRegistry.flush();
 
     // Replay full session history so the dashboard has all messages. A turn
     // still running across a `/reload` keeps its in-flight calls open instead
@@ -918,10 +909,6 @@ export function registerSessionStart(inst: BridgeInstance): void {
           ...collectMetrics(),
           droppedBufferedFrames: inst.connection.getDroppedBufferedCount(),
           refusedInboundFrames: inst.connection.getDroppedInboundCount(),
-          // Subagent-tick throttle counters ride the same transport, so the
-          // throttle's two information-loss modes are observable in production
-          // instead of only at L1. See change: reduce-bridge-tick-bandwidth (D6).
-          ...inst.subagentTickThrottle.stats,
           // Plugin event-forward registry counters. See change:
           // add-plugin-bridge-contributions.
           pluginForwardDeclared: inst.pluginForwardRegistry.stats.declared,
@@ -931,6 +918,10 @@ export function registerSessionStart(inst: BridgeInstance): void {
           pluginForwardRetained: inst.pluginForwardRegistry.stats.buffer.retained,
           pluginForwardDropped:
             inst.pluginForwardRegistry.stats.buffer.dropped + inst.pluginForwardRegistry.stats.buffer.keyRejected,
+          // Plugin tool-update filter counters (D5). See change: move-subagents-to-plugin.
+          toolUpdateFilterDeclared: inst.toolUpdateFilters.stats.declared,
+          toolUpdateFilterRefused: inst.toolUpdateFilters.stats.refused,
+          toolUpdateFilterApplied: inst.toolUpdateFilters.stats.applied,
           // Agent path gate counters (in-root decisions are counted, not logged).
           pathGateInRoot: inst.pathGate.counters.inRoot,
           pathGateAsked: inst.pathGate.counters.asked,
@@ -1107,11 +1098,6 @@ export function registerSessionShutdown(inst: BridgeInstance): void {
       }),
     );
 
-    // Drop retained subagent frames/snapshots on shutdown.
-    // See change: fix-subagent-live-detail-reliability.
-    inst.subagentFrameBuffer.reset();
-    // See change: reduce-bridge-tick-bandwidth (D3).
-    inst.subagentTickThrottle.reset();
     // A shutdown is a session boundary: discard parked text, cancel the window.
     // See change: coalesce-bridge-message-update-snapshots (D8).
     inst.coalescer.clear();

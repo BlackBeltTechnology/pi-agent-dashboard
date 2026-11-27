@@ -8,6 +8,7 @@
  *
  * See change: decouple-plugins-from-core (task 4.5); finalize-agent-card-on-subagent-stop (D6).
  */
+import { subagentsOf } from "./pluginState.js";
 
 /**
  * The "recovered" badge condition for an Agent card whose real result never
@@ -15,13 +16,13 @@
  * subagent result is known, or a server `session_ended` orphan-close. A
  * `subagent_stopped` heal or a settle with a known result carries the real
  * result and is not badged. `session` is the tool context's session (only its
- * `subagents` map is read).
+ * `pluginState` subagent slot is read).
  */
 export function isAgentResultNotReceived(toolDetails: Record<string, unknown> | undefined, session: unknown): boolean {
   if (!toolDetails) return false;
   if (toolDetails.healedBy === "session_ended") return true;
   if (toolDetails.resultMissing !== true) return false;
-  const subagents = (session as { subagents?: ReadonlyMap<string, { result?: string }> } | undefined)?.subagents;
+  const subagents = subagentsOf(session as { pluginState?: ReadonlyMap<string, unknown> } | undefined);
   const agentId = typeof toolDetails.agentId === "string" ? toolDetails.agentId : undefined;
   return !(agentId && subagents?.get(agentId)?.result);
 }

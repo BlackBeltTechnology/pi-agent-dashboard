@@ -24,7 +24,7 @@ import {
   type MinimalChatStatus,
   MinimalChatView,
 } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
-import { isTerminalSubagentStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+import { isTerminalSubagentStatus } from "../subagent-types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type React from "react";
 import { type MutableRefObject, useRef } from "react";
@@ -295,6 +295,18 @@ export function SubagentDetailView({
     // Tier 4
     entries = [];
     emptyMessage = t("noDetailYet", undefined, "No detail available yet.");
+  }
+
+  // A `__truncated` terminal frame ended the row without its result: say so.
+  // See change: move-subagents-to-plugin (task 9.5).
+  if (isComplete && (sub as { resultTruncated?: boolean }).resultTruncated) {
+    const note = (
+      <div data-testid="subagent-result-truncated-note" className="text-[11px] text-[var(--text-tertiary)]">
+        {t("subagentResultTooLarge", undefined, "The final result was too large to keep.")}
+      </div>
+    );
+    footer = footer ? <div className="space-y-2">{note}{footer}</div> : note;
+    if (!hasEntries) emptyMessage = "";
   }
 
   // Stopped: neutral, final note above whatever body the tiers chose.

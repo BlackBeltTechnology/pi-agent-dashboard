@@ -14,17 +14,28 @@
  * `flush()`. Never coalesced or throttled on the live path.
  *
  * Declarations are untrusted (D3): validated by `validateDeclaration`; a channel
- * already owned by core or another plugin keeps its first owner (conflict
- * counted), and so does a forwarded `as` type owned by another plugin.
- * See change: add-plugin-bridge-contributions, update-flows-plugin.
+ * already owned by another plugin keeps its first owner (conflict counted), and
+ * so does a forwarded `as` type owned by another plugin.
+ *
+ * Manifest ownership (move-subagents-to-plugin D1): the server sends a
+ * `plugin_ownership` table (`setOwnership`). Declarations are HELD until it
+ * arrives, then evaluated; a declaration forwarding as a type the table assigns
+ * to another plugin is refused (counted), and every plugin-declared forward is
+ * stamped with its `pluginId` so the server can verify it on ingest.
+ * See change: add-plugin-bridge-contributions, update-flows-plugin, move-subagents-to-plugin.
  */
 
 import {
   type AcceptedChannelSpec,
   BRIDGE_READY_CHANNEL,
+  type PluginOwnershipTable,
   REGISTER_EVENT_FORWARD_CHANNEL,
   validateDeclaration,
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
+import {
+  type EventTypeOwner,
+  matchEventTypeOwner,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import { normalizeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
 import { StreamForwardBuffer, type StreamForwardBufferStats } from "./stream-forward-buffer.js";
 
@@ -34,13 +45,13 @@ interface BusLike {
 }
 
 export interface PluginForwardDeps {
-  /** Send one `event_forward` with the already-resolved event type. */
-  send: (eventType: string, data: Record<string, unknown>) => void;
+  /** Send one `event_forward` with the already-resolved event type, stamped with the declaring pluginId. */
+  send: (eventType: string, data: Record<string, unknown>, pluginId: string) => void;
   isSessionReady: () => boolean;
   isActive: () => boolean;
   isConnected: () => boolean;
-  /** True when core already forwards this channel (SUBAGENT map). */
-  isCoreChannel: (channel: string) => boolean;
+  /** True when core already forwards this channel (core maps no plugin channel today). */
+  isCoreChannel?: (channel: string) => boolean;
 }
 
 interface OwnedChannel extends AcceptedChannelSpec {
@@ -56,6 +67,9 @@ export interface PluginForwardStats {
   buffer: StreamForwardBufferStats & { keys: number };
 }
 
+/** Declarations held before the ownership table arrives; extras are counted as rejected. */
+const MAX_HELD_DECLARATIONS = 64;
+
 export class PluginForwardRegistry {
   private readonly owned = new Map<string, OwnedChannel>();
   /** Forwarded `as` type → owning pluginId (first owner wins across plugins). */
@@ -63,6 +77,9 @@ export class PluginForwardRegistry {
   /** Declared persisted custom-entry types (union over declaring plugins). */
   private readonly entryTypes = new Set<string>();
   private readonly perPlugin = new Map<string, number>();
+  /** Held until the server's ownership table arrives (D1). */
+  private held: unknown[] = [];
+  private owners: EventTypeOwner[] | undefined;
   private readonly unsubscribers: Array<() => void> = [];
   private readonly buffer: StreamForwardBuffer;
   private counters = { rejected: 0, rejectedDeclarations: 0, conflicts: 0, forwarded: 0 };
@@ -92,9 +109,35 @@ export class PluginForwardRegistry {
     }
   }
 
+  /**
+   * Apply the server's ownership table (D1) and evaluate every held
+   * declaration. A later table replaces the earlier one (re-register).
+   */
+  setOwnership(table: Pick<PluginOwnershipTable, "eventTypes"> | undefined): void {
+    if (this.disposed) return;
+    const byPlugin = new Map<string, string[]>();
+    const types = table && typeof table.eventTypes === "object" && table.eventTypes ? table.eventTypes : {};
+    for (const pattern of Object.keys(types)) {
+      const owner = types[pattern];
+      if (typeof owner !== "string") continue;
+      const list = byPlugin.get(owner) ?? [];
+      list.push(pattern);
+      byPlugin.set(owner, list);
+    }
+    this.owners = [...byPlugin].map(([ownerId, eventTypes]) => ({ ownerId, displayName: ownerId, eventTypes }));
+    const held = this.held;
+    this.held = [];
+    for (const raw of held) this.declare(raw);
+  }
+
   /** Validate + subscribe one declaration. Never throws. */
   declare(raw: unknown): void {
     if (this.disposed || !this.events) return;
+    if (!this.owners) {
+      if (this.held.length < MAX_HELD_DECLARATIONS) this.held.push(raw);
+      else this.counters.rejectedDeclarations++;
+      return;
+    }
     try {
       const pluginIdRaw =
         raw && typeof raw === "object" && Object.prototype.hasOwnProperty.call(raw, "pluginId")
@@ -111,6 +154,8 @@ export class PluginForwardRegistry {
         return;
       }
       this.counters.rejected += result.rejected.length;
+      if (result.maxKeysRejected) this.counters.rejected++;
+      if (result.maxKeys !== undefined) this.buffer.setMaxKeys(result.pluginId, result.maxKeys);
       for (const spec of result.accepted) this.acceptChannel(result.pluginId, spec);
       const replayTypes = Object.prototype.hasOwnProperty.call(raw, "replayEntryTypes")
         ? (raw as { replayEntryTypes?: unknown }).replayEntryTypes
@@ -128,11 +173,18 @@ export class PluginForwardRegistry {
         existing.pluginId === pluginId &&
         existing.as === spec.as &&
         existing.delivery === spec.delivery &&
-        existing.key === spec.key;
+        existing.key === spec.key &&
+        existing.group === spec.group;
       if (!same) this.counters.conflicts++;
       return;
     }
-    if (this.deps.isCoreChannel(spec.channel)) {
+    // Manifest ownership: a type owned by another plugin is refused, not conflicted.
+    const owner = this.owners ? matchEventTypeOwner(this.owners, spec.as)?.ownerId : undefined;
+    if (owner !== undefined && owner !== pluginId) {
+      this.counters.rejected++;
+      return;
+    }
+    if (this.deps.isCoreChannel?.(spec.channel)) {
       this.counters.conflicts++;
       return;
     }
@@ -158,15 +210,15 @@ export class PluginForwardRegistry {
       const ready = this.deps.isSessionReady() && this.deps.isActive();
       if (ch.delivery === "live") {
         // Not forwardable → drop; `send` would otherwise queue it for reconnect.
-        if (ready && this.deps.isConnected()) this.forward(ch.as, data);
+        if (ready && this.deps.isConnected()) this.forward(ch, data);
         return;
       }
       if (ready && this.deps.isConnected() && this.buffer.size === 0) {
-        this.forward(ch.as, data);
+        this.forward(ch, data);
         return;
       }
       const keyValue = ch.key !== undefined ? data[ch.key] : undefined;
-      if (!this.buffer.retain(ch.pluginId, ch.channel, ch.delivery, keyValue, data)) return;
+      if (!this.buffer.retain(ch.pluginId, ch.channel, ch.delivery, keyValue, data, ch.group)) return;
       // Connected again with a backlog: drain in order so live messages never overtake it.
       if (ready && this.deps.isConnected()) this.flush();
     } catch {
@@ -174,8 +226,8 @@ export class PluginForwardRegistry {
     }
   }
 
-  private forward(eventType: string, data: Record<string, unknown>): void {
-    this.deps.send(eventType, data);
+  private forward(ch: OwnedChannel, data: Record<string, unknown>): void {
+    this.deps.send(ch.as, data, ch.pluginId);
     this.counters.forwarded++;
   }
 
@@ -186,7 +238,7 @@ export class PluginForwardRegistry {
     const drained = this.buffer.drain();
     for (const msg of drained) {
       const ch = this.owned.get(msg.channel);
-      if (ch) this.forward(ch.as, msg.data);
+      if (ch) this.forward(ch, msg.data);
     }
     return drained.length;
   }
@@ -218,6 +270,7 @@ export class PluginForwardRegistry {
       }
     }
     this.unsubscribers.length = 0;
+    this.held = [];
     this.buffer.reset();
   }
 }

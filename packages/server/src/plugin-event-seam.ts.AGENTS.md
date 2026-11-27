@@ -1,0 +1,3 @@
+# plugin-event-seam.ts — index
+
+Trusted-plugin emit seams: `emitEventToSession(trusted,send,sid,type,data,{pluginId,allowed})` refuses reserved namespaces (`isReservedEventType`) and any type outside the live allowlist; `sendExtensionMessage` refuses raw `plugin_emit_event`; both return `false`. Warn once per (plugin,type) (cap 1000 + summary). `computeEmitAllowlist(pluginId, deps)` = manifest `emits`; automation also gets whole `emits` of loaded providers of accepted `automation.action.<provider>` registrations. `resetEmitWarnings` test seam. See change: harden-trust-and-credential-boundaries. See change: harden-git-terminal-plugin-boundaries (D16).

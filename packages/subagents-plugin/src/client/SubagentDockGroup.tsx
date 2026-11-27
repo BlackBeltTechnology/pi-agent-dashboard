@@ -24,16 +24,17 @@
  * See change: add-composer-dock (task 3.3, design D4);
  * show-background-subagents-in-dock (D3, D4).
  */
-import { ComposerDockRow, useSessionSubagents, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { ComposerDockRow, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import {
   countSteps,
   isTerminalSubagentStatus,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+} from "../subagent-types.js";
 import { mdiOpenInNew, mdiRobotOutline, mdiTrayArrowDown } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useRef } from "react";
 import { Link } from "wouter";
+import { useSessionSubagents } from "./pluginState.js";
 import { isBackgroundSubagent } from "./sessionEventReducer.js";
 import { clearSubagentStop, requestSubagentStop, useSubagentStopState } from "./subagentStop.js";
 import type { SubagentState } from "./types.js";
@@ -88,24 +89,27 @@ function stopMeta(phase: StopPhase | undefined, t: Translate): string | undefine
   return undefined;
 }
 
+/** Type shown for a row: never the literal `unknown` (legacy stub rows) — falls back to the short id. */
+const typeLabel = (sub: SubagentState): string => (sub.type && sub.type !== "unknown" ? sub.type : sub.id.slice(0, 8));
+
 /** Row meta without stop feedback: queue position, `pending`, or `type · N steps`. */
 function progressMeta(sub: SubagentState, queuePos: number | undefined, pending: boolean, t: Translate): string {
   if (queuePos !== undefined) return t("agentQueuePos", { pos: queuePos }, "#{pos} in queue");
   if (pending) return t("dockPending", undefined, "pending");
   const steps = countSteps(sub.entries);
-  if (steps === 0) return sub.type;
+  if (steps === 0) return typeLabel(sub);
   const stepsLabel =
     steps === 1
       ? t("dockStepOne", { count: steps }, "{count} step")
       : t("dockSteps", { count: steps }, "{count} steps");
-  return `${sub.type} · ${stepsLabel}`;
+  return `${typeLabel(sub)} · ${stepsLabel}`;
 }
 
 /** One subagent row: content, Stop (live + `stoppable`) and Open. Shared by both groups. */
 export function SubagentDockRow({ sessionId, sub }: { sessionId: string; sub: SubagentState }) {
   const t = useT();
   const stopState = useSubagentStopState(sessionId, sub.id);
-  const name = sub.displayName ?? sub.type;
+  const name = sub.displayName ?? typeLabel(sub);
   const queuePos = queuePositionOf(sub);
   const pending = sub.status === "created" || queuePos !== undefined;
   const meta = stopMeta(stopState?.phase, t) ?? progressMeta(sub, queuePos, pending, t);
@@ -153,9 +157,7 @@ export function SubagentDockRow({ sessionId, sub }: { sessionId: string; sub: Su
 /** Shared body of both claims; `background` selects the kind and the noun. */
 function useDockGroup({ session, mode, reportSummary }: DockGroupProps, background: boolean) {
   const t = useT();
-  // Downcast the runtime's structural snapshot map to this plugin's `SubagentState`
-  // (same cast as `SubagentPopoutClaim`).
-  const all = useSessionSubagents(session.id) as unknown as ReadonlyMap<string, SubagentState>;
+  const all = useSessionSubagents(session.id);
   const active = useMemo(() => subagentsOfKind(all, background, isLive), [all, background]);
   const count = active.length;
   // The dock prints `noun` verbatim after `count`, so it must agree with the count.
@@ -186,7 +188,8 @@ function useDockGroup({ session, mode, reportSummary }: DockGroupProps, backgrou
     }
   }, [mode, all, background, session.id]);
 
-  if (mode === "summary" || count === 0) return null;
+  if (mode === "summary") return null;
+  if (count === 0) return null;
   return (
     <>
       {active.map((sub) => (

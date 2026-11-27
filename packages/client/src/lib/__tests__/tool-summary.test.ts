@@ -30,15 +30,13 @@ describe("getToolIcon", () => {
 
 // Agent-related tools keep their collapsed summary + icon in core, as tool-name
 // data that needs no plugin (test-plan #E37; spec agent-tool-rendering).
-describe("subagent tool summaries stay in core (E37)", () => {
-  it("Agent / get_subagent_result / steer_subagent have descriptive summaries", () => {
+describe("Agent tool summary stays in core (E37)", () => {
+  it("Agent has a descriptive summary", () => {
     expect(getSummary("Agent", { subagent_type: "Explore", description: "Fix auth bug" })).toBe("Explore: Fix auth bug");
-    expect(getSummary("get_subagent_result", { agent_id: "ag-1" })).toBe("Get result: ag-1");
-    expect(getSummary("steer_subagent", { agent_id: "ag-1" })).toBe("Steer: ag-1");
   });
 
-  it("they share the robot icon", () => {
-    for (const name of ["Agent", "get_subagent_result", "steer_subagent"]) expect(getToolIcon(name)).toBe(mdiRobotOutline);
+  it("Agent has the robot icon", () => {
+    expect(getToolIcon("Agent")).toBe(mdiRobotOutline);
   });
 
   it("tool-summary.ts imports no plugin and no plugin runtime (works with the plugin absent)", () => {

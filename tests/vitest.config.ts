@@ -9,7 +9,7 @@ import { defineConfig } from "vitest/config";
  * driven by `npm run test:e2e`.
  *
  * Added because the evidence-path resolver is pure logic used by two specs
- * that are BOTH opt-in (`PI_SYNTH_AGENT_TICKS=1`), so nothing in normal CI
+ * that are opt-in, so nothing in normal CI
  * could execute it. See issue #549.
  */
 export default defineConfig({

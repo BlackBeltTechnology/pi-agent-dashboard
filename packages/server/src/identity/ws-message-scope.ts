@@ -69,7 +69,6 @@ export const SESSION_OWNED_MESSAGES: ReadonlySet<string> = new Set([
   "set_thinking_level",
   "shutdown",
   "stop_after_turn",
-  "subagent_resync_request",
   "subscribe",
   "unarchive_session",
   "unsubscribe",

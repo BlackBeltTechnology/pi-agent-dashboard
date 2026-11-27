@@ -2144,14 +2144,6 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "reasoning subagent complete" },
   },
 
-  // NOTE: the `subagent-slow-inner-long` / `subagent-sustained-long` fixtures
-  // (task 1.1) were REMOVED. A nested faux subagent cannot sustain a >= 10 s
-  // tick stream in the harness (its inner `createAgentSession` resolves an empty
-  // faux response queue and dies after ~2 no-op turns; see measurement.md Bug 2),
-  // so F1/P3/F5 could never run on them. Those cadence rows now use the synthetic
-  // `faux-agent-ticks.ext.ts` producer (`synthetic-agent-ticks`[-quiet]).
-  // See change: reduce-bridge-tick-bandwidth.
-
   // Inner scenario for `subagent-streaming`: STREAMING-heavy, minimal idle. The
   // faux provider streams at `FAUX_TPS` (default 50 tok/s), and every inner
   // `message_update` delta drives one producer `pushUpdate` -> one parent
@@ -2226,119 +2218,6 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("streaming subagent complete")]),
     ],
     expect: { text: "streaming subagent complete" },
-  },
-
-  // Parent that spawns the SYNTHETIC Agent-tick producer (qa/fixtures/faux-
-  // agent-ticks.ext.ts, registered as the `Agent` tool under
-  // PI_SYNTH_AGENT_TICKS=1). The `[[ticks:N@Mms]]` sentinel sets the source
-  // cadence: 240 ticks @ 50 ms ≈ 12 s of 20 fps — a deterministic ≥ 10 s
-  // Agent-tick stream the throttle L3 rows (F1/P1/P2/P3/P4) assert against,
-  // with no nested faux subagent. See change: reduce-bridge-tick-bandwidth.
-  "synthetic-agent-ticks": {
-    script: [
-      fauxAssistantMessage(
-        [
-          fauxToolCall("Agent", {
-            subagent_type: "Explore",
-            description: "synthetic agent ticks",
-            prompt: "[[ticks:240@50]] stream synthetic agent ticks",
-          }),
-        ],
-        { stopReason: "toolUse" },
-      ),
-      fauxAssistantMessage([fauxText("synthetic ticks scenario complete")]),
-    ],
-    expect: { text: "synthetic ticks scenario complete" },
-  },
-
-  // A quiet-producer variant for F5: a > 2 s gap before tick index 30, so the
-  // cadence floor may not be asserted across that stretch.
-  // See change: reduce-bridge-tick-bandwidth (F5).
-  "synthetic-agent-ticks-quiet": {
-    script: [
-      fauxAssistantMessage(
-        [
-          fauxToolCall("Agent", {
-            subagent_type: "Explore",
-            description: "synthetic agent ticks (quiet)",
-            prompt: "[[ticks:120@50+gap2500@30]] stream synthetic agent ticks with a quiet gap",
-          }),
-        ],
-        { stopReason: "toolUse" },
-      ),
-      fauxAssistantMessage([fauxText("synthetic ticks scenario complete")]),
-    ],
-    expect: { text: "synthetic ticks scenario complete" },
-  },
-
-  // Watched-growth substrate for the PULL path (change:
-  // verify-subagent-pull-under-load, V1). Same synthetic Agent-tick producer,
-  // with the two additive sentinels switched on:
-  //   [[ticks:240@50]]      — 240 ticks @ 50 ms ≈ 12 s of run
-  //   [[entries:5..30@60]]  — timeline grows 5 → 30 over the first 60 ticks
-  //                           (≈ 3 s), then PLATEAUS for the remaining ≈ 9 s
-  //   [[bus:250]]           — `subagents:*` frames coalesced at the real
-  //                           producer's 250 ms, so the strip → frame-buffer →
-  //                           RESYNC path actually runs
-  // The ≈ 9 s plateau is load-bearing, not padding: it is ≥ 3 cadence intervals
-  // (CADENCE_BASE_MS = 2000), so the rendered count can reach 30 via a cadence
-  // resync reply WHILE THE AGENT IS STILL RUNNING. Without it the count would
-  // only converge on the never-stripped terminal frame and F1 would be vacuous.
-  "subagent-watched-growth": {
-    script: [
-      fauxAssistantMessage(
-        [
-          fauxToolCall("Agent", {
-            subagent_type: "Explore",
-            description: "watched growing subagent",
-            prompt: "[[ticks:240@50]][[entries:5..30@60]][[bus:250]] stream a watched growing timeline",
-          }),
-        ],
-        { stopReason: "toolUse" },
-      ),
-      fauxAssistantMessage([fauxText("watched growth scenario complete")]),
-    ],
-    expect: { text: "watched growth scenario complete" },
-  },
-
-  // Bus-cadence variants of `subagent-watched-growth`, for the P4 sensitivity
-  // table. The pull-vs-push byte verdict is a function of how fast the PUSH
-  // carrier runs, so a single cadence would report arithmetic on one fixture
-  // constant as if it were a property of the pipeline. 250 ms is the
-  // production-matched headline; these are the faster/slower flanks.
-  // See change: verify-subagent-pull-under-load (V5).
-  "subagent-watched-growth-bus100": {
-    script: [
-      fauxAssistantMessage(
-        [
-          fauxToolCall("Agent", {
-            subagent_type: "Explore",
-            description: "watched growing subagent",
-            prompt: "[[ticks:240@50]][[entries:5..30@60]][[bus:100]] stream a watched growing timeline",
-          }),
-        ],
-        { stopReason: "toolUse" },
-      ),
-      fauxAssistantMessage([fauxText("watched growth scenario complete")]),
-    ],
-    expect: { text: "watched growth scenario complete" },
-  },
-
-  "subagent-watched-growth-bus1000": {
-    script: [
-      fauxAssistantMessage(
-        [
-          fauxToolCall("Agent", {
-            subagent_type: "Explore",
-            description: "watched growing subagent",
-            prompt: "[[ticks:240@50]][[entries:5..30@60]][[bus:1000]] stream a watched growing timeline",
-          }),
-        ],
-        { stopReason: "toolUse" },
-      ),
-      fauxAssistantMessage([fauxText("watched growth scenario complete")]),
-    ],
-    expect: { text: "watched growth scenario complete" },
   },
 
   // ── OpenSpec auto-attach locality gate (change:

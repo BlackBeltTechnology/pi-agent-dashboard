@@ -23,6 +23,11 @@ function makeFakeContext(): ServerPluginContext {
     registerPiHandler: () => {},
     onEvent: () => () => {},
     onSessionEnded: () => () => {},
+    onSessionStatusEnded: () => () => {},
+    appendEvent: () => ({ ok: false, reason: "unsupported" }),
+    registerStorePolicy: () => () => {},
+    registerDeliveryPolicy: () => () => {},
+    registerReplayCarry: () => () => {},
     onSessionResolved: () => () => {},
     sendToSession: () => true,
     emitEventToSession: () => true,
@@ -376,7 +381,7 @@ describe("discovery sources (pi-package 4th source, winners, shadowing)", () => 
   /** A plugin package dir with a manifest, an optional server entry spy, at an explicit path. */
   function writeAt(dir: string, id: string, extra: Record<string, unknown> = {}, tag?: string) {
     fs.mkdirSync(dir, { recursive: true });
-    const manifest: Record<string, unknown> = { id, displayName: id, claims: [], hostApi: "^1.0.0", ...extra };
+    const manifest: Record<string, unknown> = { id, displayName: id, claims: [], hostApi: "^2.0.0", ...extra };
     if (tag) {
       manifest.server = "./server.mjs";
       fs.writeFileSync(path.join(dir, "server.mjs"), SPY_ENTRY(tag));
@@ -620,7 +625,7 @@ describe("E55 keyed discovery cache", () => {
 
 // task 6.1 / E69: manifest `clientBundle` + `clientStyles`, dedicated asset root.
 describe("E69 client bundle manifest fields and asset-root layout", () => {
-  const base = { id: "ext", displayName: "Ext", claims: [], hostApi: "^1.0.0" };
+  const base = { id: "ext", displayName: "Ext", claims: [], hostApi: "^2.0.0" };
 
   it("(a) keeps clientBundle + clientStyles; `client` stays the build-time entry", () => {
     writePlugin("ext", {
