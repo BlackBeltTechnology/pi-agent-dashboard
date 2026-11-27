@@ -1,12 +1,15 @@
 /**
- * Tests for expandable per-agent rows in FlowSummary.
- * Collapsed rows show a truncated peek; expanding reveals full summary
- * (markdown), typed-output chips, and the file list. Failed steps
- * auto-expand. Rows without detail are not interactive. Per-row state
- * is independent. See change: expandable-flow-summary-rows.
+ * Completed-flow panel: `FlowDashboard` in `summary` mode (the `FlowSummary`
+ * shell is gone; `FlowSummary.tsx` keeps the summary-only sections).
+ * Expandable per-agent Summaries rows: collapsed rows show a truncated peek;
+ * expanding reveals full summary (markdown), typed-output chips, and the file
+ * list. Failed steps auto-expand. Per-row state is independent. Also covers
+ * the scroll box, whole-panel collapse, selection, expand dialog and header
+ * actions in summary mode. See changes: expandable-flow-summary-rows,
+ * unify-flow-rendering (D1).
  */
 
-import { initPluginConfigs, publishSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { CurrentPluginLayer, initPluginConfigs, PluginContextProvider, publishSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,7 +30,7 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { FlowAgentState, FlowState } from "../types.js";
-import { FlowSummary } from "../client/FlowSummary.js";
+import { FlowDashboard } from "../client/FlowDashboard.js";
 import { flowCollapseKey } from "../client/flow-collapse-storage.js";
 
 // Panels default to collapsed now; these cases inspect the body, so the
@@ -35,7 +38,24 @@ import { flowCollapseKey } from "../client/flow-collapse-storage.js";
 beforeEach(() => {
   localStorage.clear();
   localStorage.setItem(flowCollapseKey("summary", "s1"), "false");
+  // The Agent cards section (shared with the live panel) is collapsed by
+  // default; these cases inspect the cards, so it starts open.
+  localStorage.setItem(flowCollapseKey("cards", "s1"), "false");
 });
+
+/** Summary-mode panel (a completed `flowState`, not idle). */
+function Summary({ flowState, sessionId, headerActions }: { flowState: FlowState; sessionId: string; headerActions?: React.ReactNode }) {
+  return (
+    <FlowDashboard
+      flowState={flowState}
+      onAbort={() => {}}
+      onToggleAutonomous={() => {}}
+      onDismiss={() => {}}
+      sessionId={sessionId}
+      headerActions={headerActions}
+    />
+  );
+}
 
 const registry = createUiPrimitiveRegistry();
 registerUiPrimitive(
@@ -48,7 +68,7 @@ registerUiPrimitive(
   UI_PRIMITIVE_KEYS.formatDuration,
   (((ms: number) => `${ms}ms`) as never),
 );
-// FlowGraph (rendered inside FlowSummary) consumes the zoom-controls primitive.
+// FlowGraph (rendered inside the summary panel) consumes the zoom-controls primitive.
 registerUiPrimitive(
   registry,
   UI_PRIMITIVE_KEYS.zoomControls,
@@ -62,7 +82,7 @@ registerUiPrimitive(
     <div data-testid="agent-card" data-selected={selected ? "true" : "false"} onClick={onClick}>{children}</div>
   )) as never,
 );
-// ui:dialog is required by FlowAgentCard (detail) + FlowSummary (graph expand).
+// ui:dialog is required by FlowAgentCard (detail) + the panel (graph expand).
 registerUiPrimitive(
   registry,
   UI_PRIMITIVE_KEYS.dialog,
@@ -104,15 +124,19 @@ function makeState(agents: FlowAgentState[]): FlowState {
 
 function renderSummary(state: FlowState) {
   return render(
-    <UiPrimitiveProvider value={registry}>
-      <FlowSummary flowState={state} onDismiss={() => {}} sessionId="s1" />
-    </UiPrimitiveProvider>,
+    <PluginContextProvider send={() => {}}>
+      <UiPrimitiveProvider value={registry}>
+        <CurrentPluginLayer pluginId="flows">
+          <Summary flowState={state} sessionId="s1" />
+        </CurrentPluginLayer>
+      </UiPrimitiveProvider>
+    </PluginContextProvider>,
   );
 }
 
 afterEach(() => cleanup());
 
-describe("FlowSummary frozen cards (show-flow-cards-in-summary)", () => {
+describe("summary mode frozen cards (show-flow-cards-in-summary)", () => {
   it("renders one frozen agent card per agent, above the collapsible summary section", () => {
     const state = makeState([
       agent({ stepId: "one", label: "step-one", status: "complete", summary: "S1" }),
@@ -139,7 +163,7 @@ describe("FlowSummary frozen cards (show-flow-cards-in-summary)", () => {
   });
 });
 
-describe("FlowSummary fit-window scroll box (improve-flow-graph-fidelity)", () => {
+describe("summary mode fit-window scroll box (improve-flow-graph-fidelity)", () => {
   it("wraps cards + summaries in one bounded, scrollable box so the panel fits the viewport", () => {
     const state = makeState([
       agent({ stepId: "one", label: "step-one", status: "complete", summary: "S1" }),
@@ -154,7 +178,7 @@ describe("FlowSummary fit-window scroll box (improve-flow-graph-fidelity)", () =
   });
 });
 
-describe("FlowSummary whole-panel collapse (improve-flow-graph-fidelity)", () => {
+describe("summary mode whole-panel collapse (improve-flow-graph-fidelity)", () => {
   it("collapses the whole panel to its header bar, hiding the body but keeping the name", () => {
     const state = makeState([
       agent({ stepId: "one", label: "step-one", status: "complete", summary: "S1" }),
@@ -175,7 +199,7 @@ describe("FlowSummary whole-panel collapse (improve-flow-graph-fidelity)", () =>
   });
 });
 
-describe("FlowSummary graph⇄card selection (improve-flow-graph-dialog-and-card-interaction)", () => {
+describe("summary mode graph⇄card selection (improve-flow-graph-dialog-and-card-interaction)", () => {
   function selectionState() {
     return makeState([
       agent({ stepId: "one", label: "step-one", status: "complete", summary: "S1" }),
@@ -218,7 +242,7 @@ describe("FlowSummary graph⇄card selection (improve-flow-graph-dialog-and-card
   });
 });
 
-describe("FlowSummary graph expand dialog (full size)", () => {
+describe("summary mode graph expand dialog (full size)", () => {
   it("⤢ Expand opens the graph dialog at size=full", () => {
     const state = makeState([agent({ stepId: "one", label: "step-one", status: "complete" })]);
     const { container, getByText, queryByTestId } = renderSummary(state);
@@ -244,7 +268,7 @@ describe("FlowAgentCard detail dialog (replaces popover)", () => {
   });
 });
 
-describe("FlowSummary expandable rows", () => {
+describe("summary mode expandable rows", () => {
   it("collapsed complete row shows truncated peek; clicking reveals full summary, chips, files", () => {
     const state = makeState([
       agent({
@@ -375,12 +399,11 @@ describe("FlowAgentCard preserved interactions (#E14)", () => {
 
 // ── Header actions (Run again / Open flow… / Edit…) ─────────────────────────
 // See change: flows-dock-chip-and-panel-actions (test-plan E23).
-describe("FlowSummary header actions (E23)", () => {
+describe("summary mode header actions (E23)", () => {
   const sessionTree = (sid: string, state: FlowState) =>
     harnessTree(
-      <FlowSummary
+      <Summary
         flowState={state}
-        onDismiss={() => {}}
         sessionId={sid}
         headerActions={<FlowHeaderActions sessionId={sid} flowName={state.flowName} variant="summary" />}
       />,
@@ -455,7 +478,7 @@ describe("FlowSummary header actions (E23)", () => {
     publishCatalog(sid, [entry("demo-flow")]);
     render(
       harnessTree(
-        <FlowSummary flowState={makeState([agent({ stepId: "one" })])} onDismiss={() => {}} sessionId={sid} headerActions={<FlowHeaderActions sessionId={sid} flowName="demo-flow" variant="summary" />} />,
+        <Summary flowState={makeState([agent({ stepId: "one" })])} sessionId={sid} headerActions={<FlowHeaderActions sessionId={sid} flowName="demo-flow" variant="summary" />} />,
         send,
       ),
     );
@@ -472,7 +495,7 @@ describe("FlowSummary header actions (E23)", () => {
 import { reduceFlowEvent } from "../reducer.js";
 import type { DashboardEvent as E57Event } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-describe("FlowSummary frozen cards from the plugin slice (E57)", () => {
+describe("summary mode frozen cards from the plugin slice (E57)", () => {
   const ev = (eventType: string, data: Record<string, unknown>) =>
     ({ eventType, timestamp: 0, data }) as unknown as E57Event;
   function completedState(): FlowState {

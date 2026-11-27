@@ -7,7 +7,7 @@ Defines how the dashboard server spawns headless pi sessions (no TUI / no termin
 ## Requirements
 
 ### Requirement: Headless spawn survives server restart (Unix)
-On macOS and Linux, headless pi sessions SHALL be spawned via the keeper sidecar (see `rpc-keeper-sidecar` capability). The dashboard server SHALL spawn the keeper as a detached child process; the keeper SHALL spawn pi with `stdio: ["pipe", logFd, logFd]` and own pi's stdin pipe.
+On macOS and Linux, headless pi sessions SHALL be spawned via the keeper sidecar (see `rpc-keeper-sidecar` capability). The dashboard server SHALL spawn the keeper as a detached child process. The keeper SHALL own pi's stdin pipe. It SHALL route pi's stdout/stderr to its log descriptor (`stdio: ["pipe", logFd, logFd]`) only when keeper log capture is enabled, and SHALL discard them (`stdio: ["pipe", "ignore", "ignore"]`) otherwise (see `rpc-keeper-sidecar` Requirement "RPC keeper sidecar process per headless session").
 
 The keeper SHALL outlive the dashboard server. When the dashboard server exits, the keeper SHALL continue running with pi attached. When the new dashboard server starts, it SHALL discover the keeper via the socket-scan reconnect path (see `rpc-keeper-sidecar` Requirement "Server reconnect to existing keepers on startup") and resume RPC dispatch routing.
 
@@ -31,7 +31,7 @@ The keeper path is unconditional. There is no feature flag and no legacy non-kee
 - **AND** no fallback to a legacy `tail -f /dev/null` wrapper SHALL be attempted
 
 ### Requirement: Headless spawn on Windows uses keeper for durability parity
-On Windows, headless pi sessions SHALL be spawned via the same keeper sidecar pattern as Unix. The keeper SHALL listen on a Windows named pipe (`\\.\pipe\pi-rpc-<sessionId>`) and own pi's stdin via `stdio: ["pipe", logFd, logFd]`. The keeper path is unconditional on Windows — there is no fallback to direct-stdin piping from the dashboard server to pi.
+On Windows, headless pi sessions SHALL be spawned via the same keeper sidecar pattern as Unix. The keeper SHALL listen on a Windows named pipe (`\\.\pipe\pi-rpc-<sessionId>`) and own pi's stdin. Its pi stdout/stderr routing SHALL follow the same capture rule as Unix (`["pipe", logFd, logFd]` when keeper log capture is enabled, `["pipe", "ignore", "ignore"]` otherwise). The keeper path is unconditional on Windows; there is no fallback to direct-stdin piping from the dashboard server to pi.
 
 This replaces the previous Windows behavior where the dashboard server piped pi's stdin directly, which meant pi died with the dashboard server on every restart. With the keeper as the only path, Windows now matches Unix unconditionally: pi survives across dashboard server restarts.
 

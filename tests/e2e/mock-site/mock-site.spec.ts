@@ -4,12 +4,13 @@
  * (test-plan E20, P1, F1-F16, X5-X7), fix-mock-site-ux (test-plan U2-U11) and
  * add-mock-site-exact-env (test-plan E11, E12, F1-F5, F7-F11, X11; task 3.5 / 6.3).
  */
-import { expect, test, type Page } from "@playwright/test";
+
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { FIXTURE_MOCK, PILLS_MOCK, REPO_ROOT, SCRIPTED_MOCK, SOLID_MOCK, readMarker } from "./fixture.js";
+import { expect, type Page, test } from "@playwright/test";
+import { FIXTURE_MOCK, GUARD_MOCK, PILLS_MOCK, REPO_ROOT, readMarker, SCRIPTED_MOCK, SOLID_MOCK, STAGE_MOCK, STEP_MOCK } from "./fixture.js";
 
 const M = () => readMarker();
 const url = (h = "") => `${M().url}/${h ? `#${h}` : ""}`;
@@ -389,7 +390,7 @@ test("no mocks shows the empty state (U11)", async ({ page }) => {
   const mockups = path.join(M().root, "mockups");
   const aside = path.join(M().root, "aside");
   fs.mkdirSync(aside, { recursive: true });
-  const all = [PILLS_MOCK, FIXTURE_MOCK, SCRIPTED_MOCK, SOLID_MOCK];
+  const all = [PILLS_MOCK, FIXTURE_MOCK, SCRIPTED_MOCK, SOLID_MOCK, STAGE_MOCK, GUARD_MOCK, STEP_MOCK];
   for (const id of all) fs.renameSync(path.join(mockups, id), path.join(aside, id));
   try {
     await page.waitForTimeout(1500);
@@ -434,6 +435,7 @@ test("fixture + script frame renders real components in same-origin iframes (F2)
 });
 
 test("bounded waits: late target passes; missing / slow targets fail naming the step (E11)", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 3000 }); // all on screen: off-screen scripted panes hold after their pre-measure
   await page.goto(url(`${S}/1`)); await ready(page);
   for (const n of [1, 2, 3]) await isoPane(page, `${S}/${n}/proposed`);
   await expect(health(page, `${S}/1/proposed`)).toContainText("loops: 1 completed, 0 failed", { timeout: 15_000 });

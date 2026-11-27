@@ -62,10 +62,11 @@ pi-dashboard api POST /api/session/spawn --data '{"cwd":"<repo>"}' > /tmp/sp.jso
 watch -n2 'curl -s http://localhost:8000/api/health | jq .server.activeSessions'
 
 # 2. Read the keeper log for that spawn (transport id from /tmp/sp.json)
-#    ~/.pi/dashboard/sessions/keeper-<transport>.log
+#    Requires Settings > Developer "Capture pi session output (debug)" ON, then start a NEW session (toggle read at spawn).
+#    ~/.pi/dashboard/sessions/keeper-<transport>.log (absent when toggle off)
 #    'pi exited code=1 ... elapsed=NNNNms' == pi crashed at startup (extension/config), NOT overload.
 
-# 3. Capture pi's crash reason directly (keeper output-capture is OFF by default):
+# 3. Capture pi's crash reason directly (keeper output-capture is OFF by default; step 2 logs absent until toggle ON + new session):
 NODE=~/.pi-dashboard/node/bin/node
 CLI=node_modules/@earendil-works/pi-coding-agent/dist/cli.js
 ( echo '' | timeout 8 "$NODE" "$CLI" --mode rpc ) >/tmp/o 2>/tmp/e; echo exit=$?; head /tmp/e

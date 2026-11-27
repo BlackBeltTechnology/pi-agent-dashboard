@@ -225,7 +225,7 @@ The client SHALL define in `index.css`, alongside the severity triples, `--tint-
 - **THEN** the ratio SHALL satisfy the relative gate in "Derived triples meet a relative contrast gate across all themes", including its enumerated exceptions
 
 ### Requirement: No raw colour literals on aligned action surfaces
-`FolderSpawnButtons.tsx`, `DashboardSpawnButtons.tsx`, `SessionCard.tsx`, `WorktreeSpawnDialog.tsx`, `WorktreeList.tsx`, `GoalDetailClaim.tsx`, `ConfirmRenderer.tsx`, `SelectRenderer.tsx` and `CreateAutomationDialog.tsx`, and the `OpenSpecBoardView.tsx` new-session / create controls, SHALL source accent colour from `--tint-*`, `--severity-*` or `--status-*` tokens and SHALL NOT use raw Tailwind palette classes (`text|bg|border|ring|outline|divide|shadow|from|via|to-<hue>-<shade>`) or hex/rgba colour literals in class names or inline styles. The same rule SHALL apply to these files:
+`FolderSpawnButtons.tsx`, `DashboardSpawnButtons.tsx`, `SessionCard.tsx`, `WorktreeSpawnDialog.tsx`, `WorktreeList.tsx`, `GoalDetailClaim.tsx`, `ConfirmRenderer.tsx`, `SelectRenderer.tsx` and the automation plugin's inline editor (`AutomationEditor.tsx`), and the `OpenSpecBoardView.tsx` new-session / create controls, SHALL source accent colour from `--tint-*`, `--severity-*` or `--status-*` tokens and SHALL NOT use raw Tailwind palette classes (`text|bg|border|ring|outline|divide|shadow|from|via|to-<hue>-<shade>`) or hex/rgba colour literals in class names or inline styles. The same rule SHALL apply to these files:
 
 - the shared status pill, notice, inline action error and dialog primitives;
 - `SessionActionsPanel.tsx`;

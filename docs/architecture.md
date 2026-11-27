@@ -2761,7 +2761,7 @@ Run-configuring surfaces, all five now paired:
 - Settings → Sessions → Default Model — `packages/client/src/components/settings/SettingsPanel.tsx`, persists `config.defaultThinkingLevel`
 - OpenSpec run-config row — `packages/client/src/components/openspec/useOpenSpecRunConfigRow.tsx`
 - Roles → assign model to `@role` — `packages/roles-plugin/src/RolesSettingsSection.tsx`
-- Automation → Create, direct-model branch — `packages/automation-plugin/src/client/CreateAutomationDialog.tsx`
+- Automation → Create/edit, direct-model branch ("Runs as" group) — `packages/automation-plugin/src/client/AutomationEditor.tsx`, rendered inline by `AutomationBoard.tsx` (editing card or `automation-draft` card)
 
 Reference-listing surfaces, deliberately excluded: Model Proxy preferred-models list and Model Proxy alias→model table, both in `packages/client/src/components/settings/ModelProxySection.tsx`.
 
@@ -6649,6 +6649,13 @@ Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Default and o
 Per-session keeper process owns pi's stdin pipe. Keeper forwards verbatim to pi's stdin. Server no longer writes extension-slash RPC lines to the keeper (`keeperManager.writeRpc`, `keeperManager.writeRpcToSockPath`, `headlessPidRegistry.writeRpc` removed; `dispatch-router.ts` deleted).
 
 Keeper outlives dashboard server restarts. Replaced Unix `tail -f /dev/null | pi` wrapper and Windows direct-stdin pipe. Uniform durability across Unix and Windows.
+
+Keeper logging off by default. Settings > Developer toggle `keeperLog.capturePiOutput` (default `false`) gates ALL keeper log output.
+- Off: no `keeper-<id>.log`, no `keeper-launch-<id>.log`. `log()` no-op. Rotation not armed. PID sidecars (`.pid`, `.pi-pid`) still written.
+- On: lifecycle lines + pi stdout/stderr → `keeper-<id>.log` (in-place rotation at `keeperLog.maxBytes`); keeper startup stderr → `keeper-launch-<id>.log`.
+- Server sets `PI_KEEPER_CAPTURE_PI_OUTPUT=1` from config only. Deletes inherited value (case-insensitive) when off. Inherited env cannot enable.
+- Read at spawn: applies to new sessions only. Running keepers keep prior behavior.
+- Server closes launch-log fd after spawn.
 
 Three-process topology + dual-channel boundary:
 

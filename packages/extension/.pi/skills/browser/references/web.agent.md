@@ -485,7 +485,7 @@ Pull-only condensed map. Source: packages/extension/.pi/skills/browser/reference
 - Detect first — run `detect-dashboard.sh`, use `DASHBOARD_URL` in every recipe; always `browser close` when done.
 - Verify Session Card Rendering — `browser open http://localhost:8000` → `wait --load networkidle` → `screenshot` → `snapshot -i`; check sidebar spacing/status. Components: `src/client/components/SessionCard.tsx`, SessionList.tsx, SessionSidebar.tsx, SortableSessionCard.tsx, PlaceholderSessionCard.tsx.
 - Check Chat View Scrolling — click session card → chat, `scroll down 500`/`scroll up 500` + screenshots. ChatView.tsx, MarkdownContent.tsx, ThinkingBlock.tsx, ToolCallStep.tsx, BashOutputCard.tsx.
-- Verify Flow Dashboard Cards — select session running a flow; look for sticky flow card grid. FlowDashboard.tsx, FlowAgentCard.tsx, FlowAgentDetail.tsx, FlowSummary.tsx, FlowActivityBadge.tsx.
+- Verify Flow Dashboard Cards — select session running a flow; look for sticky flow card grid. FlowDashboard.tsx, FlowAgentCard.tsx, FlowAgentDetail.tsx, FlowSummary.tsx (summary sections; completed flow = FlowDashboard summary mode), FlowActivityBadge.tsx.
 - Check Settings Panel — click settings gear, scroll sections `scroll down 300`. SettingsPanel.tsx, ProviderAuthSection.tsx, ThemePicker.tsx, TunnelButton.tsx.
 - Test Mobile Shell — `browser set viewport 375 667` first; hamburger menu. MobileShell.tsx, MobileActionMenu.tsx, MobileOverlay.tsx, hooks/useSwipeBack.ts.
 - Validate Terminal View — click terminal card in sidebar. TerminalView.tsx, TerminalCard.tsx.

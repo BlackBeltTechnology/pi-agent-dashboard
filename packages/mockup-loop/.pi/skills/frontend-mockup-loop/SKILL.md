@@ -163,7 +163,8 @@ directory with a `STATIC.md` naming the exception, served with `serve_mockup`.
 interaction, give the frame a `script` (click / type / clear / hover / press /
 wait on the real DOM, `unless` / `expect` per step) over a fixture factory
 (`fixtures`, fresh per pane and loop). Check it with `mock-check <ref> --loops 10`
-before showing it.
+before showing it. A paused scripted frame steps with ◀ / ▶ (back replays on
+fresh fixtures), so the reviewer can walk the interaction one step at a time.
 
 **Show it with the package tools.** Serve with `serve_mock_site{}` and show the
 returned URL to the user (LAN URL only for a phone check) — **not a screenshot**.

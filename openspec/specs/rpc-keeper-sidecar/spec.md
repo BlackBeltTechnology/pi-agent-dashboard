@@ -6,9 +6,16 @@ Per-session RPC keeper sidecar process that owns pi's stdin pipe and outlives da
 ## Requirements
 
 ### Requirement: RPC keeper sidecar process per headless session
-For every headless pi session spawned via `spawnPiSession({strategy: "headless"})`, the dashboard server SHALL spawn a per-session keeper process (`packages/server/src/rpc-keeper/keeper.cjs`) BEFORE spawning pi. The keeper SHALL spawn pi as its own child process, owning pi's stdin pipe. The keeper SHALL select pi's stdout/stderr sink based on the `PI_KEEPER_CAPTURE_PI_OUTPUT` env var (set by `KeeperManager` from `config.keeperLog.capturePiOutput`): when capture is enabled, the keeper SHALL use `stdio: ["pipe", logFd, logFd]` so pi's stdout/stderr are appended to `keeper-<sessionId>.log`; when capture is disabled (the default), the keeper SHALL use `stdio: ["pipe", "ignore", "ignore"]` so pi's stdout/stderr are discarded. Regardless of the flag, the keeper SHALL write its own lifecycle log lines (`keeper starting`, `spawning pi`, `pi exited code=…`, errors) to `keeper-<sessionId>.log` via its internal `log()` writer. The keeper SHALL outlive dashboard server restarts: when the dashboard server exits, the keeper SHALL continue running and pi SHALL continue running. The keeper SHALL exit with code 0 when its child pi exits.
+For every headless pi session spawned via `spawnPiSession({strategy: "headless"})`, the dashboard server SHALL spawn a per-session keeper process (`packages/server/src/rpc-keeper/keeper.cjs`) BEFORE spawning pi. The keeper SHALL spawn pi as its own child process, owning pi's stdin pipe.
 
-The keeper SHALL be a CommonJS file (`.cjs`) with no TypeScript loader, jiti, or tsx dependencies — it imports only Node built-in modules (`child_process`, `net`, `fs`, `path`). This mirrors the precedent set by `packages/server/preload-fastify.cjs`.
+The `PI_KEEPER_CAPTURE_PI_OUTPUT` env var SHALL gate ALL keeper log output. The server SHALL derive it solely from `config.keeperLog.capturePiOutput` at spawn time. It SHALL set the var to `"1"` when the config is `true`, and SHALL remove it from the keeper env when the config is `false` (matching the key case-insensitively, since Windows env names are case-insensitive), so a value inherited from the server's own environment can never enable logging.
+
+- When capture is enabled (`"1"`), the keeper SHALL open `keeper-<sessionId>.log`, SHALL write its own lifecycle log lines (`keeper starting`, `spawning pi`, `pi exited code=…`, errors) to it via its internal `log()` writer, and SHALL spawn pi with `stdio: ["pipe", logFd, logFd]` so pi's stdout/stderr are appended to the same file.
+- When capture is disabled (unset, empty, or any value other than `"1"`; the default), the keeper SHALL NOT create or open `keeper-<sessionId>.log`, its `log()` writer SHALL be a no-op, it SHALL NOT start any log-size check or rotation timer, and it SHALL spawn pi with `stdio: ["pipe", "ignore", "ignore"]` so pi's stdout/stderr are discarded.
+
+The keeper SHALL strip `PI_KEEPER_CAPTURE_PI_OUTPUT` from the env it passes to pi. The keeper SHALL outlive dashboard server restarts: when the dashboard server exits, the keeper SHALL continue running and pi SHALL continue running. The keeper SHALL exit with code 0 when its child pi exits.
+
+The keeper SHALL be a CommonJS file (`.cjs`) with no TypeScript loader, jiti, or tsx dependencies. It imports only Node built-in modules (`child_process`, `net`, `fs`, `path`). This mirrors the precedent set by `packages/server/preload-fastify.cjs`.
 
 #### Scenario: Keeper spawned before pi
 - **WHEN** `spawnPiSession(cwd, {strategy: "headless"})` is invoked
@@ -19,13 +26,19 @@ The keeper SHALL be a CommonJS file (`.cjs`) with no TypeScript loader, jiti, or
 #### Scenario: Capture disabled by default discards pi output
 - **WHEN** the keeper starts and `PI_KEEPER_CAPTURE_PI_OUTPUT` is unset, empty, or not `"1"`
 - **THEN** the keeper SHALL spawn pi with `stdio: ["pipe", "ignore", "ignore"]`
-- **AND** pi's stdout/stderr SHALL NOT be written to `keeper-<sessionId>.log`
-- **AND** the keeper's own lifecycle log lines SHALL still be written to `keeper-<sessionId>.log`
+- **AND** no `keeper-<sessionId>.log` file SHALL exist in the sessions directory for that session at any point during the keeper's lifetime, including after it shuts down
+- **AND** the keeper SHALL still bind its socket, spawn pi, write its PID sidecars, and forward RPC lines normally
 
 #### Scenario: Capture enabled archives pi output
 - **WHEN** the keeper starts and `PI_KEEPER_CAPTURE_PI_OUTPUT` is `"1"`
 - **THEN** the keeper SHALL spawn pi with `stdio: ["pipe", logFd, logFd]`
+- **AND** `keeper-<sessionId>.log` SHALL contain the keeper's lifecycle lines
 - **AND** pi's stdout/stderr SHALL be appended to `keeper-<sessionId>.log`
+
+#### Scenario: Inherited env var cannot enable logging when the toggle is off
+- **WHEN** the dashboard server process itself has `PI_KEEPER_CAPTURE_PI_OUTPUT=1` in its environment and `config.keeperLog.capturePiOutput` is `false`
+- **THEN** the keeper env SHALL NOT contain `PI_KEEPER_CAPTURE_PI_OUTPUT`
+- **AND** no keeper log file SHALL be created for that spawn
 
 #### Scenario: Keeper survives dashboard server restart
 - **WHEN** the dashboard server exits (graceful `/api/shutdown` or SIGTERM) while a headless session is active
@@ -175,25 +188,44 @@ recorded, left unchanged, or unavailable.
 - **AND** no signal SHALL be sent and the sidecars SHALL stay in place
 
 ### Requirement: Keeper failure modes
-The keeper SHALL handle these failure modes:
+The keeper SHALL handle these failure modes. "Log" below means the keeper's `log()` writer. It writes to `keeper-<sessionId>.log` only when capture is enabled and is a no-op otherwise. Exit codes and socket handling SHALL be identical whether or not capture is enabled.
 
-- **pi child fails to spawn** (e.g. binary missing): keeper exits non-zero with a single-line error written to its log file; UDS socket / named pipe SHALL NOT be created.
+- **pi child fails to spawn** (e.g. binary missing): keeper logs a single-line error and exits non-zero; UDS socket / named pipe SHALL NOT be created.
 - **pi child crashes during operation**: keeper detects via `child.on("exit", ...)`, unlinks socket + PID file, exits 0.
 - **UDS socket connection refused** (path collision with stale socket): keeper SHALL attempt to unlink the existing socket file before binding, retry once, then exit non-zero with a clear log message.
 - **Write to pi.stdin after pi has exited**: keeper SHALL detect EPIPE / closed-stream errors, log them, and exit (the same path as "pi child crashes").
 - **Out-of-order startup race** (server connects before keeper has bound socket): keeper SHALL bind socket BEFORE spawning pi; server SHALL retry connect with exponential backoff (max 3 attempts, ~500ms total) before emitting an `error` feedback.
 
+When the server's crash-window check sees the keeper exit early (`PI_CRASHED`), the message SHALL include the keeper exit code and SHALL reflect the capture setting actually passed to that keeper:
+- capture enabled → the message SHALL name both `keeper-<sessionId>.log` and `keeper-launch-<sessionId>.log` (startup errors raised before the keeper opens its own log land in the launch log);
+- capture disabled → the message SHALL tell the user to enable "Capture pi session output (debug)" in Settings and start a new session, and SHALL NOT name any log file.
+
 #### Scenario: pi binary missing on keeper startup
 - **WHEN** the keeper attempts to spawn `pi --mode rpc` and the binary is not found
-- **THEN** the keeper SHALL log the error to its log file
+- **THEN** the keeper SHALL log the error (to `keeper-<sessionId>.log` when capture is enabled)
 - **AND** the keeper SHALL exit non-zero
 - **AND** the keeper SHALL NOT create the UDS socket / named pipe
+
+#### Scenario: pi binary missing with capture disabled leaves no file
+- **WHEN** capture is disabled and the keeper fails to spawn pi
+- **THEN** the keeper SHALL exit non-zero
+- **AND** no `keeper-<sessionId>.log` and no `keeper-launch-<sessionId>.log` SHALL be created
 
 #### Scenario: Stale socket file from previous keeper crash
 - **WHEN** the keeper attempts to bind its UDS socket and the path already exists
 - **THEN** the keeper SHALL `unlink()` the path
 - **AND** the keeper SHALL retry the bind exactly once
 - **AND** if the second bind fails, the keeper SHALL exit non-zero
+
+#### Scenario: Crash-window error with capture disabled points at the toggle
+- **WHEN** capture is disabled and the keeper exits within the server's crash window
+- **THEN** the spawn result SHALL have code `PI_CRASHED`
+- **AND** its message SHALL tell the user to enable "Capture pi session output (debug)" and start a new session
+- **AND** its message SHALL NOT reference any `keeper-*.log` file
+
+#### Scenario: Crash-window error with capture enabled points at both logs
+- **WHEN** capture is enabled and the keeper exits within the server's crash window
+- **THEN** the spawn result message SHALL reference `keeper-<sessionId>.log` and `keeper-launch-<sessionId>.log`
 
 ### Requirement: Server-resolved pi command passed to keeper
 
@@ -336,6 +368,8 @@ import, so the keeper remains a CommonJS file depending solely on Node built-ins
 
 ### Requirement: Keeper log SHALL be size-bounded by in-place truncation
 
+This requirement applies only when capture is enabled (`PI_KEEPER_CAPTURE_PI_OUTPUT` is `"1"`). When capture is disabled there is no keeper log, so the keeper SHALL perform no size check and SHALL NOT start the periodic rotation timer. Its absence SHALL NOT raise any error.
+
 The keeper SHALL bound the growth of `keeper-<sessionId>.log`. When the log reaches `keeperLog.maxBytes` (default 128 MiB), the keeper SHALL truncate it in place to zero length and SHALL retain no rotated generation.
 
 Truncation SHALL be attempted on the descriptor first (`fs.ftruncateSync(logFd, 0)`) and, if that throws, by path (`fs.truncateSync(logPath, 0)`) as a fallback. The descriptor is opened `O_APPEND` and Windows may refuse a descriptor truncation on such a handle; the fallback opens its own handle against the same inode. Before falling back, the keeper SHALL confirm that `logPath` still resolves to the same inode as `logFd`, so a swapped or replaced path cannot be truncated in place of the file actually being measured.
@@ -391,6 +425,11 @@ Rotation SHALL be best-effort and SHALL NOT alter keeper lifecycle. Both trigger
 - **AND** the keeper SHALL NOT invoke its shutdown path
 - **AND** the keeper SHALL NOT retry more often than the normal check interval
 
+#### Scenario: No rotation machinery when capture is disabled
+- **WHEN** the keeper starts with `PI_KEEPER_CAPTURE_PI_OUTPUT` unset
+- **THEN** the keeper SHALL NOT start a rotation timer or perform any log size check
+- **AND** the keeper SHALL reach ready state and serve RPC lines without error
+
 ### Requirement: Keeper log bounds SHALL be configured, not hardcoded twice
 
 `config.keeperLog` SHALL carry `maxBytes` (default `134217728`) and `checkIntervalMs` (default `5000`). `parseKeeperLogConfig` SHALL parse and validate both keys — it currently returns only `capturePiOutput` and drops unknown keys, which would silently discard an operator's setting while `config.json` still displays it.
@@ -417,3 +456,21 @@ The keeper SHALL delete both variables from the environment it passes to the pi 
 #### Scenario: Keeper-internal log vars do not reach pi
 - **WHEN** the keeper spawns its pi child with either log env var set in its own environment
 - **THEN** the child environment SHALL NOT contain `PI_KEEPER_LOG_MAX_BYTES` or `PI_KEEPER_LOG_CHECK_INTERVAL_MS`
+
+### Requirement: Launch-stderr log is created only when capture is enabled
+The dashboard server SHALL create `keeper-launch-<sessionId>.log` (which receives the keeper process's own stdout/stderr) only when capture is enabled for that spawn. When capture is disabled, the server SHALL spawn the keeper with its stdout/stderr discarded and SHALL NOT create the launch log.
+
+#### Scenario: Capture disabled spawns no launch log
+- **WHEN** a headless session is spawned with `keeperLog.capturePiOutput` false or absent
+- **THEN** no `keeper-launch-<sessionId>.log` SHALL be created in the sessions directory
+
+#### Scenario: Capture enabled spawns a launch log
+- **WHEN** a headless session is spawned with `keeperLog.capturePiOutput` true
+- **THEN** `keeper-launch-<sessionId>.log` SHALL be created and receive the keeper's own stdout/stderr
+
+### Requirement: Server closes its launch-log descriptor after spawning the keeper
+When the server opens `keeper-launch-<sessionId>.log`, it SHALL close its own descriptor once the keeper spawn attempt returns, whether it succeeded or failed. The keeper's inherited copy stays open.
+
+#### Scenario: Server does not leak the launch-log descriptor
+- **WHEN** a headless session is spawned with capture enabled
+- **THEN** after the spawn call returns, the server process SHALL NOT hold an open descriptor on `keeper-launch-<sessionId>.log`

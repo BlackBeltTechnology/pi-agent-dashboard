@@ -4,13 +4,14 @@
  * The pill is STATE-ONLY: it shows the count and the invalid marker and
  * navigates to the full-page board via the `shell-overlay-route`
  * `/folder/:encodedCwd/automations`. Creating an automation is a `CREATE`-group
- * item in the folder actions menu, and the reload is a refresher folded into
- * that menu's single `MAINTENANCE` refresh.
+ * item in the folder actions menu that navigates to the board with its inline
+ * draft open (`?new=1`), and the reload is a refresher folded into that menu's
+ * single `MAINTENANCE` refresh.
  *
  * Always renders once the first load resolves (even at N=0); absent entirely
  * only when the plugin is disabled.
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing,
- * move-slot-actions-to-menu.
+ * move-slot-actions-to-menu, inline-automation-editor.
  */
 
 import {
@@ -23,16 +24,10 @@ import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { mdiCogOutline, mdiPlus } from "@mdi/js";
 import type React from "react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 import { listAutomations } from "./api.js";
-
-// The create dialog (~27 KB raw) only opens on click; keep it out of the
-// cold-landing chunk. See change: lazy-plugin-claim-modules.
-const CreateAutomationDialog = lazy(() =>
-  import("./CreateAutomationDialog.js").then((m) => ({ default: m.CreateAutomationDialog })),
-);
 
 export function FolderAutomationSection({
   folder,
@@ -40,7 +35,6 @@ export function FolderAutomationSection({
   folder: FolderDescriptor;
 }): React.ReactElement | null {
   const [automations, setAutomations] = useState<DiscoveredAutomation[] | null>(null);
-  const [creating, setCreating] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [, setLocation] = useLocation();
   const t = useT();
@@ -71,9 +65,9 @@ export function FolderAutomationSection({
         label: newAutomationLabel,
         icon: mdiPlus,
         tone: "create" as const,
-        onSelect: () => setCreating(true),
+        onSelect: () => setLocation(`/folder/${encodeFolderPath(folder.cwd)}/automations?new=1`),
       }),
-      [newAutomationLabel],
+      [newAutomationLabel, folder.cwd, setLocation],
     ),
   );
   useFolderMenuRefresher(
@@ -105,16 +99,6 @@ export function FolderAutomationSection({
           </span>
         )}
       </SlotPill>
-
-      {creating && (
-        <Suspense fallback={null}>
-          <CreateAutomationDialog
-            cwd={folder.cwd}
-            onClose={() => setCreating(false)}
-            onCreated={() => setReloadKey((k) => k + 1)}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }

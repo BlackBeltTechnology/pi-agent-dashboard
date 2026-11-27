@@ -10,8 +10,9 @@
  * `resolveFlowSlot` decides what the flow slot renders (running → attached →
  * completed → nothing); `isAttachmentConsumed` is the replay catch-up rule.
  *
- * `flow-yaml-parse.ts` (the shallow `flow_write` snapshot parser) is untouched.
- * See change: attach-flow-before-run (D1, D3, D4).
+ * `{ lenient: true }` (the `flow_write` card) skips the required-field checks,
+ * defaults a missing/unknown `type` to `agent` and skips invalid steps.
+ * See change: attach-flow-before-run (D1, D3, D4), unify-flow-rendering (D4, D5).
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FlowState } from "../types.js";
@@ -30,9 +31,17 @@ interface StartedStep {
 
 type Raw = Record<string, unknown>;
 
-function requireField(obj: Raw, key: string, where: string): string {
+/** Parse mode: strict mirrors every 0.5.0 parser throw; lenient checks nothing optional. */
+interface ParseMode {
+  lenient: boolean;
+}
+
+function requireField(obj: Raw, key: string, where: string, mode: ParseMode): string | undefined {
   const v = obj[key];
-  if (v === undefined || v === null) throw new Error(`flow.yaml: ${where} missing required field "${key}"`);
+  if (v === undefined || v === null) {
+    if (mode.lenient) return undefined;
+    throw new Error(`flow.yaml: ${where} missing required field "${key}"`);
+  }
   return String(v);
 }
 
@@ -41,17 +50,30 @@ function blockedByOf(raw: Raw): string[] {
   return Array.isArray(raw.blockedBy) ? raw.blockedBy.map(String) : [String(raw.blockedBy)];
 }
 
+/** Scalar → its string; `{ to: "<non-empty>", ... }` → `to`; anything else skipped. */
+function branchTarget(v: unknown): string | undefined {
+  if (v === null || v === undefined || Array.isArray(v)) return undefined;
+  if (typeof v === "object") {
+    const to = (v as Raw).to;
+    return typeof to === "string" && to !== "" ? to : undefined;
+  }
+  return String(v);
+}
+
 function branchesOf(raw: Raw): Record<string, string> {
   const out: Record<string, string> = {};
   if (raw.branches && typeof raw.branches === "object") {
-    for (const [k, v] of Object.entries(raw.branches as Raw)) out[k] = String(v);
+    for (const [k, v] of Object.entries(raw.branches as Raw)) {
+      const to = branchTarget(v);
+      if (to !== undefined) out[k] = to;
+    }
   }
   return out;
 }
 
 /** 0.5.0 `toInt`: an optional integer field must parse. */
-function checkInt(obj: Raw, key: string, where: string): void {
-  if (obj[key] === undefined) return;
+function checkInt(obj: Raw, key: string, where: string, mode: ParseMode): void {
+  if (mode.lenient || obj[key] === undefined) return;
   if (Number.isNaN(Number.parseInt(String(obj[key]), 10))) {
     throw new Error(`flow.yaml: ${where} "${key}" must be an integer`);
   }
@@ -80,31 +102,35 @@ function onErrorOf(raw: Raw): string | undefined {
  * per-kind field table (agent: blockedBy+on_error; code: blockedBy+on_error;
  * code-decision: blockedBy+branches; fork: branches (+optional agent);
  * agent-decision: agent+branches). Throws where the 0.5.0 parser throws.
+ * Lenient: missing/unknown `type` → `agent`, no required-field/integer checks.
  */
-function toStartedStep(raw: unknown, index: number): StartedStep {
+const STEP_TYPES = new Set(["agent", "code", "code-decision", "fork", "agent-decision"]);
+
+function toStartedStep(raw: unknown, index: number, mode: ParseMode): StartedStep {
   if (!raw || typeof raw !== "object") throw new Error(`flow.yaml: step ${index} is not an object`);
   const r = raw as Raw;
   const id = r.id;
   if (!id || typeof id !== "string") throw new Error(`flow.yaml: step ${index} missing "id" field`);
-  const type = r.type;
+  let type = r.type;
+  if (mode.lenient && (typeof type !== "string" || !STEP_TYPES.has(type))) type = "agent";
   if (!type || typeof type !== "string") throw new Error(`flow.yaml: step "${id}" missing required "type" field`);
   const where = `step "${id}"`;
-  checkInt(r, "timeout", where);
-  checkInt(r, "max_iterations", where);
+  checkInt(r, "timeout", where, mode);
+  checkInt(r, "max_iterations", where, mode);
   switch (type) {
     case "agent":
-      return { id, stepType: type, agent: requireField(r, "agent", where), blockedBy: blockedByOf(r), onError: onErrorOf(r) };
+      return { id, stepType: type, agent: requireField(r, "agent", where, mode), blockedBy: blockedByOf(r), onError: onErrorOf(r) };
     case "code":
       return { id, stepType: type, blockedBy: blockedByOf(r), onError: onErrorOf(r) };
     case "code-decision":
       return { id, stepType: type, blockedBy: blockedByOf(r), branches: branchesOf(r), onError: onErrorOf(r) };
     case "fork":
-      requireField(r, "question", where);
-      requireField(r, "options", where);
+      requireField(r, "question", where, mode);
+      requireField(r, "options", where, mode);
       return { id, stepType: type, agent: r.agent ? String(r.agent) : undefined, blockedBy: [], branches: branchesOf(r), onError: onErrorOf(r) };
     case "agent-decision": {
-      const agent = requireField(r, "agent", where);
-      requireField(r, "task", where);
+      const agent = requireField(r, "agent", where, mode);
+      requireField(r, "task", where, mode);
       return { id, stepType: type, agent, blockedBy: [], branches: branchesOf(r), onError: onErrorOf(r) };
     }
     default:
@@ -113,16 +139,21 @@ function toStartedStep(raw: unknown, index: number): StartedStep {
 }
 
 /** Parse a flow.yaml into the 0.5.0 started-step payload. Throws on any error. */
-function flowYamlToStartedSteps(content: string): StartedStep[] {
+function flowYamlToStartedSteps(content: string, mode: ParseMode): StartedStep[] {
   const doc = parseYaml(content) as unknown;
   if (!doc || typeof doc !== "object") throw new Error("flow.yaml: empty or not a mapping");
-  requireField(doc as Raw, "name", "flow");
-  requireField(doc as Raw, "description", "flow");
-  checkInt(doc as Raw, "max_concurrent", "flow");
-  checkInputs((doc as Raw).inputs);
+  if (!mode.lenient) {
+    requireField(doc as Raw, "name", "flow", mode);
+    requireField(doc as Raw, "description", "flow", mode);
+    checkInt(doc as Raw, "max_concurrent", "flow", mode);
+    checkInputs((doc as Raw).inputs);
+  }
   const steps = (doc as Raw).steps;
   if (!Array.isArray(steps)) throw new Error('flow.yaml: "steps" must be an array');
-  return steps.map(toStartedStep);
+  if (!mode.lenient) return steps.map((s, i) => toStartedStep(s, i, mode));
+  const valid = steps.filter((s): s is Raw => !!s && typeof s === "object" && typeof (s as Raw).id === "string" && (s as Raw).id !== "");
+  if (valid.length === 0) throw new Error("flow.yaml: no valid steps");
+  return valid.map((s, i) => toStartedStep(s, i, mode));
 }
 
 export type IdleBuildResult =
@@ -133,10 +164,11 @@ export type IdleBuildResult =
 export function buildIdleFlowState(
   content: string,
   flow: { name: string; source?: string },
+  opts: { lenient?: boolean } = {},
 ): IdleBuildResult {
   let steps: StartedStep[];
   try {
-    steps = flowYamlToStartedSteps(content);
+    steps = flowYamlToStartedSteps(content, { lenient: opts.lenient === true });
   } catch (err) {
     return { kind: "error", message: err instanceof Error ? err.message : String(err) };
   }

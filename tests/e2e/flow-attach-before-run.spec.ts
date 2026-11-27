@@ -62,11 +62,13 @@ test.describe("attach flow before run (L3: real pi-flows engine + faux agents)",
     await panel.getByTestId("flow-idle-run").click();
     await byTestId(page, "flowLaunchRun").click();
 
-    // Both steps finish → the slot forwards to the completed-flow summary
-    // (collapsed by default; expand to see the body).
+    // Both steps finish → the same panel component renders the completed flow
+    // in summary mode (collapsed by default; expand to see the body).
+    // See change: unify-flow-rendering (D1).
     await expandSummary(page);
     await expect(page.getByTestId("flow-summary-scrollbox")).toBeVisible();
-    await expect(page.getByTestId("flow-dashboard")).toHaveCount(0);
+    await expect(page.getByTestId("flow-dashboard")).toHaveCount(1);
+    await expect(page.getByTestId("flow-dashboard")).toHaveAttribute("data-flow-mode", "summary");
 
     const rec = await page.evaluate(() => (window as unknown as { __attach: Record<string, unknown> }).__attach);
     // The same (single) panel went live; "not started" was gone while live.

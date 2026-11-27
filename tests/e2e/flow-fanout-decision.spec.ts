@@ -32,7 +32,9 @@ test.describe("pi-flows 0.10 fan-out + decision (L3: real engine + faux agents)"
 
     // Converges to a terminal status → the summary panel.
     await expandSummary(page);
-    const summary = page.getByTestId("flow-summary-scrollbox").locator("xpath=..");
+    // The completed panel is FlowDashboard in summary mode (graph above the
+    // scroll box, cards inside it). See change: unify-flow-rendering (D1).
+    const summary = page.locator('[data-testid="flow-dashboard"][data-flow-mode="summary"]');
 
     // Graph words (summary graph shares flowStateToGraphSteps).
     await expect(summary.locator('[data-node="fan"] text')).toContainText("x3 (1 failed)");
@@ -41,6 +43,12 @@ test.describe("pi-flows 0.10 fan-out + decision (L3: real engine + faux agents)"
     await expect(summary.locator('[data-node="triage"] text')).toContainText("fan");
     // The `doc` card reads skipped too.
     await expect(summary.locator('[data-step="doc"]')).toBeVisible();
+    // F14: the finished panel shows the same Agent cards as the live one — the
+    // fan-out group card with its item cards and the decision route chips.
+    // See change: unify-flow-rendering (test-plan F14).
+    const cards = summary.getByTestId("flow-agent-cards-section");
+    await expect(cards.getByTestId("flow-group-card").locator("[data-item]")).toHaveCount(3);
+    await expect(cards.getByTestId("flow-decision-routes")).toContainText("fan x3");
   });
 
   test("F4 (live): the running panel's Agent cards show the fan-out group with 3 items", async ({ page }) => {

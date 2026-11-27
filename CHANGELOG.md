@@ -12,10 +12,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Mock site: scripted panes no longer scroll the page or grow while looping** (`@blackbelt-technology/frontend-mockup-loop`). Focus and `scrollIntoView` inside an embedded pane (the runner's clicks and the mocked components' own calls) scroll only the pane, never the reviewer's page. A scripted pane first measures one fast loop behind its loading line, then appears at its tallest height and keeps it; the health bar stays one line.
+- **Saving an automation keeps it disabled.** The editor now carries keys it does not show (`disabled`, `maxConcurrentSpawns`) through Save instead of silently re-arming a disabled automation.
 - **CSP violation reports now reach the dashboard on plain-http installs.** Chromium and Firefox dropped every report while the policy carried `report-to` + `Reporting-Endpoints`, so the `/api/health` `cspReports` counters stayed at zero. Dashboard and live-preview policies now use `report-uri` only.
 
 ### Added
 
+- **Mock site step controls** (`@blackbelt-technology/frontend-mockup-loop`). A paused scripted pane gets ◀ / ▶ to step back and forward one step at a time; the caption names the step it rests after (`0/N start` at the beginning). Back remounts with fresh fixtures and replays the earlier steps silently.
 - **Default model can follow a role.** Settings › Sessions › Default model has Models | Roles tabs; picking a role saves `@role` and new sessions start on whatever that role resolves to in the active preset, so loading another preset changes the next new session's model with no Settings edit. The thinking level adopts the role's level until you pick one. A hint names the active preset and resolved model; an unassigned role warns and new sessions fall back to pi's own default. pi's `settings.json` default is re-mirrored when the role's resolution changes. Rollback: re-pick a concrete default model before downgrading.
 - **Mock site `Highlights` switch.** The top bar has a checkbox that hides every ring outline, badge and tip (shell and phone panes, no reload); the choice persists in `localStorage`.
 - **Queued subagents and per-subagent stop.** Subagent calls past the limit wait in a visible queued state instead of failing. Each subagent has a stop control: `POST /api/plugins/subagents/stop` (operate authority; emits `subagents:stop`). Set the limit in Settings → Plugins → Subagents → **Max parallel subagents** (default 4, `0` = unlimited, applies live).
@@ -33,6 +36,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (automation plugin client):** `CreateAutomationDialog` is no longer exported from the automation plugin client barrel; the editor is the inline `AutomationEditor`. No in-repo consumer.
+- **Automations are edited inline on the board.** Edit, the name or the trigger summary expand that card into the editor (Edit becomes "Close editor"); + Create Automation adds a draft card at the top of the list; the folder menu "New automation" item opens the board with the draft open. One editor at a time: switching or closing with unsaved changes shows Discard / Save & switch (Save & close). A sticky save bar shows the write path, the unsaved count and Cancel / Save (or Create with the next run). On phones, planned trigger kinds fold into one "+N coming soon" chip.
+- **Text fields render with a visible border.** The dashboard now defines the `.input` class (theme tokens) used by the automation editor and the flows input wiring.
+- **Keeper logging off means off.** The Settings > Developer toggle "Capture pi session output (debug)" (`keeperLog.capturePiOutput`) now gates all keeper log output. Off (the default): a new headless session writes no `keeper-<id>.log` and no `keeper-launch-<id>.log`. On: unchanged (lifecycle lines + pi output with in-place rotation, startup stderr in the launch log). An inherited `PI_KEEPER_CAPTURE_PI_OUTPUT` in the server's environment can no longer turn logging on behind the toggle. The `PI_CRASHED` message now says to enable the toggle (off) or names both log files (on). Also fixes a leaked file descriptor per headless session start. Existing empty launch logs are not deleted automatically; to clean them up once:
+  - POSIX: `find ~/.pi/dashboard/sessions -name 'keeper-launch-*.log' -size 0 -mmin +60 -delete`
+  - PowerShell: `Get-ChildItem $HOME\.pi\dashboard\sessions\keeper-launch-*.log | Where-Object { $_.Length -eq 0 -and $_.LastWriteTime -lt (Get-Date).AddHours(-1) } | Remove-Item`
 - **BREAKING: pi 1.6.0 is the new floor and lockstep pin** (`piCompatibility.minimum` = `recommended` = `1.6.0`; every `@earendil-works` pi peer `>=1.6.0`, optional; devDeps `^1.6.0`). A session on pi below 1.6.0 shows the below-floor warning: update with `npm install -g @earendil-works/pi-coding-agent@1.6.0`. The Docker image installs pi 1.6.0.
 - **`cacheWarming` defaults to `"idle"`.** Unset dashboard setting now means `"idle"` (pi 1.5.1 default). Stored `"streaming"` stays valid.
 - **`!` command killed on timeout reports exit code 143.** pi 1.6.0 `pi.exec` returns 128+signal; was 0. Killed `!` commands now show as failed.

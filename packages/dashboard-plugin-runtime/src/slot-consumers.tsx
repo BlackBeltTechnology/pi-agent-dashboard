@@ -833,7 +833,7 @@ export function ToolRendererSlot({
 
 /**
  * Render the first `automation-action-editor` claim whose `config.actionId`
- * matches `actionId`. Used by the create-automation dialog to host a plugin-
+ * matches `actionId`. Used by the inline automation editor to host a plugin-
  * contributed payload editor (e.g. flows-plugin's input-wiring form) for a
  * specific action id, additively below the generic `ActionPayloadForm`.
  *

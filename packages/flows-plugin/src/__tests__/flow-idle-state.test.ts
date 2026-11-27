@@ -343,3 +343,100 @@ describe("isAttachmentConsumed — boundary (E7)", () => {
     expect(isAttachmentConsumed(1000, Number.NaN)).toBe(false);
   });
 });
+
+describe("buildIdleFlowState — object-form branches (unify-flow-rendering E6, E7)", () => {
+  it("E6: maps { to, means } and { to, for_each } to their target and draws the edge", () => {
+    const s = ready(`
+name: ob
+description: d
+steps:
+  - id: gate
+    type: code-decision
+    branches:
+      fix: { to: fix, means: "bug" }
+      many: { to: done, for_each: items }
+  - id: fix
+    type: agent
+    agent: a
+  - id: done
+    type: code
+`);
+    const gate = s.dagSteps!.find((d) => d.id === "gate")!;
+    expect(gate.branches).toEqual({ fix: "fix", many: "done" });
+    const pairs = edgesOf(s).map((e) => `${e.from}->${e.to}`);
+    expect(pairs).toContain("gate->fix");
+  });
+
+  it("E7: skips empty `to`, arrays and `to`-less objects; no [object Object] targets", () => {
+    const s = ready(`
+name: ob
+description: d
+steps:
+  - id: gate
+    type: code-decision
+    branches:
+      a: { to: "" }
+      b: [x]
+      c: { means: "m" }
+      d: done
+  - id: done
+    type: code
+`);
+    const gate = s.dagSteps!.find((d) => d.id === "gate")!;
+    expect(gate.branches).toEqual({ d: "done" });
+    for (const e of edgesOf(s)) {
+      expect(e.to).not.toBe("[object Object]");
+      expect(e.to).not.toBe("");
+    }
+  });
+});
+
+describe("buildIdleFlowState — lenient option (unify-flow-rendering E8, D4)", () => {
+  const noDescription = `
+name: t
+steps:
+  - id: a
+    type: agent
+    agent: x
+`;
+  it("E8: strict default rejects a missing description; lenient accepts it", () => {
+    const strict = buildIdleFlowState(noDescription, { name: "t" });
+    expect(strict.kind).toBe("error");
+    if (strict.kind === "error") expect(strict.message).toMatch(/description/);
+    expect(buildIdleFlowState(noDescription, { name: "t" }, { lenient: true }).kind).toBe("ready");
+  });
+
+  it("lenient: untyped/unknown type → agent, invalid steps skipped, required fields not checked", () => {
+    const r = buildIdleFlowState(
+      `
+steps:
+  - id: a
+  - type: code
+  - "scalar"
+  - id: b
+    type: mystery
+    blockedBy: a
+  - id: c
+    type: agent-decision
+    branches: { go: a }
+`,
+      { name: "t" },
+      { lenient: true },
+    );
+    expect(r.kind).toBe("ready");
+    if (r.kind !== "ready") return;
+    const d = new Map(r.flowState.dagSteps!.map((x) => [x.id, x]));
+    expect([...d.keys()]).toEqual(["a", "b", "c"]);
+    expect(d.get("a")?.stepType).toBe("agent");
+    expect(d.get("b")?.stepType).toBe("agent");
+    expect(d.get("b")?.blockedBy).toEqual(["a"]);
+    expect(d.get("b")?.branches).toBeUndefined();
+    expect(d.get("c")?.branches).toEqual({ go: "a" });
+  });
+
+  it("lenient: no valid step, empty steps, or non-mapping → error", () => {
+    for (const y of ["name: t\nsteps: []", "steps:\n  - type: code", "::: not yaml [", "name: t"]) {
+      expect(buildIdleFlowState(y, { name: "t" }, { lenient: true }).kind).toBe("error");
+    }
+  });
+});

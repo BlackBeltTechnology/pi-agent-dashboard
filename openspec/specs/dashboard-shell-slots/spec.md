@@ -518,10 +518,10 @@ All flow rendering SHALL go through slot consumers populated by
 - The flow actions for a session with flows (Run, Open, and the Edit popover with Edit…, New flow…, Delete… and the edit-mode item) rendered via the `composer-context-group` slot as the FLOWS dock chip, and in the flow panel headers.
 - The flowless authoring entry point (New flow… or the edit-mode item) rendered via the `session-card-action-bar` slot. On the desktop session card its output appears in the session actions menu's PLUGINS group.
 - `FlowDashboard` and `FlowArchitect` rendered via
-  `content-header-sticky` slot.
+  `content-header-sticky` slot. `FlowDashboard` renders idle, running and
+  completed flows.
 - `FlowAgentDetail`, `FlowArchitectDetail`, `FlowYamlPreview`
   rendered via `content-view` slot, each with a distinct `route`.
-- `FlowSummary` rendered via `content-inline-footer` slot.
 
 The shell SHALL NOT pass flow-specific props to any slot consumer.
 Slot consumers receive the standard prop contract for their slot

@@ -3,7 +3,7 @@
  * host's built-in editor (Split view) via `useOpenFileInEditor`. Hidden without
  * a session (no editor to target).
  *
- * Used by `FlowDashboard` (live / idle flow) and `FlowSummary` (completed flow).
+ * Used by `FlowDashboard` (idle, live and completed/summary mode).
  *
  * The flow's YAML path is emitted by pi-flows in the `flow:flow-started`
  * event (`source: flow.source`) and stored on `FlowState.flowSource` by the

@@ -1125,10 +1125,20 @@ async function spawnHeadlessViaKeeper(
   // config flag (default OFF). Read at spawn time so toggling takes effect on
   // the next spawn without a server restart. The keeper reads this env var to
   // pick its pi-child stdio sink. See change: add-keeper-output-capture-toggle.
+  //
+  // The config toggle is the ONLY switch: it gates all keeper log output
+  // (keeper-<id>.log + keeper-launch-<id>.log), and an inherited value from
+  // the server's own env must not turn logging on behind it. Delete every
+  // case-insensitive match (Windows child env lookup is case-insensitive) on a
+  // fresh copy — buildSpawnEnv may hand back process.env itself.
+  // See change: keeper-log-toggle-gates-all-output (D1).
   const keeperLog = loadConfig().keeperLog;
-  if (keeperLog.capturePiOutput) {
-    env = { ...env, PI_KEEPER_CAPTURE_PI_OUTPUT: "1" };
+  const captureEnabled = keeperLog.capturePiOutput === true;
+  env = { ...env };
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === "PI_KEEPER_CAPTURE_PI_OUTPUT") delete env[key];
   }
+  if (captureEnabled) env.PI_KEEPER_CAPTURE_PI_OUTPUT = "1";
   // The keeper is CJS-pure and cannot import the shared config, so the cap and
   // check interval ride the same env path as capturePiOutput. Read at spawn
   // time (per D7: the keeper's cap is a spawn-time value; keepers started
@@ -1169,12 +1179,19 @@ async function spawnHeadlessViaKeeper(
   // within the window.
   const gate = await waitForNoCrash({ child: result.process, windowMs: 300 });
   if (!gate.ok) {
+    // The message follows the capture value placed in the keeper env above
+    // (D5): with capture on, name both files (startup errors raised before the
+    // keeper opens its own log land only in the launch log); with it off,
+    // there are no files — give the remedy instead.
+    const remedy = captureEnabled
+      ? `Check ~/.pi/dashboard/sessions/keeper-${transportId}.log and ` +
+        `~/.pi/dashboard/sessions/keeper-launch-${transportId}.log for details.`
+      : `No keeper log was written. To capture one, enable "Capture pi session output (debug)" ` +
+        `in Settings > Developer and start a new session.`;
     return {
       success: false,
       code: "PI_CRASHED",
-      message:
-        `RPC keeper exited within crash window (code ${gate.exitCode}). ` +
-        `Check ~/.pi/dashboard/sessions/keeper-${transportId}.log for details.`,
+      message: `RPC keeper exited within crash window (code ${gate.exitCode}). ${remedy}`,
     };
   }
 
