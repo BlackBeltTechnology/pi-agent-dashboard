@@ -207,6 +207,7 @@ export function createTeamsRuntime(host: RuntimeHost, opts: RuntimeOptions = {})
       ackMail: (teamId, ids) => ops.mailHandover.ack(teamId, ids),
       unhandMail: (teamId, member) => ops.mailHandover.unhand(teamId, member),
       flushMail: (teamId, member) => ops.mailHandover.flush(teamId, member),
+      spawnRunning: (teamId, member) => inProcLifecycle?.spawnRunning(teamId, member),
       // A stop that was never confirmed: the child may still run, so remember it for the lead's next hello, and release the member.
       stopUnconfirmed: ({ teamId, member, childId, agentId }) => {
         inProcLead?.recordStop(teamId, { member, ...(childId ? { childId } : {}), ...(agentId ? { agentId } : {}) });

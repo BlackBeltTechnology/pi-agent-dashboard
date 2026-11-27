@@ -73,6 +73,12 @@ export interface InProcDriverDeps {
    * records a pending stop for the child, so a late-connecting child is still stopped.
    */
   stopUnconfirmed?: (info: { teamId: string; member: string; childId?: string; agentId?: string }) => void;
+  /**
+   * A spawn was acked `running` (a slot was free: the child already runs): the lifecycle intake arms the readiness deadline now, so a
+   * `started` that never arrives (lane down before the outbox flush, bridge crash) cannot leave the member `spawning` forever.
+   * A `queued` ack never calls this (the queue wait is unbounded, `spawnTimeoutMs` counts from the first `started`).
+   */
+  spawnRunning?: (teamId: string, member: string) => void;
   /** Ack handed-over mail ids in the store (default `store.ackMail`; the runtime routes it through core's mail engine). */
   ackMail?: (teamId: string, ids: readonly number[]) => unknown;
   /** Forget what was handed to `member` so the next flush re-emits its unacked mail (core's mail engine `unhand`). */
@@ -358,6 +364,7 @@ export function createInProcDriver(deps: InProcDriverDeps): InProcDriver {
     logger.info(`agent-teams: inproc spawn reply team=${req.teamId} member=${req.member} status=${ack.status ?? "?"}${ack.queuePosition !== undefined ? ` queuePosition=${ack.queuePosition}` : ""}`);
     if (command.cmd === "spawn" && command.promptMailId !== undefined) ackHandedOver(req.teamId, [command.promptMailId]);
     if (ack.status === "queued" && ack.queuePosition !== undefined) armQueueTimer(req.teamId, req.member);
+    else if (ack.status === "running") deps.spawnRunning?.(req.teamId, req.member);
   }
 
   /** One `steer` command for `mails` (framed per mail, mail-id order); mails acked meanwhile are left out. */

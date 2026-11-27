@@ -401,6 +401,19 @@ describe("S88 server restart keeps children", () => {
     expect(notices[0]).toMatchObject({ wake: true });
   });
 
+  // Review finding: a row that exists but fails strict validation is not the same as an absent child (it may still run).
+  it("a member whose snapshot row fails validation is NOT released as absent (no orphaned child): task kept, no not_alive notice; a truly absent one still ends", async () => {
+    const { env, link, team, teamId, taskId } = await restarted();
+    const badBob = child("bob", "busy", { run: "1" }); // a row for bob exists, but `run` is not an integer
+    await link.lane({ ...HELLO, snapshot: { members: [badBob, child("eve", "idle")] } });
+    await env.settle();
+    env.clock.advance(2000);
+    expect(team().members.find((m) => m.name === "bob")?.status).toBe("disconnected"); // untouched (not re-bound, not released): its next event re-binds it
+    expect(team().tasks.find((x) => x.id === taskId)?.status).toBe("in_progress");
+    expect(env.rt.store.mailLog(teamId).filter((m) => m.kind === "notice" && /not_alive/.test(m.text))).toHaveLength(0);
+    expect(team().members.find((m) => m.name === "sue")?.status).toBe("failed"); // no row at all: still absent
+  });
+
   it("a spawning member whose spawn command is still queued/in flight is NOT failed by a snapshot that lacks it", async () => {
     const { env, link, team } = await restarted();
     link.setOnCommand(() => undefined); // never acked

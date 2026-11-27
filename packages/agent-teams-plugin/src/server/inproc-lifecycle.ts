@@ -49,6 +49,8 @@ export interface InProcLifecycle {
   onEvent(team: Team, sessionId: string, payload: unknown): OpResult<unknown> | Promise<OpResult<unknown>>;
   /** Re-bind / reconcile the members of `team` with the host's `snapshot` (an `inproc hello` of the same incarnation). */
   reconcile(team: Team, sessionId: string, snapshot: InProcSnapshot): void;
+  /** A spawn was acked `running` and the member is still `spawning`: arm the readiness deadline (a lost `started` must not strand it). */
+  spawnRunning(teamId: string, member: string): void;
   dispose(): void;
 }
 
@@ -239,11 +241,21 @@ export function createInProcLifecycle(deps: InProcLifecycleDeps): InProcLifecycl
 
     reconcile(team, sessionId, snapshot) {
       const present = new Map(snapshot.members.map((s) => [s.member, s]));
+      const unreadable = new Set(snapshot.unreadable);
       for (const m of team.members.filter(isLive)) {
         const s = present.get(m.name);
-        if (s) reconcilePresent(team, m, s, sessionId);
+        if (!s && unreadable.has(m.name)) {
+          // A row exists but failed validation: not evidence the child is gone (releasing it would orphan a running child with no stop recorded).
+          logger.warn(`agent-teams: in-process member ${m.name} has an unreadable snapshot row; left as is team=${team.id}`);
+        } else if (s) reconcilePresent(team, m, s, sessionId);
         else reconcileAbsent(team, m);
       }
+    },
+
+    spawnRunning(teamId, member) {
+      const t = store.get(teamId);
+      const m = t ? store.member(t, member) : undefined;
+      if (t && m && m.status === "spawning") armReady(t, m); // not `spawning` ⇒ `started` beat the ack and already armed the clock
     },
 
     dispose() {

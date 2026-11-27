@@ -164,6 +164,7 @@ function parseUnackedSettle(v: unknown): InProcSnapshotMember["unackedSettle"] |
 function parseSnapshot(v: unknown): InProcSnapshot | undefined {
   if (!isRecord(v) || !Array.isArray(v.members)) return undefined;
   const members: InProcSnapshotMember[] = [];
+  const unreadable: string[] = [];
   for (const m of v.members.slice(0, 200)) {
     if (!isRecord(m)) continue;
     const member = idField(m, "member");
@@ -173,8 +174,17 @@ function parseSnapshot(v: unknown): InProcSnapshot | undefined {
     const run = get(m, "run");
     const lastIdleRun = get(m, "lastIdleRun");
     const ids = get(m, "deliveredMailIds");
-    if (!member || !childId || !agentId || (state !== "spawning" && state !== "busy" && state !== "idle")) continue;
-    if (typeof run !== "number" || !Number.isInteger(run) || typeof lastIdleRun !== "number" || !Number.isInteger(lastIdleRun)) continue;
+    const bad = (): void => {
+      if (member) unreadable.push(member); // a row for a named member exists: its child may still run
+    };
+    if (!member || !childId || !agentId || (state !== "spawning" && state !== "busy" && state !== "idle")) {
+      bad();
+      continue;
+    }
+    if (typeof run !== "number" || !Number.isInteger(run) || typeof lastIdleRun !== "number" || !Number.isInteger(lastIdleRun)) {
+      bad();
+      continue;
+    }
     const settle = get(m, "unackedSettle");
     const unackedSettle = parseUnackedSettle(settle);
     members.push({
@@ -188,7 +198,7 @@ function parseSnapshot(v: unknown): InProcSnapshot | undefined {
       ...(unackedSettle ? { unackedSettle } : {}),
     });
   }
-  return { members };
+  return { members, ...(unreadable.length > 0 ? { unreadable } : {}) };
 }
 
 function parseAck(payload: unknown): InProcAck | undefined {

@@ -351,6 +351,33 @@ describe("S117 spawn clock and the opt-in queue timeout", () => {
     expect(link.commands.find((c) => c.cmd === "stop")).toMatchObject({ member: "b", childId: "bg-b", agentId: "agent-b" });
     expect(env.rt.store.member(team, "a")?.status).toBe("spawning"); // A is running (no event mapping yet), untouched
   });
+
+  // Review finding: a spawn acked `running` whose `started` is lost (lane down / bridge crash) must not stay `spawning` forever.
+  it("a spawn acked running that never reports started fails at spawnTimeoutMs from the ack (child stopped, name reusable); the queued sibling is never failed", async () => {
+    const { env, link, teamId } = await queuedWorld({ spawnTimeoutMs: 5000 });
+    const team = env.rt.store.get(teamId) as Team;
+    env.clock.advance(4999);
+    expect(env.rt.store.member(team, "a")?.status).toBe("spawning");
+    env.clock.advance(2);
+    await env.settle();
+    const a = env.rt.store.member(team, "a") as Member;
+    expect(a.status).toBe("failed");
+    expect(a.goneReason).toContain("did not become ready"); // a failed spawn (name reusable), not a gone child
+    expect(link.commands.find((c) => c.cmd === "stop")).toMatchObject({ member: "a", childId: "bg-a", agentId: "agent-a" });
+    expect(env.rt.store.member(team, "b")).toMatchObject({ status: "spawning", queuePosition: 1 }); // queue wait stays unbounded
+    env.clock.advance(10 * 5000);
+    expect(env.rt.store.member(team, "b")?.status).toBe("spawning");
+  });
+
+  it("a running-acked spawn whose first started arrives in time restarts the readiness clock from that started (the ack deadline does not double-fire)", async () => {
+    const { env, link, teamId } = await queuedWorld({ spawnTimeoutMs: 5000 });
+    const team = env.rt.store.get(teamId) as Team;
+    env.clock.advance(4000);
+    await link.lane({ op: "event", member: "a", run: 1, kind: "started" });
+    expect(env.rt.store.member(team, "a")?.status).toBe("busy");
+    env.clock.advance(1500); // past the ack deadline (5000 from the ack), inside the one from `started`
+    expect(env.rt.store.member(team, "a")?.status).toBe("busy");
+  });
 });
 
 describe("dispose settles every unsettled promise (review B2)", () => {

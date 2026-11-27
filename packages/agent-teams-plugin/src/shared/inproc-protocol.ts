@@ -45,6 +45,8 @@ export interface InProcSnapshotMember {
 
 export interface InProcSnapshot {
   members: InProcSnapshotMember[];
+  /** Server-side parse only: names of rows that were present but failed validation (the child may still run: never "absent"). */
+  unreadable?: string[];
 }
 
 /** `agent-teams/inproc {op:"hello"}`: sent by the lead bridge after core's `hello`, on every availability change and reconnect. */
