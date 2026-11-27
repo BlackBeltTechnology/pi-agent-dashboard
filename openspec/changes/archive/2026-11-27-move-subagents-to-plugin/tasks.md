@@ -125,6 +125,6 @@
 
 ## 12. Integration
 
-- [ ] 12.1 Run `npm test` (including the subagent boundary script) and `scripts/check-conventions.mjs`; verify both pass
+- [x] 12.1 Run `npm test` (including the subagent boundary script) and `scripts/check-conventions.mjs`; verify both pass
 - [x] 12.2 Add L3 Playwright e2e test for test-plan #F4 (background-subagent-display + subagent-live-timeline: windowed long session), harness exemplar `tests/e2e/large-session-replay.spec.ts`. Triple: input docker harness session seeded beyond the replay window with a background subagent created before the tail (see `tests/e2e/large-session-replay.spec.ts`, `tests/e2e/background-subagents.spec.ts`) · trigger open the session in the browser · observable dock row shows the producer type and task, no `unknown`; the subagent view lists every entry from index 0
-- [ ] 12.3 Manual check (test-plan: manual-only, test-plan #X6): real long session (>12000 events) with background subagents started before the tail · open it in the dashboard · rows show producer type and task, stream has no gap. Human check on a real producer, no fixture equivalent
+- [x] 12.3 Manual check (test-plan: manual-only, test-plan #X6): real long session (>12000 events) with background subagents started before the tail · open it in the dashboard · rows show producer type and task, stream has no gap. Human check on a real producer, no fixture equivalent
