@@ -7,14 +7,12 @@
 import { findToolRowFinalizer, registerToolRowFinalizer, unregisterSessionReducers } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
+import { registerSubagentsReducerSlice, SUBAGENT_STOPPED_SENTINEL_BODY, subagentsOf } from "../../test-support/subagents-reducer-slice.js";
 import {
   createInitialState,
   reduceEvent,
   type SessionState,
 } from "../chat/event-reducer.js";
-import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
-import { SUBAGENT_STOPPED_SENTINEL_BODY } from "../../../../subagents-plugin/src/client/toolRowFinalizer.js";
 
 // Never-empty fallback bodies the subagents plugin's finalizer stamps (the plugin owns the constants).
 const SUBAGENT_DONE_NO_RESULT = "subagent finished";

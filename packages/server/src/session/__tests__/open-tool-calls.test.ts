@@ -8,8 +8,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
+import { createSubagentsPolicyRegistry } from "../../__tests__/setup/subagents-reducer-slice.js";
 import type { StoredEvent } from "../../persistence/memory-event-store.js";
-import { createSubagentsPolicyRegistry } from "../../__tests__/setup/subagents-policies.js";
 import { findBackfillOpenToolCalls, findOpenToolCalls as findOpenToolCallsRaw, type ToolIdentityResolver } from "../open-tool-calls.js";
 
 /**

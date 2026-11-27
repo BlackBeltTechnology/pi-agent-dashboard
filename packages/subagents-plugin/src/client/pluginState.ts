@@ -18,7 +18,7 @@ export interface PluginStateSlice {
 }
 
 /** Shared frozen empty map: stable reference for a session with no subagents. */
-export const EMPTY_SUBAGENTS: ReadonlyMap<string, SubagentState> = Object.freeze(new Map());
+const EMPTY_SUBAGENTS: ReadonlyMap<string, SubagentState> = Object.freeze(new Map());
 
 /** A `pluginState` map holding only the subagent slot (seeds a session state, mostly in tests). */
 export const subagentSlot = (subagents: ReadonlyMap<string, SubagentState>): Map<string, unknown> =>

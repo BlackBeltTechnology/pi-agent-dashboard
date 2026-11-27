@@ -27,10 +27,31 @@ import {
   registerSessionEventReducer,
   registerToolRowFinalizer,
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import { resetPluginPolicyRegistry } from "../../plugin-policy-registry.js";
-import { createSubagentsPolicyRegistry } from "./subagents-policies.js";
 import { sessionEventReducer } from "../../../../subagents-plugin/src/client/sessionEventReducer.js";
 import { toolRowFinalizers } from "../../../../subagents-plugin/src/client/toolRowFinalizer.js";
+import { createSubagentsDeliveryPolicy } from "../../../../subagents-plugin/src/server/delivery-policy.js";
+import { createSubagentsStorePolicy } from "../../../../subagents-plugin/src/server/store-policy.js";
+import {
+  createPluginPolicyRegistry,
+  type PluginPolicyRegistry,
+  resetPluginPolicyRegistry,
+} from "../../plugin-policy-registry.js";
+
+// Single funnel for server-test → subagents-plugin imports (the allowlisted
+// `integration-keep` edge): suites import these from here, never the plugin.
+export { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
+export { SUBAGENT_END_DEFER_TEXT_BYTES } from "../../../../subagents-plugin/src/server/delivery-policy.js";
+export { createSubagentsReplayCarry } from "../../../../subagents-plugin/src/server/replay-carry.js";
+export { createSubagentsDeliveryPolicy, createSubagentsStorePolicy };
+
+/** A fresh registry with the subagents plugin's ownership and policies registered. */
+export function createSubagentsPolicyRegistry(): PluginPolicyRegistry {
+  const registry = createPluginPolicyRegistry();
+  registry.setOwnership("subagents", { eventTypes: ["subagent_*"], tools: ["Agent"] });
+  registry.registerStorePolicy("subagents", createSubagentsStorePolicy());
+  registry.registerDeliveryPolicy("subagents", createSubagentsDeliveryPolicy());
+  return registry;
+}
 
 registerSessionEventReducer("subagents", sessionEventReducer);
 for (const finalizer of toolRowFinalizers) registerToolRowFinalizer("subagents", finalizer);

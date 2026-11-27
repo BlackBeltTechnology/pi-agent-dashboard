@@ -27,6 +27,12 @@ import { sessionEventReducer } from "../../../subagents-plugin/src/client/sessio
 import { toolRowFinalizers } from "../../../subagents-plugin/src/client/toolRowFinalizer.js";
 import { setEventTypeOwners } from "../lib/plugins/event-type-owners.js";
 
+// Single funnel for client-test → subagents-plugin imports (the allowlisted
+// `integration-keep` edge): suites import these from here, never the plugin.
+export { SUBAGENTS_PLUGIN_ID, subagentsOf } from "../../../subagents-plugin/src/client/pluginState.js";
+export { SUBAGENT_STOPPED_SENTINEL_BODY } from "../../../subagents-plugin/src/client/toolRowFinalizer.js";
+export { toolRowFinalizers };
+
 /** Register the slice and the finalizers (idempotent) and clear any test-seeded owners. */
 export function registerSubagentsReducerSlice(): void {
   registerSessionEventReducer("subagents", sessionEventReducer);

@@ -1,0 +1,3 @@
+# known-server-moves.ts — index
+
+In-memory verified move suggestions for renamed known servers. `createKnownServerMoves({loadKnown,prove,now?,interfaces?,log?})` → `onPeer`/`onPeerDown`/`suggestionFor`/`withdraw`. Challenges only peers matching a pinned `(fp,port)`, once per 60 s, only on-link non-special addresses; stored address must fail first; TTL 10 min; never persists. See change: stabilize-mdns-server-identity. Evaluates entry primary route in its own scheme; other routes survive accept-move. See change: group-servers-by-identity. Walks the advert's eligible on-link addresses (≤ 4 challenges) until one proves the pinned fp; never suggests a self-proving address. See change: harden-peer-address-identity.

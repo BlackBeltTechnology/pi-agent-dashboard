@@ -11,8 +11,8 @@
 
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
+import { subagentsOf } from "../../test-support/subagents-reducer-slice.js";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
-import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
 
 const ev = (eventType: string, data: Record<string, unknown>, timestamp = 1000): DashboardEvent => ({
   eventType,

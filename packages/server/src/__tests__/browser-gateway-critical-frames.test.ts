@@ -22,8 +22,8 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { createBrowserGateway, deferKeyOfEvent, frameClassOf } from "../pairing/browser-gateway.js";
-import { createPluginPolicyRegistry, resetPluginPolicyRegistry } from "../plugin-policy-registry.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { createPluginPolicyRegistry, resetPluginPolicyRegistry } from "../plugin-policy-registry.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import type { DrainingWs } from "./helpers/draining-ws.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
@@ -37,7 +37,7 @@ import {
 } from "./helpers/load-fixtures.js";
 // Aliased: this file already owns a StateWs-typed `asWs` for its own fixtures.
 import { attachCapturedWs, buildDebtGateway, asWs as debtAsWs, TEST_MAX_WS_BUFFER } from "./helpers/status-debt-fixtures.js";
-import { createSubagentsPolicyRegistry } from "./setup/subagents-policies.js";
+import { createSubagentsPolicyRegistry } from "./setup/subagents-reducer-slice.js";
 
 const MAX_WS_BUFFER = 4 * 1024 * 1024; // gateway default
 const MB = 1024 * 1024;

@@ -1,3 +1,3 @@
 # prompt-expander.ts — index
 
-Expand prompt templates from disk for dashboard slash commands (`pi.sendUserMessage` skips expansion). Exports `loadPromptTemplate`, `expandPromptTemplateFromDisk`, `readTemplate`, `LoadedPromptTemplate`, `PromptFrontmatter`. Resolves from `.pi/prompts/`, `.pi/skills/<skill>/SKILL.md`, `<skill>/commands/*.md`, pi.getCommands registry; `:` ↔ `-` alias resolution. `readTemplate` exported for the team `/skill:` route (command-handler.ts): reads a granted `<root>/SKILL.md` through the SAME reader so the envelope bytes match the non-team expansion exactly. See change: add-team-skill-access.
+Expand prompt templates from disk for dashboard slash commands (`pi.sendUserMessage` skips expansion). `readTemplate` exported — team `/skill:` route reads granted `<root>/SKILL.md` through it. → see `prompt-expander.ts.AGENTS.md`

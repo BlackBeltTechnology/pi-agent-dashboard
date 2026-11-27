@@ -116,7 +116,7 @@ export function installedMatchesName(installed: InstalledPackageRecord, name: st
 export async function probePiExtension(
   name: string,
   deps: RequirementProbeDeps,
-): Promise<{ name: string; satisfied: boolean }> {
+): Promise<{ name: string; satisfied: boolean; warning?: string }> {
   if (!deps.listInstalled) return { name, satisfied: false };
   try {
     const list = await deps.listInstalled();

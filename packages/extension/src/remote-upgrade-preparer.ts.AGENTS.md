@@ -1,0 +1,3 @@
+# remote-upgrade-preparer.ts — index
+
+`createRemoteUpgradePreparer({env,fetchImpl?,log,record,isPinned})` → `(endpoint)` mints a bridge ticket from the D1 origin (extracted from `bridge.ts`); throws + logs `[dashboard] bridge ticket <cause>: <reason>` on failure; `.noteOrigin(endpoint)`; logs `http origin <origin> (<source>)` on change only via console + `record` (`endpoint_resolved`); never logs the bearer. See change: fix-remote-bridge-ticket-origin. Device bearer only to a PINNED endpoint: `isPinned(endpoint)` false ⇒ no request, logs `bridge ticket unpinned_discovered_host`, throws. See change: harden-bridge-inbound-and-discovery (D19). Runs TLS checks before sending any bearer. See change: prove-vault-bridge-tls.

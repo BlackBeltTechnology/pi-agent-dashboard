@@ -10,15 +10,14 @@
 
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SUBAGENT_END_DEFER_TEXT_BYTES } from "../../../subagents-plugin/src/server/delivery-policy.js";
 import { createBrowserGateway, deferKeyOfEvent, frameClassOf, projectDeferredEventFrame } from "../pairing/browser-gateway.js";
-import { resetPluginPolicyRegistry } from "../plugin-policy-registry.js";
-import { createSubagentsPolicyRegistry } from "./setup/subagents-policies.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { resetPluginPolicyRegistry } from "../plugin-policy-registry.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
 import { buildLoadGateway, makeStubPiGateway, seedSessions, subscribeWs } from "./helpers/load-fixtures.js";
 import { asWs, attachCapturedWs, buildDebtGateway, TEST_MAX_WS_BUFFER } from "./helpers/status-debt-fixtures.js";
+import { createSubagentsPolicyRegistry, SUBAGENT_END_DEFER_TEXT_BYTES } from "./setup/subagents-reducer-slice.js";
 
 const MAX_WS_BUFFER = 4 * 1024 * 1024; // gateway default
 

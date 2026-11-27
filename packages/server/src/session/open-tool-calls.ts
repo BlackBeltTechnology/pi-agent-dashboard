@@ -7,13 +7,13 @@
  * stream. When a session reaches its terminal transition, `onEnded` derives the
  * open set from `eventStore.getEvents(sessionId, 1)` and inserts one
  * synthesized terminal event per entry, making the stream self-describing: the
- * reducer's existing `tool_execution_end` / `subagent_failed` arms do the work,
+ * reducer's existing `tool_execution_end` arm does the work,
  * live and on replay.
  *
  * Idempotence comes from the store, not a flag: the synthesized ends land in
  * the same stream, so a second derivation finds nothing open.
  *
- * Subagent orphan heal (open subagents → synthesized `subagent_failed`) lives in
+ * Subagent orphan heal (open subagents → a synthesized terminal frame) lives in
  * the subagents plugin (`ctx.onSessionStatusEnded`); this module names no plugin
  * contract. See change: move-subagents-to-plugin (D4).
  *

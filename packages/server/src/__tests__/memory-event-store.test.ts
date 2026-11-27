@@ -15,10 +15,8 @@ import {
   measureBytes,
   truncateStrings,
 } from "../persistence/memory-event-store.js";
-import { createSubagentsStorePolicy } from "../../../subagents-plugin/src/server/store-policy.js";
 import { createPluginPolicyRegistry } from "../plugin-policy-registry.js";
-import { createSubagentsPolicyRegistry } from "./setup/subagents-policies.js";
-import { subagentsOf } from "../../../subagents-plugin/src/client/pluginState.js";
+import { createSubagentsPolicyRegistry, createSubagentsStorePolicy, subagentsOf } from "./setup/subagents-reducer-slice.js";
 
 /**
  * Every subagent rule lives in the subagents plugin's store policy now

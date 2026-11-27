@@ -14,10 +14,9 @@ import { __resetSessionReducersForTests } from "@blackbelt-technology/dashboard-
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { PLUGIN_REGISTRY } from "../../generated/plugin-registry.js";
-import { disableSubagentsPlugin, registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
+import { disableSubagentsPlugin, registerSubagentsReducerSlice, subagentsOf } from "../../test-support/subagents-reducer-slice.js";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
 import { setEventTypeOwners } from "../plugins/event-type-owners.js";
-import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
 
 const ev = (eventType: string, data: Record<string, unknown>): DashboardEvent => ({
   eventType,

@@ -31,7 +31,7 @@ export interface PluginOwnership {
 }
 
 /** Max bytes of one identity string leaf (placeholder + heal end). */
-export const IDENTITY_FIELD_MAX_BYTES = 256;
+const IDENTITY_FIELD_MAX_BYTES = 256;
 const IDENTITY_MAX_DEPTH = 3;
 
 function cutUtf8Bytes(text: string, max: number): string {
@@ -71,10 +71,10 @@ export function sanitizeIdentityFields(raw: unknown): Record<string, unknown> | 
 }
 
 /** Per-plugin bounds of one `plugin_event_carry` frame. */
-export const CARRY_MAX_EVENTS = 2000;
-export const CARRY_MAX_BYTES = 2 * 1024 * 1024;
+const CARRY_MAX_EVENTS = 2000;
+const CARRY_MAX_BYTES = 2 * 1024 * 1024;
 /** A carry handler result later than this is discarded. */
-export const CARRY_DEADLINE_MS = 200;
+const CARRY_DEADLINE_MS = 200;
 
 /** One plugin's bounded, ownership-filtered carry for a windowed subscribe. */
 export interface ReplayCarryFrame {

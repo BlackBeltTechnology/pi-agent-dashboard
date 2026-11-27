@@ -14,9 +14,8 @@ import { createInitialState, reduceEvent } from "../../../client/src/lib/chat/ev
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createPluginEventAppender } from "../plugin-append-event.js";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
-import { subagentsOf } from "../../../subagents-plugin/src/client/pluginState.js";
-import { createSubagentsPolicyRegistry } from "./setup/subagents-policies.js";
 import { proofWebSocket } from "../test-support/local-credential-stamp.js";
+import { createSubagentsPolicyRegistry, subagentsOf } from "./setup/subagents-reducer-slice.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

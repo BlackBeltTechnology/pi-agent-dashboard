@@ -1,0 +1,3 @@
+# __tests__/ws-origin-gate.test.ts — index
+
+WS upgrade Origin gate L1 (#E4-#E9, #E18, #X1, #X2, #F4). Real server + real `ws` dials: attacker origin 403s on every path (incl. `/ws/bridge`, which otherwise 400s — proof the gate runs first), absent/loopback/Host-matched origins open, `Origin: null` 403s except on `live`, a refused dial does not burn a ticket, `cors.allowedOrigins` applies without restart, and `/live/<id>` proxies a null-origin dial with the header stripped upstream. Control-char origins never reach the gate (Node's parser 400s first) — asserted via a raw socket. See change: fix-ws-origin-cswsh.

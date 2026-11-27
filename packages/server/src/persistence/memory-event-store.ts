@@ -3,14 +3,14 @@
  * Replaces SQLite-backed event-store.ts.
  */
 
-import {
-  isBase64DataCarrier,
-  isInlineImageBlock,
-} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import type {
   PluginStorePolicy,
   StorePolicyView,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import {
+  isBase64DataCarrier,
+  isInlineImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getPluginPolicyRegistry, sanitizeIdentityFields } from "../plugin-policy-registry.js";
 
@@ -23,7 +23,7 @@ import { getPluginPolicyRegistry, sanitizeIdentityFields } from "../plugin-polic
 export type StorePolicyResolver = (event: DashboardEvent) => PluginStorePolicy | undefined;
 
 /** Max pinned events per session honored by trim (overflow ignored oldest-first, counted). */
-export const MAX_RETAINED_PINS_PER_SESSION = 500;
+const MAX_RETAINED_PINS_PER_SESSION = 500;
 
 export interface StoredEvent {
   seq: number;
@@ -522,7 +522,7 @@ function valueType(v: unknown): string {
  * conditionally, so a field present in `p` and absent from `s` survives the
  * full fold and would be lost by a naive keep-newest. Require ALL of:
  *   - every key of `p`'s details is present in `s`'s details AND holds the same
- *     JS type (`readSubagentDetails` extracts type-conditionally, so a key that
+ *     JS type (the owning reducer extracts type-conditionally, so a key that
  *     is present-but-type-downgraded is "absent" to the consumer);
  *   - a non-empty `entries` is not replaced by an empty/absent one (the
  *     reducer's empty-array overwrite guard exists because initial and

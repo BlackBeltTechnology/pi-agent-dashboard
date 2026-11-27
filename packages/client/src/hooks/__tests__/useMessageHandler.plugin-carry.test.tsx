@@ -9,8 +9,8 @@ import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
 import { HISTORY_GAP_ROW_ID, type HistoryGapState } from "../../lib/chat/history-gap.js";
+import { subagentsOf } from "../../test-support/subagents-reducer-slice.js";
 import { type MessageHandlerSetters, useMessageHandler } from "../useMessageHandler.js";
-import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
 
 const SID = "s1";
 const ev = (eventType: string, data: Record<string, unknown>): DashboardEvent => ({ eventType, timestamp: 1, data });

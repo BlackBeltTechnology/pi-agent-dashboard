@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from "react";
 
-export const PRODUCER_PACKAGE = "@blackbelt-technology/pi-dashboard-subagents";
+const PRODUCER_PACKAGE = "@blackbelt-technology/pi-dashboard-subagents";
 const TTL_MS = 30_000;
 let cached: { at: number; promise: Promise<string | undefined> } | undefined;
 

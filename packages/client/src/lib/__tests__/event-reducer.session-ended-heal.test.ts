@@ -11,9 +11,8 @@
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { disableSubagentsPlugin, registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
+import { disableSubagentsPlugin, registerSubagentsReducerSlice, subagentsOf } from "../../test-support/subagents-reducer-slice.js";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
-import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
 
 function apply(events: DashboardEvent[], from: SessionState = createInitialState()): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), from);

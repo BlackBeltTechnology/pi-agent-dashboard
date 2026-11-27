@@ -3,10 +3,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { subagentsOf } from "../../test-support/subagents-reducer-slice.js";
 import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, type ChatMessage, carryInteractiveRequests, carryPendingPrompt, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, regroupOwnedEvents, resolveInteractiveRequest, retailPendingInteractiveRows, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 import { derivePendingFreeFloating } from "../chat/pending-free-floating.js";
 import { setEventTypeOwners } from "../plugins/event-type-owners.js";
-import { subagentsOf } from "../../../../subagents-plugin/src/client/pluginState.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());

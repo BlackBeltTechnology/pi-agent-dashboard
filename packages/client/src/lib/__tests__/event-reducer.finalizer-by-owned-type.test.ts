@@ -9,9 +9,7 @@
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { toolRowFinalizers } from "../../../../subagents-plugin/src/client/toolRowFinalizer.js";
-import { SUBAGENTS_PLUGIN_ID } from "../../../../subagents-plugin/src/client/pluginState.js";
-import { disableSubagentsPlugin, registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
+import { disableSubagentsPlugin, registerSubagentsReducerSlice, SUBAGENTS_PLUGIN_ID, toolRowFinalizers } from "../../test-support/subagents-reducer-slice.js";
 import { createInitialState, reduceEvent } from "../chat/event-reducer.js";
 
 const completed: DashboardEvent = {

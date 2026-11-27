@@ -7,10 +7,10 @@
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSubagentsReplayCarry } from "../../../subagents-plugin/src/server/replay-carry.js";
 import { sendEventBatches } from "../browser-handlers/subscription-handler.js";
 import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { createPluginPolicyRegistry, resetPluginPolicyRegistry } from "../plugin-policy-registry.js";
+import { createSubagentsReplayCarry } from "./setup/subagents-reducer-slice.js";
 
 const ev = (eventType: string, data: Record<string, unknown> = {}, ts = 1): DashboardEvent => ({ eventType, timestamp: ts, data });
 const stored = (seq: number, e: DashboardEvent): StoredEvent => ({ bytes: 0, seq, event: e });
