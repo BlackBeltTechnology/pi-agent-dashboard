@@ -51,8 +51,10 @@ TESTS=(
   "55-keychain-linux.sh"        # real @napi-rs/keyring: Secret Service round trip + vault migrated + decodes after restart (#E91); no session bus -> keychain_unavailable, no keyutils entry, plaintext vault readable, write refused (#X13). Skips off Linux / without dbus-run-session, gnome-keyring-daemon, secret-tool. See change: encrypt-credentials-at-rest.
   "59-sudo-askpass-fallback.sh" # real sudo (classic + sudo-rs) calls SUDO_ASKPASS without -A and without a tty; wrong pw => <=3 same-ppid retries; helper exit 1 => no retry; skips off Linux / without the qa-sudo user (#S78). See change: add-sudo-credential-prompt.
   "60-agent-teams-core.sh"      # agent-teams core over real faux pi sessions: restart mid-team re-binds lead + teammate (S76), lead resume by session id (S85), teammate `/new` ends the old member and releases its task (S87). Skips when pi absent / plugin not loaded. See change: add-agent-teams-core.
+  "60-agent-teams-inproc-persistence.sh" # in-process teams vs the FAKE subagents extension: server restart keeps children (S103), /reload closes the team lead_reloaded (S104), kill -9 closes lead_ended with no orphan window (S105), package absent leaves session mode intact (S106). Hermetic (own prefix/port 18980). Skips without pi / a checkout with qa/fixtures. See change: add-agent-teams-in-process.
   # 25-gateway-remote-join-perf.sh, 26-gateway-promotion-soak.sh and 38-poll-cost.sh are OPT-IN:
   # 56-mock-site-tarball.sh is OPT-IN too (network npm install; installed-tarball mock site, #X9). See change: add-live-component-mock-site.
+  # 61-agent-teams-inproc-perf.sh is OPT-IN too (PI_QA_INPROC_PERF=1: spawn cycles, a soak and a 400 s starvation; S97, S98, S100, S101). Real-upstream rows need QA_SUBAGENTS_PKG_DIR (a >= 0.9.0 package), else they run against the fake with a NOTE. See change: add-agent-teams-in-process.
   # 53-docker-credential-key.sh is OPT-IN too (PI_QA_DOCKER=1: image build + several container starts; #E80-E83, #E85, #X18).
   # one moves ~1 GB through a socket, the others soak for minutes (38: PI_QA_POLL_COST=1).
 )

@@ -68,7 +68,9 @@ export function createMailEngine(deps: MailEngineDeps) {
       return { ref: { teamId: team.id, member: "lead", sessionId: team.leadSessionId } };
     }
     const member = store.member(team, to);
-    if (!member?.sessionId || !DELIVERABLE.includes(member.status)) return undefined;
+    if (!member || !DELIVERABLE.includes(member.status)) return undefined;
+    // A session member is addressed by its bound session; an in-process member has none and is addressed by its child (`childId`).
+    if (!member.sessionId) return member.childId === undefined ? undefined : { ref: { teamId: team.id, member: member.name }, member };
     return { ref: { teamId: team.id, member: member.name, sessionId: member.sessionId }, member };
   }
 

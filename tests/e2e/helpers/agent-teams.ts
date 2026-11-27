@@ -4,6 +4,8 @@
  * (fixture teams — the design's L3 source), snapshot builders and frame helpers.
  * The session itself is a real harness session (`spawnFreshGitSession`); only the
  * team data is fixtured. Port is never hardcoded (baseURL from the fixtures).
+ * `mode` / `maxTeammates` / `maxConcurrent` / member `childAgentId` + `queuePosition` model an in-process
+ * team (change: add-agent-teams-in-process, tasks 13.9–13.13).
  * STATUS: written, not yet run (needs the docker harness).
  */
 import type { Locator, Page } from "@playwright/test";
@@ -18,6 +20,11 @@ interface FixtureMember {
   role?: string;
   model?: string;
   sessionId?: string;
+  goneReason?: string;
+  /** In-process members: the subagent view id (no `sessionId`). */
+  childAgentId?: string;
+  /** In-process members: 1-based slot-queue position while `spawning`. */
+  queuePosition?: number;
 }
 export interface FixtureTask {
   id: string;
@@ -50,6 +57,10 @@ export interface TeamState {
   mail: FixtureMail[];
   mailTotal?: number;
   leadSessionId?: string;
+  /** Team mode (default `session`); `in-process` teams may carry the parallelism inputs below. */
+  mode?: string;
+  maxTeammates?: number;
+  maxConcurrent?: number;
 }
 
 /** The server's snapshot JSON for a fixture state (every optional field filled in). */
@@ -58,7 +69,9 @@ function snapshotJson(s: TeamState): Record<string, unknown> {
     id: s.id,
     name: s.name,
     status: s.status,
-    mode: "session",
+    mode: s.mode ?? "session",
+    ...(s.maxTeammates !== undefined ? { maxTeammates: s.maxTeammates } : {}),
+    ...(s.maxConcurrent !== undefined ? { maxConcurrent: s.maxConcurrent } : {}),
     committer: "lead",
     leadConnected: true,
     ...(s.leadSessionId ? { leadSessionId: s.leadSessionId } : {}),

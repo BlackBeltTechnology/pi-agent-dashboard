@@ -77,38 +77,49 @@ export type LaneHandler = (payload: unknown, meta: LaneMeta) => OpResult<unknown
 export function createLaneHandlers(deps: { ops: Ops; ext: ExtensionPoints }): Record<string, LaneHandler> {
   const { ops, ext } = deps;
   /** Common admission: seal registries, refuse non-local origin, resolve the caller from the socket. */
-  const admit = (meta: LaneMeta) => {
+  const admit = (meta: LaneMeta, payload?: unknown) => {
     ext.seal();
     if (meta?.origin?.local !== true) return undefined;
-    return ops.resolveCaller({ sessionId: meta.sessionId });
+    return ops.resolveCaller({ sessionId: meta.sessionId }, payload);
   };
+  /** A present-but-invalid proxied `as` (in-process): the caller's rejection code, never a fallback identity. */
+  const refusal = (caller: { rejected?: "forbidden" | "member_gone" }): OpResult<never> | undefined => (caller.rejected ? { ok: false, error: caller.rejected } : undefined);
 
   return {
     [LANE_CALL]: (payload, meta) => {
-      const caller = admit(meta);
+      const caller = admit(meta, payload);
       if (!caller) return deny("origin_denied");
+      const refused = refusal(caller);
+      if (refused) return refused;
       if (!isRecord(payload)) return deny("invalid_args", "payload must be {op, args}");
       return ops.callAsync(Object.hasOwn(payload, "op") ? payload.op : undefined, Object.hasOwn(payload, "args") ? payload.args : undefined, caller);
     },
     [LANE_HELLO]: (payload, meta) => {
-      const caller = admit(meta);
+      const caller = admit(meta, payload);
       if (!caller) return deny("origin_denied");
+      const refused = refusal(caller);
+      if (refused) return refused;
       const hello = parseHello(payload);
       return hello ? ops.hello(hello, caller) : deny("invalid_args");
     },
-    [LANE_BUSY]: (_payload, meta) => {
-      const caller = admit(meta);
-      return caller ? ops.busy({}, caller) : deny("origin_denied");
+    [LANE_BUSY]: (payload, meta) => {
+      const caller = admit(meta, payload);
+      if (!caller) return deny("origin_denied");
+      return refusal(caller) ?? ops.busy({}, caller);
     },
     [LANE_IDLE]: (payload, meta) => {
-      const caller = admit(meta);
+      const caller = admit(meta, payload);
       if (!caller) return deny("origin_denied");
+      const refused = refusal(caller);
+      if (refused) return refused;
       const idle = parseIdle(payload);
       return idle ? ops.idle(idle, caller) : deny("invalid_args");
     },
     [LANE_ACK]: (payload, meta) => {
-      const caller = admit(meta);
+      const caller = admit(meta, payload);
       if (!caller) return deny("origin_denied");
+      const refused = refusal(caller);
+      if (refused) return refused;
       const ids = isRecord(payload) && Object.hasOwn(payload, "ids") && Array.isArray(payload.ids) ? payload.ids.slice(0, 500) : undefined;
       return ids ? ops.ack({ ids: ids as number[] }, caller) : deny("invalid_args");
     },

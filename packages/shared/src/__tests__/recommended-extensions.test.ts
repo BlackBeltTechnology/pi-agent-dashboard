@@ -89,9 +89,25 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 		expect(entry?.source).toBe(
 			"npm:@blackbelt-technology/pi-dashboard-subagents",
 		);
-		expect(entry?.toolsRegistered).toEqual(["Agent"]);
+		expect(entry?.toolsRegistered).toEqual(["Agent", "AgentControl"]);
 		expect(entry?.dashboardPlugin).toBe("subagents");
 		expect(entry?.autowired).toBe(true);
+	});
+
+	// See change: add-agent-teams-in-process (test-plan S26).
+	it("pi-dashboard-subagents copy describes background runs and the team API, not 'no background sessions'", () => {
+		const entry = getRecommendedExtension("@blackbelt-technology/pi-dashboard-subagents");
+		const text = entry?.fallbackDescription ?? "";
+		expect(text).toMatch(/background/i);
+		expect(text).toMatch(/team API/i);
+		expect(text).not.toMatch(/no background sessions/i);
+	});
+
+	it("agent-teams does not list pi-dashboard-subagents in its manifest requires (session-only users get no pill)", () => {
+		const pkgPath = resolve(import.meta.dirname, "../../../agent-teams-plugin/package.json");
+		const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { "pi-dashboard-plugin"?: { requires?: { piExtensions?: unknown[] } } };
+		const requires = pkg["pi-dashboard-plugin"]?.requires;
+		expect(JSON.stringify(requires ?? {})).not.toContain("pi-dashboard-subagents");
 	});
 
 	it("every entry uses the npm: prefix (all recommended entries are now npm-sourced)", () => {

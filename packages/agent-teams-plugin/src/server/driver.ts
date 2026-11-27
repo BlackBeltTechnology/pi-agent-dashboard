@@ -79,11 +79,19 @@ export interface DriverMemberRef {
 interface AbortOutcome {
   ok: boolean;
   reason?: string;
+  /** Success with nothing to interrupt (in-process: an idle / spawning member): `abortMember` answers `details.noop` and tells nobody. */
+  noop?: "not_busy";
+  /** Extra guidance for the caller of a no-op (e.g. to use Stop for a slot-queued member). */
+  hint?: string;
 }
 
 export interface MemberDriver {
   /** Mode this driver serves (`session`). */
   readonly mode: string;
+  /** `false` ⇒ `TeammateSpawn {resume:true}` is refused (`resume_unsupported_in_process`); absent/`true` ⇒ resume allowed. */
+  readonly supportsResume?: boolean;
+  /** `true` ⇒ the driver owns the spawn deadline (queue wait, first `started`): the core spawn flow arms no `spawnTimeoutMs` timer for it. */
+  readonly ownsSpawnClock?: boolean;
   spawn(req: SpawnRequest): Promise<SpawnOutcome>;
   /** Hand mails to the member; false when it could not be handed over (stays queued). */
   deliver(ref: DriverMemberRef, mails: readonly Mail[], opts: { wake: boolean }): boolean;
@@ -94,6 +102,10 @@ export interface MemberDriver {
   spawnLead?(team: Team, opts: LeadSpawnOptions): Promise<SpawnOutcome>;
   /** Tell a lead session its team closed so its bridge drops the lead-only tools. */
   notifyTeamClosed?(sessionId: string, payload: { teamId: string; closeReason?: string }): boolean;
+  /** An urgent interrupt was unavailable and the mail goes out as a steer: count it and return the text warning for the tool result. */
+  urgentDegraded?(ref: DriverMemberRef): string | undefined;
+  /** Extra sentence for the `TeammateSpawn` result (in-process: the parallelism bound), given the team's effective teammate cap. */
+  spawnNote?(team: Team, effectiveMax: number): string | undefined;
 }
 
 /** The host members the session driver drives (a `ServerPluginContext` subset). */

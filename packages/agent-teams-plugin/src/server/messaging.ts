@@ -113,10 +113,15 @@ export function createMessaging(deps: MessagingDeps) {
 
     // Create + hand over.
     let degraded: "urgent_as_steer" | undefined;
+    let warning: string | undefined;
     const mails: Array<{ name: string; mail: Mail }> = [];
     const kind = to === "*" ? "broadcast" : KIND_MESSAGE;
     for (const name of targets) {
-      if (urgent) degraded = interrupt(team, name) ?? degraded;
+      if (urgent) {
+        const d = interrupt(team, name);
+        degraded = d?.degraded ?? degraded;
+        warning = d?.warning ?? warning;
+      }
       if (name === LEAD_ADDRESS) deps.drainNotices(team);
       const mail = deps.mailTo(team, name, {
         from: sender,
@@ -131,7 +136,7 @@ export function createMessaging(deps: MessagingDeps) {
     const delivered = mails.filter((m) => engine.isHandedOver(team.id, m.mail.id)).map((m) => m.name);
     const queued = mails.filter((m) => !engine.isHandedOver(team.id, m.mail.id)).map((m) => m.name);
     logger.info(`agent-teams: SendMessage ${sender} -> ${to} (${mails.length} mail(s), ${text.length} chars)`);
-    return { ok: true, data: { mailIds: mails.map((m) => m.mail.id), delivered, queued, ...(degraded ? { degraded } : {}) } };
+    return { ok: true, data: { mailIds: mails.map((m) => m.mail.id), delivered, queued, ...(degraded ? { degraded } : {}), ...(warning ? { warning } : {}) } };
   }
 
   /**
@@ -140,13 +145,16 @@ export function createMessaging(deps: MessagingDeps) {
    * then goes out as a normal steer wake); an idle or unconnected recipient just
    * gets the plain wake mail.
    */
-  function interrupt(team: Team, name: string): "urgent_as_steer" | undefined {
+  function interrupt(team: Team, name: string): { degraded: "urgent_as_steer"; warning?: string } | undefined {
     const member = store.member(team, name);
     if (!member || member.status !== "busy") return undefined;
-    const res = deps.driverFor(team)?.abort({ teamId: team.id, member: name, ...(member.sessionId ? { sessionId: member.sessionId } : {}) }) ?? { ok: false, reason: "no_driver" };
+    const driver = deps.driverFor(team);
+    const ref = { teamId: team.id, member: name, ...(member.sessionId ? { sessionId: member.sessionId } : {}) };
+    const res = driver?.abort(ref) ?? { ok: false, reason: "no_driver" };
     if (!res.ok) {
       logger.warn(`agent-teams: urgent interrupt of ${name} unavailable (${res.reason ?? "unknown"}); delivering as a normal steer`);
-      return "urgent_as_steer";
+      const warning = driver?.urgentDegraded?.(ref); // a driver may count the degradation and word the warning
+      return { degraded: "urgent_as_steer", ...(warning ? { warning } : {}) };
     }
     deps.telemetry.count(team.id, "urgentAborts");
     engine.holdUrgent(team, name);

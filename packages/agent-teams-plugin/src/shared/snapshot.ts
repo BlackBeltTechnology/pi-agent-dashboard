@@ -30,6 +30,19 @@ export interface SnapshotStats {
   plansApproved?: number;
   plansRejected?: number;
   plansCancelled?: number;
+  /**
+   * In-process mode counters (add-agent-teams-in-process), present only once non-zero: spawn / steer / nudge commands, urgent sends degraded to a
+   * steer, rejected proxied identities, unknown upstream events, command timeouts, refused emits, queue overflows.
+   */
+  inproc_spawns?: number;
+  inproc_steers?: number;
+  inproc_nudges?: number;
+  inproc_degraded_urgent?: number;
+  inproc_forbidden?: number;
+  inproc_unknown_event?: number;
+  inproc_delivery_timeout?: number;
+  inproc_emit_refused?: number;
+  inproc_queue_overflow?: number;
 }
 
 export interface TeamSummary {
@@ -68,6 +81,10 @@ export interface SnapshotMember {
   degraded?: string;
   hold?: string;
   committer?: Committer;
+  /** In-process members only: the subagent view id (no `sessionId`). */
+  childAgentId?: string;
+  /** In-process members only: 1-based slot-queue position while waiting for a subagents slot. */
+  queuePosition?: number;
 }
 
 export interface SnapshotTask {
@@ -108,6 +125,9 @@ export interface TeamSnapshot {
   status: TeamStatus;
   closeReason?: CloseReason;
   mode: string;
+  /** In-process teams only: the team's teammate cap and the subagents `maxConcurrent` the lead reported (the Team view states the bound when the first exceeds the second). */
+  maxTeammates?: number;
+  maxConcurrent?: number;
   committer: Committer;
   leadConnected: boolean;
   /** The lead's session id (viewers that may see the team only); frames are scoped to it. */

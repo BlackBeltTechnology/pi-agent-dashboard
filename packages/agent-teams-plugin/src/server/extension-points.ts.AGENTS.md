@@ -1,0 +1,3 @@
+# extension-points.ts — index
+
+Empty-by-default registries (spawn contributors, op gates, dispatch eligibility, route visibility; `seal()` at first lane request), `TrustedSpawnOptions`, `applySpawnContributors` (narrow-only), `runOpGates` (shared budget, fail-closed; run by `ops.callAsync`); re-exports `registerMailKind`. Also: `OpGateInput`/`OpGateBlock` (`code`, `afterBlock`), `IDLE_GATE_OP` `"TeammateIdle"`, `runOpGatePipeline`, `registerHelloContributor`, `setSpawnResolver` (`SpawnResolution`), `registerIdleNoticeFilter`, `registerRoutes` (`RouteHelpers`), `SpawnContributorError`. See change: add-agent-teams-templates-hooks.

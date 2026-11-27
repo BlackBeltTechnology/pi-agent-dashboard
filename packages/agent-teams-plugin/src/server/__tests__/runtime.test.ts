@@ -241,16 +241,20 @@ describe("modes (S37)", () => {
     expect(b.ok).toBe(true);
   });
 
-  it("unknown or unavailable modes → mode_unavailable and no team is created", async () => {
+  it("only the exact modes session / in-process are accepted: anything else is invalid_args and no team is created (spec S2)", async () => {
     const s = setup();
-    s.rt.modes.register("closed-mode", { driver: s.rt.modes.get("session")!.driver, available: () => ({ ok: false, reason: "nope" }) });
-    s.rt.modes.register("open-mode", { driver: s.rt.modes.get("session")!.driver, available: (id) => ({ ok: id === "S-lead" }) as never });
-    expect(await s.fake.call(s.lead, "TeamCreate", { name: "t", mode: "x" })).toMatchObject({ ok: false, error: "mode_unavailable" });
-    expect(await s.fake.call(s.lead, "TeamCreate", { name: "t", mode: "closed-mode" })).toMatchObject({ error: "mode_unavailable" });
+    for (const mode of ["x", "closed-mode", "inprocess"]) expect(await s.fake.call(s.lead, "TeamCreate", { name: "t", mode })).toMatchObject({ ok: false, error: "invalid_args" });
     expect(s.rt.store.list()).toHaveLength(0);
+  });
+
+  it("an unavailable mode → mode_unavailable and no team is created; availability is per caller", async () => {
+    const s = setup();
+    const driver = s.rt.modes.get("session")!.driver;
+    s.rt.modes.register("in-process", { driver, available: (id) => (id === "S-lead" ? { ok: true } : { ok: false, reason: "nope" }) as never });
     const other = s.fake.addSession("S-other");
-    expect(await s.fake.call(other, "TeamCreate", { name: "t", mode: "open-mode" })).toMatchObject({ error: "mode_unavailable" }); // per-caller predicate
-    expect((await s.fake.call(s.lead, "TeamCreate", { name: "t", mode: "open-mode" })).ok).toBe(true);
+    expect(await s.fake.call(other, "TeamCreate", { name: "t", mode: "in-process" })).toMatchObject({ error: "mode_unavailable" }); // per-caller predicate
+    expect(s.rt.store.list()).toHaveLength(0);
+    expect((await s.fake.call(s.lead, "TeamCreate", { name: "t", mode: "in-process" })).ok).toBe(true);
   });
 
   it("an absent mode resolves from config teammateMode", async () => {

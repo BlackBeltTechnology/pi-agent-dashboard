@@ -4,7 +4,8 @@
  * `sm`; below it every row stacks into a block with its own column labels, so
  * nothing scrolls sideways. Each row: name + role, status (glyph + text + pill
  * state), model, current task (lowest in-progress id + "+N more"), folder, Open
- * session link, Stop button (busy ∧ control ∧ team not closing/closed) with its
+ * session link (an in-process member has none: "Open subagent view" by `childAgentId`, and a 1-based
+ * slot-queue line while `spawning`), Stop button (busy ∧ control ∧ team not closing/closed) with its
  * inline error. Rows are memoised by value, so a refetch re-renders only the
  * member whose data changed. Test ids: `team-member-card` (row),
  * `team-member-open-subagent`, `team-member-status` (+ `data-status`).
@@ -16,6 +17,7 @@ import { Link } from "wouter";
 import type { SnapshotMember, SnapshotTask } from "../shared/snapshot.js";
 import type { TeamUiSnapshot } from "../shared/ui-protocol.js";
 import { formatCwd } from "./format-cwd.js";
+import { queuePositionOf, subagentHref } from "./inproc-view.js";
 import { type ControlNote, noteKey } from "./team-controls.js";
 import { BTN, Empty, LINKBTN, MemberStatusPill, useViewT } from "./view-kit.js";
 
@@ -41,6 +43,8 @@ export interface MembersGridProps {
 export interface RowProps {
   m: SnapshotMember;
   leadCwd: string;
+  /** The lead session: in-process members have no session, their subagent view is routed through it. */
+  leadSessionId?: string | undefined;
   firstId: string | undefined;
   firstTitle: string | undefined;
   more: number;
@@ -53,12 +57,13 @@ export interface RowProps {
 }
 
 const sameMember = (a: SnapshotMember, b: SnapshotMember): boolean =>
-  a.name === b.name && a.role === b.role && a.sessionId === b.sessionId && a.cwd === b.cwd && a.model === b.model && a.status === b.status && a.degraded === b.degraded && a.goneReason === b.goneReason;
+  a.name === b.name && a.role === b.role && a.sessionId === b.sessionId && a.cwd === b.cwd && a.model === b.model && a.status === b.status && a.degraded === b.degraded && a.goneReason === b.goneReason && a.childAgentId === b.childAgentId && a.queuePosition === b.queuePosition;
 
 /** Memo gate of a row: by value, so a refetch that replaces every object re-renders only changed members. */
 export const sameMemberRow = (a: RowProps, b: RowProps): boolean =>
   sameMember(a.m, b.m) &&
   a.leadCwd === b.leadCwd &&
+  a.leadSessionId === b.leadSessionId &&
   a.firstId === b.firstId &&
   a.firstTitle === b.firstTitle &&
   a.more === b.more &&
@@ -99,9 +104,29 @@ function TaskCell({ name, firstId, firstTitle, more, onFocusTask, onShowMemberTa
   );
 }
 
-const MemberRow = memo(function MemberRow({ m, leadCwd, firstId, firstTitle, more, canStop, note, stopping, onStop, onFocusTask, onShowMemberTasks }: RowProps): ReactElement {
+/** The row's open action: the session link, or (in-process member: no session, no chat) the read-only subagent view by `childAgentId`. */
+function OpenAction({ m, leadSessionId }: { m: SnapshotMember; leadSessionId: string | undefined }): ReactElement {
+  const t = useViewT();
+  if (m.sessionId)
+    return (
+      <Link data-testid="team-member-open-subagent" href={`/session/${encodeURIComponent(m.sessionId)}`} className={`${LINKBTN} font-semibold`}>
+        {t("members.openSession")}
+      </Link>
+    );
+  const subagent = subagentHref(leadSessionId, m.childAgentId);
+  if (subagent)
+    return (
+      <Link data-testid="team-member-open-subagent" href={subagent} aria-label={t("members.openSubagentLabel", { name: m.name })} className={`${LINKBTN} font-semibold`}>
+        {t("members.openSubagent")}
+      </Link>
+    );
+  return <span className="text-[var(--text-secondary)]">{t("members.sessionRemoved")}</span>;
+}
+
+const MemberRow = memo(function MemberRow({ m, leadCwd, leadSessionId, firstId, firstTitle, more, canStop, note, stopping, onStop, onFocusTask, onShowMemberTasks }: RowProps): ReactElement {
   const t = useViewT();
   const errId = `team-member-err-${m.name}`;
+  const queued = queuePositionOf(m);
   return (
     <tr data-testid="team-member-card" data-member={m.name} className="border-t border-[var(--border-secondary)] first:border-t-0 max-sm:block max-sm:p-1.5">
       <td className={`${CELL} min-w-[12ch]`}>
@@ -112,6 +137,11 @@ const MemberRow = memo(function MemberRow({ m, leadCwd, firstId, firstTitle, mor
       <td className={`${CELL} space-y-1`}>
         <Label>{t("members.col.status")}</Label>
         <MemberStatusPill status={m.status} />
+        {queued !== undefined ? (
+          <div role="status" data-testid="team-member-queue" className="text-[11px] text-[var(--text-secondary)]">
+            {t("members.queued", { n: queued })}
+          </div>
+        ) : null}
         {m.degraded ? (
           <SettingsNotice tone="warning" testId="team-member-degraded">
             <span className="font-semibold">{t("members.limited")}.</span> {m.degraded === "guard_unavailable" ? t("members.degraded.guard_unavailable") : t("members.degraded.other", { value: m.degraded })}
@@ -131,13 +161,7 @@ const MemberRow = memo(function MemberRow({ m, leadCwd, firstId, firstTitle, mor
       <td className={CELL}>
         <Label>{t("members.col.actions")}</Label>
         <div className="flex flex-col items-start gap-1">
-          {m.sessionId ? (
-            <Link data-testid="team-member-open-subagent" href={`/session/${encodeURIComponent(m.sessionId)}`} className={`${LINKBTN} font-semibold`}>
-              {t("members.openSession")}
-            </Link>
-          ) : (
-            <span className="text-[var(--text-secondary)]">{t("members.sessionRemoved")}</span>
-          )}
+          <OpenAction m={m} leadSessionId={leadSessionId} />
           {canStop ? (
             <button type="button" className={BTN} data-testid="team-member-stop" disabled={stopping} aria-describedby={note ? errId : undefined} onClick={() => onStop(m.name)}>
               {stopping ? t("members.stopping") : t("members.stop")}
@@ -175,6 +199,7 @@ export function MembersGrid({ snap, notes, pending, onStop, onFocusTask, onShowM
                 key={m.name}
                 m={m}
                 leadCwd={snap.leadCwd}
+                leadSessionId={snap.leadSessionId}
                 firstId={tasks[0]?.id}
                 firstTitle={tasks[0]?.title}
                 more={Math.max(0, tasks.length - 1)}

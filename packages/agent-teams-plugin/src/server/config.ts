@@ -37,6 +37,14 @@ export interface TeamsConfig {
   extraCwdRoots: string[];
   /** Unset resolves to `session`. */
   teammateMode?: string;
+  /** In-process mode (add-agent-teams-in-process): absent = idle children stay alive until stopped. */
+  inProcessIdleTtlSec?: number;
+  /** In-process mode: children load no discovered extensions. */
+  inProcessLeanChildren: boolean;
+  /** In-process mode: command ack deadline, 1000-120000 ms. */
+  inProcessCmdTimeoutMs: number;
+  /** In-process mode, opt-in: queue-wait deadline; absent = unlimited. */
+  inProcessQueueTimeoutMs?: number;
   /** Template file size cap in bytes (templates-hooks change). */
   maxTemplateBytes: number;
   /** Default per-command hook timeout (use `effectiveHookTimeoutMs` for the budget-capped value). */
@@ -116,6 +124,9 @@ const NUMBER_KEYS = [
 /** Integer knobs of this change: key → inclusive minimum; an invalid value falls back to the default with one warning. */
 const STRICT_INT_KEYS = { maxTemplateBytes: 1, hookTimeoutMs: 1, hookMaxRetries: 0, planMaxChars: 1 } as const;
 
+/** Valid `inProcessCmdTimeoutMs` range (also the schema `minimum`/`maximum`). */
+const IN_PROCESS_CMD_TIMEOUT_RANGE = { min: 1000, max: 120_000 } as const;
+
 export type ConfigReader = () => TeamsConfig;
 
 export function createConfigReader(
@@ -161,6 +172,19 @@ export function createConfigReader(
         warnOnce(`${key}=${String(v)}`, `${key} ${JSON.stringify(v)} is not an integer ≥ ${min}; using ${String(defaults[key])}`);
       }
     }
+    // In-process knobs: the schema rejects bad writes; a bad stored value falls back (never clamped) with one warning.
+    const cmd = raw.inProcessCmdTimeoutMs;
+    if (cmd !== undefined) {
+      if (typeof cmd === "number" && Number.isInteger(cmd) && cmd >= IN_PROCESS_CMD_TIMEOUT_RANGE.min && cmd <= IN_PROCESS_CMD_TIMEOUT_RANGE.max) merged.inProcessCmdTimeoutMs = cmd;
+      else warnOnce(`inProcessCmdTimeoutMs=${String(cmd)}`, `inProcessCmdTimeoutMs ${JSON.stringify(cmd)} is not an integer in ${IN_PROCESS_CMD_TIMEOUT_RANGE.min}-${IN_PROCESS_CMD_TIMEOUT_RANGE.max}; using ${String(defaults.inProcessCmdTimeoutMs)}`);
+    }
+    for (const key of ["inProcessIdleTtlSec", "inProcessQueueTimeoutMs"] as const) {
+      const v = raw[key];
+      if (v === undefined) continue;
+      if (typeof v === "number" && Number.isInteger(v) && v >= 1) merged[key] = v;
+      else warnOnce(`${key}=${String(v)}`, `${key} ${JSON.stringify(v)} is not an integer ≥ 1; ignoring it`);
+    }
+    if (typeof raw.inProcessLeanChildren === "boolean") merged.inProcessLeanChildren = raw.inProcessLeanChildren;
     merged.planModeTools = sanitizePlanModeTools(raw.planModeTools, defaults.planModeTools as string[], warnOnce);
     // Positive-only knobs: 0 would disable the limit it guards.
     for (const key of ["maxActiveTeams", "maxTasks", "maxMessageChars", "maxResultChars", "maxFinalTextChars", "mailRatePerMin", "pairExchangeLimit"] as const) {

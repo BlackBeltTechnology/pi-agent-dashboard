@@ -1,0 +1,3 @@
+# index.ts — index
+
+SERVER entry. `registerPlugin(ctx)` (also default export) calls `createTeamsRuntime(ctx)`, mounts the REST routes on `ctx.fastify` (`mountTeamsRoutes`, principal key from `ctx.identity`); `ctx.onShutdown` disposes the runtime. Also: epoch mint, `createAccess` + `activateAccess`, `setRouteVisibility(canViewTeam)` before the first request (failure ⇒ plugin refuses to start), `createUserActions`, `createUiCounters`, `createUiBridge(host = ctx)`; all disposed in `onShutdown`. See change: add-agent-teams-ui. Passes `extraStats` (plugin counters) to the routes. See change: add-agent-teams-templates-hooks.

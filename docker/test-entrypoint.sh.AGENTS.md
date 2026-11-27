@@ -12,3 +12,5 @@ Runtime canary: copies `${HOST_CWD}/.pi-test-canary/plugins/*` into `~/.pi/dashb
 `PI_E2E_OAUTH_NO_BYPASS=1` seeds `auth.bypassUrls: []` (real gate) instead of `["/"]`; for `csp-report-sink-oauth.spec.ts` only. See change: harden-cors-and-csp-reporting.
 
 `PI_E2E_OAUTH=1` seed now also writes `auth.allowedUsers: ["e2e-operator@example.com"]` (github is a public IdP: an empty list refuses login and rejects github sessions). See change: close-security-map-high-findings (D3).
+
+`PI_FAKE_SUBAGENTS=1` stages `~/.pi/agent/extensions/fake-subagents/index.ts` = re-export of `/app/qa/fixtures/fake-subagents.ext.ts` (+ `node_modules` link) and SKIPS `register_subagents` (same `subagents:*` channels: fake and real never coexist). Needs `PI_E2E_SEED=1`. Unset = no change. See change: add-agent-teams-in-process (task 2.7, B105).

@@ -5,12 +5,17 @@
  * team shows a disabled "Closing…" indicator; a closed team shows no control) and
  * the team-level notices (`persist_degraded`, orphaned, starting, closing, closed)
  * as `SettingsNotice`s. Test ids `team-header-mode`, `team-header-parallel` are the
- * contract of change 5.
+ * contract of change 5. An in-process team states its parallelism BOUND under
+ * `team-header-parallel` (`data-bound`) only when `maxTeammates` > `maxConcurrent`; its
+ * live busy count then has its own id `team-header-working`.
+ * See change: add-agent-teams-in-process (tasks 10.2, 10.4).
  * See change: add-agent-teams-ui (design D8, D10, D14; tasks 8.4, 8.6).
  */
 import { SettingsActionError, SettingsNotice, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { type ReactElement, useCallback, useRef, useState } from "react";
+import { IN_PROCESS_MODE } from "../shared/inproc-protocol.js";
 import type { TeamUiSnapshot } from "../shared/ui-protocol.js";
+import { parallelBound } from "./inproc-view.js";
 import { type ControlNote, noteKey } from "./team-controls.js";
 import { BTN, BTN_DANGER, formatTime, TEXT, TeamStatusPill, useViewT } from "./view-kit.js";
 
@@ -25,6 +30,19 @@ export interface TeamHeaderProps {
 }
 
 const LIVE = new Set(["starting", "active", "orphaned"]);
+
+/** Session team: the live busy count. In-process team: the parallelism bound when it applies (own id `team-header-parallel`), else the busy count under `team-header-working`. */
+function ParallelInfo({ snap, working }: { snap: TeamUiSnapshot; working: number }): ReactElement {
+  const t = useViewT();
+  if (snap.mode !== IN_PROCESS_MODE) return <span data-testid="team-header-parallel">{t("header.parallel", { n: working })}</span>;
+  const bound = parallelBound(snap);
+  if (bound === undefined) return <span data-testid="team-header-working">{t("header.parallel", { n: working })}</span>;
+  return (
+    <span data-testid="team-header-parallel" data-bound={bound}>
+      {t("header.parallelBound", { n: bound })}
+    </span>
+  );
+}
 
 export function TeamHeader({ snap, viewedFrom, shutdownPending, shutdownNote, onShutdown, onBack }: TeamHeaderProps): ReactElement {
   const t = useViewT();
@@ -94,7 +112,9 @@ export function TeamHeader({ snap, viewedFrom, shutdownPending, shutdownNote, on
           <span data-testid="team-header-mode" className={TEXT}>
             {t("header.mode", { mode: snap.mode })}
           </span>{" "}
-          · <span data-testid="team-header-parallel">{t("header.parallel", { n: working })}</span> · {t("header.members", { n: snap.members.length })} · {t("header.tasks", { n: snap.tasks.length })}
+          ·{" "}
+          <ParallelInfo snap={snap} working={working} />{" "}
+          · {t("header.members", { n: snap.members.length })} · {t("header.tasks", { n: snap.tasks.length })}
           {started !== undefined ? <> · {t("header.started", { time: started })}</> : null}
         </p>
         {viewedFrom !== undefined ? (

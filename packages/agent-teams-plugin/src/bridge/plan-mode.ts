@@ -93,6 +93,13 @@ export function registerPlanMode(ctx: BridgeContext): void {
   pi.on?.("session_start", () => {
     if (active) narrow();
   });
+  // In-process child (design D9): the subagents package applies its tool allowlist AFTER extension load, so narrow again before every run.
+  if (ctx.renarrowEachRun) {
+    pi.on?.("before_agent_start", () => {
+      if (active) narrow();
+      return undefined;
+    });
+  }
 
   /**
    * The backstop is attached only once plan mode is (or may be) on: eagerly from the env hint, otherwise on the first

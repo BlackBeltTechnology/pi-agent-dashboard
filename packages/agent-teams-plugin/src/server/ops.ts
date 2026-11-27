@@ -74,6 +74,7 @@ import { createMessaging } from "./messaging.js";
 import type { ModeRegistry } from "./modes.js";
 import { createNoticeBuffer } from "./notices.js";
 import { fail, isLive } from "./op-util.js";
+import { type AsClaim, asClaimOf, resolveProxied } from "./proxy-identity.js";
 import { createShutdown } from "./shutdown.js";
 import { createSpawnFlow, createSpawnPlanner } from "./spawn.js";
 import type { CreateTeamInput as StoreCreateTeamInput, TeamStore } from "./store.js";
@@ -102,6 +103,10 @@ export interface Caller {
   team?: Team;
   /** `"lead"`, the member name, or `""` for a plain session. */
   name: string;
+  /** In-process: the caller is a member identified by a lead-proxied `as {member, token}` on the lead's socket (`sessionId` is the LEAD's). */
+  proxied?: true;
+  /** A present-but-invalid `as`: the lane answers this code and never falls back to the socket identity. */
+  rejected?: "forbidden" | "member_gone";
 }
 
 // ── seams ────────────────────────────────────────────────────────────────────
@@ -167,9 +172,14 @@ export interface OpsDeps {
   getPiResources?: PiResourcesLookup;
   /** Host model availability; absent ⇒ only the model id syntax is validated. */
   isKnownModel?: (model: string) => boolean;
+  /** A proxied `as` was rejected (`inproc_forbidden` counter + ids-only log); absent ⇒ silent. */
+  onProxyRejected?: (info: { sessionId: string; reason: "forbidden" | "member_gone"; teamId?: string }) => void;
 }
 
 // ── small helpers ────────────────────────────────────────────────────────────
+
+/** The only `TeamCreate {mode}` values (exact, lowercase). */
+const VALID_MODE_ARGS: readonly string[] = ["session", "in-process"];
 
 function basename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
@@ -315,10 +325,15 @@ export function createOps(deps: OpsDeps) {
 
   /**
    * The single caller-resolution function: identity comes from the lane socket's
-   * `sessionId` through the binding index and nothing else. A later mode MAY add
-   * an explicit `as` branch HERE and only here.
+   * `sessionId` through the binding index, plus ONE explicit branch: a payload carrying
+   * `as {member, token}` (in-process mode, `proxy-identity.ts`) is accepted only from the
+   * lead socket of an in-process team with the member's token; any other `as` yields a
+   * `rejected` caller (`forbidden` / `member_gone`) and never falls back to the socket identity.
+   * See change: add-agent-teams-in-process.
    */
-  function resolveCaller(meta: { sessionId: string }): Caller {
+  function resolveCaller(meta: { sessionId: string }, payload?: unknown): Caller {
+    const claim = asClaimOf(payload);
+    if (claim !== undefined) return resolveProxiedCaller(meta.sessionId, claim);
     const binding = store.findBySession(meta.sessionId);
     const team = binding ? store.get(binding.teamId) : undefined;
     if (!binding || !team) return { sessionId: meta.sessionId, role: "plain", name: "" };
@@ -329,6 +344,14 @@ export function createOps(deps: OpsDeps) {
       team,
       name: binding.who,
     };
+  }
+
+  function resolveProxiedCaller(sessionId: string, claim: Exclude<AsClaim, undefined>): Caller {
+    const decision = resolveProxied(store, sessionId, claim);
+    if (decision.ok) return { sessionId, role: "member", binding: { teamId: decision.team.id, who: decision.member.name }, team: decision.team, name: decision.member.name, proxied: true };
+    const binding = store.findBySession(sessionId);
+    deps.onProxyRejected?.({ sessionId, reason: decision.error, ...(binding ? { teamId: binding.teamId } : {}) });
+    return { sessionId, role: "plain", name: "", rejected: decision.error };
   }
 
   /** A session confined by another plugin must never lead (`lead_confined`). */
@@ -541,10 +564,17 @@ export function createOps(deps: OpsDeps) {
 
   function teamCreate(raw: unknown, caller: Caller): OpResult<TeamCreateResult> {
     if (caller.role === "member") return fail("nested_team_forbidden");
-    if (caller.role === "lead") return fail("already_in_team");
+    if (caller.role === "lead") {
+      // A team's mode is fixed at creation: asking a lead's second TeamCreate for ANOTHER mode is `invalid_args` naming `mode`.
+      const asked = isRecord(raw) ? own(raw, "mode") : undefined;
+      return asked !== undefined && asked !== caller.team?.mode ? fail("invalid_args", "mode cannot be changed: it is fixed when the team is created") : fail("already_in_team");
+    }
     if (isConfined(caller.sessionId)) return fail("lead_confined");
     const args = isRecord(raw) ? raw : undefined;
     if (!args) return fail("invalid_args", "args must be an object");
+    // Spec "Mode argument validation": only the exact values `session` and `in-process`; anything else is `invalid_args`, never a fallback.
+    const rawMode = own(args, "mode");
+    if (rawMode !== undefined && !(typeof rawMode === "string" && VALID_MODE_ARGS.includes(rawMode))) return fail("invalid_args", "mode must be exactly \"session\" or \"in-process\"");
     const name = textField(own(args, "name"), TEAM_NAME_MAX_CHARS, { required: true });
     const description = textField(own(args, "description"), TEAM_DESCRIPTION_MAX_CHARS, { multiline: true });
     const mode = textField(own(args, "mode"), 40);
@@ -591,6 +621,7 @@ export function createOps(deps: OpsDeps) {
     if (!isRecord(raw)) return fail("invalid_args", "args must be an object");
     const rawName = own(raw, "name");
     if (typeof rawName !== "string") return fail("invalid_args", "name must be a string");
+    if (own(raw, "mode") !== undefined) return fail("invalid_args", "mode cannot be set on TeammateSpawn: it is fixed when the team is created");
     if (RESERVED_MEMBER_NAMES.includes(rawName)) return fail("name_reserved", rawName);
     if (!MEMBER_NAME_REGEXP.test(rawName)) return fail("invalid_args", "name must match ^[a-z][a-z0-9-]{0,31}$");
     const prompt = textField(own(raw, "prompt"), cfg.maxMessageChars, { required: true, multiline: true });
@@ -646,6 +677,7 @@ export function createOps(deps: OpsDeps) {
     if (team.status === "closed" || team.status === "closing") return fail("team_closed");
     const existing = store.member(team, args.name);
     const resume = args.resume === true;
+    if (resume && driverFor(team)?.supportsResume === false) return fail("resume_unsupported_in_process", "in-process teammates cannot be resumed; spawn it again to start a fresh context");
     if (resume) {
       if (!existing) return fail("nothing_to_resume", args.name);
       if (isLive(existing) && existing.status !== "disconnected") return fail("name_taken", args.name);
@@ -700,7 +732,8 @@ export function createOps(deps: OpsDeps) {
     } catch (err) {
       failSpawn(team, args.name, (err as Error).message);
     }
-    return { ok: true, data: { member: args.name, status: "spawning" } };
+    const note = driverFor(team)?.spawnNote?.(team, effectiveMaxTeammates(team, cfg));
+    return { ok: true, data: { member: args.name, status: "spawning", ...(note ? { note } : {}) } };
   }
 
   function failSpawn(team: Team, name: string, message: string): void {
@@ -827,13 +860,15 @@ export function createOps(deps: OpsDeps) {
    * `notify: false` suppresses that notice for a caller that queues its own (the
    * dashboard Stop action names owned task ids); default `true`.
    */
-  function abortMember(team: Team, name: string, opts: { actor: Actor; notify?: boolean }): OpResult<{ member: string; aborted: true }> {
+  function abortMember(team: Team, name: string, opts: { actor: Actor; notify?: boolean }): OpResult<{ member: string; aborted: true; details?: { noop: "not_busy"; hint?: string } }> {
     const member = store.member(team, name);
     if (!member) return fail("unknown_recipient", name);
     if (!isLive(member)) return fail("member_gone", name);
     const driver = driverFor(team);
     const res = driver?.abort(refOf(team, member)) ?? { ok: false, reason: "no_driver" };
     if (!res.ok) return fail("interrupt_unavailable", res.reason);
+    // Nothing was running (in-process: an idle / spawning member): a success no-op, the lead is not woken.
+    if (res.noop) return { ok: true, data: { member: name, aborted: true, details: { noop: res.noop, ...(res.hint ? { hint: res.hint } : {}) } } };
     if (opts.notify !== false) enqueueLeadNotice(team, { text: `${name}'s current run was stopped by ${opts.actor}; its tasks stay in_progress`, wake: true });
     return { ok: true, data: { member: name, aborted: true } };
   }
@@ -896,6 +931,8 @@ export function createOps(deps: OpsDeps) {
       }),
     );
     for (const { m } of targets) {
+      // A member the driver already released as `not_alive` (an in-process child whose stop was never confirmed) keeps that reason.
+      if (store.member(team, m.name)?.goneReason === "not_alive") continue;
       store.patchMember(team.id, m.name, { status: "gone", goneReason: reason });
       store.discardMailFor(team.id, m.name);
     }
@@ -939,7 +976,7 @@ export function createOps(deps: OpsDeps) {
   }
 
   function hello(payload: HelloPayload, caller: Caller): OpResult<HelloReply> {
-    reports.set(caller.sessionId, { ...payload, at: clock.now() });
+    if (!caller.proxied) reports.set(caller.sessionId, { ...payload, at: clock.now() }); // a child's hello must not overwrite its lead's report
     const { team } = caller;
     if (!team) return fail("not_in_team");
     if (caller.role === "lead") {
@@ -1133,6 +1170,19 @@ export function createOps(deps: OpsDeps) {
     return { ok: true, data: { ignored: false } };
   }
 
+  /**
+   * In-process `state` report of a member (after a duplicate-only waking mail no run started): the provisional `busy` of core's
+   * waking mail resolves to the host's real state before `wakeConfirmMs` lapses, and an `idle` member is looked at by the dispatcher again.
+   */
+  function reportMemberState(team: Team, name: string, state: "busy" | "idle"): void {
+    const member = store.member(team, name);
+    if (!member || !isLive(member)) return;
+    engine.confirm(team.id, name);
+    engine.takeSuspect(team.id, name);
+    if (member.status !== state && (member.status === "busy" || member.status === "idle" || member.status === "disconnected")) store.patchMember(team.id, name, { status: state });
+    if (state === "idle") dispatcher.run(team);
+  }
+
   /** Acknowledge mail addressed to the caller only; idempotent. */
   function ack(payload: AckPayload, caller: Caller): OpResult<{ acked: number[] }> {
     const { team } = caller;
@@ -1269,6 +1319,15 @@ export function createOps(deps: OpsDeps) {
     return op === "TaskUpdate" && isRecord(args) && own(args, "status") === "completed";
   }
 
+  /** State may have moved during an await: resolve again (a proxied member must still be live; its token was verified at admission). */
+  function reresolve(caller: Caller): Caller {
+    if (!caller.proxied || !caller.team) return resolveCaller({ sessionId: caller.sessionId });
+    const team = store.get(caller.team.id);
+    const member = team ? store.member(team, caller.name) : undefined;
+    if (!team || !member || !isLive(member)) return { sessionId: caller.sessionId, role: "plain", name: "", rejected: "member_gone" };
+    return { ...caller, team };
+  }
+
   /**
    * Lane entry. A gated op with registered gates first awaits them under one
    * shared budget (a veto, a throw or a timeout refuses it with `op_blocked`),
@@ -1281,7 +1340,7 @@ export function createOps(deps: OpsDeps) {
     const gatedOp = isGated(op, args) ? op : undefined;
     const gates = team && gatedOp ? deps.ext.gatesFor(gatedOp) : [];
     if (!team || !gatedOp || gates.length === 0) return callUngated(op, args, caller);
-    return runOpGates(gates, { op: gatedOp, team, callerName: caller.name, args }, deps.config().opGateBudgetMs, clock).then((veto) => veto ?? callUngated(op, args, resolveCaller({ sessionId: caller.sessionId })));
+    return runOpGates(gates, { op: gatedOp, team, callerName: caller.name, args }, deps.config().opGateBudgetMs, clock).then((veto) => veto ?? callUngated(op, args, reresolve(caller)));
   }
 
   /**
@@ -1328,6 +1387,14 @@ export function createOps(deps: OpsDeps) {
     registerStartOp,
     hostSession: deps.hostSession,
     wakeSeq,
+    /** The mail engine's per-recipient handover controls (the in-process driver acks handed-over mail and un-hands a failed handover). */
+    mailHandover: {
+      /** Re-emit every unacked mail of `to` (it may have missed them; the receiver de-duplicates by id). */
+      redeliver: (teamId: string, to: string) => engine.noteHello(teamId, to),
+      ack: (teamId: string, ids: readonly number[]) => engine.ack(teamId, ids),
+      unhand: (teamId: string, to: string) => engine.unhand(teamId, to),
+      flush: (teamId: string, to: string) => (deps.mailer ?? engine).flush(teamId, to),
+    },
     coalesceWindowMs: (team: Team): number => effectiveCoalesceWindowMs(team, deps.config()),
     spawnTeammate,
     createTeam,
@@ -1348,6 +1415,9 @@ export function createOps(deps: OpsDeps) {
     teammateSpawn,
     teamStatus,
     hello,
+    reportMemberState,
+    /** Post the coalesced lead notice now (a closing path that must not lose it). */
+    flushNotices: (team: Team) => notices.drain(team),
     busy,
     idle,
     ack,

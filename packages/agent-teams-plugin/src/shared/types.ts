@@ -115,6 +115,24 @@ export interface TeamTemplateSnapshot {
   seeded?: boolean;
 }
 
+/** What the lead's `inproc hello` reported about the installed `pi-dashboard-subagents` (persisted on the team). */
+export interface InProcSubagentsApi {
+  apiVersion: number;
+  features: string[];
+  limits: { maxConcurrent: number; maxBackgroundPending?: number; maxIdleBackground?: number; cwdScope?: string };
+}
+
+/** A child that may still be running after its member/team ended (`Team.pendingStops`). */
+export interface PendingStop {
+  /** Member name the child belonged to (the `stop` command's address; absent in a record written before it existed). */
+  member?: string;
+  childId: string;
+  agentId: string;
+  incarnation: string;
+  /** Epoch ms the entry was recorded (24 h expiry). */
+  at?: number;
+}
+
 export interface Member {
   name: string;
   role?: string;
@@ -143,6 +161,17 @@ export interface Member {
   noMcp: boolean;
   noContextFiles: boolean;
   lastSettleId: number;
+  // ── in-process mode (add-agent-teams-in-process): all optional + additive, `schemaVersion` stays 1 ──
+  /** In-process: subagents `bg-…` id of the child. */
+  childId?: string;
+  /** In-process: subagents agent id; the Team view opens the subagent view by it. */
+  childAgentId?: string;
+  /** In-process: lead-proxied identity secret (32 random bytes hex). Persisted, NEVER in a snapshot, log, mail or prompt. */
+  proxyToken?: string;
+  /** In-process: 1-based slot-queue position while the child waits for a subagents slot. */
+  queuePosition?: number;
+  /** In-process: run number of an outstanding `queued` steer ack. */
+  steerAckRun?: number;
 }
 
 export interface Task {
@@ -206,6 +235,13 @@ export interface Team {
   leadSpawnToken?: string;
   /** Epoch ms after which a still-`starting` team is closed `lead_spawn_failed`. */
   leadBindDeadline?: number;
+  // ── in-process mode (add-agent-teams-in-process): optional + additive ──
+  /** In-process: random id of the lead bridge activation that hosts the children. */
+  leadIncarnation?: string;
+  /** In-process: the subagents API the lead reported in its `inproc hello`. */
+  subagentsApi?: InProcSubagentsApi;
+  /** In-process: children not yet confirmed stopped (best-effort `stop` on the next hello of the same incarnation). */
+  pendingStops?: PendingStop[];
   members: Member[];
   tasks: Task[];
   nextTaskId: number;

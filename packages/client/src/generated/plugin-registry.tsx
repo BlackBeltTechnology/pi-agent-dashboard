@@ -170,7 +170,8 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "emits": [
             "agent-teams:mail",
             "agent-teams:team_closed",
-            "agent-teams:changed"
+            "agent-teams:changed",
+            "agent-teams:inproc"
         ]
     },
     claims: [

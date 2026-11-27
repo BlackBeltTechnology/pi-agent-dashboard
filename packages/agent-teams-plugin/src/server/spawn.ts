@@ -266,7 +266,7 @@ export function createSpawnFlow(deps: SpawnFlowDeps) {
     if (!driver) throw new Error(`no driver for mode ${team.mode}`);
     const { spec, policyHash: hash } = buildSpawnSpec({ team, member, prepared, config: deps.config(), ext: deps.ext, logger });
     store.patchMember(team.id, member.name, { policyHash: hash, guardActive: false, ...(spec.tools ? { tools: spec.tools } : {}), ...(spec.skills ? { skills: spec.skills } : {}) });
-    arm(team, member);
+    if (driver.ownsSpawnClock !== true) arm(team, member);
     deps.telemetry.count(team.id, "spawns");
     deps.telemetry.log("spawn", team.id, { member: member.name, resume: resume === true, tools: spec.tools?.length, skills: spec.skills?.length });
     const outcome = await driver.spawn({
@@ -312,7 +312,8 @@ export function createSpawnFlow(deps: SpawnFlowDeps) {
    * fail (token-based abort); members still `disconnected` are reported to the lead.
    */
   function reconcile(): void {
-    const pending = store.list().filter((t) => t.status !== "closed" && t.members.some((m) => m.status === "spawning" || m.status === "disconnected"));
+    // A driver that owns its spawn clock (in-process) re-binds its members from the lead's `inproc hello` + snapshot, however long that takes.
+    const pending = store.list().filter((t) => t.status !== "closed" && deps.driverFor(t)?.ownsSpawnClock !== true && t.members.some((m) => m.status === "spawning" || m.status === "disconnected"));
     if (pending.length === 0) return;
     clock.clearTimeout(reconcileTimer);
     reconcileTimer = clock.setTimeout(() => {

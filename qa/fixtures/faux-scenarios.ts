@@ -709,6 +709,9 @@ const CHAT_MOTION_GLIDE_PRELUDE = Array.from(
 /** Closing texts of the agent-teams lead scenarios (asserted by qa/tests/60 and the L3 spec). */
 export const AGENT_TEAMS_LEAD_READY = "AGENT_TEAMS_LEAD_READY";
 export const AGENT_TEAMS_TASK_CREATED = "AGENT_TEAMS_TASK_CREATED";
+/** In-process scenarios (change: add-agent-teams-in-process, qa/tests/60..61): echo prefix of a `TeamCreate` result, closing text of the bench delete turn. */
+export const AGENT_TEAMS_INPROC_RESULT = "INPROC_TOOL_RESULT:";
+export const AGENT_TEAMS_BENCH_DELETED = "AGENT_TEAMS_BENCH_DELETED";
 /** Closing text of the agent-teams teammate scenarios (mirrored as `TEAMMATE_ACK` in the plugin harness). */
 const AGENT_TEAMS_TEAMMATE_ACK = "AGENT_TEAMS_TEAMMATE_ACK";
 
@@ -751,6 +754,89 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText(AGENT_TEAMS_TASK_CREATED)]),
     ],
     expect: { text: AGENT_TEAMS_TASK_CREATED },
+  },
+
+  // In-process mode lead scripts (change: add-agent-teams-in-process; L2 qa/tests/60-agent-teams-inproc-persistence.sh and
+  // 61-agent-teams-inproc-perf.sh). The children are the FAKE subagents extension's (`qa/fixtures/fake-subagents.ext.ts`,
+  // loaded with `-e` on the lead only); their run length comes from `FAKE_SUBAGENTS_RUN_MS` or a `[[fake-run:..]]` sentinel.
+  // Two members, each spawned in its own assistant turn (the fixture queues the second behind the first only past maxConcurrent).
+  "agent-teams-inproc-lead-spawn": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("TeamCreate", { name: "e2e-inproc", mode: "in-process" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("TeammateSpawn", { name: "alice", model: "faux/faux-1", prompt: "Stand by for instructions." })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("TeammateSpawn", { name: "bob", model: "faux/faux-1", prompt: "Stand by for instructions." })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_LEAD_READY)]),
+    ],
+    expect: { text: AGENT_TEAMS_LEAD_READY },
+  },
+
+  // Four members for the perf rows (qa/tests/61, test-plan S98/S100: "4 busy children"); runs are set by the fake's env.
+  "agent-teams-inproc-lead-spawn4": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("TeamCreate", { name: "e2e-inproc4", mode: "in-process" })], { stopReason: "toolUse" }),
+      ...["alice", "bob", "carol", "dave"].map((name) =>
+        fauxAssistantMessage([fauxToolCall("TeammateSpawn", { name, model: "faux/faux-1", prompt: "Stand by for instructions." })], { stopReason: "toolUse" }),
+      ),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_LEAD_READY)]),
+    ],
+    expect: { text: AGENT_TEAMS_LEAD_READY },
+  },
+
+  // Shared-process starvation (qa/tests/61, test-plan S101): a late member whose fake child blocks the LEAD event loop for
+  // 400 s (> 2x the 180 s bridge heartbeat timeout) the moment it starts and then runs forever.
+  "agent-teams-inproc-spawn-blocker": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("TeammateSpawn", { name: "carl", model: "faux/faux-1", prompt: "[[fake-block:400000]] [[fake-run:forever]]" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_LEAD_READY)]),
+    ],
+    expect: { text: AGENT_TEAMS_LEAD_READY },
+  },
+
+  // Mail cycles (qa/tests/61, test-plan S98): 20 SendMessage calls, alternating alice and bob, one per assistant turn.
+  "agent-teams-inproc-mail-burst": {
+    script: [
+      ...Array.from({ length: 20 }, (_, i) =>
+        fauxAssistantMessage([fauxToolCall("SendMessage", { to: i % 2 === 0 ? "alice" : "bob", message: `ping ${i}` })], { stopReason: "toolUse" }),
+      ),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_TASK_CREATED)]),
+    ],
+    expect: { text: AGENT_TEAMS_TASK_CREATED },
+  },
+
+  // `TeamCreate {mode:"in-process"}` while the subagents package is absent: the turn echoes the tool result, so a qa script
+  // reading the RPC event stream sees the `mode_unavailable` code and the install hint.
+  "agent-teams-inproc-unavailable": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("TeamCreate", { name: "e2e-inproc-missing", mode: "in-process" })], { stopReason: "toolUse" }),
+      (context: FauxContext) => fauxAssistantMessage([fauxText(`${AGENT_TEAMS_INPROC_RESULT} ${lastToolResultText(context)}`)]),
+    ],
+    expect: { text: AGENT_TEAMS_INPROC_RESULT },
+  },
+
+  // Spawn-latency bench cycle (qa/tests/61, test-plan S97): one team + one member per cycle, then a force delete turn.
+  // The session variant's member runs a plain faux turn; the in-process variant's child ends its run after 50 ms.
+  "agent-teams-bench-cycle-session": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("TeamCreate", { name: "bench", mode: "session" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("TeammateSpawn", { name: "w", model: "faux/faux-1", prompt: "[[faux:plain-text]] bench" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_LEAD_READY)]),
+    ],
+    expect: { text: AGENT_TEAMS_LEAD_READY },
+  },
+  "agent-teams-bench-cycle-inproc": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("TeamCreate", { name: "bench", mode: "in-process" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("TeammateSpawn", { name: "w", model: "faux/faux-1", prompt: "bench [[fake-run:50]]" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_LEAD_READY)]),
+    ],
+    expect: { text: AGENT_TEAMS_LEAD_READY },
+  },
+  "agent-teams-bench-delete": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("TeamDelete", { force: true })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(AGENT_TEAMS_BENCH_DELETED)]),
+    ],
+    expect: { text: AGENT_TEAMS_BENCH_DELETED },
   },
 
   // Teammate long tool run (L1 real-pi tests: urgent end-to-end S14). A `sleep 30` the

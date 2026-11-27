@@ -14,7 +14,7 @@ One row per file.
 | `agent-path-gate.spec.ts` | → `agent-path-gate.spec.ts.AGENTS.md` |
 | `agent-secret-guards.spec.ts` | → `agent-secret-guards.spec.ts.AGENTS.md` |
 | `agent-teams-core.spec.ts` | L3 (add-agent-teams-core, test-plan S133/S134): a faux-scripted lead (`agent-teams-lead-spawn`/`-task`)… → see `agent-teams-core.spec.ts.AGENTS.md` |
-| `agent-teams-*.spec.ts` | Ten Team-UI specs (add-agent-teams-ui; written, not run) → see `agent-teams-ui.specs.AGENTS.md`; 3 templates-hooks specs → see `agent-teams-templates-hooks.specs.AGENTS.md` |
+| `agent-teams-*.spec.ts` | Ten Team-UI specs (add-agent-teams-ui; written, not run) → see `agent-teams-ui.specs.AGENTS.md`; 3… → see `agent-teams-*.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → `archived-attachment.spec.ts.AGENTS.md` |

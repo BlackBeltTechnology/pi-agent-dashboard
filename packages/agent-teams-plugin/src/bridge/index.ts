@@ -17,6 +17,7 @@
 
 import { PLUGIN_REQUEST_SYMBOL } from "@blackbelt-technology/dashboard-plugin-runtime/bridge";
 import { registerApprovalMailKinds } from "../shared/approval-mail.js";
+import type { Clock } from "../shared/clock.js";
 import { compareMailIds } from "../shared/constants.js";
 import { customTypeForKind, formatMail } from "../shared/mail-format.js";
 import {
@@ -48,6 +49,8 @@ import {
   type GuardState,
   hashOfEnvPolicy,
 } from "./guard.js";
+import { type ChildTeamExtension, createChildTeamExtension, createChildTransport } from "./inproc-child.js";
+import { createInProcHost, type InProcHost, type ReportResult } from "./inproc-host.js";
 import { createLaneClient, type LaneClient, type LaneResult } from "./lane.js";
 import { registerPlanMode } from "./plan-mode.js";
 import { createTeamTools, TEAM_TOOL_NAMES, type TeamToolDef, type TeamTransport } from "./tools.js";
@@ -73,6 +76,28 @@ export interface BridgeOptions {
   log?: (message: string) => void;
   /** Optional bridge modules (default: plan mode + the `/agent-team` command); a test seam. */
   modules?: readonly BridgeRegistrar[];
+  /**
+   * Host in-process teammates (design D3): probe `subagents:capabilities`, answer the server's `agent-teams:inproc` commands and report
+   * the children's lifecycle. Off by default (the shipped `activate` turns it on); never for a teammate or a confined session.
+   */
+  inProcessHost?: boolean;
+}
+
+/** The host's timers must never keep the pi process alive. */
+const unrefClock: Clock = {
+  now: () => Date.now(),
+  setTimeout: (fn, ms) => {
+    const t = setTimeout(fn, ms);
+    (t as { unref?: () => void }).unref?.();
+    return t;
+  },
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+/** A lane result as the host's outbox reads it: `no_handler` (a server without the in-process lane) is a definitive answer, not an outage. */
+function toReportResult(res: { ok: true } | { ok: false; error: string; transport: boolean }): ReportResult {
+  if (res.ok) return { ok: true };
+  return { ok: false, transport: res.transport && res.error !== "no_handler", error: res.error };
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -98,6 +123,28 @@ function isWireMail(v: unknown): v is WireMail {
   return isRecord(v) && Number.isInteger(v.id) && typeof v.from === "string" && typeof v.kind === "string" && typeof v.text === "string";
 }
 
+/** The in-process host of a lead/plain session: needs the pi bus (`on` + `emit`) and a lane that carries `agent-teams/inproc`. */
+function createLeadHost(pi: PiLike, lane: LaneClient, log: (message: string) => void, leadCwd: () => string | undefined): InProcHost | undefined {
+  const events = pi.events;
+  if (typeof events?.on !== "function" || typeof events.emit !== "function" || !lane.inproc) return undefined;
+  const send = lane.inproc.bind(lane);
+  /** The live child extensions by member: the host refreshes a child's proxied hello when a `plan_decision` mail reaches it. */
+  const children = new Map<string, ChildTeamExtension>();
+  return createInProcHost({
+    bus: { on: (channel, fn) => events.on?.(channel, fn), emit: (channel, payload) => events.emit?.(channel, payload) },
+    clock: unrefClock,
+    send: async (payload) => toReportResult(await send(payload)),
+    childExtension: (identity) => {
+      const extension = createChildTeamExtension(identity, createChildTransport(identity), identity.env, { log });
+      children.set(identity.member, extension);
+      return extension;
+    },
+    onPlanDecision: (member) => void children.get(member)?.refreshHello().catch((err: Error) => log(`agent-teams: child hello refresh failed: ${err.name}`)),
+    leadCwd,
+    log,
+  });
+}
+
 export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   registerApprovalMailKinds(); // kind → customType for server-sent plan/hook/playbook mails
   const env = opts.env ?? process.env;
@@ -120,7 +167,7 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
   let running = false;
   let lastText = "";
   let lastError: string | undefined;
-  let lastCtx: { isIdle?: () => boolean; sessionManager?: { getSessionFile?: () => string | undefined } } | undefined;
+  let lastCtx: { isIdle?: () => boolean; cwd?: string; sessionManager?: { getSessionFile?: () => string | undefined } } | undefined;
   const helloFields: Array<() => Partial<HelloPayload>> = [];
   const helloReplyListeners: Array<(reply: HelloReply) => void> = [];
   const mailListeners: Array<(mail: WireMail) => void> = [];
@@ -285,6 +332,9 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
     if (skipped) await sendHello(); // a provisional busy for a mail that produced no turn recovers at once
   }
 
+  // ── in-process host (lead side; inert unless enabled and the pi bus can emit) ─────────────
+  let inProcHost = opts.inProcessHost === true && !confined && !hintedMember ? createLeadHost(pi, lane, log, () => lastCtx?.cwd ?? process.cwd()) : undefined;
+
   // ── optional modules (plan mode, /agent-team command) ───────────────────────
 
   const bridgeContext: BridgeContext = {
@@ -336,7 +386,10 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
     let wasUp = laneUp();
     laneWatch = setInterval(() => {
       const up = laneUp();
-      if (up && !wasUp) void sendHello();
+      if (up && !wasUp) {
+        void sendHello();
+        inProcHost?.onReconnect();
+      }
       wasUp = up;
     }, laneWatchMs);
     (laneWatch as { unref?: () => void }).unref?.();
@@ -347,10 +400,13 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
     started = true;
     watchLane();
     void sendHello();
+    inProcHost?.onSessionStart();
   });
   pi.on?.("session_shutdown", () => {
     if (laneWatch !== undefined) clearInterval(laneWatch);
     laneWatch = undefined;
+    inProcHost?.dispose();
+    inProcHost = undefined;
   });
 
   // Teammate guard layers: always attached for a hinted member (inert once it left the team).
@@ -407,12 +463,39 @@ export function createBridge(pi: PiLike, opts: BridgeOptions = {}) {
     sendHello,
     handleMail,
     guard,
+    /** The in-process lead host, when enabled (tests). */
+    get inProcHost(): InProcHost | undefined {
+      return inProcHost;
+    },
   };
+}
+
+/** Process-wide owner of the bridge: `process[Symbol.for("agent-teams.bridge")]` holds the pi that activated it (re-entry guard, design D9). */
+export const BRIDGE_OWNER_KEY = Symbol.for("agent-teams.bridge");
+interface BridgeOwner {
+  pi?: unknown;
+}
+
+/**
+ * Take ownership of the process for `pi`. A subagent child loads every extension again in the SAME process with its own `pi`: while
+ * the lead's bridge is live that second activation must be inert (it would register `TeamCreate`/`TeammateSpawn` under the lead's
+ * identity). Ownership is released on the owner's `session_shutdown` (any reason: reload/new/resume/fork hand the process to a fresh
+ * `ExtensionAPI`; a child's own shutdown never releases the lead's, since only the owner releases). Returns false when another
+ * instance owns the process.
+ */
+export function claimBridgeOwnership(pi: PiLike, holder: BridgeOwner = ((process as unknown as Record<symbol, BridgeOwner | undefined>)[BRIDGE_OWNER_KEY] ??= {})): boolean {
+  if (holder.pi !== undefined && holder.pi !== pi) return false;
+  holder.pi = pi;
+  pi.on?.("session_shutdown", () => {
+    if (holder.pi === pi) holder.pi = undefined;
+  });
+  return true;
 }
 
 export default function activate(ctx: unknown): void {
   const c = ctx as { pi?: PiLike } | PiLike;
   const pi = ((c as { pi?: PiLike }).pi ?? c) as PiLike;
   if (!pi || typeof pi.on !== "function") return;
-  createBridge(pi);
+  if (!claimBridgeOwnership(pi)) return; // a subagent child in the lead's process: register nothing, send no hello
+  createBridge(pi, { inProcessHost: true });
 }

@@ -6,6 +6,7 @@
  * See change: add-agent-teams-core.
  */
 import { type PluginLaneReply, requestPluginServer } from "@blackbelt-technology/dashboard-plugin-runtime/bridge";
+import { LANE_INPROC } from "../shared/inproc-protocol.js";
 import { AGENT_TEAMS_PLUGIN_ID } from "../shared/plugin-id.js";
 import {
   type AckPayload,
@@ -56,6 +57,8 @@ export interface LaneClient {
   busy(): Promise<LaneResult<unknown>>;
   idle(payload: IdlePayload): Promise<LaneResult<unknown>>;
   ack(ids: readonly number[]): Promise<LaneResult<unknown>>;
+  /** One `agent-teams/inproc` request (`hello` | `ack` | `event`) of the in-process lead host; absent on a lane fake that predates it. */
+  inproc?(payload: Record<string, unknown>): Promise<LaneResult<unknown>>;
 }
 
 export function createLaneClient(request: LaneRequest = requestPluginServer): LaneClient {
@@ -72,6 +75,7 @@ export function createLaneClient(request: LaneRequest = requestPluginServer): La
     busy: () => send<unknown>(LANE_BUSY, {} satisfies BusyPayload),
     idle: (payload) => send<unknown>(LANE_IDLE, payload),
     ack: (ids) => send<unknown>(LANE_ACK, { ids: [...ids] } satisfies AckPayload),
+    inproc: (payload) => send<unknown>(LANE_INPROC, payload),
   };
 }
 

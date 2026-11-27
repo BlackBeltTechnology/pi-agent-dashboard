@@ -61,7 +61,7 @@ export interface CreateTeamInput {
 
 /** Team fields `patchTeam` may set (an `undefined` value clears the field). */
 export type TeamPatch = Partial<
-  Pick<Team, "overrides" | "defaultSkills" | "defaultTools" | "maxTeammates" | "description" | "template" | "hooks" | "plans" | "leadSpawnToken" | "leadBindDeadline">
+  Pick<Team, "overrides" | "defaultSkills" | "defaultTools" | "maxTeammates" | "description" | "template" | "hooks" | "plans" | "leadSpawnToken" | "leadBindDeadline" | "leadIncarnation" | "subagentsApi" | "pendingStops">
 >;
 
 export interface AddTaskInput {

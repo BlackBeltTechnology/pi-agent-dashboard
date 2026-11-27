@@ -21,7 +21,8 @@ import { createUiCounters } from "./ui-counters.js";
 import { createUserActions } from "./user-actions.js";
 
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
-  const runtime = createTeamsRuntime(ctx);
+  // Registers mode `in-process` + lane `agent-teams/inproc`; the mode fails closed (`mode_unavailable`) until the upstream capability handshake succeeds.
+  const runtime = createTeamsRuntime(ctx, { inProcess: true });
   ctx.onShutdown(() => runtime.dispose());
   const identity = ctx.identity;
 

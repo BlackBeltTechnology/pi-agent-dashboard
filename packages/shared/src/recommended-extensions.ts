@@ -146,20 +146,28 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		source: "npm:@blackbelt-technology/pi-dashboard-subagents",
 		displayName: "pi-dashboard-subagents",
 		fallbackDescription:
-			"Foreground in-memory subagents for pi with a streamed timeline " +
-			"(every tool call, reasoning step, and assistant text). Pairs with " +
-			"the dashboard's subagent-inspector plugin for inline-expand + popout " +
-			"card UI. Producer of the Agent tool; no background sessions.",
+			"Foreground and background in-memory subagents for pi with a streamed " +
+			"timeline (every tool call, reasoning step, and assistant text). " +
+			"Pairs with the dashboard's subagent-inspector plugin for inline-expand " +
+			"+ popout card UI. Producer of the Agent and AgentControl tools " +
+			"(background runs, steer, wait, cancel). Release 0.9.0 or newer adds the " +
+			"programmatic team API that agent-teams in-process teammates need.",
 		status: "optional",
 		unlocks: [
 			"Agent tool card UI",
 			"Subagent inspector (inline expand + popout)",
 			"agent-md path display",
 		],
-		toolsRegistered: ["Agent"],
+		toolsRegistered: ["Agent", "AgentControl"],
 		autowired: true,
 		// Companion dashboard plugin id. See change: add-subagent-inspector.
 		dashboardPlugin: "subagents",
+		// Version floor for agent-teams in-process mode: 0.9.0 (the `subagents:capabilities`
+		// / `spawn` / `steer_request` / managed-children API, `apiVersion` 1). Not an install
+		// requirement: agent-teams does NOT list this package in its manifest `requires`
+		// (session mode stays warning-free) and gates at runtime on the capability handshake,
+		// reporting `mode_unavailable` until a release that answers it is installed.
+		// See change: add-agent-teams-in-process.
 		// Version floor >= 0.2.3: emits `agentSessionId` on AgentDetails so the
 		// subagent inspector resolves a run by its v7 runner session id (not just
 		// the v4 agentId). Source is unversioned (installs latest) so fresh installs

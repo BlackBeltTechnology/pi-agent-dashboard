@@ -698,6 +698,22 @@ FIXSRV
     echo "[test-entrypoint] PI_SYNTH_AGENT_TICKS: staged synthetic Agent-tick producer → ${SYNTH_EXT_DIR}"
   fi
 
+  # --- Fake subagents extension (change: add-agent-teams-in-process, task 2.7, decision B105) ---
+  # Implements the RECORDED `agent-teams-subagents-contract` (capabilities, spawn, steer, stop, scripted children
+  # emitting created/started/completed|failed+idle/disposed) so the in-process teams rows run before the upstream release
+  # exists. Same `subagents:*` bus channels as the real package, so the two NEVER coexist (claim rule: the first
+  # activation answers): staged ONLY under PI_FAKE_SUBAGENTS=1, and `register_subagents` is SKIPPED below. Staged as a
+  # re-export of the checked-in source so its relative imports (the plugin's recorded contract double) resolve from
+  # /app/qa/fixtures. Unset = harness unchanged. Child scripts: FAKE_SUBAGENTS_* env / `[[fake-run:..]]` prompt sentinels
+  # (see the fixture header).
+  FAKE_SA_EXT_DIR="${PI_DIR}/agent/extensions/fake-subagents"
+  if [ "${PI_FAKE_SUBAGENTS:-}" = "1" ] && [ -f "${FAUX_SRC}/fake-subagents.ext.ts" ] && [ ! -f "${FAKE_SA_EXT_DIR}/index.ts" ]; then
+    mkdir -p "${FAKE_SA_EXT_DIR}"
+    printf '%s\n' 'export { default } from "/app/qa/fixtures/fake-subagents.ext.ts";' > "${FAKE_SA_EXT_DIR}/index.ts"
+    ln -sfn /app/node_modules "${FAKE_SA_EXT_DIR}/node_modules"
+    echo "[test-entrypoint] PI_FAKE_SUBAGENTS: staged fake subagents extension → ${FAKE_SA_EXT_DIR}"
+  fi
+
   # Also seed pi's own settings.json defaultProvider+defaultModel (read at pi
   # startup) so the faux model is selected even before the bridge gate runs.
   # The merge decision-table + file wrapper live in the standalone module so the
@@ -933,6 +949,9 @@ JSON
     # two must never coexist. See change: reduce-bridge-tick-bandwidth.
     if [ "${PI_SYNTH_AGENT_TICKS:-}" = "1" ]; then
       echo "[test-entrypoint] PI_SYNTH_AGENT_TICKS=1: skipping subagents producer (synthetic Agent tool owns the tool name)"
+    elif [ "${PI_FAKE_SUBAGENTS:-}" = "1" ]; then
+      # Same `subagents:*` channels: the fake answers them, the real package must not (change: add-agent-teams-in-process).
+      echo "[test-entrypoint] PI_FAKE_SUBAGENTS=1: skipping subagents producer (the fake subagents extension owns the subagents:* channels)"
     else
       register_subagents
     fi

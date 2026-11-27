@@ -279,6 +279,35 @@ default with a startup warning):
 
 The hook budget itself is the core `opGateBudgetMs` (default 12000, max 14000).
 
+## In-process teammates (mode `in-process`)
+
+`teammateMode` (`session` default, or `in-process`; `TeamCreate {mode}` and a template `mode` win over it)
+runs teammates as background children of the lead through the external
+`@blackbelt-technology/pi-dashboard-subagents` extension instead of one dashboard session each.
+
+**Requirement: this mode needs an upstream release of `pi-dashboard-subagents` newer than 0.8.1
+(targeted: 0.9.0, API `apiVersion` 1) that answers `subagents:capabilities`, and it is not published
+yet.** Until it is installed, `TeamCreate {mode:"in-process"}` fails with `mode_unavailable`
+(`subagents_extension_missing` / `subagents_extension_outdated`) and session mode is unaffected. The plugin
+does not list the package in its manifest `requires`; the gate is the runtime capability handshake
+(`src/shared/subagents-contract.ts`). Update the package from the Packages tab.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `teammateMode` | unset (`session`) | default mode when `TeamCreate` and the template give none (`session` \| `in-process`) |
+| `inProcessIdleTtlSec` | absent | free an idle child after N seconds (integer ≥ 1); absent keeps idle children until stopped |
+| `inProcessLeanChildren` | `false` | children load no discovered extensions (cheaper, isolated from foreign extensions) |
+| `inProcessCmdTimeoutMs` | 10000 | command ack deadline to the lead bridge (integer 1000–120000; out of range is rejected at settings write, never clamped) |
+| `inProcessQueueTimeoutMs` | absent | opt-in: fail a teammate queued longer than this for a subagents slot (`spawn_timeout`) |
+
+Parity gaps versus session mode: no direct user chat with a teammate (read-only subagent view), no resume,
+members do not survive a lead `/reload`, no MCP in children, and parallelism is bounded by the subagents
+`maxConcurrent` setting (shared with the lead's own `Agent` calls).
+Skills: the child guard layers (prompt filter, `/skill:` refusal, `SKILL.md` read guard) apply to every grant, so an empty
+grant hides all skills; a non-empty `skills` grant needs the subagents feature `loader_skills` (otherwise the spawn fails
+with `skills_unavailable_in_process`), and without any grant a child sees no project or user skills. A member `cwd` outside
+the lead's git repository needs the feature `cwd_scope` (otherwise `cwd_outside_scope`).
+
 ## REST routes
 
 All under `/api/plugins/agent-teams/`; tiers live in `packages/shared/src/route-tiers.ts`.

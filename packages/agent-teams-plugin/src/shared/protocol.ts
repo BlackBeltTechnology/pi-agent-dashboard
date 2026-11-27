@@ -102,8 +102,12 @@ export const ERROR_CODES = [
   "blocked",
   "broadcast_lead_only",
   "cwd_outside_lead",
+  "cwd_outside_scope",
   "cwd_required",
+  "delivery_timeout",
   "dependency_cycle",
+  "emit_refused",
+  "forbidden",
   "hash_mismatch",
   "hook_blocked",
   "hooks_untrusted",
@@ -134,11 +138,18 @@ export const ERROR_CODES = [
   "playbook_too_long",
   "project_untrusted",
   "rate_limited",
+  "prompt_file_unreadable",
   "reason_required",
+  "resume_unsupported_in_process",
   "self_message",
   "skill_not_found",
   "skill_resolution_unavailable",
   "skills_outside_template",
+  "skills_unavailable_in_process",
+  "spawn_timeout",
+  "spawn_vetoed",
+  "subagents_extension_missing",
+  "subagents_extension_outdated",
   "task_cap_reached",
   "team_cap_reached",
   "team_closed",
@@ -230,6 +241,8 @@ export interface TeammateSpawnArgs {
 export interface TeammateSpawnResult {
   member: string;
   status: "spawning";
+  /** In-process: the parallelism bound and the shared subagents slot pool, present when `maxTeammates` exceeds `maxConcurrent`. */
+  note?: string;
 }
 
 export interface TeamStatusResult {
@@ -315,6 +328,8 @@ export interface SendMessageResult {
   queued: string[];
   /** `urgent_as_steer` when the interrupt was unavailable and the mail went out as a normal steer. */
   degraded?: "urgent_as_steer";
+  /** Text warning that goes with `degraded` (in-process: the interrupt feature is missing, the mail was only steered). */
+  warning?: string;
 }
 
 export interface ShutdownRequestArgs {

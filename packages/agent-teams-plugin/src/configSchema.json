@@ -172,7 +172,30 @@
     },
     "teammateMode": {
       "type": "string",
-      "description": "Default teammate mode for TeamCreate when no mode is given. Unset resolves to \"session\". Must name a registered mode."
+      "enum": ["session", "in-process"],
+      "description": "Default teammate mode for TeamCreate when no mode is given. Unset resolves to \"session\". \"in-process\" runs teammates as background children of the lead through the pi-dashboard-subagents extension (requires its newer release; otherwise mode_unavailable)."
+    },
+    "inProcessIdleTtlSec": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "In-process mode: free an idle teammate child after this many seconds. Absent (default) keeps idle children alive until they are stopped. Integer >= 1."
+    },
+    "inProcessLeanChildren": {
+      "type": "boolean",
+      "default": false,
+      "description": "In-process mode: load no discovered extensions in a teammate child (built-in tools plus the team extension only). Cheaper and isolates foreign extensions; default false (same project context as a session teammate)."
+    },
+    "inProcessCmdTimeoutMs": {
+      "type": "integer",
+      "default": 10000,
+      "minimum": 1000,
+      "maximum": 120000,
+      "description": "In-process mode: how long a command to the lead bridge may stay unacknowledged before it fails with delivery_timeout (ms, 1000-120000). Out-of-range values are rejected, never clamped."
+    },
+    "inProcessQueueTimeoutMs": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "In-process mode, opt-in: fail a teammate that waits longer than this for a subagents slot with spawn_timeout (ms, integer >= 1). Absent (default) never fails a queued teammate."
     }
   }
 }

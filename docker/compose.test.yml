@@ -173,6 +173,15 @@ services:
       # coexist (first-registration-wins). Requires PI_E2E_SEED=1. Unset =
       # harness unchanged (real subagents).
       PI_SYNTH_AGENT_TICKS: "${PI_SYNTH_AGENT_TICKS:-}"
+      # Fake subagents arm (change: add-agent-teams-in-process, task 2.7). When "1", test-entrypoint stages
+      # qa/fixtures/fake-subagents.ext.ts (the recorded `agent-teams-subagents-contract` with scripted children)
+      # and SKIPS the real subagents producer — both answer `subagents:*`, so they never coexist. Requires
+      # PI_E2E_SEED=1. The FAKE_SUBAGENTS_* knobs (run length, maxConcurrent, progress cadence, state file) are
+      # read from the container env by the fixture. Unset = harness unchanged (real subagents).
+      PI_FAKE_SUBAGENTS: "${PI_FAKE_SUBAGENTS:-}"
+      FAKE_SUBAGENTS_RUN_MS: "${FAKE_SUBAGENTS_RUN_MS:-}"
+      FAKE_SUBAGENTS_MAX_CONCURRENT: "${FAKE_SUBAGENTS_MAX_CONCURRENT:-}"
+      FAKE_SUBAGENTS_PROGRESS_MS: "${FAKE_SUBAGENTS_PROGRESS_MS:-}"
       # Bridge subagent-timeline strip (change: reduce-subagent-details-payload,
       # D2). `0` forwards every frame UNSTRIPPED — the push arm of the
       # pull-vs-push A/B, and the anti-vacuity arm proving the strip is what

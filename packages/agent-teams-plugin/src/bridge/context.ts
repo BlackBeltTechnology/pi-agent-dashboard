@@ -27,7 +27,7 @@ export interface PiLike {
   /** Every registered tool (built-in and extension), active or not (plan-mode narrowing intersects it). */
   getAllTools?: () => Array<{ name: string }>;
   sendMessage?: (message: { customType: string; content: string; display: boolean; details?: Record<string, unknown> }, options?: { deliverAs?: string; triggerTurn?: boolean }) => void;
-  events?: { on?: (name: string, handler: (payload: unknown) => void) => unknown };
+  events?: { on?: (name: string, handler: (payload: unknown) => void) => unknown; emit?: (name: string, payload: unknown) => void };
 }
 
 export interface BridgeContext {
@@ -59,6 +59,8 @@ export interface BridgeContext {
   };
   /** The session became a lead (a `team.start` reply on the command path): registers the lead tool set. */
   becomeLead(): void;
+  /** In-process child only: re-apply plan-mode narrowing at `before_agent_start` of every run (the package sets its tool allowlist after extension load). */
+  renarrowEachRun?: boolean;
 }
 
 /** A bridge module: registers its handlers/hooks once, synchronously, during `createBridge`. */

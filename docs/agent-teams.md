@@ -6,6 +6,8 @@ Templates, hooks, plan approval = additive over core. No core edits. Consumes co
 
 See change: add-agent-teams-templates-hooks.
 
+In-process teammate mode (`mode: in-process`, `teammateMode`, `inProcess*` keys, parity table, security): [agent-teams-in-process.md](agent-teams-in-process.md).
+
 ## Architecture
 
 ```mermaid
@@ -325,6 +327,7 @@ Schema `packages/agent-teams-plugin/src/configSchema.json`. Invalid values fall 
 | `planMaxChars` | 6000 | plan + decision feedback cap. Effective `min(planMaxChars, maxMessageChars − 500)` and 120 lines |
 | `planModeTools` | `[read, grep, find, ls]` | read-only set. `bash`, `edit`, `write`, unknown names dropped + warning |
 | `opGateBudgetMs` | 12000 | total gate budget per call. Max 14000 |
+| `teammateMode`, `inProcessIdleTtlSec`, `inProcessLeanChildren`, `inProcessCmdTimeoutMs`, `inProcessQueueTimeoutMs` | see guide | in-process mode keys. See [agent-teams-in-process.md](agent-teams-in-process.md) § Config keys |
 
 ## REST routes
 

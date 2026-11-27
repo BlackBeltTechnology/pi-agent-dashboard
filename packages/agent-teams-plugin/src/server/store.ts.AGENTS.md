@@ -1,0 +1,3 @@
+# store.ts — index
+
+`TeamStore`: synchronous mutations (teams, members, tasks primitives, mail log), per-team in-memory `rev`, typed `on()` events (`change`, `team_created`, `lead_bound`, `task_completed`, `member_status`, `team_closed`; listener throws isolated), `sessionId → {teamId, lead|member}` index, `hydrate()` (members `disconnected`, `spawning` kept). Also: optional `template`/`hooks`/`leadSpawnToken`/`leadBindDeadline` on `createTeam`; `TeamPatch` + `patchTeam(id, patch, {writeThrough})` (`undefined` deletes the key; plans/template/hooks persist). See change: add-agent-teams-templates-hooks. `TeamPatch` also `leadIncarnation`/`subagentsApi`/`pendingStops`. See change: add-agent-teams-in-process.

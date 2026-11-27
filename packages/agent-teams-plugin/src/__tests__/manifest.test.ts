@@ -21,7 +21,7 @@ import { createSessionDriver } from "../server/driver.js";
 import { createExtensionPoints } from "../server/extension-points.js";
 import { createTeamsRuntime } from "../server/runtime.js";
 import { CUSTOM_TYPE_IDLE, CUSTOM_TYPE_MAIL, CUSTOM_TYPE_NOTICE } from "../shared/mail-format.js";
-import { AGENT_TEAMS_EVENT_CHANGED, AGENT_TEAMS_PLUGIN_ID } from "../shared/plugin-id.js";
+import { AGENT_TEAMS_EVENT_CHANGED, AGENT_TEAMS_EVENT_INPROC, AGENT_TEAMS_PLUGIN_ID } from "../shared/plugin-id.js";
 import { CORE_TEAM_OPS, LANE_TYPES } from "../shared/protocol.js";
 import { createFakeHostCtx, createFakeRuntimeHost, FakeClock } from "./harness/index.js";
 
@@ -48,7 +48,9 @@ describe("manifest contract (S102)", () => {
     driver.notifyTeamClosed?.("S1", { teamId: "t" });
     const types = base.emits.map((e) => e.eventType);
     // `agent-teams:changed` is the UI bridge's frame (broadcast, see server/__tests__/ui-bridge.test.ts), not a driver emit.
-    expect(new Set(types)).toEqual(new Set((manifest.emits ?? []).filter((t) => t !== AGENT_TEAMS_EVENT_CHANGED)));
+    // `agent-teams:inproc` is the in-process driver's command channel (declared in emits; exercised by
+    // server/__tests__/driver-inproc.test.ts and manifest-emits-inproc.test.ts), never emitted by the session driver.
+    expect(new Set(types)).toEqual(new Set((manifest.emits ?? []).filter((t) => t !== AGENT_TEAMS_EVENT_CHANGED && t !== AGENT_TEAMS_EVENT_INPROC)));
     expectListed(types, manifest.emits ?? []);
   });
 
@@ -77,7 +79,7 @@ describe("manifest contract (S102)", () => {
 
   it("the manifest id equals the shared constant and lists exactly the emitted event types", () => {
     expect(manifest.id).toBe(AGENT_TEAMS_PLUGIN_ID);
-    expect([...(manifest.emits ?? [])].sort()).toEqual(["agent-teams:changed", "agent-teams:mail", "agent-teams:team_closed"]);
+    expect([...(manifest.emits ?? [])].sort()).toEqual(["agent-teams:changed", "agent-teams:inproc", "agent-teams:mail", "agent-teams:team_closed"]);
   });
 });
 
@@ -251,6 +253,8 @@ const REACHED_BY_IMPORT = [
   "src/client/approval-parse.ts",
   "src/client/start-api.ts",
   "src/client/format-cwd.ts",
+  // imported by the lazy MembersGrid / TeamHeader (in-process touch points, add-agent-teams-in-process)
+  "src/client/inproc-view.ts",
   "src/client/lazy-i18n.ts",
   "src/client/mail-i18n.ts",
   "src/client/pill.tsx",

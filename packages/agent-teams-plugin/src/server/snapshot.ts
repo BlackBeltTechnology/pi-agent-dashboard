@@ -5,7 +5,9 @@
  * copied.
  * See change: add-agent-teams-core.
  */
+
 import { SNAPSHOT_MAIL_LIMIT, SNAPSHOT_MAIL_TEXT_MAX } from "../shared/constants.js";
+import { IN_PROCESS_MODE } from "../shared/inproc-protocol.js";
 import type { SnapshotMail, SnapshotMember, SnapshotStats, SnapshotTask, TeamListResponse, TeamSnapshot, TeamSummary } from "../shared/snapshot.js";
 import { codePointLength, truncateCodePoints } from "../shared/text.js";
 import type { Mail, Member, Task, Team } from "../shared/types.js";
@@ -46,6 +48,9 @@ function memberView(m: Member): SnapshotMember {
     ...(m.degraded !== undefined ? { degraded: m.degraded } : {}),
     ...(m.hold !== undefined ? { hold: m.hold } : {}),
     ...(m.committer !== undefined ? { committer: m.committer } : {}),
+    // In-process members: never `proxyToken`/`childId`; the subagent view opens by `childAgentId`.
+    ...(m.childAgentId !== undefined ? { childAgentId: m.childAgentId } : {}),
+    ...(m.queuePosition !== undefined ? { queuePosition: m.queuePosition } : {}),
   };
 }
 
@@ -93,6 +98,8 @@ export function snapshotOf(store: TeamStore, telemetry: Telemetry, team: Team, e
     status: team.status,
     ...(team.closeReason !== undefined ? { closeReason: team.closeReason } : {}),
     mode: team.mode,
+    // In-process only: the Team view derives the parallelism bound from these two.
+    ...(team.mode === IN_PROCESS_MODE && team.subagentsApi ? { maxTeammates: team.maxTeammates, maxConcurrent: team.subagentsApi.limits.maxConcurrent } : {}),
     committer: team.committer,
     leadConnected: team.leadConnected,
     ...(team.leadSessionId !== undefined ? { leadSessionId: team.leadSessionId } : {}),
