@@ -196,7 +196,7 @@ to the filename or the flow YAML label.
 
 ### Requirement: Completed summary panel collapses to its header
 
-The completed panel SHALL provide a whole-panel collapse control in its header, distinct from BOTH the per-agent row disclosure AND the summary-lines section collapse. Activating it SHALL hide the entire panel body (flow graph, Agent cards section, summary-lines section, and next-step suggestion), leaving only the header bar (flow name, status, step/duration meta, the toggle, and Dismiss). It SHALL default to collapsed (see `flow-panel-collapse-persistence`) and SHALL be reversible. Collapsing SHALL NOT dismiss the panel — the socket/summary remains mounted.
+The completed panel SHALL provide a whole-panel collapse control in its header, distinct from BOTH the per-agent row disclosure AND the summary-lines section collapse. Activating it SHALL hide the entire panel body (flow graph, Agent cards section, summary-lines section, and next-step suggestion), leaving only the header bar (flow name, status, step/duration meta, the toggle, and Dismiss) plus any still-pending flow-question card, which stays visible and answerable outside the collapsible body (see `flow-question-routing`). It SHALL default to collapsed (see `flow-panel-collapse-persistence`) and SHALL be reversible. Collapsing SHALL NOT dismiss the panel — the socket/summary remains mounted.
 
 #### Scenario: Collapse shrinks the panel to its header
 - **WHEN** the user activates the whole-panel collapse control

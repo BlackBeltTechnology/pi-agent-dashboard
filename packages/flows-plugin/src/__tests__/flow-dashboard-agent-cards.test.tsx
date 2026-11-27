@@ -214,6 +214,23 @@ describe("completed panel Agent cards (unify-flow-rendering)", () => {
     expect(call?.[1]).toMatchObject({ block: "nearest" });
   });
 
+  // PR #1222 review: a node picked in the expanded graph dialog must open the
+  // Agent cards section too, else its card stays hidden after the dialog closes.
+  it("a node click in the expanded graph dialog opens the Agent cards section", () => {
+    const sid = `cards-${++n}`;
+    seedRun(sid);
+    complete(sid);
+    mountSummary(sid);
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    // The harness Dialog renders its children unconditionally: the second
+    // `data-node="build"` is the dialog graph's node.
+    const nodes = document.querySelectorAll('[data-node="build"]');
+    expect(nodes).toHaveLength(2);
+    act(() => void fireEvent.click(nodes[1]));
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector('[data-step="build"] [data-selected="true"]')).not.toBeNull();
+  });
+
   it("F9: the Summaries list collapses beneath the cards; cards + graph stay", () => {
     const sid = `cards-${++n}`;
     publishSessionEvents(sid, [

@@ -337,7 +337,7 @@ export function FlowDashboard({
             <FlowGraph
               steps={flowStateToGraphSteps(shownState)}
               selectedStepId={selectedStepId}
-              onSelectStep={handleSelectStep}
+              onSelectStep={handleSelectNode}
             />
           </div>
         </Dialog>

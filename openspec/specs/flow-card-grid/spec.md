@@ -146,7 +146,8 @@ On mobile viewports, the flow dashboard SHALL, for a not-started or running flow
 
 #### Scenario: Completed flow skips the bar on mobile
 - **WHEN** the viewport is mobile-width and the shown flow has completed
-- **THEN** the flow dashboard SHALL render the completed panel (header, Dismiss, sections) and no collapsed bar
+- **THEN** the flow dashboard SHALL render the completed panel's header (with Dismiss) and no collapsed bar
+- **AND** the panel's sections SHALL render whenever the panel is expanded (its collapse state follows `flow-panel-collapse-persistence`, not the mobile layout)
 
 ### Requirement: Flow dashboard header
 The flow dashboard SHALL include a header line showing the flow name and agent progress (e.g., "π research-and-build · 2/4 agents").
