@@ -5,7 +5,7 @@
  * Callers pass literal flags only and validated refs as positionals (never an option-like value).
  * See change: add-agent-teams-openspec.
  */
-import { execFile } from "node:child_process";
+import { execFile } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 
 interface GitResult {
   ok: boolean;

@@ -8,7 +8,7 @@
  * (parity matrix) when the skill is present:
  *   - record = `{pid, hostname, groupId, heartbeatAt}`;
  *   - heartbeat age ≥ 10 min (`LOCK_STALE_MS`) ⇒ stale;
- *   - same host and the pid is dead (`process.kill(pid, 0)`, `EPERM` = alive) ⇒ stale;
+ *   - same host and the pid is dead (signal-0 probe via `isProcessAlive`, `EPERM` = alive) ⇒ stale;
  *   - heartbeat more than 60 s in the future ⇒ stale (clock skew / a forged lock; a rule of THIS change);
  *   - a missing, empty or unparseable lock ⇒ not live (the start proceeds);
  *   - another host with a fresh heartbeat ⇒ live.
@@ -18,6 +18,7 @@
  */
 import os from "node:os";
 import path from "node:path";
+import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { readBoundedFile } from "./inputs.js";
 
 export const BATCH_LOCK_STALE_MS = 10 * 60_000;
@@ -35,12 +36,7 @@ export interface BatchLockInfo {
 export const batchLockPath = (repo: string): string => path.join(repo, ".worktrees", ".ship-batch", "lock");
 
 function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
-  }
+  return isProcessAlive(pid, { epermAlive: true });
 }
 
 /** Parse the lock text; `null` for anything that is not a complete record. */

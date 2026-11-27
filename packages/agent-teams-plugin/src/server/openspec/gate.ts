@@ -13,10 +13,11 @@
  * relaunch / `TeamDelete` advice (v1 has no abandon route).
  * See change: add-agent-teams-openspec.
  */
-import { execFile } from "node:child_process";
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { archivedChangeName } from "@blackbelt-technology/pi-dashboard-shared/openspec-dependencies.js";
+import { execFile } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { Task, Team } from "../../shared/types.js";
 import type { OpGate, OpGateBlock, OpGateInput } from "../extension-points.js";
 import { isValidBranchRef } from "./config.js";
@@ -68,9 +69,10 @@ export const nodeGateIo: GateIo = {
         [...args],
         { cwd, signal, timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: GIT_MAX_BUFFER, encoding: "buffer", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
         (err, stdout) => {
-          if (!err) return resolve({ code: 0, stdout });
+          const out = stdout as Buffer; // encoding: "buffer"
+          if (!err) return resolve({ code: 0, stdout: out });
           const code = (err as NodeJS.ErrnoException & { code?: unknown }).code;
-          if (typeof code === "number") return resolve({ code, stdout: stdout ?? Buffer.alloc(0) });
+          if (typeof code === "number") return resolve({ code, stdout: out ?? Buffer.alloc(0) });
           reject(err);
         },
       );

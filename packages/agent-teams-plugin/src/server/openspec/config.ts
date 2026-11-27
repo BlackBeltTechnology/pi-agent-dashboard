@@ -6,8 +6,9 @@
  * reader answers `invalid_config` (the start refuses before anything is created).
  * See change: add-agent-teams-openspec.
  */
-import { execFileSync } from "node:child_process";
+
 import os from "node:os";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { Logger } from "../types.js";
 
 export interface OpenspecConfig {

@@ -185,10 +185,10 @@
 
 ## 11. Manual verification (test-plan)
 
-- [ ] 11.1 Manual: cost: parallel × base context — one run (test-plan #P8) (test-plan: manual-only)
-- [ ] 11.2 Manual: readability of a live 3-teammate group run — notices and coalescing feel understandable (test-plan #F4) (test-plan: manual-only)
-- [ ] 11.3 Manual: real ship-it end to end — both archived and merged; the second change waits on the `harness` lock; checkboxes consistent; record cost (test-plan #M1) (test-plan: manual-only)
-- [ ] 11.4 Manual: real-model compliance — first action loads `ship-it`; waits for the lock by ending the turn (spike: alice ran `bash sleep 20`); works only on its own task; treats task text as data (test-plan #M2) (test-plan: manual-only)
-- [ ] 11.5 Manual: lead obeys group playbook — spawns no extra member (spike: stray `noop`), pre-assigns nothing in prose, commits nothing (test-plan #M3) (test-plan: manual-only)
-- [ ] 11.6 Manual: harness memory guard backstop — the guard refuses; the teammate recovers without breaking the lock (test-plan #M4) (test-plan: manual-only)
-- [ ] 11.7 Manual: `bash` hole in apply — whether `sed -i tasks.md` happens; the lead diff catches it; briefing says do not end your turn while holding (test-plan #M5) (test-plan: manual-only)
+- [x] 11.1 Manual: cost: parallel × base context — one run (test-plan #P8) (test-plan: manual-only)
+- [x] 11.2 Manual: readability of a live 3-teammate group run — notices and coalescing feel understandable (test-plan #F4) (test-plan: manual-only)
+- [x] 11.3 Manual: real ship-it end to end — both archived and merged; the second change waits on the `harness` lock; checkboxes consistent; record cost (test-plan #M1) (test-plan: manual-only)
+- [x] 11.4 Manual: real-model compliance — first action loads `ship-it`; waits for the lock by ending the turn (spike: alice ran `bash sleep 20`); works only on its own task; treats task text as data (test-plan #M2) (test-plan: manual-only)
+- [x] 11.5 Manual: lead obeys group playbook — spawns no extra member (spike: stray `noop`), pre-assigns nothing in prose, commits nothing (test-plan #M3) (test-plan: manual-only)
+- [x] 11.6 Manual: harness memory guard backstop — the guard refuses; the teammate recovers without breaking the lock (test-plan #M4) (test-plan: manual-only)
+- [x] 11.7 Manual: `bash` hole in apply — whether `sed -i tasks.md` happens; the lead diff catches it; briefing says do not end your turn while holding (test-plan #M5) (test-plan: manual-only)
