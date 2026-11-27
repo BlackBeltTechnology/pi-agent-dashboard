@@ -291,7 +291,7 @@ function createLauncher(api: OpenspecApi): Launcher {
       api.log.record("info", "launched", OPENSPEC_COUNTERS.launched, team.id, { change: job.change, member: job.member, written: marked });
       if (!owned.ok) {
         api.log.event("error", "owner_not_set", team.id, { code: owned.error });
-        notify(team, `OpenSpec: teammate ${job.member} was spawned but could not be made owner of task #${job.taskId} (${safeCode(owned.error)}). ${stuckAdvice(team, job.change)}`, true);
+        notify(team, `OpenSpec: teammate ${job.member} was launched but could not be made owner of task #${job.taskId} (${safeCode(owned.error)}). ${stuckAdvice(team, job.change)}`, true);
       }
     };
 
