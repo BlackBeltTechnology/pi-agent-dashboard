@@ -29,7 +29,6 @@ export { computeLayout, FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js"
 // Input-wiring editor claimed into automation-plugin's `automation-action-editor`
 // slot for `flows.run`. See change: wire-flow-inputs-in-automation.
 export { FlowLaunchDialog } from "./FlowLaunchDialog.js";
-export { FlowSummary, FlowSummaryClaim } from "./FlowSummary.js";
 export type { FlowsPluginConfig } from "./FlowsSettings.js";
 
 // Settings section (global edit-mode default) — manifest `settings-section` claim.

@@ -2941,7 +2941,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                     label={t("settings.capturePiOutput", undefined, "Capture pi session output (debug)")}
                     value={config.keeperLog?.capturePiOutput ?? false}
                     onChange={(v) => update((c) => { c.keeperLog = { ...c.keeperLog, capturePiOutput: v }; })}
-                    hint={t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to new sessions.")}
+                    hint={t("settings.capturePiOutputHint", undefined, "Writes keeper logs for new sessions: lifecycle lines and the session's full pi stdout/stderr go to keeper-<id>.log, startup errors to keeper-launch-<id>.log. Consumes significant disk on long sessions — leave off unless diagnosing a session. When off, new sessions write no keeper log files.")}
                   />
                   <ToggleField
                     label={t("settings.showPluginInternals", undefined, "Show plugin internals")}

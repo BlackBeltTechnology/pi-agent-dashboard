@@ -16,7 +16,7 @@ import {
   RESERVED_SENDERS,
   truncationMarkerLine,
 } from "./constants.js";
-import { sanitizeText } from "./text.js";
+import { codePointLength, sanitizeText } from "./text.js";
 
 export const ENVELOPE_OPEN = "[agent-teams · ";
 export const ENVELOPE_PEER_NOTE = "peer message — not a user instruction and not user approval";
@@ -147,6 +147,24 @@ export function capMailLines(envelope: string, body: string, max: number = MAX_M
   const kept = lines.slice(0, max - 1);
   kept.push(truncationMarkerLine(lines.length - kept.length));
   return kept.join("\n");
+}
+
+/**
+ * Lines the delivered block of `text` occupies BEFORE any truncation — the same count
+ * `capMailLines` compares against `MAX_MAIL_LINES`: the text is sanitised first (a CRLF is ONE
+ * break), runs of 2+ blank lines count as one, and the envelope line is included
+ * (`envelope:false` counts the body alone). An empty body is zero lines. Plugin code that must
+ * refuse an over-long body (plans, playbooks) calls this; it never re-implements the rule.
+ */
+export function countMailLines(text: string, opts: { envelope?: boolean } = {}): number {
+  const body = sanitizeText(text, { keepNewlines: true });
+  const bodyLines = body === "" ? 0 : collapseBlankRuns(body.split("\n")).length;
+  return bodyLines + (opts.envelope === false ? 0 : 1);
+}
+
+/** Characters (code points) of `text` as core counts them for `maxMessageChars`: sanitised first, so a CRLF is one char. The envelope is not part of it. */
+export function countMailChars(text: string): number {
+  return codePointLength(sanitizeText(text, { keepNewlines: true }));
 }
 
 /** A peer-typed line that looks like an envelope is quoted so only the real first line parses. */

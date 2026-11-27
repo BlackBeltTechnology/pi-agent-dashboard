@@ -14,8 +14,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 vi.mock("@blackbelt-technology/pi-dashboard-client-utils/useMobile", () => ({ useMobile: () => false }));
 
 import { FlowDashboardClaim } from "../client/FlowDashboard.js";
-import { FlowSummaryClaim } from "../client/FlowSummary.js";
 import { __resetFlowAttachStoreForTests, getAttachment, setAttachment } from "../client/flow-attach-store.js";
+import { flowCollapseKey } from "../client/flow-collapse-storage.js";
 import { useIsolatedLocalStorage, completed, editMode, entry, fetchMock, publishCatalog, registry, started, tree } from "./flows-test-harness.js";
 
 useIsolatedLocalStorage();
@@ -184,14 +184,56 @@ describe("summary Dismiss sends the run's runId (T9)", () => {
     ]);
   });
 
-  it("FlowSummaryClaim", () => {
+  it("FlowDashboardClaim on a completed flow renders summary mode (the FlowSummaryClaim shell is gone)", () => {
     const sid = `hdr-S-${++n}`;
     const send = vi.fn();
     publishSessionEvents(sid, runEvents());
-    render(tree(<FlowSummaryClaim session={{ id: sid } as DashboardSession} />, send));
+    render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />, send));
+    expect(screen.getByTestId("flow-dashboard").getAttribute("data-flow-mode")).toBe("summary");
     fireEvent.click(screen.getByRole("button", { name: /Dismiss/ }));
     expect(dismissals(send)).toEqual([
       { type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.dismiss-summary", payload: { runId: "r1" } },
     ]);
+  });
+
+  // X1: a dismissed run stays gone after replay — summary mode never mounts.
+  // See change: unify-flow-rendering (test-plan X1).
+  it("X1: a run dismissed via flow-run-close renders nothing after replay", () => {
+    const sid = `hdr-S-${++n}`;
+    publishSessionEvents(sid, [...runEvents(), { ...completed("batch:apply", 30), eventType: "flow_summary_dismissed", data: { runId: "r1" } }]);
+    const { container } = render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />));
+    expect(container.innerHTML).toBe("");
+    expect(screen.queryByTestId("flow-dashboard")).toBeNull();
+  });
+});
+
+/** F6: collapsing the completed panel unmounts the body; header actions and
+ *  Dismiss stay. See change: unify-flow-rendering (test-plan F6). */
+describe("completed panel collapses to its header (F6)", () => {
+  it("collapse hides cards, Summaries and the scroll box; Run again / Open / Edit + Dismiss stay", async () => {
+    const sid = `hdr-S-${++n}`;
+    publishCatalog(sid, [entry("batch:apply")]);
+    localStorage.setItem(flowCollapseKey("summary", sid), "false");
+    localStorage.setItem(flowCollapseKey("cards", sid), "false");
+    const s = started("batch:apply", 10, 2);
+    publishSessionEvents(sid, [
+      s,
+      { ...s, eventType: "flow_agent_complete", data: { agentName: "a0", stepId: "s0", result: { success: true, summary: "S0" } } },
+      completed("batch:apply", 20),
+    ]);
+    render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />));
+    expect(q("flow-summary-scrollbox")).not.toBeNull();
+    expect(q("flow-summaries")).not.toBeNull();
+    expect(q("flow-agent-cards-section")).not.toBeNull();
+    fireEvent.click(screen.getByTestId("flow-summary-panel-toggle"));
+    expect(screen.getByTestId("flow-summary-panel-toggle").getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryAllByTestId("agent-card")).toHaveLength(0);
+    expect(q("flow-summaries")).toBeNull();
+    expect(q("flow-summary-scrollbox")).toBeNull();
+    expect(document.querySelector("[data-node]")).toBeNull();
+    await screen.findByTestId("flow-header-run-again");
+    expect(q("flow-header-open")).not.toBeNull();
+    expect(q("flow-header-edit-button")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Dismiss/ })).toBeTruthy();
   });
 });

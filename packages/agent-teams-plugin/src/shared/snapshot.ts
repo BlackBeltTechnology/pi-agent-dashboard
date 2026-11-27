@@ -15,6 +15,21 @@ export interface SnapshotStats {
   queued: number;
   urgentAborts: number;
   rateLimited: number;
+  /**
+   * Templates-hooks counters, present only once non-zero (a core-only team's `stats` keeps its seven keys):
+   * template starts, hook outcomes and plan transitions. See change: add-agent-teams-templates-hooks.
+   */
+  templateStarts?: number;
+  hook_runs?: number;
+  hook_blocks?: number;
+  hook_errors?: number;
+  hook_timeouts?: number;
+  hook_overflow?: number;
+  hook_busy?: number;
+  plansSubmitted?: number;
+  plansApproved?: number;
+  plansRejected?: number;
+  plansCancelled?: number;
 }
 
 export interface TeamSummary {

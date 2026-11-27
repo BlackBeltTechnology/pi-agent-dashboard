@@ -334,7 +334,9 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
                   onClick={(e) => {
                     e.stopPropagation();
                     if (item.disabled) return;
-                    onOpenChange(false);
+                    // Park focus on the still-mounted trigger: the focused item unmounts with the panel, and a
+                    // dialog this item opens (lazily mounted) captures its opener from `document.activeElement`.
+                    close(true);
                     // A plugin's callback runs inside the host's menu; letting it
                     // throw here would take the whole sidebar down with it.
                     try {

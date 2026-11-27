@@ -19,4 +19,4 @@ The bridge (`src/bridge/`) also owns the Claude subscription compat rewrite. Whe
 ## Imports
 
 - Reducer: `import { isFlowEvent, reduceFlowEvent, isArchitectEvent, reduceArchitectEvent } from "@blackbelt-technology/pi-dashboard-flows-plugin/reducer"`
-- Components: `import { FlowDashboard, FlowAgentDetail, FlowArchitect, FlowSummary, FlowActivityBadge, SessionFlowActions, FlowLaunchDialog } from "@blackbelt-technology/pi-dashboard-flows-plugin/client"`
+- Components: `import { FlowDashboard, FlowAgentDetail, FlowArchitect, FlowActivityBadge, SessionFlowActions, FlowLaunchDialog } from "@blackbelt-technology/pi-dashboard-flows-plugin/client"`

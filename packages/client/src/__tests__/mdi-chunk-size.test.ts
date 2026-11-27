@@ -115,7 +115,7 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // over the old cap; 603 KiB would leave ~150 B, so 604 KiB (618,496 B, ~1.2 KB headroom for CI's compressor
 // variance). Smallest step with headroom; not a general raise.
 // polish-automation-board (2026-11-06): 604 -> 605 KiB. The board, editor, run history and orphan Stop UI are
-// lazy claim modules (AutomationBoard / CreateAutomationDialog); every new catalog key is used (no dead-string
+// lazy claim modules (AutomationBoard and its editor); every new catalog key is used (no dead-string
 // win). Unavoidably in the entry: the automation plugin's zh-CN + hu catalog rows for the honest-Stop outcomes,
 // orphan notice, stop-confirm and run-history copy, since every plugin catalog ships eagerly (+~1.2 KB gz).
 // 618,595 B on CI, 99 B over the old cap; 605 KiB (619,520 B) leaves ~925 B for CI's compressor variance.

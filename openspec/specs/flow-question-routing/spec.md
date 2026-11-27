@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change route-flow-asks-to-upper-slot. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: `PromptAdapter.priority` orders adapter participation
 
 The `PromptAdapter` interface in `packages/extension/src/prompt-bus.ts` SHALL accept an optional `priority?: number` field. Default value is 1000; lower numbers run first. `PromptBus.registerAdapter` SHALL maintain its internal adapter array in priority order via a stable sort; equal priorities preserve insertion order. The first adapter whose `onRequest` returns a non-null `PromptClaim` with a `component` wins dashboard rendering (existing first-match semantic in `PromptBus.request()`).
@@ -206,7 +208,7 @@ generic primitive.
 
 ### Requirement: Flow-question slot renders a transcript
 
-`FlowQuestionsSection` (the slot consumer mounted by `FlowDashboard`) SHALL render every flow-question prompt for the active flow tab — both pending and answered — capped at the most recent N (default 10).
+`FlowQuestionsSection` (the slot consumer mounted by `FlowDashboard`) SHALL render every flow-question prompt for the active flow tab — both pending and answered — capped at the most recent N (default 10), while the flow runs. In a not-started or completed flow panel it SHALL render pending prompts only, and in a completed panel it SHALL stay visible when the panel body is collapsed.
 
 - Pending entries render as a full interactive card with input
   affordances (confirm / select / multiselect / input).
@@ -239,3 +241,8 @@ Order: insertion order over the session's lifetime, oldest first.
 - **AND** older entries SHALL be omitted (no scroll-back inside the
   slot for now)
 
+#### Scenario: Completed panel shows only pending prompts
+- **GIVEN** a completed flow with one answered and one pending flow-question prompt
+- **WHEN** the completed panel renders, expanded or collapsed
+- **THEN** the pending prompt SHALL render as a full interactive card
+- **AND** the answered prompt SHALL NOT render

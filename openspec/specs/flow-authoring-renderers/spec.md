@@ -1,7 +1,7 @@
 # flow-authoring-renderers Specification
 
 ## Purpose
-Flows-plugin renders the authoring tools (flow_write, flow_agents) as flow-aware timeline cards in the main session, distinct from the running-flow card grid. Cards read the real tool result contract, derive a Mermaid snapshot + counts from tool args, expose a view-file sub-row, and replay from persisted tool entries. A New/Edit launcher fires the /skill:edit-flow prompt.
+Flows-plugin renders the authoring tools (flow_write, flow_agents) as flow-aware timeline cards in the main session, distinct from the running-flow card grid. Cards read the real tool result contract, draw the shared `FlowGraph` + counts built from tool args through the not-started pipeline (`buildIdleFlowState`, lenient), expose a view-file sub-row, and replay from persisted tool entries. A New/Edit launcher fires the /skill:edit-flow prompt.
 
 ## Requirements
 
@@ -49,31 +49,6 @@ When a `toolDetails` catalog is available, the card SHALL render an always-visib
 - **THEN** the card SHALL render the count and per-agent rows from `toolDetails`
 - **AND** SHALL NOT fall back to reporting "0 agents"
 
-### Requirement: flow_write card renders a Mermaid snapshot parsed from tool args
-
-On a successful `flow_write`, the card SHALL render a static flow-graph snapshot and the step/agent/code counts. Because the result carries no parsed steps, the renderer SHALL parse the YAML from the tool ARGS (the submitted `content`) client-side, generate a Mermaid graph string, and render it via the `ui:markdown-content` primitive (which renders ```mermaid fences through MermaidBlock with zoom/pan).
-
-The generated Mermaid edge set SHALL be produced by the shared flow-edge derivation (see `flow-graph-edges`) and SHALL include, in addition to the existing `blockedBy` sequential edges and decision `branches` edges: implicit fall-through edges (from each exit of an engine segment to each entry of the next declared segment, as defined in `flow-graph-edges`) and `on_complete`/`on_error` routing edges. The snapshot SHALL therefore derive the same edges as the live FlowGraph for the step data both callers carry (the live payload carries no `on_complete`). The snapshot draws every derived edge, while the live graph applies its error-route visibility toggle and terminal-sink pooling on top (see `flow-graph-edges`). Backward edges (branch/route targeting an earlier step, `max_iterations` loops) SHALL render dashed.
-
-#### Scenario: Snapshot derived from args
-- **WHEN** a `flow_write` call succeeds with YAML in its `content` arg containing 3 steps (2 agents, 1 code)
-- **THEN** the card SHALL display "3 steps · 2 agents, 1 code"
-- **AND** SHALL render a Mermaid graph of those steps via the markdown-content primitive
-
-#### Scenario: Unparseable args degrade gracefully
-- **WHEN** the YAML args cannot be parsed client-side
-- **THEN** the card SHALL still show the success state and command
-- **AND** SHALL omit the graph/counts without erroring
-
-#### Scenario: Implicit-segment edges appear in the snapshot
-- **WHEN** the YAML has a separator step without `branches` (e.g. a `code` step) followed in declared order by another step
-- **THEN** the Mermaid graph SHALL include an edge from that separator to the following step
-- **AND** the snapshot SHALL NOT emit a `flow-ref` node shape
-
-#### Scenario: on_complete / on_error edges appear in the snapshot
-- **WHEN** a step in the YAML declares `on_complete` (or `on_error`) targeting another step
-- **THEN** the Mermaid graph SHALL include that routing edge
-
 ### Requirement: View-file sub-row shows tool args
 
 Each authoring card SHALL provide an expandable "view file" sub-row (flow YAML for `flow_write`, agent markdown for `flow_agents` write) whose content is the tool ARGS (pre-write, zero latency), not a disk fetch.
@@ -95,12 +70,11 @@ The flows subcard SHALL offer a New/Edit launcher dialog that builds the prompt 
 - **THEN** the plugin SHALL call `onSendPrompt("/skill:edit-flow")`
 
 ### Requirement: Authoring cards reconstruct from persisted tool entries on replay
-
-Authoring cards are main-session tool calls (not flow-run events); they persist and replay through pi's ordinary session-entry replay, not the `flow-event` stream. The renderer SHALL reconstruct the card — including the Mermaid snapshot, step/agent counts, and the "view file" sub-row — from the persisted tool input (args) and tool result, so a reloaded session renders the same card without a live tool execution.
+Authoring cards are main-session tool calls (not flow-run events); they persist and replay through pi's ordinary session-entry replay, not the `flow-event` stream. The renderer SHALL reconstruct the card — including the flow graph, step/agent counts, and the "view file" sub-row — from the persisted tool input (args) and tool result, so a reloaded session renders the same card without a live tool execution.
 
 #### Scenario: flow_write card replays from persisted entry
 - **WHEN** a session reloads and a persisted `flow_write` tool call + result is replayed
-- **THEN** the tool renderer SHALL rebuild the success/error state from the persisted result and the Mermaid snapshot + counts from the persisted args
+- **THEN** the tool renderer SHALL rebuild the success/error state from the persisted result and the flow graph + counts from the persisted args
 
 ### Requirement: flow_agents list renders an expandable per-agent list
 
@@ -124,3 +98,40 @@ When the `flow_agents` `op:"list"` card has a catalog (from `toolDetails` or a p
 - **WHEN** the list card first renders
 - **THEN** every agent row SHALL be collapsed
 - **AND** no per-agent detail block SHALL be shown until the user expands a row
+
+### Requirement: flow_write card renders the shared flow graph built from tool args
+On a successful `flow_write`, the card SHALL render the flow graph (with expand-to-full-size) and step/agent/code counts from the `content` arg. It SHALL use Open flow's not-started pipeline, parsing leniently, and the flow panel's graph component and edge-visibility rules, including the error-route toggle. For YAML the panel accepts, under the same error-route toggle state, nodes and edges SHALL equal the panel's. Only a successful write draws a graph.
+
+#### Scenario: Graph derived from args
+- **WHEN** a `flow_write` call succeeds with YAML in its `content` arg containing 3 steps (2 agents, 1 code)
+- **THEN** the card SHALL display "3 steps · 2 agents, 1 code"
+- **AND** SHALL render the flow graph of those 3 steps
+
+#### Scenario: Card graph matches the flow panel
+- **GIVEN** a flow YAML with a decision step, an `on_error` route, and a separator step
+- **WHEN** it is written with `flow_write` and the same YAML is opened in the flow panel
+- **THEN** the card graph and the panel graph SHALL contain the same nodes and the same edges
+
+#### Scenario: Object-form branches draw their edges
+- **GIVEN** a decision step whose branches use the object form (`{ to, means }` or `{ to, for_each }`)
+- **WHEN** the YAML is shown on a `flow_write` card or opened in the flow panel
+- **THEN** each branch SHALL draw an edge to its `to` target
+
+#### Scenario: Card tolerates YAML the strict parser would reject
+- **GIVEN** a persisted `flow_write` whose YAML has no top-level `description` and a step with no `type`
+- **WHEN** the card renders on replay
+- **THEN** it SHALL still render the flow graph and counts, treating the untyped step as an agent step
+
+#### Scenario: Invalid steps are skipped
+- **GIVEN** a `flow_write` YAML with three steps, one of which has no `id`
+- **WHEN** the card renders
+- **THEN** it SHALL draw the two valid steps and display "2 steps"
+
+#### Scenario: Unbuildable args degrade gracefully
+- **WHEN** the args are not YAML, or have no step object with an `id` (including `steps: []`)
+- **THEN** the card SHALL still show the success state and command
+- **AND** SHALL omit the graph and counts without erroring
+
+#### Scenario: No Mermaid output
+- **WHEN** a `flow_write` card renders a graph
+- **THEN** it SHALL NOT render a Mermaid code block

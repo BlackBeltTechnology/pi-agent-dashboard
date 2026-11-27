@@ -221,8 +221,8 @@ Cases are grounded in a *source digest* (testids/text/handlers), not a running a
 ## Flows
 
 - [ ] **NEW** [flow-agent-detail] Clicking a FlowAgentCard's Details button opens the agent detail Dialog showing its Summary section with typed outputs and file list.
-- [ ] **NEW** [flow-summaries] After a flow completes, FlowSummary renders frozen agent cards above the summary lines in flow-summaries.
-- [ ] **NEW** [flow-summary-toggle] Clicking flow-summary-panel-toggle/flow-summary-toggle expands and collapses the summary rows in flow-summary-scrollbox while agent cards stay visible.
+- [ ] **NEW** [flow-summaries] Completed flow renders via FlowDashboard summary mode (data-flow-mode="summary"); flow-agent-cards-section sits above flow-summaries inside flow-summary-scrollbox.
+- [ ] **NEW** [flow-summary-toggle] Clicking flow-summary-toggle expands and collapses the summary rows in flow-summary-scrollbox while agent cards stay visible. flow-summary-panel-toggle collapses the whole panel body (header actions and Dismiss stay).
 - [ ] **NEW** [flow-graph] FlowGraph renders on_complete edges as plain solid arrows with no label while branch/on_error edges keep labels.
 - [ ] **NEW** [flow-graph] Error-route (⚠) edges are hidden by default and the toggle state persists across remount/reload.
 - [ ] **NEW** [flow-graph] Clicking "Expand graph" opens the enlarged FlowGraph/summary Dialog at near-fullscreen.
@@ -252,7 +252,7 @@ Cases are grounded in a *source digest* (testids/text/handlers), not a running a
 - [ ] **NEW** [goal-control-pause] Clicking goal-control-pause ("Pause loop") updates the goal loop status shown in the chip.
 - [ ] **NEW** [run-result-panel] After a run completes, run-result-panel shows the assistant reply text rather than the echoed prompt.
 - [ ] **NEW** [run-archived-r.runId] A run with no genuine findings renders as auto-archived/empty (run-archived-r.runId) instead of echoing the prompt.
-- [ ] **NEW** [create-automation-dialog] create-automation-dialog renders Identity/Trigger/Action/Advanced sections with create-advanced collapsed until create-advanced-toggle expands it.
+- [ ] **NEW** [automation-draft] Folder menu "New automation" (`?new=1`) opens inline `automation-draft` card (no modal) with Identity/Trigger/Action/Advanced groups; create-advanced collapsed until create-advanced-toggle expands it; sticky editor-save-bar holds create-submit.
 - [ ] **NEW** [create-model-selector] The Model field renders create-model-selector with the @role dropdown (create-model-role) instead of free text.
 - [ ] **NEW** [trigger-categories] The trigger picker renders a trigger-categories tab strip and a level-2 create-event-ev.event checklist.
 - [ ] **NEW** [create-cron] Selecting the scheduled category shows the create-cron helper with a create-next-run preview.

@@ -6,7 +6,7 @@ import {
   gridOf,
   openIdleGrid,
 } from "./helpers/flow-card-grid.js";
-import { chipOpen, expandSummary, pickFlow, waitForFlowsChip } from "./helpers/flows-chip.js";
+import { chipOpen, expandSummary, openAgentCards, pickFlow, waitForFlowsChip } from "./helpers/flows-chip.js";
 import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
@@ -61,7 +61,8 @@ async function expectControlRowAtCardBottom(card: import("@playwright/test").Loc
   expect(gap, "control row bottom vs card bottom").toBeLessThanOrEqual(12);
 }
 
-/** Drive the baked `e2e:synthetic` flow to completion (frozen summary grid). */
+/** Drive the baked `e2e:synthetic` flow to completion (summary-mode panel,
+ *  Agent cards section opened). See change: unify-flow-rendering (D1). */
 async function runSyntheticToSummary(page: import("@playwright/test").Page) {
   const card = await spawnFreshGitSession(page);
   await card.click();
@@ -75,8 +76,11 @@ async function runSyntheticToSummary(page: import("@playwright/test").Page) {
   await byTestId(page, "flowLaunchRun").click();
   // The completed panel starts collapsed; expand to measure the frozen grid.
   await expandSummary(page);
-  await expect(page.getByTestId("flow-summary-scrollbox")).toBeVisible();
-  return page.getByTestId("flow-summary-scrollbox");
+  const scrollbox = page.getByTestId("flow-summary-scrollbox");
+  await expect(scrollbox).toBeVisible();
+  // Completed cards are the shared Agent cards section (collapsed by default).
+  await openAgentCards(scrollbox);
+  return scrollbox;
 }
 
 test.describe("flow card grid geometry (L3)", () => {

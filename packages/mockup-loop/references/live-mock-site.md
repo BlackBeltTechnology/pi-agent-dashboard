@@ -203,6 +203,26 @@ the same real shell around both panes; only the slot differs (fidelity R1).
   label shows completed / failed loop counts.
 - A pointer moves to each target before acting and a caption shows `n/N say`;
   both live inside the pane and ignore pointer events.
+- Fixed stage: on every page load a scripted pane first runs one silent fast
+  loop behind its "Loading pane…" line (15 s budget; not counted in health),
+  measuring after each step, then appears at its tallest height and keeps it,
+  so the site never moves while it loops. Content taller in the live loop grows
+  it once; it never shrinks while the page is open. First visit in a tab: the
+  240 px placeholder is replaced once. An edited mock is re-measured on reload.
+- Paused panes step: **◀** / **▶** beside **Pause** walk the script one step
+  at a time (disabled while a step or rewind runs; hidden after a failed loop).
+  The caption rests on `k/N say` of the last finished step, or `0/N start`.
+  Forward at the end starts the next loop (`loop: false`: nothing). Back
+  remounts with fresh fixtures and replays the earlier steps silently; the
+  pane clock restarts at `clockAt`.
+- An embedded pane never scrolls the reviewer's page: `focus()` and
+  `scrollIntoView()` (runner and mocked components alike) scroll only the
+  pane's own scroll containers and window. A component relying on page-level
+  scrolling now scrolls inside its pane. Outside the guarantee: fragment
+  navigation in a pane, browser-native focus without a JS call (`autofocus`,
+  `<dialog>.showModal()` initial focus, label activation), and a `focus`
+  captured before the guard ran. Top-level `?pane=` pages (`mock-check`,
+  `mock-video`) keep native scrolling.
 - Reduced motion: no animation; one live pane per step, paused after it, as
   `#<id>/<frame>/<side>/step-<k>`.
 - `mock-check <ref> [--loops N] [--url U]` runs a frame headlessly against a

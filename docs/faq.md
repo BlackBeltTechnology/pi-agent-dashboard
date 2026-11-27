@@ -2107,7 +2107,7 @@ Root cause: keeper inherits PATH from Electron parent. Electron bundle's `Resour
 
 Fix: server resolves pi via ToolRegistry before spawning keeper. Forwards absolute argv to keeper as JSON env var `PI_KEEPER_PI_CMD`. Keeper reads + execs resolved `[exe, ...prefix, ...piArgs]`. Bare-spawn path kept as fallback when env var absent. Resolver miss surfaces `PI_NOT_FOUND` instead of opaque keeper crash.
 
-Diagnostic: tail `~/.pi/dashboard/sessions/keeper-<sessionId>.log`. `spawn pi ENOENT` confirms PATH-resolution failure. Post-fix log shows `keeper: spawning pi via resolved argv` instead.
+Diagnostic: enable Settings > Developer > "Capture pi session output (debug)" (`keeperLog.capturePiOutput`). Start a new session (toggle applies at spawn only). Tail `~/.pi/dashboard/sessions/keeper-<sessionId>.log`. `spawn pi ENOENT` confirms PATH-resolution failure. Post-fix log shows `keeper: spawning pi via resolved argv` instead. Toggle off → no keeper log files exist.
 
 See change: `fix-rpc-keeper-pi-resolution`.
 

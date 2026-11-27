@@ -130,7 +130,7 @@ Below 480px of PANE width — measured with a container query on the grid wrappe
 - **AND** the compact tile layout SHALL NOT be applied
 
 ### Requirement: Mobile collapsed mode
-On mobile viewports, the flow dashboard SHALL collapse to a thin status bar showing the flow name and agent progress count. Tapping the bar SHALL expand to show the full card grid.
+On mobile viewports, the flow dashboard SHALL, for a not-started or running flow, collapse to a thin status bar showing the flow name and agent progress count. Tapping the bar SHALL expand to show the full card grid. A completed flow SHALL render its full completed panel without the bar.
 
 #### Scenario: Mobile shows collapsed bar
 - **WHEN** the viewport is mobile-width and a flow is active
@@ -143,6 +143,11 @@ On mobile viewports, the flow dashboard SHALL collapse to a thin status bar show
 #### Scenario: Desktop shows full grid
 - **WHEN** the viewport is desktop-width
 - **THEN** the flow dashboard SHALL always render the full card grid
+
+#### Scenario: Completed flow skips the bar on mobile
+- **WHEN** the viewport is mobile-width and the shown flow has completed
+- **THEN** the flow dashboard SHALL render the completed panel's header (with Dismiss) and no collapsed bar
+- **AND** the panel's sections SHALL render whenever the panel is expanded (its collapse state follows `flow-panel-collapse-persistence`, not the mobile layout)
 
 ### Requirement: Flow dashboard header
 The flow dashboard SHALL include a header line showing the flow name and agent progress (e.g., "π research-and-build · 2/4 agents").

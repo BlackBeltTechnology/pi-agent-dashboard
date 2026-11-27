@@ -35,8 +35,11 @@ const EAGER_SLOTS = new Set([
  * Narrow exceptions to the hot-slot rule: `pluginId:slot` pairs whose card is deliberately lazy because the
  * host `CustomEntryRow` renders the generic card as the Suspense fallback (no empty gap) and eager would cost
  * ~4 KB gz in the cold chunk. See change: add-agent-teams-ui (design D9, owner decision 2026-11-26).
+ * `agent-teams:sidebar-folder-section` renders NOTHING itself (it only registers one folder-menu item and hosts a
+ * dialog), so a pending load shows no gap; eager would put the menu icon + dialog glue into the cold chunk.
+ * See change: add-agent-teams-templates-hooks (design D11).
  */
-const HOT_SLOT_LAZY_EXCEPTIONS = new Set(["agent-teams:custom-entry-renderer"]);
+const HOT_SLOT_LAZY_EXCEPTIONS = new Set(["agent-teams:custom-entry-renderer", "agent-teams:sidebar-folder-section"]);
 
 const isLazy = (c: unknown): boolean => (c as { $$typeof?: symbol } | undefined)?.$$typeof === REACT_LAZY;
 

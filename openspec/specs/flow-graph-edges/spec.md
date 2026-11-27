@@ -2,15 +2,15 @@
 
 ## Purpose
 
-Shared, pure edge-derivation for flow graphs: one `deriveFlowEdges` function maps a flow's steps to a canonical typed edge set consumed by BOTH the live `FlowGraph` and the static `flow_write` Mermaid snapshot, so both renderers produce matching edges from a single source of truth.
+Shared, pure edge-derivation for flow graphs: one `deriveFlowEdges` function maps a flow's steps to a canonical typed edge set consumed by its single rendering consumer, `FlowGraph`, which draws every flow surface (idle, running and completed panels and the `flow_write` card), so all surfaces show matching edges from a single source of truth.
 
 ## Requirements
 
 ### Requirement: Shared flow-edge derivation
 
-The flows plugin SHALL provide one pure edge-derivation function that maps a flow's steps to a canonical edge set, consumed by BOTH the live `FlowGraph` and the static `flow_write` Mermaid snapshot. Given a minimal step shape (`id`, `type` — the raw engine step type, never a display mapping that merges kinds — `blockedBy`, optional `branches`, optional `onComplete`, optional `onError`) plus declared step order, it SHALL return a typed edge list where each edge carries `from`, `to`, optional `label`, a `kind` of `sequential` | `branch` | `route` | `implicit`, and a `backward` flag. Both renderers SHALL derive their edges from this function rather than from independent rules.
+The flows plugin SHALL provide one pure edge-derivation function that maps a flow's steps to a canonical edge set, consumed by the single flow-graph renderer (`FlowGraph`), which every surface uses: the not-started, running and completed flow panel and the `flow_write` card. Given a minimal step shape (`id`, `type` — the raw engine step type, never a display mapping that merges kinds — `blockedBy`, optional `branches`, optional `onComplete`, optional `onError`) plus declared step order, it SHALL return a typed edge list where each edge carries `from`, `to`, optional `label`, a `kind` of `sequential` | `branch` | `route` | `implicit`, and a `backward` flag. No surface SHALL derive edges from independent rules or a second renderer.
 
-Both callers SHALL pass `onError` when present, so that `on_error` `route` edges appear in BOTH the live graph and the static snapshot. The live caller obtains it from the `flow:flow-started` per-step payload, and from the idle pre-run step list, for every step kind. The static caller parses it from the flow YAML. `on_complete` is a legacy YAML key that pi-flows rejects at validation and never executes. Only the static caller can carry it. When present it SHALL yield a `route` edge. It SHALL NOT remove the fall-through from its source: when the `on_complete` target is the source's next-segment entry, the single edge for that pair represents both. When the target is elsewhere, an edge from the source to its next-segment entry SHALL still exist. The function derives only the edge classes its input carries — a step that declares no routing yields no `route` edge.
+The caller SHALL pass `onError` when present, so that `on_error` `route` edges appear on every surface. It obtains it from the `flow:flow-started` per-step payload, and from the not-started step list built from flow YAML (used by the flow panel and the `flow_write` card), for every step kind. `on_complete` is a legacy YAML key that pi-flows rejects at validation and never executes. After this change no surface supplies it: neither the not-started step list built from YAML nor the `flow:flow-started` payload carries it. The function still accepts it, and when a step carries it, it SHALL yield a `route` edge; the `on_complete` scenarios pin this function-level behaviour only. It SHALL NOT remove the fall-through from its source: when the `on_complete` target is the source's next-segment entry, the single edge for that pair represents both. When the target is elsewhere, an edge from the source to its next-segment entry SHALL still exist. The function derives only the edge classes its input carries — a step that declares no routing yields no `route` edge.
 
 An `implicit` edge models the engine's **fall-through**: after a segment finishes without routing, the engine runs the next declared segment. The function SHALL split the declared step list into segments as the engine does. Each step of type `code`, `code-decision`, `fork` or `agent-decision` is its own **separator** segment. Consecutive steps of any other type (`agent`, absent, or unknown) form one DAG segment. For unknown types this deliberately diverges from the engine, which would make them separators but rejects them at parse time. The graph tolerates them instead of throwing. Inside a DAG segment, a step depends on every `blockedBy` entry in the same segment, and an `on_error` target in the same segment depends on that route's source. The engine runs every DAG step, so that target runs after its source on success as well. The function SHALL emit a `sequential` edge for that dependency, kept alongside the `on_error` route. For each pair of adjacent segments the function SHALL synthesize an `implicit` edge from every **exit** of the earlier segment to every **entry** of the later one, where:
 
@@ -21,11 +21,11 @@ An `implicit` edge models the engine's **fall-through**: after a segment finishe
 The `implicit` edge SHALL be added even when its target already has other incoming edges. It SHALL NOT duplicate an existing non-error edge for the same `{from, to}` pair. When an `on_error` route connects the same pair, both edges SHALL be kept, because the success fall-through and the error route are distinct transitions. When an `on_error` route shares its pair with a decision `branch`, the labeled branch edge alone is kept, as today. Steps of the same DAG segment with no dependency between them remain **parallel siblings**, and the function SHALL NOT synthesize an edge between them. The last segment has no successor and yields no `implicit` edge. Fork `multiSelect` and `multi` decision continuation (the engine jumps to the furthest chosen target's segment, or activates only the chosen targets of the next segment) are deliberately NOT modelled. Their declared `branch` edges are drawn and nothing more, because the live payload carries no `multi` flag.
 
 #### Scenario: Route edges appear in both views
-- **WHEN** the derivation runs over two step lists carrying identical `blockedBy` + `branches` + `onError` data (one from `flow:flow-started`, one from parsed YAML)
+- **WHEN** the derivation runs over two step lists carrying identical `blockedBy` + `branches` + `onError` data (one from `flow:flow-started`, one built from flow YAML for a not-started flow)
 - **THEN** it SHALL produce the same set of edges including the `on_error` `route` edges
 
 #### Scenario: on_complete-routed step before any separator is connected
-- **WHEN** a parsed YAML step declared before any separator carries the legacy `on_complete` key
+- **WHEN** a step declared before any separator carries the legacy `on_complete` key
 - **THEN** the derivation SHALL emit a `route` edge from that step to its `on_complete` target
 - **AND** an edge from that step to its next-segment entry SHALL still exist (merged with the `on_complete` route when both target the same step)
 
@@ -147,11 +147,11 @@ A node is **error-only** when it has at least one incoming edge and every incomi
 
 ### Requirement: on_complete route edges render without a label
 
-Both the live `FlowGraph` and the static `flow_write` Mermaid snapshot SHALL render a `route` edge whose label is `on_complete` as a plain forward edge with NO visible label. Edge labels SHALL be shown only for `branch` edges (the branch name) and `on_error` route edges (their topology marker). This keeps a fully `on_complete`-routed flow legible — its happy-path spine reads as plain arrows rather than a chain of repeated `on_complete` labels — and keeps the two renderers visually consistent.
+When the flow graph receives a `route` edge whose label is `on_complete`, it SHALL render it as a plain forward edge with NO visible label. Edge labels SHALL be shown only for `branch` edges (the branch name) and `on_error` route edges (their topology marker). This keeps a fully `on_complete`-routed flow legible — its happy-path spine reads as plain arrows rather than a chain of repeated `on_complete` labels on every surface that shows it.
 
 #### Scenario: on_complete edge is unlabeled
 - **WHEN** a `route` edge carries the label `on_complete`
-- **THEN** the rendered edge SHALL be a plain solid forward arrow with no text label, in both the live graph and the Mermaid snapshot
+- **THEN** the rendered edge SHALL be a plain solid forward arrow with no text label
 
 #### Scenario: branch and on_error labels retained
 - **WHEN** an edge is a decision `branch` or an `on_error` route
