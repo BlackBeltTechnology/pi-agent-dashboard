@@ -40,7 +40,7 @@
 - [x] 4.2 Implement `server/driver-inproc.ts` implementing core's `MemberDriver` (`spawn`, `deliver`, `abort`, `shutdown`, `isConnected`) and register it with the mode; no call to `spawnSession`, `abortSession`, `shutdownSession` or `emitEventToSession` for members outside the driver's command emit
 - [x] 4.3 Build the spawn command from the `ResolvedSpawnSpec` (same ordered `promptFiles`, `env` as a closure map, `tools`, `noContextFiles`, `cwd`) and the `spawn_prompt` mail text as the child's prompt
 - [x] 4.4 Map `abort` to the interrupt command (`interrupt_unavailable` without the feature) and `shutdown` to `stop`; let core's `abortMember`/`teamDelete` actor ops reach the driver without changes
-- [ ] 4.5 Gate: run the whole core test suite unchanged and review the diff for any session-mode behaviour change; run a `doubt-driven-review` pass over the command/ack protocol before §6 depends on it
+- [x] 4.5 Gate: run the whole core test suite unchanged and review the diff for any session-mode behaviour change; run a `doubt-driven-review` pass over the command/ack protocol before §6 depends on it
 - [x] 4.6 Add the optional member fields (`childId`, `childAgentId`, `proxyToken`, `queuePosition`, `steerAckRun`) and team fields (`leadIncarnation`, `subagentsApi`, `pendingStops`) to the persisted types; reuse core's `Member.lastSettleId`
 - [x] 4.7 Implement `server/proxy-identity.ts` and the `as` branch of core's `resolveCaller(meta, payload)` with the lead-socket, mode, member-not-gone and constant-time token checks
 - [x] 4.8 Mint, persist, rotate on respawn and delete `proxyToken`; keep it out of logs, `TeamStatus`, REST snapshots, mail and prompts (serializer test)
