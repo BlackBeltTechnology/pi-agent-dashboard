@@ -11,18 +11,17 @@ import { useMobile } from "@blackbelt-technology/pi-dashboard-client-utils/useMo
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FlowState } from "../types.js";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiLoading, mdiPlay, mdiRobotOutline, mdiStop } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCloseCircleOutline, mdiLoading, mdiPlay, mdiRobotOutline, mdiStop } from "@mdi/js";
 import { SettingsStatusPill } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { FlowAgentCard } from "./FlowAgentCard.js";
 import { FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
 import { FlowHeaderActions } from "./FlowHeaderActions.js";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
 import { FlowQuestionCard } from "./FlowQuestionCard.js";
 import { FlowQuestionTranscriptPill } from "./FlowQuestionTranscriptPill.js";
 import { FlowStepCards, stepStateCounts } from "./FlowStepCards.js";
-import { FlowSummary } from "./FlowSummary.js";
+import { FlowSummarySections, FlowSummaryStatus } from "./FlowSummary.js";
 import { type FlowsSessionState, useFlowsSessionState } from "./FlowsSessionStateContext.js";
 import { type FlowTab, FlowTabBar } from "./FlowTabBar.js";
 import { FlowYamlPopoverButton } from "./FlowYamlPopoverButton.js";
@@ -156,15 +155,21 @@ export function FlowDashboard({
 }) {
   const isMobile = useMobile();
   const t = useT();
+  // One panel for every phase: a completed flow renders here in `summary` mode
+  // (no separate FlowSummary shell). See change: unify-flow-rendering (D1).
+  const mode: "idle" | "live" | "summary" = idle ? "idle" : flowState.status === "running" ? "live" : "summary";
+  const isSummary = mode === "summary";
   const Dialog = useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.dialog);
   const [graphOpen, setGraphOpen] = useState(false);
-  // Shared graph⇄card selection (live view parity with FlowSummary). See change:
+  // Shared graph⇄card selection. See change:
   // improve-flow-graph-dialog-and-card-interaction.
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   // Persisted per session so a collapsed dashboard stays collapsed across
-  // remounts. See change: fix-flow-ui-graph-zoom-summary.
-  const [collapsed, toggleCollapsed] = useFlowCollapsePersisted(sessionId, "dashboard");
+  // remounts. See change: fix-flow-ui-graph-zoom-summary. Completed panels use
+  // the `summary` key; the claim remounts on entering/leaving summary mode, so
+  // the right key is read on first render. See change: unify-flow-rendering (D1).
+  const [collapsed, toggleCollapsed] = useFlowCollapsePersisted(sessionId, isSummary ? "summary" : "dashboard");
   // Agent cards section: collapsed by default, persisted per session. The
   // graph is the primary view; a node click opens the section.
   // See change: update-flows-plugin (D7).
@@ -201,9 +206,13 @@ export function FlowDashboard({
     return flowState;
   }, [idle, flowStates, activeTabId, flowState]);
 
+  // A completed panel always shows the flow that completed — a manually
+  // selected tab cannot leak into it. See change: unify-flow-rendering (D1).
+  const shownState = isSummary ? flowState : displayState;
+
   // Agent / handler file paths so every card (idle, pending, running) can open
   // its file. See change: attach-flow-before-run.
-  const agents = Array.from(withNodeFiles(displayState, nodeFiles ?? null).agents.values());
+  const agents = Array.from(withNodeFiles(shownState, nodeFiles ?? null).agents.values());
   const allAgents = Array.from(flowState.agents.values());
 
   const handleSelectStep = useCallback((stepId: string) => {
@@ -220,7 +229,7 @@ export function FlowDashboard({
     },
     [toggleCardsCollapsed],
   );
-  useSelectionReset(displayState, selectedStepId, setSelectedStepId);
+  useSelectionReset(shownState, selectedStepId, setSelectedStepId);
   // Entering idle (new attach / re-attach) starts fresh; leaving idle for live
   // keeps everything (same instance). See change: attach-flow-before-run (D2).
   const flowName = flowState.flowName;
@@ -260,26 +269,10 @@ export function FlowDashboard({
   const doneCount = allAgents.filter(a => a.status === "complete" || a.status === "error" || a.status === "blocked" || a.status === "skipped").length;
   const counts = stepStateCounts(agents);
   const totalCount = allAgents.length;
-  const isRunning = !idle && flowState.status === "running";
-  const isComplete = !idle && !isRunning;
+  const isRunning = mode === "live";
   const progressText = idle
     ? t("flowNotStarted", undefined, "not started")
     : t("stepsCount", { done: doneCount, total: totalCount }, `${doneCount}/${totalCount} steps`);
-
-  // After completion, show summary. Forward sessionId so the summary's per-session
-  // collapse state persists (the hook no-ops without a session id).
-  // See change: fix-flow-ui-graph-zoom-summary.
-  if (isComplete) {
-    return (
-      <FlowSummary
-        flowState={flowState}
-        onDismiss={onDismiss}
-        onSendPrompt={onSendPrompt}
-        sessionId={sessionId}
-        headerActions={headerActions}
-      />
-    );
-  }
 
   const handleTabClick = (tabId: string) => {
     setActiveTabId(tabId);
@@ -295,8 +288,9 @@ export function FlowDashboard({
     }
   };
 
-  // Mobile collapsed bar
-  if (isMobile && !mobileExpanded) {
+  // Mobile collapsed bar (not-started and running only; a completed flow
+  // renders its full panel).
+  if (isMobile && !mobileExpanded && !isSummary) {
     return (
       <div
         onClick={() => setMobileExpanded(true)}
@@ -311,14 +305,115 @@ export function FlowDashboard({
     );
   }
 
+  const graphBlock = (
+    <>
+      <FlowGraph
+        steps={flowStateToGraphSteps(shownState)}
+        fit
+        selectedStepId={selectedStepId}
+        onSelectStep={handleSelectNode}
+        onExpand={Dialog ? () => setGraphOpen(true) : undefined}
+      />
+      {shownState.flowSource && (
+        <div className="mt-1">
+          <FlowYamlPopoverButton
+            flowSource={shownState.flowSource}
+            flowName={shownState.flowName}
+            sessionId={sessionId}
+          />
+        </div>
+      )}
+      {/* Expanded graph — centered Dialog with pan/zoom. See change: show-flow-cards-in-summary. */}
+      {Dialog && (
+        <Dialog
+          open={graphOpen}
+          onClose={() => setGraphOpen(false)}
+          title={`Flow graph · ${shownState.flowName}`}
+          size="full"
+        >
+          {/* Non-fit (pan/zoom) graph fills the full-size dialog. See change:
+              improve-flow-graph-dialog-and-card-interaction. */}
+          <div style={{ height: "82vh", overflow: "hidden" }}>
+            <FlowGraph
+              steps={flowStateToGraphSteps(shownState)}
+              selectedStepId={selectedStepId}
+              onSelectStep={handleSelectStep}
+            />
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
+
+  // Agent cards — every step card in a disclosure, collapsed by default
+  // (graph-first panel). The header summarises the step count and states so
+  // nothing hides silently. Geometry of the grid inside is unchanged (shared
+  // helper). See change: update-flows-plugin (D7).
+  const cardsSection = (
+    <div className="mt-2 rounded-lg border border-[var(--border-secondary)]" data-testid="flow-agent-cards-section">
+      <button
+        type="button"
+        data-testid="flow-agent-cards-toggle"
+        aria-expanded={!cardsCollapsed}
+        aria-controls={cardsRegionId}
+        onClick={toggleCardsCollapsed}
+        className="focus-ring w-full flex flex-wrap items-center gap-x-2 gap-y-1 min-h-[44px] sm:min-h-[32px] rounded-lg px-2 text-[12px] font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+      >
+        <Icon path={cardsCollapsed ? mdiChevronRight : mdiChevronDown} size={0.6} className="text-[var(--text-secondary)]" />
+        <span>{t("agentCards", undefined, "Agent cards")}</span>
+        <span className="text-[var(--text-secondary)]" data-testid="flow-agent-cards-count">{counts.steps}</span>
+        <span className="flex flex-wrap items-center gap-1 font-normal">
+          {counts.done > 0 && <SettingsStatusPill tone="success">{t("cardsDone", { n: counts.done }, `${counts.done} done`)}</SettingsStatusPill>}
+          {counts.running > 0 && <SettingsStatusPill tone="info">{t("cardsRunning", { n: counts.running }, `${counts.running} running`)}</SettingsStatusPill>}
+          {counts.failed > 0 && <SettingsStatusPill tone="error">{t("cardsFailed", { n: counts.failed }, `${counts.failed} failed`)}</SettingsStatusPill>}
+          {counts.skipped > 0 && <SettingsStatusPill tone="neutral">{t("cardsSkipped", { n: counts.skipped }, `${counts.skipped} skipped`)}</SettingsStatusPill>}
+        </span>
+      </button>
+      <div id={cardsRegionId} hidden={cardsCollapsed} className="p-2 pt-0">
+        {!cardsCollapsed && (
+          <FlowStepCards
+            state={shownState}
+            agents={agents}
+            session={session}
+            sessionId={sessionId}
+            selectedStepId={selectedStepId}
+            onSelect={handleSelectStep}
+          />
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div
       ref={rootRef}
       data-testid="flow-dashboard"
-      data-flow-mode={idle ? "idle" : "live"}
+      data-flow-mode={mode}
       className="bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] px-3 py-2"
     >
       {/* Header */}
+      {isSummary ? (
+        <div className="flex items-center gap-2 mb-1.5">
+          {/* Minimal disclosure chevron, left of the flow name (not near Dismiss). */}
+          <button
+            onClick={toggleCollapsed}
+            data-testid="flow-summary-panel-toggle"
+            title={collapsed ? "Expand summary" : "Collapse summary"}
+            aria-expanded={!collapsed}
+            className="inline-flex -ml-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          >
+            <Icon path={collapsed ? mdiChevronRight : mdiChevronDown} size={0.6} />
+          </button>
+          <FlowSummaryStatus flowState={flowState} agents={agents} />
+          {headerActions}
+          <button
+            onClick={onDismiss}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          >
+            <Icon path={mdiCloseCircleOutline} size={0.4} className="inline mr-0.5" />Dismiss
+          </button>
+        </div>
+      ) : (
       <div className="flex items-center gap-2 mb-2">
         <span
           className="inline-flex text-[var(--text-tertiary)] cursor-pointer"
@@ -371,8 +466,28 @@ export function FlowDashboard({
           </button>
         )}
       </div>
+      )}
 
-      {/* DAG graph — structural minimap */}
+      {isSummary ? (
+        <>
+          {/* A question still pending at completion stays answerable while the
+              panel is collapsed. See change: unify-flow-rendering (D1). */}
+          {sessionId && <FlowQuestionsSection sessionId={sessionId} flowId={shownState.flowName} pendingOnly />}
+          {/* Completed panel: collapse unmounts the body. Everything UNDER the
+              graph lives in ONE fixed-height scroll box so the panel always
+              fits the viewport. See change: unify-flow-rendering (D1). */}
+          {!collapsed && (
+            <>
+              {graphBlock}
+              <div className="mt-2 overflow-y-auto" style={{ maxHeight: "48vh" }} data-testid="flow-summary-scrollbox">
+                {cardsSection}
+                <FlowSummarySections flowState={flowState} agents={agents} onSendPrompt={onSendPrompt} />
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+      /* DAG graph — structural minimap */
       <div className={`group-collapse ${collapsed ? "collapsed" : "expanded"}`}>
         <div>
           {/* Tab bar for multi-flow navigation */}
@@ -392,85 +507,16 @@ export function FlowDashboard({
           {sessionId && (
             <FlowQuestionsSection
               sessionId={sessionId}
-              flowId={displayState.flowName}
+              flowId={shownState.flowName}
               pendingOnly={!!idle}
             />
           )}
 
-          <FlowGraph
-            steps={flowStateToGraphSteps(displayState)}
-            fit
-            selectedStepId={selectedStepId}
-            onSelectStep={handleSelectNode}
-            onExpand={Dialog ? () => setGraphOpen(true) : undefined}
-          />
-          {displayState.flowSource && (
-            <div className="mt-1">
-              <FlowYamlPopoverButton
-                flowSource={displayState.flowSource}
-                flowName={displayState.flowName}
-                sessionId={sessionId}
-              />
-            </div>
-          )}
-          {/* Expanded graph — centered Dialog with pan/zoom. See change: show-flow-cards-in-summary. */}
-          {Dialog && (
-            <Dialog
-              open={graphOpen}
-              onClose={() => setGraphOpen(false)}
-              title={`Flow graph · ${displayState.flowName}`}
-              size="full"
-            >
-              {/* Non-fit (pan/zoom) graph fills the full-size dialog. See change:
-                  improve-flow-graph-dialog-and-card-interaction. */}
-              <div style={{ height: "82vh", overflow: "hidden" }}>
-                <FlowGraph
-                  steps={flowStateToGraphSteps(displayState)}
-                  selectedStepId={selectedStepId}
-                  onSelectStep={handleSelectStep}
-                />
-              </div>
-            </Dialog>
-          )}
-
-          {/* Agent cards — every step card in a disclosure, collapsed by default
-              (graph-first panel). The header summarises the step count and
-              states so nothing hides silently. Geometry of the grid inside is
-              unchanged (shared helper). See change: update-flows-plugin (D7). */}
-          <div className="mt-2 rounded-lg border border-[var(--border-secondary)]" data-testid="flow-agent-cards-section">
-            <button
-              type="button"
-              data-testid="flow-agent-cards-toggle"
-              aria-expanded={!cardsCollapsed}
-              aria-controls={cardsRegionId}
-              onClick={toggleCardsCollapsed}
-              className="focus-ring w-full flex flex-wrap items-center gap-x-2 gap-y-1 min-h-[44px] sm:min-h-[32px] rounded-lg px-2 text-[12px] font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            >
-              <Icon path={cardsCollapsed ? mdiChevronRight : mdiChevronDown} size={0.6} className="text-[var(--text-secondary)]" />
-              <span>{t("agentCards", undefined, "Agent cards")}</span>
-              <span className="text-[var(--text-secondary)]" data-testid="flow-agent-cards-count">{counts.steps}</span>
-              <span className="flex flex-wrap items-center gap-1 font-normal">
-                {counts.done > 0 && <SettingsStatusPill tone="success">{t("cardsDone", { n: counts.done }, `${counts.done} done`)}</SettingsStatusPill>}
-                {counts.running > 0 && <SettingsStatusPill tone="info">{t("cardsRunning", { n: counts.running }, `${counts.running} running`)}</SettingsStatusPill>}
-                {counts.failed > 0 && <SettingsStatusPill tone="error">{t("cardsFailed", { n: counts.failed }, `${counts.failed} failed`)}</SettingsStatusPill>}
-                {counts.skipped > 0 && <SettingsStatusPill tone="neutral">{t("cardsSkipped", { n: counts.skipped }, `${counts.skipped} skipped`)}</SettingsStatusPill>}
-              </span>
-            </button>
-            <div id={cardsRegionId} hidden={cardsCollapsed} className="p-2 pt-0">
-              {!cardsCollapsed && (
-                <FlowStepCards
-                  state={displayState}
-                  agents={agents}
-                  session={session}
-                  sessionId={sessionId}
-                  selectedStepId={selectedStepId}
-                  onSelect={handleSelectStep}
-                />
-              )}
-            </div>
-          </div>
+          {graphBlock}
+          {cardsSection}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -866,7 +912,7 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
   return (
     <>
       <FlowDashboard
-        key={shown.flowName}
+        key={`${shown.flowName}:${headerVariant === "summary" ? "summary" : "active"}`}
         flowState={shown}
         flowStates={isIdle ? undefined : (flowStates as Map<string, FlowState>)}
         session={session}

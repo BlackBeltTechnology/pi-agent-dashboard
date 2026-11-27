@@ -3036,7 +3036,7 @@ Look for the sticky flow card grid above the chat.
 - `src/client/components/FlowDashboard.tsx`
 - `src/client/components/FlowAgentCard.tsx`
 - `src/client/components/FlowAgentDetail.tsx`
-- `src/client/components/FlowSummary.tsx`
+- `src/client/components/FlowSummary.tsx` (summary sections only; a completed flow renders in `FlowDashboard` summary mode, `data-flow-mode="summary"`)
 - `src/client/components/FlowActivityBadge.tsx`
 
 ```

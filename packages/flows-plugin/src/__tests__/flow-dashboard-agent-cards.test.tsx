@@ -69,7 +69,7 @@ afterEach(() => {
 
 let n = 0;
 /** 5 steps: build done, review fan-out (3 items, 1 failed → failed), test running, doc skipped, ship pending. */
-function seedRun(sid: string) {
+function seedRun(sid: string, { withTester = true } = {}) {
   const steps = [
     { id: "build", stepType: "agent", agent: "builder", blockedBy: [] },
     { id: "triage", stepType: "agent-decision", agent: "triager", blockedBy: [], branches: { many: "review", docs: "doc" } },
@@ -90,7 +90,7 @@ function seedRun(sid: string) {
     e("flow_agent_complete", { agentName: "reviewer", stepId: "review", itemIndex: 0, result: { success: true } }),
     e("flow_agent_complete", { agentName: "reviewer", stepId: "review", itemIndex: 1, result: { success: false, outcome: "soft" } }),
     e("flow_agent_complete", { agentName: "reviewer", stepId: "review", itemIndex: 2, result: { success: true } }),
-    e("flow_agent_started", { agentName: "tester", stepId: "test" }),
+    ...(withTester ? [e("flow_agent_started", { agentName: "tester", stepId: "test" })] : []),
   ]);
 }
 function mount(sid: string) {
@@ -183,5 +183,87 @@ describe("graph-first panel (E55)", () => {
       ]);
     });
     expect(screen.queryByTestId("flow-dashboard")).toBeNull();
+  });
+});
+
+/**
+ * Completed flows render the same Agent cards section in `summary` mode.
+ * See change: unify-flow-rendering (test-plan F4, F9, F10, X2).
+ */
+describe("completed panel Agent cards (unify-flow-rendering)", () => {
+  function mountSummary(sid: string, cardsOpen = false) {
+    localStorage.setItem(flowCollapseKey("summary", sid), "false");
+    localStorage.setItem(flowCollapseKey("cards", sid), cardsOpen ? "false" : "true");
+    return render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />));
+  }
+  const complete = (sid: string, status = "error") =>
+    publishSessionEvents(sid, [ev("flow_complete", 100, { flowName: "pipe", status })]);
+
+  it("F4: node click opens the Agent cards section after completion", () => {
+    const sid = `cards-${++n}`;
+    seedRun(sid);
+    complete(sid);
+    mountSummary(sid);
+    expect(screen.getByTestId("flow-dashboard").getAttribute("data-flow-mode")).toBe("summary");
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    act(() => void fireEvent.click(node("build")));
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    const card = document.querySelector('[data-step="build"]')!;
+    expect(card.querySelector('[data-selected="true"]')).not.toBeNull();
+    const call = scrollSpy.mock.calls.find(([el]) => el === card);
+    expect(call?.[1]).toMatchObject({ block: "nearest" });
+  });
+
+  it("F9: the Summaries list collapses beneath the cards; cards + graph stay", () => {
+    const sid = `cards-${++n}`;
+    publishSessionEvents(sid, [
+      ev("flow_started", 1, { flowName: "f", task: "", steps: ["a", "b"].map((id) => ({ id, stepType: "agent", agent: id, blockedBy: [] })) }),
+      ...["a", "b"].flatMap((id, i) => [
+        ev("flow_agent_started", 2 + i * 2, { agentName: id, stepId: id }),
+        ev("flow_agent_complete", 3 + i * 2, { agentName: id, stepId: id, result: { success: true, summary: `S-${id}` } }),
+      ]),
+      ev("flow_complete", 10, { flowName: "f", status: "success" }),
+    ]);
+    mountSummary(sid, true);
+    const box = screen.getByTestId("flow-summary-scrollbox");
+    expect(box.contains(screen.getByTestId("flow-agent-cards-section"))).toBe(true);
+    expect(box.contains(screen.getByTestId("flow-summaries"))).toBe(true);
+    fireEvent.click(screen.getByTestId("flow-summary-toggle"));
+    expect(screen.queryByTestId("flow-summaries")).toBeNull();
+    expect(screen.getByTestId("flow-agent-cards-section")).toBeTruthy();
+    expect(document.querySelector('[data-node="a"]')).not.toBeNull();
+  });
+
+  it("F10: a fan-out step is one group card after completion; header counts and pills", () => {
+    const sid = `cards-${++n}`;
+    // test-plan F10: 2 done, 1 failed (the fan-out), 1 skipped; `test` never
+    // started (no pill).
+    seedRun(sid, { withTester: false });
+    complete(sid, "success");
+    mountSummary(sid);
+    expect(screen.getByTestId("flow-agent-cards-count").textContent).toBe("5");
+    const text = toggle().textContent ?? "";
+    expect(text).toContain("2 done");
+    expect(text).toContain("1 failed");
+    expect(text).toContain("1 skipped");
+    expect(text).not.toContain("running");
+    fireEvent.click(toggle());
+    expect(screen.getByTestId("flow-group-card").querySelectorAll("[data-item]")).toHaveLength(3);
+  });
+
+  it("X2: an agent without tool history or outputs still renders; its summary is listed", () => {
+    const sid = `cards-${++n}`;
+    publishSessionEvents(sid, [
+      ev("flow_started", 1, { flowName: "f", task: "", steps: ["a", "bare"].map((id) => ({ id, stepType: "agent", agent: id, blockedBy: [] })) }),
+      ev("flow_agent_started", 2, { agentName: "a", stepId: "a" }),
+      ev("flow_tool_call", 3, { agentName: "a", stepId: "a", toolName: "read", input: { path: "x.ts" } }),
+      ev("flow_agent_complete", 4, { agentName: "a", stepId: "a", result: { success: true } }),
+      ev("flow_agent_complete", 5, { agentName: "bare", stepId: "bare", result: { success: true, summary: "only a summary" } }),
+      ev("flow_complete", 10, { flowName: "f", status: "success" }),
+    ]);
+    expect(() => mountSummary(sid, true)).not.toThrow();
+    expect(document.querySelector('[data-step="a"]')).not.toBeNull();
+    expect(document.querySelector('[data-step="bare"]')).not.toBeNull();
+    expect(screen.getByTestId("flow-summaries").textContent).toContain("only a summary");
   });
 });

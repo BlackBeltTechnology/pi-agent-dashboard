@@ -1,8 +1,8 @@
 /**
  * Shared geometry for the flow agent-card grid.
  *
- * One source for the live grid (`FlowDashboard`) and the frozen post-flow grid
- * (`FlowSummary`) so the two cannot drift in column minimum, row track or gap.
+ * One source for the Agent cards grid (`FlowStepCards`, every panel mode —
+ * idle, live, completed) so no grid can drift in column minimum, row track or gap.
  * The classes are written as literals (not interpolated from the constants) so
  * Tailwind's source scanner can see them; the constants stay the numeric truth
  * the specs pin against. See change: consolidate-flow-agent-cards (D1, D5).

@@ -61,7 +61,7 @@ export async function expandSummary(page: Page): Promise<void> {
 }
 
 /**
- * Open the live/idle panel's Agent cards section (collapsed by default since
+ * Open a flow panel's Agent cards section — idle, live or summary mode (collapsed by default since
  * the graph-first panel). See change: update-flows-plugin (D7, G15).
  */
 export async function openAgentCards(panel: Locator): Promise<void> {

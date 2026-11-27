@@ -221,8 +221,8 @@ Cases are grounded in a *source digest* (testids/text/handlers), not a running a
 ## Flows
 
 - [ ] **NEW** [flow-agent-detail] Clicking a FlowAgentCard's Details button opens the agent detail Dialog showing its Summary section with typed outputs and file list.
-- [ ] **NEW** [flow-summaries] After a flow completes, FlowSummary renders frozen agent cards above the summary lines in flow-summaries.
-- [ ] **NEW** [flow-summary-toggle] Clicking flow-summary-panel-toggle/flow-summary-toggle expands and collapses the summary rows in flow-summary-scrollbox while agent cards stay visible.
+- [ ] **NEW** [flow-summaries] Completed flow renders via FlowDashboard summary mode (data-flow-mode="summary"); flow-agent-cards-section sits above flow-summaries inside flow-summary-scrollbox.
+- [ ] **NEW** [flow-summary-toggle] Clicking flow-summary-toggle expands and collapses the summary rows in flow-summary-scrollbox while agent cards stay visible. flow-summary-panel-toggle collapses the whole panel body (header actions and Dismiss stay).
 - [ ] **NEW** [flow-graph] FlowGraph renders on_complete edges as plain solid arrows with no label while branch/on_error edges keep labels.
 - [ ] **NEW** [flow-graph] Error-route (⚠) edges are hidden by default and the toggle state persists across remount/reload.
 - [ ] **NEW** [flow-graph] Clicking "Expand graph" opens the enlarged FlowGraph/summary Dialog at near-fullscreen.

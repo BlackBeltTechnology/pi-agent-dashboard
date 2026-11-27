@@ -965,3 +965,118 @@ describe("FlowOpenListener (add-flow-open-tool)", () => {
     expect(send).not.toHaveBeenCalled();
   });
 });
+
+// ── unify-flow-rendering: completed flow = FlowDashboard in summary mode ──
+// See change: unify-flow-rendering (D1; test-plan F1-F3, F5, F7, F8).
+describe("completed flow renders FlowDashboard in summary mode (unify-flow-rendering)", () => {
+  const nodeIds = () => Array.from(document.querySelectorAll("[data-node]")).map((n) => n.getAttribute("data-node")).sort();
+
+  it("F1: running-only controls are absent after completion", () => {
+    const sid = nextSid();
+    publishSessionEvents(sid, [started("A", 10)]);
+    renderClaim(sid);
+    expect(root()?.getAttribute("data-flow-mode")).toBe("live");
+    expect(screen.getByText("AUTO")).toBeTruthy();
+    expect(screen.getByTitle("Abort flow")).toBeTruthy();
+    act(() => publishSessionEvent(sid, completed("A", 20)));
+    expect(root()?.getAttribute("data-flow-mode")).toBe("summary");
+    expect(screen.queryByText("AUTO")).toBeNull();
+    expect(screen.queryByTitle("Abort flow")).toBeNull();
+    expect(screen.queryByText("FOLLOW")).toBeNull();
+    expect(screen.getByRole("button", { name: /Dismiss/ })).toBeTruthy();
+    expect(screen.getByTestId("flow-summary-panel-toggle")).toBeTruthy();
+  });
+
+  it("F2: the completed panel ignores a manually selected tab", () => {
+    const sid = nextSid();
+    const stepsOf = (p: string) => [
+      { id: `${p}1`, stepType: "agent", agent: `${p}-x`, blockedBy: [] },
+      { id: `${p}2`, stepType: "agent", agent: `${p}-y`, blockedBy: [`${p}1`] },
+    ];
+    publishSessionEvents(sid, [
+      started("a", 10, { steps: stepsOf("a") }),
+      completed("a", 15),
+      started("b", 20, { steps: stepsOf("b") }),
+    ]);
+    renderClaim(sid);
+    expect(screen.getByText("FOLLOW")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "a" }));
+    expect(nodeIds()).toEqual(["a1", "a2"]);
+    act(() => publishSessionEvent(sid, completed("b", 30)));
+    expect(root()?.getAttribute("data-flow-mode")).toBe("summary");
+    expect(nodeIds()).toEqual(["b1", "b2"]);
+    expect(document.querySelectorAll("[data-step]").length).toBeGreaterThan(0);
+    for (const el of document.querySelectorAll("[data-step]")) expect(el.getAttribute("data-step")?.startsWith("b")).toBe(true);
+  });
+
+  it("F3: a selection made while running does not survive completion (remount)", () => {
+    const sid = nextSid();
+    publishSessionEvents(sid, [started("A", 10)]);
+    renderClaim(sid);
+    selectBeta();
+    expect(betaSelected()).toBe(true);
+    const liveRoot = root();
+    act(() => publishSessionEvent(sid, completed("A", 20)));
+    expect(root()).not.toBe(liveRoot);
+    expect(document.querySelector('[data-selected="true"]')).toBeNull();
+    expect(document.querySelector(".flow-node-selected")).toBeNull();
+  });
+
+  it("F5: collapse is read from the summary key on the first render after completion (no flash)", () => {
+    const sid = nextSid();
+    localStorage.setItem(flowCollapseKey("dashboard", sid), "false");
+    localStorage.setItem(flowCollapseKey("summary", sid), "true");
+    publishSessionEvents(sid, [started("A", 10)]);
+    const { container } = renderClaim(sid, { collapsed: true });
+    expect(document.querySelector("[data-node]")).not.toBeNull();
+    const added: Element[] = [];
+    const mo = new MutationObserver((recs) => {
+      for (const r of recs) for (const n of r.addedNodes) if (n instanceof Element) added.push(n);
+    });
+    mo.observe(container, { childList: true, subtree: true });
+    act(() => publishSessionEvent(sid, completed("A", 20)));
+    for (const r of mo.takeRecords()) for (const n of r.addedNodes) if (n instanceof Element) added.push(n);
+    mo.disconnect();
+    expect(root()?.getAttribute("data-flow-mode")).toBe("summary");
+    const flashed = (sel: string) => added.some((n) => n.matches(sel) || n.querySelector(sel) !== null);
+    expect(flashed('[data-testid="flow-summary-scrollbox"]')).toBe(false);
+    expect(flashed("[data-node]")).toBe(false);
+    expect(screen.queryByTestId("flow-summary-scrollbox")).toBeNull();
+  });
+
+  it("F7: a question pending at completion stays visible and answerable while collapsed; answered not listed", () => {
+    const sid = nextSid();
+    const q = (requestId: string, status: InteractiveUiRequestSnapshot["status"]): InteractiveUiRequestSnapshot => ({
+      requestId,
+      method: "custom",
+      status,
+      result: status === "resolved" ? "yes" : undefined,
+      params: { _promptBusComponent: { type: "flow-question", props: { flowId: "A", stepId: "alpha", question: `q-${requestId}`, type: "confirm" } } },
+    });
+    localStorage.setItem(flowCollapseKey("summary", sid), "true");
+    publishSessionEvents(sid, [started("A", 10)]);
+    const { send } = renderClaim(sid, { collapsed: true, requests: [q("r1", "resolved"), q("r2", "pending")] });
+    act(() => publishSessionEvent(sid, completed("A", 20)));
+    expect(root()?.getAttribute("data-flow-mode")).toBe("summary");
+    expect(screen.getByTestId("flow-summary-panel-toggle").getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getAllByTestId("flow-question-card")).toHaveLength(1);
+    expect(screen.queryAllByTestId("flow-question-transcript-pill")).toHaveLength(0);
+    const yes = screen.getByText("Yes") as HTMLButtonElement;
+    expect(yes.disabled).toBe(false);
+    fireEvent.click(yes);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "prompt_response", promptId: "r2", answer: "yes" }));
+  });
+
+  it("F8: on mobile a completed flow renders its full panel; a running flow keeps the bar", () => {
+    mobile.value = true;
+    const sid = nextSid();
+    publishSessionEvents(sid, [started("A", 10)]);
+    renderClaim(sid);
+    expect(screen.getByText("tap to expand")).toBeTruthy();
+    act(() => publishSessionEvent(sid, completed("A", 20)));
+    expect(screen.queryByText("tap to expand")).toBeNull();
+    expect(root()?.getAttribute("data-flow-mode")).toBe("summary");
+    expect(screen.getByText(/A complete/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Dismiss/ })).toBeTruthy();
+  });
+});
