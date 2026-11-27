@@ -399,30 +399,4 @@ describe("AgentToolRenderer — finalized by subagent stop", () => {
     expect(container.querySelector('[data-testid="agent-activity-row"]')).toBeNull();
     expect(getByText("Error:").parentElement?.textContent).toContain("boom");
   });
-
-  it("a finalized card stops the resync cadence while its subagent is still recorded running (F10)", async () => {
-    vi.useFakeTimers();
-    try {
-      const send = vi.fn();
-      const { getByTitle } = renderAgent(
-        <AgentToolRenderer
-          toolName="Agent"
-          args={{ subagent_type: "Explore", description: "find the thing", prompt: "go" }}
-          status="complete"
-          result="subagent stopped — result not received"
-          toolDetails={{ agentId: "ag", status: "completed", healedBy: "turn_settled", resultMissing: true, displayName: "Explore" }}
-          context={{ ...ctx, sessionId: "s1", send, session: { subagents: sub({ status: "running", entries: [{ kind: "text", text: "x" }] }) } } as unknown as ToolContext}
-        />,
-      );
-      const { fireEvent, act } = await import("@testing-library/react");
-      fireEvent.click(getByTitle("Expand to inspect tool calls & messages"));
-      await act(async () => {
-        vi.advanceTimersByTime(60_000);
-      });
-      const cadence = send.mock.calls.filter(([m]) => m?.type === "subagent_resync_request" && m?.reason === "cadence");
-      expect(cadence).toHaveLength(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });

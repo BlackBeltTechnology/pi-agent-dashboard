@@ -88,24 +88,27 @@ function stopMeta(phase: StopPhase | undefined, t: Translate): string | undefine
   return undefined;
 }
 
+/** Type shown for a row: never the literal `unknown` (legacy stub rows) — falls back to the short id. */
+const typeLabel = (sub: SubagentState): string => (sub.type && sub.type !== "unknown" ? sub.type : sub.id.slice(0, 8));
+
 /** Row meta without stop feedback: queue position, `pending`, or `type · N steps`. */
 function progressMeta(sub: SubagentState, queuePos: number | undefined, pending: boolean, t: Translate): string {
   if (queuePos !== undefined) return t("agentQueuePos", { pos: queuePos }, "#{pos} in queue");
   if (pending) return t("dockPending", undefined, "pending");
   const steps = countSteps(sub.entries);
-  if (steps === 0) return sub.type;
+  if (steps === 0) return typeLabel(sub);
   const stepsLabel =
     steps === 1
       ? t("dockStepOne", { count: steps }, "{count} step")
       : t("dockSteps", { count: steps }, "{count} steps");
-  return `${sub.type} · ${stepsLabel}`;
+  return `${typeLabel(sub)} · ${stepsLabel}`;
 }
 
 /** One subagent row: content, Stop (live + `stoppable`) and Open. Shared by both groups. */
 export function SubagentDockRow({ sessionId, sub }: { sessionId: string; sub: SubagentState }) {
   const t = useT();
   const stopState = useSubagentStopState(sessionId, sub.id);
-  const name = sub.displayName ?? sub.type;
+  const name = sub.displayName ?? typeLabel(sub);
   const queuePos = queuePositionOf(sub);
   const pending = sub.status === "created" || queuePos !== undefined;
   const meta = stopMeta(stopState?.phase, t) ?? progressMeta(sub, queuePos, pending, t);

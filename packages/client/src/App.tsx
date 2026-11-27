@@ -1628,36 +1628,6 @@ export default function App() {
     if (selectedId && !subscribedRef.current.has(selectedId) && status === "connected") {
       subscribedRef.current.add(selectedId);
       const sid = selectedId;
-      // Resync running subagents whose live timeline is empty: a reconnect gap
-      // may have swallowed their frames downstream of the bridge, so pull the
-      // latest snapshot instead of waiting for completion. No-op server-side
-      // for unknown/finished agents. See change: fix-subagent-live-detail-reliability (D2).
-      {
-        const st = sessionStates.get(sid);
-        if (st) {
-          // De-dup by state.id: a subagent dual-indexed under both its agentId
-          // and its agentSessionId appears twice in .values() as the SAME ref,
-          // so skip the alias to avoid a duplicate resync request (invariant N1).
-          // See change: resolve-subagent-inspector-by-session-id.
-          const seen = new Set<string>();
-          for (const sub of st.subagents.values()) {
-            if (seen.has(sub.id)) continue;
-            seen.add(sub.id);
-            if (sub.status === "running" && (!sub.entries || sub.entries.length === 0)) {
-              send({
-                type: "subagent_resync_request",
-                sessionId: sid,
-                agentId: sub.id,
-                // Requester-scoped like the other two call sites (C5), so a
-                // reconnect resync is not fanned out to every subscriber.
-                // See change: reduce-subagent-details-payload.
-                requestId: randomUuid(),
-                reason: "open",
-              });
-            }
-          }
-        }
-      }
       // Send subscribe with the resolved cursor, enter LOADING, and request
       // models if missing. Extracted so the cache-rehydrate path can call it
       // after the async IndexedDB read resolves.

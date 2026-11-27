@@ -125,3 +125,34 @@ export type AppendEventFn = (sessionId: string, event: DashboardEvent) => Plugin
  * `onSessionEnded`, which keeps its unregister-only semantics.
  */
 export type OnSessionStatusEndedFn = (handler: (sessionId: string) => void) => () => void;
+
+/** One stored event a replay-carry handler reads or returns (`seq` is the store seq). */
+export interface ReplayCarryEvent {
+  seq: number;
+  event: DashboardEvent;
+}
+
+/**
+ * What a replay-carry handler is called with for a windowed subscribe. `head` and
+ * `tail` are the events the browser receives next; `getGapEvents()` reads the
+ * RESIDENT events strictly between them (a trimmed gap yields fewer).
+ */
+export interface ReplayCarryContext {
+  sessionId: string;
+  /** First and last seq of the gap (`headMaxSeq + 1`, `tailMinSeq - 1`). */
+  gapFromSeq: number;
+  gapToSeq: number;
+  head: readonly ReplayCarryEvent[];
+  tail: readonly ReplayCarryEvent[];
+  getGapEvents(): ReplayCarryEvent[];
+}
+
+/**
+ * Returns stored gap events (priority order) the plugin needs to rebuild its
+ * state across a windowed replay. Core keeps only owned types, truncates to
+ * 2000 events / 2 MiB, discards a result later than 200 ms, and skips a throw.
+ */
+export type ReplayCarryHandler = (ctx: ReplayCarryContext) => ReplayCarryEvent[] | Promise<ReplayCarryEvent[]>;
+
+/** Register this plugin's replay-carry handler. Returns an unregister fn. */
+export type RegisterReplayCarryFn = (handler: ReplayCarryHandler) => () => void;

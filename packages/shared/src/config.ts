@@ -1087,22 +1087,6 @@ export interface DashboardConfig {
    */
   readinessTimeoutMs: number;
   /**
-   * Coalescing window (ms) the bridge applies to subagent `Agent` ticks on the
-   * `tool_execution_update` carrier. `0` disables the throttle entirely and is
-   * the byte-identical rollback path. Only Agent updates carrying a
-   * `details.agentId` are affected; every other tool forwards 1:1.
-   * Non-numeric / negative values fall back to the default.
-   * See change: reduce-bridge-tick-bandwidth (D2/D3/D4).
-   */
-  subagentTickThrottleMs: number;
-  /**
-   * One-shot marker: the boot migration has already rewritten a materialized
-   * `0` to the current default. Declared here so the settings round-trip
-   * PRESERVES it — a stripped marker re-runs the migration and silently undoes
-   * a deliberate `0`. See change: heal-orphaned-tool-cards-on-session-end (D5).
-   */
-  subagentTickThrottleMigrated?: boolean;
-  /**
    * Max items per `POST /api/git/worktree/remove-batch` request. Each item is
    * a synchronous, blocking removal on the event loop (D7), so the item count
    * is the knob that bounds one HTTP request's worst-case stall.
@@ -1681,15 +1665,6 @@ export function resolveDashboardPorts(
   return { port, piPort };
 }
 
-/**
- * Throttle ON by default: the un-throttled Agent tick stream is what starves a
- * fan-out parent. Existing installs carry a materialized `0` from
- * `ensureConfig`, rewritten once by the server-boot migration.
- * See change: reduce-bridge-tick-bandwidth (D4),
- * heal-orphaned-tool-cards-on-session-end (D5).
- */
-export const DEFAULT_SUBAGENT_TICK_THROTTLE_MS = 500;
-
 /** Inert default: no trusted resolver plugins beyond the bundled one, no policy. */
 export const DEFAULT_IDENTITY: IdentityConfig = {
   trustedResolverPlugins: [],
@@ -1763,7 +1738,6 @@ const DEFAULTS: DashboardConfig = {
   // shared health-poll constant, referenced rather than respelled so the two
   // cannot drift. See change: add-configurable-readiness-timeout.
   readinessTimeoutMs: HEALTH_CHECK_TIMEOUT_MS,
-  subagentTickThrottleMs: DEFAULT_SUBAGENT_TICK_THROTTLE_MS,
   removeBatchCap: DEFAULT_REMOVE_BATCH_CAP,
   spawnStrategy: "headless",
   tunnel: {
@@ -2752,13 +2726,6 @@ export function loadConfig(): DashboardConfig {
               Math.max(READINESS_TIMEOUT_MIN_MS, parsed.readinessTimeoutMs),
             )
           : defaults.readinessTimeoutMs,
-      subagentTickThrottleMs:
-        typeof parsed.subagentTickThrottleMs === "number" &&
-        Number.isFinite(parsed.subagentTickThrottleMs) &&
-        parsed.subagentTickThrottleMs >= 0
-          ? parsed.subagentTickThrottleMs
-          : defaults.subagentTickThrottleMs,
-      ...(parsed.subagentTickThrottleMigrated === true ? { subagentTickThrottleMigrated: true } : {}),
       removeBatchCap: clampRemoveBatchCap(parsed.removeBatchCap),
       spawnStrategy,
       tunnel: normalizeTunnelConfig(parsed.tunnel, defaults.tunnel),
@@ -2896,11 +2863,6 @@ export function ensureConfig(): void {
     autoShutdown: DEFAULTS.autoShutdown,
     shutdownIdleSeconds: DEFAULTS.shutdownIdleSeconds,
     readinessTimeoutMs: DEFAULTS.readinessTimeoutMs,
-    subagentTickThrottleMs: DEFAULTS.subagentTickThrottleMs,
-    // Seeded unconditionally: a fresh install is already AT the new default, so
-    // a later deliberate `0` must not be re-migrated on the next boot.
-    // See change: heal-orphaned-tool-cards-on-session-end (D5).
-    subagentTickThrottleMigrated: true,
     removeBatchCap: DEFAULTS.removeBatchCap,
     spawnStrategy: DEFAULTS.spawnStrategy,
     tunnel: DEFAULTS.tunnel,

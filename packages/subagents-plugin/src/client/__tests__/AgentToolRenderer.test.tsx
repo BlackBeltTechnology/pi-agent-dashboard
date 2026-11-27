@@ -102,31 +102,6 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(screen.getByText(/No detail available yet/i)).toBeTruthy();
   });
 
-  it("inline expand requests a resync for a running subagent with an empty timeline", () => {
-    const send = vi.fn();
-    // agentId present on the card, but NOT in the subagents map — mirrors a
-    // running subagent viewed after refresh/late-subscribe (map un-hydrated).
-    render(wrapInProviders(
-      <AgentToolRenderer
-        toolName="Agent"
-        args={{ subagent_type: "Explore", prompt: "do work" }}
-        status="running"
-        context={makeContext(createInitialState(), "sess_42", send)}
-        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
-      />
-    ));
-    fireEvent.click(screen.getByTitle(/Expand to inspect/i));
-    // `requestId` is the requester-scoping correlation token (a fresh uuid per
-    // request). See change: reduce-subagent-details-payload (C5).
-    expect(send).toHaveBeenCalledWith({
-      type: "subagent_resync_request",
-      sessionId: "sess_42",
-      agentId: "abc123",
-      requestId: expect.any(String),
-      reason: "open",
-    });
-  });
-
   it("inline expand does NOT resync when the timeline already has entries", () => {
     const send = vi.fn();
     const session = sessionWithAgent("abc123", {
@@ -166,14 +141,7 @@ describe("AgentToolRenderer — expand + popout", () => {
     ));
     fireEvent.click(screen.getByTitle(/Open subagent detail/i));
     expect(await screen.findByRole("dialog")).toBeTruthy();
-    // Assert the OPEN-path guard this test documents, not "no resync at all":
-    // the cadence hook fires its own `reason: "cadence"` resync 2 s after the
-    // view opens, so a slow `findByRole` under load made a broader assertion
-    // fail on a legitimate cadence tick. See change:
-    // contention-harden-real-process-tests.
-    expect(send).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "subagent_resync_request", reason: "open" }),
-    );
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "subagent_resync_request" }));
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });

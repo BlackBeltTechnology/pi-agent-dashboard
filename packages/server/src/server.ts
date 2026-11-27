@@ -4506,6 +4506,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               appendEvent: (sessionId, event) => appendPluginOwnedEvent(plugin.manifest.id, sessionId, event),
               registerStorePolicy: (policy) => getPluginPolicyRegistry().registerStorePolicy(plugin.manifest.id, policy),
               registerDeliveryPolicy: (policy) => getPluginPolicyRegistry().registerDeliveryPolicy(plugin.manifest.id, policy),
+              registerReplayCarry: (handler) => getPluginPolicyRegistry().registerReplayCarry(plugin.manifest.id, handler),
               onSessionResolved: (handler) => {
                 const id = plugin.manifest.id;
                 let set = pluginSessionResolvedSubs.get(id);

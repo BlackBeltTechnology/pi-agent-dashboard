@@ -34,7 +34,12 @@ import {
   setSubagentState,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 import type { DashboardEvent as SessionEventLike } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { PluginSubagentState, SubagentSessionSlice } from "./sessionEventReducer.js";
+import {
+  isBackgroundSubagent,
+  type PluginSubagentState,
+  REVIVABLE_HEALS,
+  type SubagentSessionSlice,
+} from "./sessionEventReducer.js";
 
 /** Never-empty body when a completed subagent reported no result. */
 export const SUBAGENT_DONE_NO_RESULT = "subagent finished";
@@ -48,6 +53,11 @@ const SUBAGENT_FAILED_NO_ERROR = "subagent failed";
 const UNTRACKED_HEAL = "untracked";
 /** Heal marker of a terminal status taken from the session's answer or registry. */
 const SESSION_RECONCILE_HEAL = "session_reconcile";
+/**
+ * Heal marker of a background run the producer lists as `idle` (run ended, session alive).
+ * Revivable like `untracked`. See change: move-subagents-to-plugin (D7).
+ */
+const IDLE_HEAL = "idle";
 /** Error text of an untracked end (the full-screen view shows a localized line instead). */
 const UNTRACKED_ERROR = "no longer tracked by its session";
 
@@ -158,6 +168,7 @@ function restampStopped(
 function onSubagentTerminal(state: AgentFinalizerState, event: SessionEventLike, opts: Opts): AgentFinalizerState {
   const data = event.data as Data;
   const id = data.id as string;
+  if (typeof id !== "string" || !id) return state;
   const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
   const existing = state.subagents.get(id);
   // A synthesized heal never regresses a subagent that already reported a real terminal state.
@@ -177,7 +188,9 @@ function onSubagentTerminal(state: AgentFinalizerState, event: SessionEventLike,
     toolUses: data.toolUses as number | undefined,
     ...readSubagentDetails(details),
     liveBlock: undefined,
-  });
+    // A `__truncated` placeholder still ends the row; the view says the result was too large.
+    resultTruncated: data.__truncated === true ? true : undefined,
+  } as PluginSubagentState);
   const next: AgentFinalizerState = { ...state, subagents };
   // The subagent stopped: finalize its Agent card even if the tool's own end was lost.
   // Propagates the trigger's heal marker (e.g. `session_ended`).
@@ -230,9 +243,6 @@ function mergeSubagent(
     ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)),
   } as SubagentState;
 }
-
-/** Heal markers a live frame may revive (the producer is provably alive). */
-const REVIVABLE_HEALS: ReadonlySet<string | undefined> = new Set(["session_ended", UNTRACKED_HEAL]);
 
 /**
  * Revive a subagent a `session_ended` or `untracked` heal failed: running again, heal
@@ -379,7 +389,7 @@ function onUpdate(state: AgentFinalizerState, event: SessionEventLike, opts: Opt
 // ── Liveness reconcile (change: fix-background-subagent-ghost-rows, D5) ──────────────
 
 
-type ReconcileVerdict = { kind: "untracked" } | { kind: "status"; status: "completed" | "failed" | "stopped" };
+type ReconcileVerdict = { kind: "untracked" } | { kind: "idle" } | { kind: "status"; status: "completed" | "failed" | "stopped" };
 
 const finiteNumber = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
@@ -407,7 +417,9 @@ function applyReconcile(
   const synthetic: SessionEventLike =
     verdict.kind === "untracked"
       ? { eventType: "subagent_failed", timestamp, data: { id, error: UNTRACKED_ERROR, healedBy: UNTRACKED_HEAL } }
-      : {
+      : verdict.kind === "idle"
+        ? { eventType: "subagent_completed", timestamp, data: { id, details: { status: "completed" }, healedBy: IDLE_HEAL } }
+        : {
           eventType: verdict.status === "failed" ? "subagent_failed" : "subagent_completed",
           timestamp,
           data: { id, details: { status: verdict.status }, healedBy: SESSION_RECONCILE_HEAL },
@@ -443,7 +455,8 @@ function onStopResult(state: AgentFinalizerState, event: SessionEventLike, opts:
 
 /**
  * `subagent_registry_snapshot`: every subagent the session tracks. A live subagent of this
- * session absent from it ends untracked; one listed with a terminal status takes it. The
+ * session absent from it ends untracked (background rows only); one listed `idle` ends with
+ * the revivable `idle` marker; one listed with a terminal status takes it. The
  * map is per session, so another session's subagents are never touched.
  */
 function onRegistrySnapshot(state: AgentFinalizerState, event: SessionEventLike, opts: Opts): AgentFinalizerState {
@@ -464,7 +477,9 @@ function onRegistrySnapshot(state: AgentFinalizerState, event: SessionEventLike,
     const inSnapshot = listed.has(sub.id) || (sub.agentSessionId !== undefined && listed.has(sub.agentSessionId));
     const status = listed.get(sub.id) ?? (sub.agentSessionId !== undefined ? listed.get(sub.agentSessionId) : undefined);
     let verdict: ReconcileVerdict | undefined;
-    if (!inSnapshot) verdict = { kind: "untracked" };
+    // The producer's registry lists background runs only: a foreground row is never "missing".
+    if (!inSnapshot) verdict = isBackgroundSubagent(sub) ? { kind: "untracked" } : undefined;
+    else if (status === "idle") verdict = { kind: "idle" };
     else if (status === "completed" || status === "failed" || status === "stopped") verdict = { kind: "status", status };
     if (verdict) next = applyReconcile(next, sub.id, verdict, event.timestamp, opts);
   }

@@ -29,7 +29,6 @@ const PI_ONLY_BROWSER_OPS: ReadonlySet<string> = new Set([
   "open_inline_terminal",
   "list_files",
   "kill_process",
-  "subagent_resync_request",
 ]);
 
 /**
@@ -37,7 +36,7 @@ const PI_ONLY_BROWSER_OPS: ReadonlySet<string> = new Set([
  * silently — a chat error the user never caused would be noise. The
  * request_roles refresh is sent through whichever session is live first.
  */
-const SILENT_PI_ONLY_OPS: ReadonlySet<string> = new Set(["request_roles", "subagent_resync_request"]);
+const SILENT_PI_ONLY_OPS: ReadonlySet<string> = new Set(["request_roles"]);
 
 export const isAcp = (session: Pick<DashboardSession, "driver"> | undefined): boolean => session?.driver === "acp";
 

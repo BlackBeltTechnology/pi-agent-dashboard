@@ -1860,7 +1860,6 @@ export type ServerToExtensionMessage =
   | PluginEmitEventExtensionMessage
   | PreferencesUpdateExtensionMessage
   | GitCommitDraftMessage
-  | SubagentResyncRequestExtensionMessage
   | PromptResyncRequestExtensionMessage;
 
 /**
@@ -1889,30 +1888,6 @@ export interface GitCommitDraftResultMessage {
   message: string;
   /** Which ladder rung produced the message. */
   source: "fork-subagent" | "diff-only" | "stub";
-}
-
-/**
- * Server → extension: forward a browser resync request to the owning bridge.
- * The bridge replies with the latest retained `AgentDetails` snapshot of the
- * running subagent as a synthetic `subagent_started` `event_forward`, or no-ops
- * for an unknown/finished agent. See change: fix-subagent-live-detail-reliability (D2).
- */
-export interface SubagentResyncRequestExtensionMessage {
-  type: "subagent_resync_request";
-  sessionId: string;
-  agentId: string;
-  /**
-   * Correlation token from the requesting browser, echoed by the bridge onto
-   * the reply frame (`__resyncRequestId`) so the server can route the reply to
-   * that one connection. See change: reduce-subagent-details-payload (C5).
-   */
-  requestId?: string;
-  /**
-   * Why this resync fired — `"open"` (user opened the inspector) or
-   * `"cadence"` (the D4 v1 pull loop). Counted separately by the bridge.
-   * See change: reduce-subagent-details-payload (D6, task 9.4).
-   */
-  reason?: "open" | "cadence";
 }
 
 /**

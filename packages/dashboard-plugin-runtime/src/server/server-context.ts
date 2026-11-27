@@ -9,6 +9,7 @@ import type {
   AppendEventFn,
   OnSessionStatusEndedFn,
   RegisterDeliveryPolicyFn,
+  RegisterReplayCarryFn,
   RegisterStorePolicyFn,
 } from "./plugin-policies.js";
 import fs from "node:fs";
@@ -1252,6 +1253,12 @@ export interface ServerPluginContext {
    */
   registerDeliveryPolicy: RegisterDeliveryPolicyFn;
   /**
+   * Register this plugin's windowed-replay carry handler: stored gap events of
+   * the plugin's own types sent in a `plugin_event_carry` frame.
+   * See change: move-subagents-to-plugin (D2).
+   */
+  registerReplayCarry: RegisterReplayCarryFn;
+  /**
    * Subscribe to session-ownership resolution for this plugin's own spawned
    * sessions. See change: detach-automation-goal-from-core.
    */
@@ -1576,6 +1583,8 @@ export interface ServerContextDeps {
   registerStorePolicy?: RegisterStorePolicyFn;
   /** Optional, host-bound to the calling plugin: hosts without it give plugins a no-op. */
   registerDeliveryPolicy?: RegisterDeliveryPolicyFn;
+  /** Optional, host-bound to the calling plugin: hosts without it give plugins a no-op. */
+  registerReplayCarry?: RegisterReplayCarryFn;
   onSessionResolved: OnSessionResolvedFn;
   sendToSession: SendToSessionFn;
   emitEventToSession: EmitEventToSessionFn;
@@ -1724,6 +1733,7 @@ export function createServerPluginContext(
     appendEvent: deps.appendEvent ?? (() => ({ ok: false, reason: "unsupported" })),
     registerStorePolicy: deps.registerStorePolicy ?? (() => () => {}),
     registerDeliveryPolicy: deps.registerDeliveryPolicy ?? (() => () => {}),
+    registerReplayCarry: deps.registerReplayCarry ?? (() => () => {}),
     onSessionResolved: deps.onSessionResolved,
     sendToSession: deps.sendToSession,
     emitEventToSession: deps.emitEventToSession,

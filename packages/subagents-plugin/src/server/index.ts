@@ -31,6 +31,7 @@ import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js"
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { createSubagentsDeliveryPolicy } from "./delivery-policy.js";
+import { createSubagentsReplayCarry } from "./replay-carry.js";
 import { registerSessionEndHeal } from "./session-end-heal.js";
 import { createSubagentsStorePolicy } from "./store-policy.js";
 import {
@@ -129,6 +130,7 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
 	// See change: move-subagents-to-plugin (D3, D4, D10).
 	ctx.registerStorePolicy(createSubagentsStorePolicy());
 	ctx.registerDeliveryPolicy(createSubagentsDeliveryPolicy());
+	ctx.registerReplayCarry(createSubagentsReplayCarry());
 	registerSessionEndHeal(ctx);
 
 	// ── 1. Startup reconcile ─────────────────────────────────────────────

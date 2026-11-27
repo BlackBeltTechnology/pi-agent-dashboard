@@ -3,7 +3,7 @@
  * (state, event) → new state
  */
 
-import { findSessionEventReducer, findToolRowFinalizer } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { findPluginSessionReducers, findSessionEventReducer, findToolRowFinalizer } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   type EventTypeOwner,
   matchEventTypeOwner,
@@ -22,6 +22,7 @@ import {
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { matchesEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import { ownerOfEventType } from "../plugins/event-type-owners.js";
 import { isPluginEntryType } from "../plugins/plugin-entry-types.js";
 import {
@@ -1841,6 +1842,24 @@ export function regroupOwnedEvents(state: SessionState, owners: readonly EventTy
     }
   });
   return { ...state, messages };
+}
+
+/**
+ * Apply one carried gap event (`plugin_event_carry`) through ONLY the named
+ * plugin's slice reducer and `onSessionEvent` finalizer, mirroring the slice
+ * branch of {@link reduceEvent}. No chat row is created and nothing but plugin
+ * state (and an existing tool row the finalizer settles) changes. Returns the
+ * same state when the plugin is disabled or the event is not its own.
+ * See change: move-subagents-to-plugin (D2).
+ */
+export function reduceCarriedEvent(state: SessionState, pluginId: string, event: DashboardEvent): SessionState {
+  const { slice, finalizers } = findPluginSessionReducers<SessionState>(pluginId);
+  if (!slice?.eventTypes.some((p) => matchesEventTypePattern(p, event.eventType))) return state;
+  for (const finalizer of finalizers) {
+    const settled = finalizer.onSessionEvent?.(state, event, finalizerOpts(false));
+    if (settled) return settled;
+  }
+  return slice.reduce(state, event, { isLive: false });
 }
 
 export function reduceEvent(

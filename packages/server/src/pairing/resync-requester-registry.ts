@@ -1,18 +1,14 @@
 /**
- * subagent-resync-routing — correlate a resync REPLY back to the browser
+ * resync-requester-registry — correlate a resync REPLY back to the browser
  * connection that asked for it, so the reply is delivered requester-scoped
- * instead of fanned out to every subscriber of the session (C5).
- *
- * Why it matters now: with intermediate frames stripped, a mounted inspector
- * pulls the timeline on a cadence. Fanning each fat reply out to N viewers of
- * the same session would multiply exactly the payload this change removed.
+ * instead of fanned out to every subscriber of the session. Used by the
+ * prompt-resync path (`deliverPromptResyncReply`); the subagent resync that
+ * first needed it is removed.
  *
  * The correlation token rides on the reply frame (`__resyncRequestId`), echoed
- * by the bridge from the request. Unknown/expired token → undefined, and the
- * caller falls back to the ordinary broadcast, so a lost token degrades to
- * today's behaviour rather than to a dropped reply.
+ * by the bridge from the request. Unknown/expired token → undefined.
  *
- * See change: reduce-subagent-details-payload.
+ * See change: reduce-subagent-details-payload; move-subagents-to-plugin (D6).
  */
 
 /** How long an unanswered request stays routable before it is dropped. */

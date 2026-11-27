@@ -107,6 +107,7 @@ export {
   subscribeSessionDataKey,
 } from "./session-data-store.js";
 export {
+  findPluginSessionReducers,
   findSessionEventReducer,
   findToolRowFinalizer,
   registerSessionEventReducer,

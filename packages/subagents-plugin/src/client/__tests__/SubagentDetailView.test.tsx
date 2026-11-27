@@ -13,6 +13,8 @@ import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-
 import { cleanup, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it } from "vitest";
+import { type DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { sessionEventReducer, type SubagentSessionSlice } from "../sessionEventReducer.js";
 import { type SessionStateLike, SubagentDetailView } from "../SubagentDetailView.js";
 import type { SubagentState } from "../types.js";
 
@@ -429,5 +431,51 @@ describe("SubagentDetailView — untracked end (#F5)", () => {
     expect(screen.getByTestId("subagent-untracked-note").textContent).toBe("Ended — its session no longer tracks it");
     expect(screen.queryByText(/parent session ended/)).toBeNull();
     expect(screen.queryByTestId("subagent-error-note")).toBeNull();
+  });
+
+  // #F5 (change: move-subagents-to-plugin): the open inspector converges from live
+  // `subagent_entry` events alone — no resync request is sent.
+  it("F5: a mounted running view converges from 5 to 30 entries from live subagent_entry events, with no resync path", () => {
+    const ev = (index: number): DashboardEvent => ({
+      eventType: "subagent_entry",
+      timestamp: 1000 + index,
+      data: { agentId: "a1", index, entry: { kind: "text", text: `entry-${index}`, ts: index } },
+    });
+    const started: DashboardEvent = {
+      eventType: "subagent_started",
+      timestamp: 1000,
+      data: { id: "a1", type: "Explore", description: "search" },
+    };
+    let state: SubagentSessionSlice = sessionEventReducer.reduce({ subagents: new Map() }, started);
+    for (let i = 0; i < 5; i++) state = sessionEventReducer.reduce(state, ev(i));
+    const view = (st: SubagentSessionSlice) => withUiPrimitiveProvider(
+      { "ui:markdown-content": MockMarkdown },
+      <SubagentDetailView session={st} agentId="a1" />,
+    );
+    const { rerender } = render(view(state));
+    const rendered = () => screen.queryAllByText(/^entry-\d+$/).length;
+    expect(rendered()).toBe(5);
+    for (let i = 5; i < 30; i++) {
+      state = sessionEventReducer.reduce(state, ev(i));
+      rerender(view(state));
+    }
+    expect(rendered()).toBe(30);
+  });
+});
+
+// See change: move-subagents-to-plugin (task 9.5, test-plan #E33 view half).
+describe("SubagentDetailView — truncated end", () => {
+  afterEach(() => cleanup());
+
+  it("shows the result-too-large note for a row ended by a __truncated frame", () => {
+    const session = makeSession({
+      id: "t1",
+      type: "Explore",
+      description: "d",
+      status: "completed",
+      resultTruncated: true,
+    } as never);
+    renderWithPrimitives(<SubagentDetailView session={session} agentId="t1" />);
+    expect(screen.getByTestId("subagent-result-truncated-note").textContent).toBe("The final result was too large to keep.");
   });
 });

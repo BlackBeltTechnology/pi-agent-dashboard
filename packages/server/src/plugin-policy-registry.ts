@@ -14,6 +14,9 @@
 import type {
   PluginDeliveryPolicy,
   PluginStorePolicy,
+  ReplayCarryContext,
+  ReplayCarryEvent,
+  ReplayCarryHandler,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   type EventTypeOwner,
@@ -67,6 +70,28 @@ export function sanitizeIdentityFields(raw: unknown): Record<string, unknown> | 
   return Object.keys(clean).length > 0 ? clean : undefined;
 }
 
+/** Per-plugin bounds of one `plugin_event_carry` frame. */
+export const CARRY_MAX_EVENTS = 2000;
+export const CARRY_MAX_BYTES = 2 * 1024 * 1024;
+/** A carry handler result later than this is discarded. */
+export const CARRY_DEADLINE_MS = 200;
+
+/** One plugin's bounded, ownership-filtered carry for a windowed subscribe. */
+export interface ReplayCarryFrame {
+  pluginId: string;
+  events: ReplayCarryEvent[];
+}
+
+/** Cumulative carry counters, exposed in `/api/health`. */
+export interface ReplayCarryStats {
+  /** Events dropped because the plugin does not own their type. */
+  refused: number;
+  /** Owned events dropped by the 2000-event / 2 MiB bound. */
+  dropped: number;
+  /** Handler results discarded (threw, or arrived after the deadline). */
+  discarded: number;
+}
+
 export interface PluginPolicyRegistry {
   /** Record what `pluginId` owns. Replaces a previous record. */
   setOwnership(pluginId: string, ownership: PluginOwnership): void;
@@ -82,15 +107,26 @@ export interface PluginPolicyRegistry {
   deferKeyOf(event: DashboardEvent, sessionId: string): string | undefined;
   /** Bounded deferred copy from the owner's delivery policy; a throw returns `event`. */
   projectDeferred(event: DashboardEvent): DashboardEvent;
+  registerReplayCarry(pluginId: string, handler: ReplayCarryHandler): () => void;
+  /** True when at least one replay-carry handler is registered. */
+  hasReplayCarry(): boolean;
+  /**
+   * Call every replay-carry handler for a windowed subscribe and return each
+   * plugin's owned events, bounded in handler order. A handler that throws or
+   * answers after {@link CARRY_DEADLINE_MS} contributes nothing (logged).
+   */
+  collectReplayCarries(ctx: ReplayCarryContext): Promise<ReplayCarryFrame[]>;
   /** Count one refused `ctx.appendEvent`. */
   noteRefusedAppend(): void;
-  stats(): { refusedAppends: number };
+  stats(): { refusedAppends: number; replayCarry: ReplayCarryStats };
 }
 
 export function createPluginPolicyRegistry(): PluginPolicyRegistry {
   const ownership = new Map<string, PluginOwnership>();
   const storePolicies = new Map<string, PluginStorePolicy>();
   const deliveryPolicies = new Map<string, PluginDeliveryPolicy>();
+  const carryHandlers = new Map<string, ReplayCarryHandler>();
+  const carryStats: ReplayCarryStats = { refused: 0, dropped: 0, discarded: 0 };
   let refusedAppends = 0;
 
   // Event types are few and the lookup runs per resident event on some store
@@ -127,7 +163,71 @@ export function createPluginPolicyRegistry(): PluginPolicyRegistry {
     return undefined;
   };
 
+  const carryOne = async (pluginId: string, handler: ReplayCarryHandler, ctx: ReplayCarryContext): Promise<ReplayCarryFrame | undefined> => {
+    const started = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const pending = Promise.resolve(handler(ctx));
+      const result = await Promise.race([
+        pending,
+        new Promise<"late">((resolve) => {
+          timer = setTimeout(() => resolve("late"), CARRY_DEADLINE_MS);
+          timer.unref?.();
+        }),
+      ]);
+      // A synchronous handler cannot be pre-empted: judge it by elapsed time.
+      if (result === "late" || Date.now() - started > CARRY_DEADLINE_MS) {
+        carryStats.discarded++;
+        console.warn(`[plugin-carry] ${pluginId} replay carry exceeded ${CARRY_DEADLINE_MS}ms; discarded (session ${ctx.sessionId})`);
+        return undefined;
+      }
+      const events: ReplayCarryEvent[] = [];
+      let bytes = 0;
+      let full = false;
+      for (const e of Array.isArray(result) ? result : []) {
+        if (!e?.event || !ownsType(pluginId, e.event.eventType)) {
+          carryStats.refused++;
+          continue;
+        }
+        if (full) {
+          carryStats.dropped++;
+          continue;
+        }
+        const wire: ReplayCarryEvent = { seq: e.seq, event: e.event };
+        const size = Buffer.byteLength(JSON.stringify(wire));
+        if (events.length >= CARRY_MAX_EVENTS || bytes + size > CARRY_MAX_BYTES) {
+          full = true;
+          carryStats.dropped++;
+          continue;
+        }
+        events.push(wire);
+        bytes += size;
+      }
+      return events.length > 0 ? { pluginId, events } : undefined;
+    } catch (err) {
+      carryStats.discarded++;
+      console.warn(`[plugin-carry] ${pluginId} replay carry failed (session ${ctx.sessionId}): ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+  const ownsType = (pluginId: string, eventType: string): boolean => ownerOf(eventType) === pluginId;
+
   return {
+    registerReplayCarry(pluginId, handler) {
+      carryHandlers.set(pluginId, handler);
+      return () => {
+        if (carryHandlers.get(pluginId) === handler) carryHandlers.delete(pluginId);
+      };
+    },
+    hasReplayCarry() {
+      return carryHandlers.size > 0;
+    },
+    async collectReplayCarries(ctx) {
+      const frames = await Promise.all([...carryHandlers].map(([id, h]) => carryOne(id, h, ctx)));
+      return frames.filter((f): f is ReplayCarryFrame => f !== undefined);
+    },
     setOwnership(pluginId, o) {
       ownership.set(pluginId, { eventTypes: [...o.eventTypes], tools: [...o.tools] });
       ownerMemo = new Map();
@@ -178,7 +278,7 @@ export function createPluginPolicyRegistry(): PluginPolicyRegistry {
       refusedAppends++;
     },
     stats() {
-      return { refusedAppends };
+      return { refusedAppends, replayCarry: { ...carryStats } };
     },
   };
 }

@@ -106,6 +106,7 @@ import {
 import { recognizeTrustedTypesMode } from "@blackbelt-technology/pi-dashboard-shared/trusted-types-mode.js";
 import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
 import { getPluginEntryStats } from "../plugin-entry-stats.js";
+import { getPluginPolicyRegistry } from "../plugin-policy-registry.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /**
@@ -1521,6 +1522,8 @@ export function registerSystemRoutes(
       // Cumulative tool-result route answers: `202` still running, `410`
       // recorded eviction. See change: distinguish-tool-result-pending-vs-gone (D6).
       toolResult: { pending: toolResultStats?.pending ?? 0, gone: toolResultStats?.gone ?? 0 },
+      // Plugin windowed-replay carry counters. See change: move-subagents-to-plugin (D2).
+      pluginReplayCarry: getPluginPolicyRegistry().stats().replayCarry,
       // Store-derived retention signals (D4), DELIBERATELY separate from the
       // cumulative `storeTrim` counters: a gauge, a set of configuration
       // constants and a boolean latch all break the "never reset on read"

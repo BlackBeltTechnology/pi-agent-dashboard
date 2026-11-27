@@ -146,6 +146,20 @@ export function findToolRowFinalizer<S = unknown>(toolName: string): ToolRowFina
   return undefined;
 }
 
+/**
+ * The enabled plugin's OWN slice and finalizers, looked up by plugin id (not by
+ * event type): what a `plugin_event_carry` frame is applied through.
+ * See change: move-subagents-to-plugin (D2).
+ */
+export function findPluginSessionReducers<S = unknown>(
+  pluginId: string,
+): { slice?: SessionEventReducerSlice<S>; finalizers: ToolRowFinalizer<S>[] } {
+  if (!isEnabled(pluginId)) return { finalizers: [] };
+  const slice = slices.find((e) => e.pluginId === pluginId)?.slice as unknown as SessionEventReducerSlice<S> | undefined;
+  const fins = finalizers.filter((e) => e.pluginId === pluginId).map((e) => e.finalizer as unknown as ToolRowFinalizer<S>);
+  return { slice, finalizers: fins };
+}
+
 /** Test helper: forget every registration and the enabled set. */
 export function __resetSessionReducersForTests(): void {
   slices = [];

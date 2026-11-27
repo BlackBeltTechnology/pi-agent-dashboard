@@ -297,6 +297,18 @@ export function SubagentDetailView({
     emptyMessage = t("noDetailYet", undefined, "No detail available yet.");
   }
 
+  // A `__truncated` terminal frame ended the row without its result: say so.
+  // See change: move-subagents-to-plugin (task 9.5).
+  if (isComplete && (sub as { resultTruncated?: boolean }).resultTruncated) {
+    const note = (
+      <div data-testid="subagent-result-truncated-note" className="text-[11px] text-[var(--text-tertiary)]">
+        {t("subagentResultTooLarge", undefined, "The final result was too large to keep.")}
+      </div>
+    );
+    footer = footer ? <div className="space-y-2">{note}{footer}</div> : note;
+    if (!hasEntries) emptyMessage = "";
+  }
+
   // Stopped: neutral, final note above whatever body the tiers chose.
   // See change: subagent-queue-visibility (D4).
   if (sub.status === "stopped") {

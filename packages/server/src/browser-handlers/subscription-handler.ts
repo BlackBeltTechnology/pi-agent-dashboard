@@ -17,6 +17,7 @@ import {
 import { createAttachmentResolver } from "../attachments/attachment-resolver.js";
 import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { pluginIntentCache } from "../plugin-intent-cache.js";
+import { getPluginPolicyRegistry } from "../plugin-policy-registry.js";
 import { extractStatsFromEvents } from "../session/event-status-extraction.js";
 import { findBackfillOpenToolCalls } from "../session/open-tool-calls.js";
 import { compactEventsForReplay } from "../session/replay-compaction.js";
@@ -482,6 +483,25 @@ export async function sendEventBatches(
     }
     if (ws.readyState === ws.OPEN) {
       sendTo(ws, { type: "history_window", sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq, windowShape: mode });
+    }
+    // Plugin gap carry: after `history_window`, before the first `event_replay`,
+    // through the same `sendTo` so it is never reordered behind the batches.
+    // A windowed subscribe only; resident gap events only.
+    // See change: move-subagents-to-plugin (D2).
+    const carryRegistry = getPluginPolicyRegistry();
+    if (ws.readyState === ws.OPEN && carryRegistry.hasReplayCarry()) {
+      const frames = await carryRegistry.collectReplayCarries({
+        sessionId,
+        gapFromSeq: headMaxSeq + 1,
+        gapToSeq: tailMinSeq - 1,
+        head: full.slice(0, replayWindow.headEnd),
+        tail: full.slice(replayWindow.tailStart),
+        getGapEvents: () => stored.filter((e) => e.seq > headMaxSeq && e.seq < tailMinSeq),
+      });
+      if (isStale?.() || ws.readyState !== ws.OPEN) return 0;
+      for (const frame of frames) {
+        sendTo(ws, { type: "plugin_event_carry", sessionId, pluginId: frame.pluginId, events: frame.events });
+      }
     }
   } else if (resetIfUnwindowed && ws.readyState === ws.OPEN) {
     sendTo(ws, { type: "session_state_reset", sessionId });

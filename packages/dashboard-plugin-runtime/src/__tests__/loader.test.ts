@@ -27,6 +27,7 @@ function makeFakeContext(): ServerPluginContext {
     appendEvent: () => ({ ok: false, reason: "unsupported" }),
     registerStorePolicy: () => () => {},
     registerDeliveryPolicy: () => () => {},
+    registerReplayCarry: () => () => {},
     onSessionResolved: () => () => {},
     sendToSession: () => true,
     emitEventToSession: () => true,

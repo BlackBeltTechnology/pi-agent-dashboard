@@ -255,7 +255,6 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "shutdown", reason: "duplicate-of:shutdown" },
   { pattern: "spawn_session", reason: "duplicate-of:spawn_session" },
   { pattern: "stop_after_turn", reason: "duplicate-of:stop_after_turn" },
-  { pattern: "subagent_resync_request", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "subscribe", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "ui_management", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "unarchive_session", reason: "duplicate-of:unarchive_session" },

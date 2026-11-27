@@ -37,3 +37,5 @@ New setter `setLookupOnlyIds`: `sessions_page_result` removes the ids it deliver
 See change: add-spawn-model-choice. `spawn_result` success + `choiceWarning` → `showToast(choiceWarning, "warning")`; never marks the spawn failed.
 
 Optional `setPathKeyPlatform` dep. `sessions_snapshot` calls it with `msg.pathKeyPlatform` UNCONDITIONALLY (undefined included) — older server clears a stale platform. See change: fix-archive-fold-key-and-filter-chips.
+
+`plugin_event_carry` case: stashes frame in `carryStashRef`, applies via `applyCarry` → `reduceCarriedEvent` (named plugin's slice + finalizer only). No chat rows, no `maxSeq`, no gap bookkeeping, no persister/`publishSessionEvents`. First `event_replay` with `shouldReset` re-applies stashed carry after fold (reset wipes plugin state); `session_state_reset` clears stash. See change: move-subagents-to-plugin.

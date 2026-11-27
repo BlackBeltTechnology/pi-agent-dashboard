@@ -22,7 +22,6 @@ import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-run
 import { currentSentence } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
 import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import {
-  countSteps,
   readLiveTail,
   type SubagentLiveTail,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
@@ -47,7 +46,6 @@ import {
   trackInspectorMounted,
 } from "./subagent-inspector-telemetry.js";
 import { clearSubagentStop, useSubagentStopState } from "./subagentStop.js";
-import { useSubagentResyncCadence } from "./useSubagentResyncCadence.js";
 
 type ToolRendererProps = SlotProps<"tool-renderer">;
 
@@ -312,21 +310,6 @@ function CardControls({
   );
 }
 
-/**
- * Correlation token so a resync reply comes back to THIS browser only (C5).
- * A v4 id from `getRandomValues`, which exists on the plain-http LAN origin a
- * knock pairs onto; the native `randomUUID` does not (the secure-context scan
- * forbids a bare reference). The shell's `randomUuid()` is host-only, so the
- * plugin carries this 4-line equivalent. See change: add-lan-knock-pairing.
- */
-function newResyncRequestId(): string {
-  const b = crypto.getRandomValues(new Uint8Array(16));
-  b[6] = (b[6] & 0x0f) | 0x40; // version 4
-  b[8] = (b[8] & 0x3f) | 0x80; // variant 10xx
-  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
-
 export function AgentToolRenderer({ toolInput: args, status = "running", result, toolDetails, context }: ToolRendererProps) {
   const t = useT();
   const AgentCardShell = useUiPrimitive(UI_PRIMITIVE_KEYS.agentCard);
@@ -400,29 +383,9 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
     </Dialog>
   ) : null;
 
-  // Request a resync when the subagent is still running but its inspector
-  // timeline is empty or the map has no entry at all (a gap swallowed its
-  // live frames, or the client subscribed after it started and state-replay
-  // does not re-synthesize subagent_* events for running agents). The bridge
-  // replays the latest snapshot in response.
-  // See change: fix-subagent-live-detail-reliability (D2);
-  // see change: fix-subagent-inline-expand-resync (inline path parity).
-  const requestResyncIfStale = () => {
-    if (!agentId || !sessionId || !context?.send) return;
-    const sub = session?.subagents.get(agentId);
-    const emptyTimeline = !sub?.entries || sub.entries.length === 0;
-    // Card status is authoritative for "still running" even when the map has
-    // no entry yet (sub === undefined) — that is exactly the not-found case.
-    const running = details?.status === "running" || details?.status === "queued" || sub?.status === "running";
-    if (running && emptyTimeline) {
-      context.send({ type: "subagent_resync_request", sessionId, agentId, requestId: newResyncRequestId(), reason: "open" });
-    }
-  };
-
-  // Open the detail dialog, resyncing first if the timeline is stale.
+  // Open the detail dialog.
   const openDetail = () => {
     setDetailOpen(true);
-    requestResyncIfStale();
   };
 
   // P5 kill-switch signal (D1): record how much of this subagent's runtime has
@@ -442,41 +405,12 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
     return () => release();
   }, [agentId, inspectorOpen]);
 
-  // Open-inspector liveness (D4 v1). Intermediate frames no longer carry the
-  // timeline, so a MOUNTED view pulls it on a backoff cadence. Deliberately
-  // WITHOUT the `emptyTimeline` precondition above — that precondition is why a
-  // view watching a growing timeline never re-fires today. One timer per
-  // subagent, so inline + popout mounted together do not double-fire.
-  // See change: reduce-subagent-details-payload (F1, F3, F4).
   const sub = agentId ? session?.subagents.get(agentId) : undefined;
   // A healed row (superseded / session_ended) carries a placeholder result; the
   // subagent's own `subagent_completed` result is the real one, so prefer it.
   // See change: add-plugin-bridge-contributions (D10).
   const healedBy = (toolDetails as Record<string, unknown> | undefined)?.healedBy;
   const shownResult = typeof healedBy === "string" && healedBy && sub?.result ? sub.result : result;
-  // A streamed producer (≥ 0.3.0) delivers every step on `subagent_entry`; once
-  // the filled steps reach `entryCount` a pull would only re-send what is
-  // already here. See change: add-plugin-bridge-contributions (D9).
-  const streamComplete = sub?.entryCount !== undefined && countSteps(sub.entries) >= sub.entryCount;
-  useSubagentResyncCadence({
-    key:
-      agentId && sessionId && (expanded || detailOpen) && !streamComplete ? `${sessionId}:${agentId}` : undefined,
-    // A finalized card (e.g. a neutral settle heal while the subagent is still
-    // recorded running) stops polling. See change:
-    // finalize-agent-card-on-subagent-stop (D5c).
-    running:
-      details?.status === "running" ||
-      details?.status === "queued" ||
-      (sub?.status === "running" && status === "running"),
-    entryCount: sub?.entries?.length ?? 0,
-    onResync: () => {
-      if (agentId && sessionId && context?.send) {
-        // The token makes the reply requester-scoped instead of fanned out to
-        // every viewer of this session (C5).
-        context.send({ type: "subagent_resync_request", sessionId, agentId, requestId: newResyncRequestId(), reason: "cadence" });
-      }
-    },
-  });
 
   // Hold the last non-empty tail so the ticker never blinks out between a
   // block's end and the next block (or terminal). No extra resync on the clear
@@ -491,11 +425,8 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
     heldTail.current = { kind: rawTail.kind, text: rawTail.text };
   }
 
-  // Toggle the inline expanded body; when expanding, resync if stale so the
-  // inline timeline hydrates the same way the popout does (previously the
-  // inline path skipped resync → "Subagent not found in this session.").
+  // Toggle the inline expanded body.
   const toggleExpand = () => {
-    if (!expanded) requestResyncIfStale();
     setExpanded((v) => !v);
   };
 

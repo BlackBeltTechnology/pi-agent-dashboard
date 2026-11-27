@@ -1525,9 +1525,9 @@ describe("sessionList.archiveServiceSessionsOnEnd (E24)", () => {
   });
 });
 
-// ── subagent tick throttle: default ON + marker round-trip ───────────────────
-// See change: heal-orphaned-tool-cards-on-session-end (design D5).
-describe("subagentTickThrottleMs default + migration marker", () => {
+// ── removed subagent tick throttle: key ignored ──────────────────────────────
+// See change: move-subagents-to-plugin (10.1).
+describe("subagentTickThrottleMs removed", () => {
   let testDir: string;
   let configFile: string;
   let origHome: string;
@@ -1544,27 +1544,20 @@ describe("subagentTickThrottleMs default + migration marker", () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("defaults to 500 when the key is absent", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
-    expect(loadConfig().subagentTickThrottleMs).toBe(500);
+  it("loadConfig ignores a stored subagentTickThrottleMs and marker", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8000, subagentTickThrottleMs: 0, subagentTickThrottleMigrated: true }));
+    const cfg = loadConfig() as unknown as Record<string, unknown>;
+    expect(cfg.port).toBe(8000);
+    expect(cfg).not.toHaveProperty("subagentTickThrottleMs");
+    expect(cfg).not.toHaveProperty("subagentTickThrottleMigrated");
   });
 
-  it("honours an explicit stored 0", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ subagentTickThrottleMs: 0 }));
-    expect(loadConfig().subagentTickThrottleMs).toBe(0);
-  });
-
-  it("round-trips the migration marker so a settings save cannot strip it", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ subagentTickThrottleMs: 0, subagentTickThrottleMigrated: true }));
-    expect(loadConfig().subagentTickThrottleMigrated).toBe(true);
-  });
-
-  it("ensureConfig seeds the marker on a fresh install", () => {
+  it("ensureConfig seeds neither key on a fresh install", () => {
     fs.rmSync(configFile, { force: true });
     ensureConfig();
     const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
-    expect(written.subagentTickThrottleMs).toBe(500);
-    expect(written.subagentTickThrottleMigrated).toBe(true);
+    expect(written).not.toHaveProperty("subagentTickThrottleMs");
+    expect(written).not.toHaveProperty("subagentTickThrottleMigrated");
   });
 });
 

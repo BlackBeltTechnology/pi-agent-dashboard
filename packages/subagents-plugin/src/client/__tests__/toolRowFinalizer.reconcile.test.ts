@@ -19,6 +19,8 @@ const sub = (id: string, status: SubagentState["status"], extra: Partial<PluginS
   type: "t",
   description: "d",
   status,
+  // Snapshots end only background rows (move-subagents-to-plugin D7); foreground is covered in sessionEventReducer.test.ts.
+  background: true,
   ...extra,
 });
 const stateOf = (subs: PluginSubagentState[], over: Partial<AgentFinalizerState> = {}): AgentFinalizerState => {

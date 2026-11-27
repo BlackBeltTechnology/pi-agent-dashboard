@@ -2096,7 +2096,8 @@ describe("command_feedback events", () => {
       expect(state.subagents.get("sub-2")!.status).toBe("failed");
     });
 
-    it("should default type and description when missing", () => {
+    // move-subagents-to-plugin (D8): never the literal "unknown"; falls back to the short id.
+    it("should default type to the short id and description to empty when missing", () => {
       const state = applyEvents([
         {
           eventType: "subagent_created",
@@ -2106,7 +2107,7 @@ describe("command_feedback events", () => {
       ]);
 
       const sub = state.subagents.get("sub-1")!;
-      expect(sub.type).toBe("unknown");
+      expect(sub.type).toBe("sub-1");
       expect(sub.description).toBe("");
     });
 

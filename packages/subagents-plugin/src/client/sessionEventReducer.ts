@@ -22,6 +22,7 @@
 import type { SessionEventReducerSlice } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   applyLiveBlockPiece,
+  isTerminalSubagentStatus,
   readSubagentDetails,
   type SubagentState,
   type SubagentTimelineEntry,
@@ -64,11 +65,16 @@ export type PluginSubagentState = SubagentState & {
    * `takenAt` / `answeredAt`. See change: fix-background-subagent-ghost-rows (D5).
    */
   lastFrameAt?: number;
+  /** A `__truncated` terminal frame ended this row: its final result was too large to keep. */
+  resultTruncated?: true;
 };
 
-/** `{ lastFrameAt }` when the frame carries a numeric time, else nothing. */
-const stamp = (timestamp: number): { lastFrameAt?: number } =>
-  typeof timestamp === "number" && Number.isFinite(timestamp) ? { lastFrameAt: timestamp } : {};
+/** `{ lastFrameAt }` when the frame carries a numeric time, else nothing (never moves backwards, so a replayed older frame is harmless). */
+const stamp = (timestamp: number, existing?: SubagentState): { lastFrameAt?: number } => {
+  if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) return {};
+  const prev = (existing as PluginSubagentState | undefined)?.lastFrameAt;
+  return { lastFrameAt: prev !== undefined && prev > timestamp ? prev : timestamp };
+};
 
 /** True when the subagent was started with `run_in_background`. */
 export const isBackgroundSubagent = (sub: SubagentState | undefined): boolean =>
@@ -81,33 +87,74 @@ export const isBackgroundSubagent = (sub: SubagentState | undefined): boolean =>
 const readBackground = (details: Record<string, unknown> | undefined): { background?: true } =>
   details?.background === true ? { background: true } : {};
 
+const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
+
+/** Short id shown when no frame carries a type or name. */
+const shortId = (id: string): string => id.slice(0, 8);
+
+/** A type no frame supplied: written by a stub (entry/delta before created/started). */
+const isPlaceholderType = (id: string, type: string | undefined): boolean =>
+  !type || type === "unknown" || type === shortId(id);
+
+/**
+ * Type and task of a row first seen from `data`: `details.*` before top-level
+ * fields, type falling back to the display name, then the short id (never
+ * `unknown`). First-wins: a type or task already read is kept; a stub's
+ * placeholder type is replaced. See change: move-subagents-to-plugin (D8).
+ */
+function identityOf(id: string, data: Data, existing: SubagentState | undefined): { type: string; description: string } {
+  const d = detailsOf(data);
+  const read = str(d?.subagentType) ?? str(data.type) ?? str(d?.displayName) ?? shortId(id);
+  return {
+    type: existing && !isPlaceholderType(id, existing.type) ? existing.type : read,
+    description: str(existing?.description) ?? str(d?.description) ?? str(data.description) ?? "",
+  };
+}
+
+/** Heal markers a live `subagent_started` may revive. See change: move-subagents-to-plugin (D7). */
+export const REVIVABLE_HEALS: ReadonlySet<string | undefined> = new Set(["session_ended", "untracked", "idle"]);
+
+// First-wins merge: a created frame (live, replayed or carried) never regresses
+// an existing row; it only fills what is missing. Applying it twice == once.
 const created: Reduce = (state, data, timestamp) => {
   const id = data.id as string;
+  if (typeof id !== "string" || !id) return state;
   return withSubagents(state, (subagents) => {
-    setSubagentState(subagents, {
-      id,
-      type: (data.type as string) ?? "unknown",
-      description: (data.description as string) ?? "",
-      status: "created",
+    const existing = subagents.get(id);
+    const incoming = {
       ...readSubagentDetails(detailsOf(data)),
       ...readBackground(detailsOf(data)),
-      ...stamp(timestamp),
+    };
+    const defined = Object.fromEntries(Object.entries(existing ?? {}).filter(([, v]) => v !== undefined));
+    setSubagentState(subagents, {
+      ...incoming,
+      status: "created",
+      ...defined,
+      id,
+      ...identityOf(id, data, existing),
+      ...stamp(timestamp, existing),
     } as PluginSubagentState);
   });
 };
 
 const started: Reduce = (state, data, timestamp) => {
   const id = data.id as string;
+  if (typeof id !== "string" || !id) return state;
+  const existing = state.subagents.get(id);
+  // Terminal never regresses, except a revivable heal (the producer is provably alive).
+  if (isTerminalSubagentStatus(existing?.status) && !REVIVABLE_HEALS.has(existing?.healedBy)) return state;
   return withSubagents(state, (subagents) => {
-    const existing = subagents.get(id);
+    const { error: _e, ...rest } = (existing ?? {}) as SubagentState;
     setSubagentState(subagents, {
-      ...(existing ?? { id, type: (data.type as string) ?? "unknown", description: (data.description as string) ?? "" }),
+      ...rest,
+      id,
+      ...identityOf(id, data, existing),
       status: "running",
       healedBy: undefined,
       startedAt: existing?.startedAt ?? (typeof timestamp === "number" ? timestamp : Date.now()),
       ...readSubagentDetails(detailsOf(data)),
       ...readBackground(detailsOf(data)),
-      ...stamp(timestamp),
+      ...stamp(timestamp, existing),
     } as PluginSubagentState);
   });
 };
@@ -133,11 +180,11 @@ const entryFrame: Reduce = (state, data, timestamp) => {
       if (liveBlock && liveBlock.blockId <= blockId) liveBlock = undefined;
     }
     setSubagentState(subagents, {
-      ...(existing ?? { id: agentId, type: "unknown", description: "", status: "running" }),
+      ...(existing ?? { id: agentId, type: shortId(agentId), description: "", status: "running" }),
       entries,
       liveBlock,
       closedBlockMax,
-      ...stamp(timestamp),
+      ...stamp(timestamp, existing),
     } as PluginSubagentState);
   });
 };
@@ -156,9 +203,9 @@ const deltaFrame: Reduce = (state, data, timestamp) => {
   if (!liveBlock || liveBlock === existing?.liveBlock) return state;
   return withSubagents(state, (subagents) => {
     setSubagentState(subagents, {
-      ...(existing ?? { id: agentId, type: "unknown", description: "", status: "running" }),
+      ...(existing ?? { id: agentId, type: shortId(agentId), description: "", status: "running" }),
       liveBlock,
-      ...stamp(timestamp),
+      ...stamp(timestamp, existing),
     } as PluginSubagentState);
   });
 };

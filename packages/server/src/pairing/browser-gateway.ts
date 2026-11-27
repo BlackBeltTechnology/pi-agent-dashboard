@@ -220,7 +220,7 @@ import { hasPromptChannel, issuePromptChannel, releasePromptChannel } from "../a
 import { guardAcpBrowserMessage } from "../browser-handlers/acp-guard.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFocusMode, handleSetFocusProfile, handleSetFolderCollapsed, handleSetFolderExpanded, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleClearSteeringEntries, handleEditFollowupEntry, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleRemoveSteeringEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
+import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleClearSteeringEntries, handleEditFollowupEntry, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleRemoveSteeringEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
 import { clearGapState, handleHistoryBackfill, handleSubscribe, sendEventBatches } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
@@ -235,7 +235,7 @@ import { createViewedSessionTracker, type ViewedSessionTracker } from "../sessio
 import type { SudoBrowserSeam, SudoCredentialRelay } from "../sudo-credential/relay.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
 import { isSocketLocallyTrusted } from "./socket-locality.js";
-import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
+import { ResyncRequesterRegistry, resyncRequestIdOf } from "./resync-requester-registry.js";
 import { decideWsTier, type TieredSocket, WS_CLOSE_SESSION_REVOKED } from "./ws-tier-gate.js";
 
 /** Per-socket set of message types already logged as tier-refused (bounded by the type count). */
@@ -837,7 +837,7 @@ export function createBrowserGateway(
   // Track which browser is viewing which session (for unread state machine).
   // See change: session-card-unread-stripes.
   const viewedSessionTracker = createViewedSessionTracker();
-  /** requestId → the browser awaiting that subagent-resync reply (C5). */
+  /** requestId → the browser awaiting that prompt-resync reply. */
   const resyncRequesters = new ResyncRequesterRegistry<WebSocket>();
 
   // Track pending interactive UI requests per session for replay on reconnect
@@ -2327,9 +2327,6 @@ export function createBrowserGateway(
           case "kill_process":
             handleKillProcess(msg, ctx);
             break;
-          case "subagent_resync_request":
-            handleSubagentResyncRequest(msg, ctx);
-            break;
           case "prompt_resync_request":
             handlePromptResyncRequest(msg, ctx);
             break;
@@ -2807,21 +2804,6 @@ export function createBrowserGateway(
       // resync narrowing below is a WebSocket concern only.
       // See change: add-chat-gateway.
       deliverInProcess(sessionId, msg);
-      // Requester-scoped resync delivery (C5): a reply carrying a known
-      // correlation token goes to the ONE connection that asked, so a cadence
-      // of fat replies is not multiplied by the number of viewers. An unknown
-      // or expired token falls through to the ordinary fan-out below.
-      // See change: reduce-subagent-details-payload.
-      const requestId = resyncRequestIdOf(event?.data as Record<string, unknown> | undefined);
-      if (requestId) {
-        const requester = resyncRequesters.take(requestId);
-        if (requester && subscribers.includes(requester)) {
-          if (!replayingSessions.get(requester)?.has(sessionId)) {
-            sendTo(requester, msg, { sessionId, seq });
-          }
-          return;
-        }
-      }
       for (const ws of subscribers) {
         // Skip WebSockets that are mid-replay for this session
         const replaying = replayingSessions.get(ws);

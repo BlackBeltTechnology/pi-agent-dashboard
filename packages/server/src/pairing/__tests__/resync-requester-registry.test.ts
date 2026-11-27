@@ -11,7 +11,7 @@ import {
   RESYNC_REQUEST_TTL_MS,
   ResyncRequesterRegistry,
   resyncRequestIdOf,
-} from "../subagent-resync-routing.js";
+} from "../resync-requester-registry.js";
 
 describe("resyncRequestIdOf", () => {
   it("reads the correlation token off a reply frame", () => {
