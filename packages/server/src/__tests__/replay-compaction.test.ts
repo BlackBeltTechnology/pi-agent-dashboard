@@ -39,12 +39,11 @@ describe("compactEventsForReplay — supersession + boundaries", () => {
     expect(compactEventsForReplay([])).toEqual([]);
   });
 
-  it("E4: window with no message_end at all is returned unchanged", () => {
+  it("E4: window with no message_end collapses its unfinished run", () => {
     const w: StoredEvent[] = [ev("message_start", 1)];
     for (let s = 2; s <= 20; s++) w.push(assistantUpdate(s, `t${s}`));
     const out = compactEventsForReplay(w);
-    expect(out).toEqual(w);
-    expect(out).toHaveLength(20);
+    expect(seqs(out)).toEqual([1, 20]);
   });
 });
 
@@ -113,15 +112,15 @@ describe("compactEventsForReplay — seq contract", () => {
 });
 
 describe("compactEventsForReplay — streaming tail", () => {
-  it("E9: finalized M1's updates drop while the still-streaming M2 keeps all 12", () => {
+  it("E9: finalized M1 updates drop while the still-streaming M2 retains its final snapshot", () => {
     const w: StoredEvent[] = [ev("message_start", 1)];
     for (let s = 2; s <= 9; s++) w.push(assistantUpdate(s, `m1-${s}`));
     w.push(ev("message_end", 10));
     w.push(ev("message_start", 11));
     for (let s = 12; s <= 23; s++) w.push(assistantUpdate(s, `m2-${s}`));
     const out = compactEventsForReplay(w);
-    expect(seqs(out)).toEqual([1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
-    expect(out.filter((e) => e.event.eventType === "message_update")).toHaveLength(12);
+    expect(seqs(out)).toEqual([1, 10, 11, 23]);
+    expect(out.filter((e) => e.event.eventType === "message_update")).toHaveLength(1);
   });
 });
 
@@ -187,7 +186,7 @@ describe("compactEventsForReplay — external supersession boundary", () => {
       assistantUpdate(101, "ab"),
       assistantUpdate(102, "abc"),
     ];
-    expect(seqs(compactEventsForReplay(slice))).toEqual([100, 101, 102]);
+    expect(seqs(compactEventsForReplay(slice))).toEqual([102]);
     expect(compactEventsForReplay(slice, slice.length)).toEqual([]);
   });
 
@@ -205,4 +204,126 @@ describe("compactEventsForReplay — external supersession boundary", () => {
     // `streamingText` for the `flush-<toolCallId>` row) both survive.
     expect(seqs(out)).toEqual([200, 202, 203]);
   });
+});
+
+
+describe("adjacent unfinished snapshots", () => {
+  it("E1: retains the final object for zero, one and two updates", () => {
+    for (const n of [0, 1, 2]) {
+      const w = Array.from({ length: n }, (_, i) => assistantUpdate(i + 1, `${i}`));
+      const out = compactEventsForReplay(w);
+      expect(out.length).toBe(Math.min(n, 1));
+      if (n) expect(out[0]).toBe(w[n - 1]);
+    }
+  });
+  it("E2 E3 X1: recognizes only complete text snapshots and supported metadata", () => {
+    const good = [
+      { message: { role: "assistant", content: "" } },
+      { message: { role: "assistant", content: [] } },
+      { message: { role: "assistant", content: [{ type: "text", text: "x" }] } },
+      ...["text_start", "text_delta", "text_end"].map(type => ({ message: { role: "assistant", content: "x" }, assistantMessageEvent: { type } })),
+    ];
+    const bad = [
+      { message: { role: "user", content: "x" } }, {},
+      ...[[null], [{ type: "thinking", thinking: "x" }], [{ type: "text" }], [{ type: "image" }], [{ type: "toolCall" }]].map(content => ({ message: { role: "assistant", content } })),
+      ...[null, "text_delta", { type: 4 }, { type: "thinking_start" }, { type: "other" }].map(assistantMessageEvent => ({ message: { role: "assistant", content: "x" }, assistantMessageEvent })),
+    ];
+    for (const [eligible, cases] of [[true, good], [false, bad]] as const) {
+      for (const data of cases) {
+        const w = [assistantUpdate(1, "a"), ev("message_update", 2, data), assistantUpdate(3, "b")];
+        expect(compactEventsForReplay(w)).toEqual(eligible ? [w[2]] : w);
+      }
+    }
+  });
+  it("E4: separators preserve original adjacency", () => {
+    for (const type of ["tool_execution_start", "tool_execution_end", "message_start", "message_end", "subagent_created", "stats_update", "session_compact"]) {
+      const w = [assistantUpdate(1, "a"), ev(type, 2), assistantUpdate(3, "b")];
+      expect(compactEventsForReplay(w, 0)).toEqual(w);
+    }
+  });
+  it("E5 E6: preserves prefix exemptions and uses original boundary positions", () => {
+    const think = ev("message_update", 3, { assistantMessageEvent: { type: "thinking_start" } });
+    const w = [assistantUpdate(1, "a"), assistantUpdate(2, "ab"), think, assistantUpdate(4, "b"), assistantUpdate(5, "bc")];
+    for (const [boundary, expected] of [[undefined, [2,3,5]], [0, [2,3,5]], [2, [3,5]], [5, [3]]] as const)
+      expect(seqs(compactEventsForReplay(w, boundary))).toEqual(expected);
+    const prefix = [ev("message_start", 1), assistantUpdate(2, "drop"), think, assistantUpdate(4, "seed"), ev("tool_execution_start", 5), ev("message_end", 6), ...Array.from({length: 12}, (_, i) => assistantUpdate(i + 7, `${i}`))];
+    expect(seqs(compactEventsForReplay(prefix))).toEqual([1,3,4,5,6,18]);
+  });
+  it("E7 E8: frozen inputs retain references and derived compaction is idempotent", () => {
+    for (const w of [[assistantUpdate(1,"a"), assistantUpdate(2,"ab")], [assistantUpdate(1,"a"), ev("stats_update",2), assistantUpdate(3,"b"), assistantUpdate(4,"bc")], [assistantUpdate(1,"a"), ev("message_end",2), assistantUpdate(3,"b"), assistantUpdate(4,"bc")]]) {
+      const before = JSON.stringify(w); w.forEach(e => { Object.freeze(e.event.data); Object.freeze(e.event); Object.freeze(e); }); Object.freeze(w);
+      const once = compactEventsForReplay(w); const twice = compactEventsForReplay(once);
+      expect(JSON.stringify(w)).toBe(before);
+      expect(twice).toEqual(once); twice.forEach((e, i) => expect(e).toBe(once[i]));
+    }
+  });
+});
+
+function generatedPayload(kind: number, i: number): Record<string, unknown> {
+  const assistant = (content: unknown) => ({ role: "assistant", content });
+  switch (kind) {
+    case 0: return { message: assistant("") };
+    case 1: return { message: assistant([]) };
+    case 2: return { message: assistant([{ type: "text", text: `${i}` }]) };
+    case 3: case 4: case 5: return { message: assistant(`${i}`), assistantMessageEvent: { type: ["text_start", "text_delta", "text_end"][kind - 3] } };
+    case 6: return { message: assistant(`${i}`) };
+    case 7: return { message: { role: "user", content: "x" } };
+    case 8: return { message: assistant([{ type: "image" }]) };
+    case 9: return { message: assistant("x"), assistantMessageEvent: null };
+    case 10: return { message: assistant("x"), assistantMessageEvent: { type: "unsupported" } };
+    case 11: return { assistantMessageEvent: { type: "thinking_start" } };
+    case 12: return { message: assistant("x"), assistantMessageEvent: "text_delta" };
+    case 13: return { message: assistant("x"), assistantMessageEvent: { type: 1 } };
+    default: return {};
+  }
+}
+
+function generatedStructuralCase(seed: number, counts: Set<string>) {
+  const w: StoredEvent[] = []; const eligible: boolean[] = [];
+  const runSize = seed % 4;
+  for (let i = 0; i < runSize; i++) {
+    w.push(assistantUpdate(2 * w.length + 1, `prefix-${i}`)); eligible.push(true);
+  }
+  const separators = ["tool_execution_start", "tool_execution_end", "message_start", "message_end", "subagent_created", "stats_update", "session_compact"];
+  for (let i = 0; i < seed % 29; i++) {
+    const kind = (seed * 13 + i * 7) % 22; counts.add(`${kind}`);
+    w.push(ev(kind >= 15 ? separators[kind - 15] : "message_update", 2 * w.length + 1, generatedPayload(kind, i)));
+    eligible.push(kind < 7);
+  }
+  const boundary = seed % 3 === 0 ? 0 : seed % 3 === 1 ? w.length : Math.min(1, w.length);
+  return { w, eligible, boundary, runSize };
+}
+
+function assertStructuralCase(seed: number, w: StoredEvent[], eligible: boolean[], boundary: number) {
+  const original = JSON.stringify(w);
+  w.forEach(e => { Object.freeze(e.event.data); Object.freeze(e.event); Object.freeze(e); }); Object.freeze(w);
+  try {
+    const result = compactEventsForReplay(w, boundary);
+    const expectedTail = w.filter((_, i) => i >= boundary && !(eligible[i] && eligible[i + 1]));
+    expect(result.filter(e => w.indexOf(e) >= boundary), `seed ${seed}: ${original}`).toEqual(expectedTail);
+    let last = -1; for (const e of result) { const index = w.indexOf(e); expect(index).toBeGreaterThan(last); last = index; }
+    expect(JSON.stringify(w)).toBe(original);
+    const once = compactEventsForReplay(w); const twice = compactEventsForReplay(once);
+    expect(twice).toEqual(once); twice.forEach((e, i) => expect(e).toBe(once[i]));
+  } catch (error) {
+    throw new Error(`E9 seed ${seed}, boundary ${boundary}, input ${original}`, { cause: error });
+  }
+}
+
+it("E9: generated annotated runs preserve tail boundaries, identity and idempotence", () => {
+  const counts = new Set<string>(); const boundaries = new Set<string>(); const runSizes = new Set<number>();
+  const generatedInputs: Array<{ seed: number; boundary: number; input: StoredEvent[] }> = [];
+  let insideRun = 0;
+  for (let seed = 0; seed < 240; seed++) {
+    const { w, eligible, boundary, runSize } = generatedStructuralCase(seed, counts);
+    runSizes.add(runSize); generatedInputs.push({ seed, boundary, input: w });
+    if (boundary > 0 && eligible[boundary - 1] && eligible[boundary]) insideRun++;
+    boundaries.add(boundary === 0 ? "zero" : boundary === w.length ? "end" : "inside");
+    assertStructuralCase(seed, w, eligible, boundary);
+  }
+  const coverageContext = `E9 generated inputs ${JSON.stringify(generatedInputs)}`;
+  expect(counts.size, coverageContext).toBe(22);
+  expect([...runSizes].sort(), coverageContext).toEqual([0, 1, 2, 3]);
+  expect(insideRun, coverageContext).toBeGreaterThan(0);
+  expect([...boundaries].sort(), coverageContext).toEqual(["end", "inside", "zero"]);
 });
