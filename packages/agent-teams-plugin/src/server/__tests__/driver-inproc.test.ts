@@ -352,3 +352,26 @@ describe("S117 spawn clock and the opt-in queue timeout", () => {
     expect(env.rt.store.member(team, "a")?.status).toBe("spawning"); // A is running (no event mapping yet), untouched
   });
 });
+
+describe("dispose settles every unsettled promise (review B2)", () => {
+  it("a spawn queued while the lead is away, one awaiting its ack, a stop queued behind it, and a spawn waiting for a hello after no_context all settle (failed) instead of hanging", async () => {
+    const d = driverEnv({ spawnTimeoutMs: 60_000 });
+    for (const name of ["queued", "inflight", "waiting"]) d.reserve(name);
+    d.hello();
+    const inflight = d.spawn("inflight"); // emitted, no ack yet
+    const stopBehind = d.driver.stopChild(d.team.id, { member: "inflight" }); // queued behind the outstanding command of the same member
+    const waiting = d.spawn("waiting");
+    d.ack(d.cmds().find((c) => c.cmd === "spawn" && c.member === "waiting")?.cmdId as string, { ok: false, error: "no_context" });
+    await turns(); // `waiting` is now parked on the lead's next hello
+    d.connected.delete("S-lead");
+    const queued = d.spawn("queued"); // lead away: stays in the queue
+    expect(d.driver.queueSize()).toBeGreaterThan(0);
+    d.driver.dispose();
+    const hung = Symbol("hung");
+    const settled = await Promise.race([Promise.all([queued, inflight, waiting, stopBehind]), new Promise<symbol>((resolve) => setTimeout(() => resolve(hung), 200))]);
+    expect(settled).not.toBe(hung);
+    const [q, i, w, s] = settled as [{ ok: boolean }, { ok: boolean }, { ok: boolean; message?: string }, boolean];
+    expect([q.ok, i.ok, w.ok, s]).toEqual([false, false, false, false]);
+    expect(w.message).toContain("spawn_timeout");
+  });
+});

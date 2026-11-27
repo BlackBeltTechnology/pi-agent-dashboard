@@ -11,11 +11,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { linkInProcBridge } from "../../__tests__/harness/inproc-link.js";
 import { createInProcPair, type InProcPair } from "../../__tests__/harness/inproc-pair.js";
+import { memberFixture } from "../../__tests__/harness/store-env.js";
 import { createTeamsEnv } from "../../__tests__/harness/teams-env.js";
 import { MAX_MAIL_LINES, truncationMarkerLine } from "../../shared/constants.js";
 import type { SteerCommand } from "../../shared/inproc-protocol.js";
 import { formatEnvelope } from "../../shared/mail-format.js";
-import type { Mail, Team } from "../../shared/types.js";
+import type { Mail, Member, Team } from "../../shared/types.js";
 import { frameMailBatch, frameMailBlock, mailIdLine, QUOTE } from "../inproc-mail.js";
 
 type FrameInput = Parameters<typeof frameMailBlock>[0];
@@ -387,5 +388,35 @@ describe("S81 urgent interrupt degrades honestly", () => {
     expect(env.rt.counters.get("inproc_degraded_urgent", team.id)).toBe(1);
     env.rt.ops.abortMember(env.rt.store.get(team.id) as Team, "bob", { actor: "user" }); // interrupt_unavailable, but no steer was degraded
     expect(env.rt.counters.get("inproc_degraded_urgent", team.id)).toBe(1);
+  });
+});
+
+describe("steer replay is scoped to its team (review B1)", () => {
+  it("a recreated team's first steer (same member name, same mail id 1) is executed by the host, not answered with the previous team's stored ack", async () => {
+    const pair = createInProcPair();
+    await pair.start();
+    pair.reserve("bob");
+    await pair.spawn("bob");
+    pair.store.patchMember(pair.team.id, "bob", { status: "busy" });
+    const a = pair.store.appendMail(pair.team.id, { from: "lead", to: "bob", kind: "message", text: "same", wake: true }) as Mail;
+    pair.driver.deliver({ teamId: pair.team.id, member: "bob" }, [a], { wake: true });
+    await pair.settle();
+    expect(pair.store.pendingMail(pair.team.id, "bob")).toHaveLength(0); // team A's steer was handed over and its ack stored by the host
+
+    expect(await pair.driver.stopChild(pair.team.id, { member: "bob" })).toBe(true); // closing team A stops its child
+    pair.store.setTeamStatus(pair.team.id, "closed", { closeReason: "team_delete" });
+    const teamB = pair.store.createTeam({ name: "t2", leadSessionId: "S-lead", leadCwd: "/w", mode: "in-process", maxTeammates: 10 });
+    pair.store.reserveMember(teamB.id, memberFixture("bob", { status: "spawning" }) as Member);
+    const so = await pair.driver.spawn({ ...pair.spawnReq("bob"), teamId: teamB.id });
+    expect(so).toMatchObject({ ok: true });
+    pair.store.patchMember(teamB.id, "bob", { status: "busy" });
+    const b = pair.store.appendMail(teamB.id, { from: "lead", to: "bob", kind: "message", text: "same", wake: true }) as Mail;
+    expect(b.id).toBe(a.id); // mail ids restart per team
+    pair.host.double.nextSteerResult("reject"); // a replayed ack would still say ok; an executed steer fails
+    pair.driver.deliver({ teamId: teamB.id, member: "bob" }, [b], { wake: true });
+    await pair.settle();
+    const steerIds = pair.cmds().filter((c) => c.cmd === "steer").map((c) => c.cmdId);
+    expect(new Set(steerIds).size).toBe(2);
+    expect(pair.store.pendingMail(teamB.id, "bob")).toHaveLength(1); // not acked: the host really ran team B's steer (and it failed)
   });
 });

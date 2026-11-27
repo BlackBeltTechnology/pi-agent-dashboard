@@ -156,7 +156,7 @@ export function createInProcDriver(deps: InProcDriverDeps): InProcDriver {
   /** Non-waking mail held for an idle child, by `teamId\0member`. */
   const held = new Map<string, Mail[]>();
   /** Spawns waiting for the lead's next hello (`no_context`), by lead session. */
-  const helloWaiters = new Map<string, Array<() => void>>();
+  const helloWaiters = new Map<string, Array<(woken: boolean) => void>>();
   /** `teamId\0member` of steers the host answered `not_started`: retried on the next child event. */
   const notStarted = new Set<string>();
 
@@ -367,7 +367,7 @@ export function createInProcDriver(deps: InProcDriverDeps): InProcDriver {
     if (unique.length === 0) return;
     const { ids, blocks } = frameMailBatch(unique);
     counters.inc("inproc_steers", teamId);
-    void send(teamId, { cmd: "steer", member, mailIds: ids, blocks }, `steer:${member}:${mailIdsKey(ids)}`).then((outcome) => onSteerOutcome(teamId, member, ids, outcome));
+    void send(teamId, { cmd: "steer", member, mailIds: ids, blocks }, `steer:${teamId}:${member}:${mailIdsKey(ids)}`).then((outcome) => onSteerOutcome(teamId, member, ids, outcome));
   }
 
   /** Resolves true at the lead's next hello, false after `ms`. */
@@ -377,9 +377,9 @@ export function createInProcDriver(deps: InProcDriverDeps): InProcDriver {
         helloWaiters.set(sessionId, (helloWaiters.get(sessionId) ?? []).filter((w) => w !== wake));
         resolve(false);
       }, ms);
-      const wake = (): void => {
+      const wake = (woken: boolean): void => {
         clock.clearTimeout(timer);
-        resolve(true);
+        resolve(woken);
       };
       helloWaiters.set(sessionId, [...(helloWaiters.get(sessionId) ?? []), wake]);
     });
@@ -533,7 +533,7 @@ export function createInProcDriver(deps: InProcDriverDeps): InProcDriver {
       pump(sessionId);
       const waiters = helloWaiters.get(sessionId) ?? [];
       helloWaiters.delete(sessionId);
-      for (const wake of waiters) wake();
+      for (const wake of waiters) wake(true);
     },
 
     onAck(sessionId, ack) {
@@ -598,6 +598,9 @@ export function createInProcDriver(deps: InProcDriverDeps): InProcDriver {
     queueSize: () => queue.length,
 
     dispose() {
+      // Shutdown: nothing will ack or hello again, so every caller still waiting is settled (as failQueued does), never left hanging.
+      const waiters = [...helloWaiters.values()].flat();
+      const unsettled = [...outstanding.values(), ...queue];
       for (const e of outstanding.values()) if (e.timer !== undefined) clock.clearTimeout(e.timer);
       for (const t of queueTimers.values()) clock.clearTimeout(t);
       queueTimers.clear();
@@ -609,6 +612,8 @@ export function createInProcDriver(deps: InProcDriverDeps): InProcDriver {
       busyKeys.clear();
       queue.length = 0;
       queueBytes = 0;
+      for (const wake of waiters) wake(false);
+      for (const e of unsettled) e.resolve({ ok: false, error: "disposed", message: "the server is shutting down" });
     },
   };
   return driver;

@@ -52,7 +52,7 @@ export function frameMailBatch(mails: readonly Pick<Mail, "id" | "kind" | "from"
   return { ids: sorted.map((m) => m.id), blocks: sorted.map(frameMailBlock) };
 }
 
-/** Order-independent hash of a set of mail ids: the `cmdId` of a steer is `steer:<member>:<hash>`, so a retry matches the host's replay map. */
+/** Order-independent hash of a set of mail ids: the `cmdId` of a steer is `steer:<teamId>:<member>:<hash>` (mail ids restart per team, the host replay map is keyed by bare cmdId), so a retry matches the host's replay map. */
 export function mailIdsKey(ids: readonly number[]): string {
   return createHash("sha1").update([...new Set(ids)].sort(compareMailIds).join(",")).digest("hex").slice(0, 20);
 }

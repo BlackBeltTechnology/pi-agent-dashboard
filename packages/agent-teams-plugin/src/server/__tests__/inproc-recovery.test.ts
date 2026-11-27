@@ -412,6 +412,14 @@ describe("S88 server restart keeps children", () => {
     expect(team().members.find((m) => m.name === "zed")?.status).toBe("spawning");
   });
 
+  it("a spawning member that already has a childId but no pending command, absent from the snapshot, is failed (the exemption never outlives the in-flight command)", async () => {
+    const { env, link, team, teamId } = await restarted();
+    env.rt.store.patchMember(teamId, "sue", { childId: "bg-sue", childAgentId: "agent-sue" }); // spawn acked, then the server restarted before any event
+    await link.lane({ ...HELLO, snapshot: { members: [child("bob", "busy"), child("eve", "idle")] } });
+    await env.settle();
+    expect(team().members.find((m) => m.name === "sue")?.status).toBe("failed");
+  });
+
   it("a lead that never returns ends through onSessionEnded: the team closes lead_ended (no 30-minute orphan window)", async () => {
     const { env, team } = await restarted();
     env.fake.endSession(env.lead);

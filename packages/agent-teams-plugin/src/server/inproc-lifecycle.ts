@@ -194,8 +194,9 @@ export function createInProcLifecycle(deps: InProcLifecycleDeps): InProcLifecycl
 
   /** A member the host no longer has: its child is gone (a `spawning` one only when its spawn is not on the way any more). */
   function reconcileAbsent(team: Team, m: Member): void {
-    // Its spawn is still on the way (command queued / awaiting its ack), or was acknowledged after this snapshot was taken: not lost yet.
-    if (m.status === "spawning" && (driver.hasPendingCommand(team.id, m.name) || m.childId !== undefined)) return;
+    // Its spawn is still on the way (command queued / awaiting its ack): not lost yet. Once nothing is pending the snapshot is the truth
+    // (the lane is ordered: an ack that follows this hello can only belong to a command still pending), so a spawn acked earlier is failed too.
+    if (m.status === "spawning" && driver.hasPendingCommand(team.id, m.name)) return;
     logger.warn(`agent-teams: in-process member ${m.name} is not in the lead host's snapshot team=${team.id}`);
     if (m.status === "spawning") ops.releaseMember(team, m.name, "failed", "spawn failed: the lead host has no such child");
     else ops.releaseMember(team, m.name, "gone", "not_alive");
