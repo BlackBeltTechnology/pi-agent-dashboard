@@ -54,8 +54,8 @@
 
 - [x] 4.1 Update `packages/flows-plugin/src/client/AGENTS.md` and `src/AGENTS.md` rows (`FlowDashboard.tsx`, `FlowSummary.tsx`, `FlowWriteToolRenderer.tsx`, `flow-idle-state.ts`; remove `flow-yaml-parse.ts`); update `packages/flows-plugin/README.md`; sweep stale `FlowSummary` / `flow-yaml-parse` comments (`rg "FlowSummary\b|flow-yaml-parse" packages/flows-plugin/src`); delegate `docs/qa/distilled-current-test-cases.md` to DocScribe; update `packages/extension/.pi/skills/browser/references/web.md` and `web.agent.md`
 - [ ] 4.2 At archive, refresh the `## Purpose` blurbs of `flow-authoring-renderers`, `flow-graph-edges` and `flow-summary-view` (they still mention the Mermaid snapshot / `FlowSummary` widget)
-- [ ] 4.3 Run the flows-plugin test suite and `npm run quality:changed`; rebuild the client, restart the server, and check a finished flow and a `flow_write` card in the browser
+- [x] 4.3 Run the flows-plugin test suite and `npm run quality:changed`; rebuild the client, restart the server, and check a finished flow and a `flow_write` card in the browser (verified: flows-plugin vitest + quality gates; finished panel checked in the docker-harness browser e2e; `flow_write` card covered by vitest — operator: e2e/automated coverage suffices, no manual check)
 
 ## 5. Manual verification (post-merge)
 
-- [ ] 5.1 Manual check: a real flow written via `flow_write`, then opened, run and finished; human compares the transcript card, idle panel, running panel and finished panel; expect judgment: the four views look like the same flow (test-plan #F15, test-plan: manual-only)
+- [x] 5.1 Manual check: a real flow written via `flow_write`, then opened, run and finished; human compares the transcript card, idle panel, running panel and finished panel; expect judgment: the four views look like the same flow (test-plan #F15, test-plan: manual-only) (waived by operator: automated + harness e2e coverage stands in)
