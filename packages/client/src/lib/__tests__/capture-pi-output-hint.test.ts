@@ -2,12 +2,15 @@
  * The "Capture pi session output (debug)" hint says that OFF means new
  * sessions write no keeper log files — in every locale (test-plan #F1).
  * See change: keeper-log-toggle-gates-all-output.
+ *
+ * @structural-pin the en hint exists only as the inline t() fallback in SettingsPanel.tsx, so its copy is read from source
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { huCatalog } from "../i18n/i18n-hu.js";
+import { zhCNCatalog } from "../i18n/i18n-zh-CN.js";
 
 const SRC = join(import.meta.dirname, "..", "..");
 const KEY = "settings.capturePiOutputHint";
@@ -26,13 +29,6 @@ function enInlineDefault(): string {
   return m[1];
 }
 
-function zhValue(): string {
-  const src = readFileSync(join(SRC, "lib", "i18n", "i18n-zh-CN.ts"), "utf8");
-  const m = src.match(/"settings\.capturePiOutputHint":\s*"([^"]+)"/);
-  if (!m) throw new Error("capturePiOutputHint not found in i18n-zh-CN.ts");
-  return m[1];
-}
-
 describe("capturePiOutputHint copy (F1)", () => {
   it("en says new sessions write no keeper log when off", () => {
     const en = enInlineDefault();
@@ -47,7 +43,7 @@ describe("capturePiOutputHint copy (F1)", () => {
   });
 
   it("zh-CN is updated and non-empty", () => {
-    const zh = zhValue();
+    const zh = zhCNCatalog[KEY];
     expect(zh).toBeTruthy();
     expect(zh).not.toBe(OLD.zh);
   });
