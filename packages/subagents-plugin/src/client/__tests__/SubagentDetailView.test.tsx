@@ -13,7 +13,7 @@ import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-
 import { cleanup, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { type DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { sessionEventReducer, type SubagentSessionSlice } from "../sessionEventReducer.js";
 import { type SessionStateLike, SubagentDetailView } from "../SubagentDetailView.js";
 import type { SubagentState } from "../types.js";
