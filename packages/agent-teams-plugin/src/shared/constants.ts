@@ -34,6 +34,8 @@ export const MAX_MAIL_LINES = 150;
 export const STEER_BLOCK_MAX_LINES = MAX_MAIL_LINES;
 /** A plan carried by one `plan_request` mail is at most this many lines (templates-hooks change). */
 export const PLAN_MAX_LINES = 120;
+/** Plans kept per team (oldest decided dropped first, a pending plan never dropped). */
+export const MAX_STORED_PLANS = 20;
 
 /** Final marker line of a line-capped block; counted INSIDE the cap. */
 export function truncationMarkerLine(removedLines: number): string {

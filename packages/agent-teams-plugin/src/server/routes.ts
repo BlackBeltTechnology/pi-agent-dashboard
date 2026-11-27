@@ -17,11 +17,12 @@
 import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { MEMBER_NAME_REGEXP, REST_READ_RATE, REST_WRITE_RATE, ROUTE_VISIBILITY_TIMEOUT_MS } from "../shared/constants.js";
+import { ownerKeyOf } from "../shared/owner-key.js";
 import type { Team } from "../shared/types.js";
 import { SESSION_ID_MAX_LENGTH, snapshotEtag, type TeamUiSnapshot } from "../shared/ui-protocol.js";
 import type { TeamAccess } from "./access.js";
 import { PROCESS_EPOCH } from "./epoch.js";
-import type { ExtensionPoints } from "./extension-points.js";
+import type { ExtensionPoints, RouteHelpers } from "./extension-points.js";
 import { listOf, snapshotOf } from "./snapshot.js";
 import type { TeamStore } from "./store.js";
 import type { Telemetry } from "./telemetry.js";
@@ -47,6 +48,8 @@ export interface RouteDeps {
   /** The two user controls; their POST routes are mounted only when given. */
   userActions?: UserActions;
   counters?: Pick<UiCounters, "count">;
+  /** Plugin counters of one team merged into the snapshot `stats` (non-zero only). */
+  extraStats?: (teamId: string) => Record<string, number>;
   /** Limiter overrides (tests); defaults are core's `REST_READ_RATE` / `REST_WRITE_RATE`. */
   rateLimits?: { read: { perSecond: number; burst: number }; write: { perSecond: number; burst: number } };
 }
@@ -200,13 +203,13 @@ export async function mountTeamsRoutes(fastify: FastifyInstance, deps: RouteDeps
         counters?.count("snapshot_304");
         return reply.code(304).send();
       }
-      const view: TeamUiSnapshot = { ...snapshotOf(store, deps.telemetry, team), epoch, viewerCanControl };
+      const view: TeamUiSnapshot = { ...snapshotOf(store, deps.telemetry, team, deps.extraStats?.(team.id)), epoch, viewerCanControl };
       return view;
     });
 
-    if (userActions) {
-      const writeLimit = { rateLimit: { max: write.burst, timeWindow: windowMsOf(write) } };
+    const writeLimit = { rateLimit: { max: write.burst, timeWindow: windowMsOf(write) } };
 
+    if (userActions) {
       scope.post<{ Params: { id: string; name: string } }>(`${API_PREFIX}/teams/:id/members/:name/stop`, { config: writeLimit }, async (req, reply) => {
         const team = await reachable(store.get(req.params.id), req);
         if (!team) return reply.code(404).send(NOT_FOUND);
@@ -228,5 +231,17 @@ export async function mountTeamsRoutes(fastify: FastifyInstance, deps: RouteDeps
         return reply.code(res.status).send(res.body);
       });
     }
+
+    // Extra routes of later changes (templates start, hook trust, plan decisions), in the same scope.
+    const ownerOf = (req: FastifyRequest): string | undefined => {
+      try {
+        const p = deps.principalOf?.(req);
+        return p?.iss !== undefined && p.sub !== undefined ? ownerKeyOf({ iss: p.iss, sub: p.sub }) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const helpers: RouteHelpers = { prefix: API_PREFIX, visible, controllable, reachable, writeLimit: { rateLimit: writeLimit.rateLimit }, notFound: NOT_FOUND, clientKey, ownerOf };
+    for (const mount of ext.routeExtensions) await mount(scope, helpers);
   });
 }

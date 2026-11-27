@@ -168,7 +168,7 @@ describe("spawn scope, env and policy (S48, S50)", () => {
     await env.call("lead", "TeammateSpawn", { name: "own", prompt: "go", tools: ["ls"] });
     await env.call("lead", "TeammateSpawn", { name: "none", prompt: "go", tools: [] });
     const tools = env.fake.base.spawns.map((s) => (s.scope as { tools?: string[] }).tools);
-    const team = ["TaskCreate", "TaskList", "TaskGet", "TaskUpdate", "SendMessage", "TeamStatus", "ShutdownResponse"];
+    const team = ["TaskCreate", "TaskList", "TaskGet", "TaskUpdate", "SendMessage", "TeamStatus", "ShutdownResponse", "PlanSubmit"];
     expect(tools[0]).toEqual(["read", "grep", ...team]);
     expect(tools[1]).toEqual(["ls", ...team]);
     expect(tools[2]).toEqual(team);

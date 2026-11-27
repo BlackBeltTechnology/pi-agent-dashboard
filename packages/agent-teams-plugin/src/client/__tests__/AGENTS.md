@@ -11,8 +11,8 @@ Files in this directory. One row per source file.
 | `format-cwd.test.ts` | S14 folder display (whole-segment prefix, Windows drive case). See change: add-agent-teams-ui. |
 | `host-event-group.test.tsx` | S88: hidden `other` group hides mail cards via the real `CustomEntryRow`; Team view log still lists all mail. See change: add-agent-teams-ui. |
 | `host-row.tsx` | Helper: REAL reducer builds the custom row, REAL `CustomEntryRow` mounts the claim (loaded by path). `rowOf`, `reduceCustom`, `hostRows`, `teamRegistry`. See change: add-agent-teams-ui. |
-| `i18n.test.ts` | Catalog parity (S132) + eager catalog = badge keys only (S101); client barrel exports `catalog`, `TeamBadge`, `isTeamSession` only. See change: add-agent-teams-core, add-agent-teams-ui. |
-| `i18n.test.tsx` | S101: 3 locales × 3 lazy tables (key sets, placeholders, translated), fallback to `en`, referenced keys exist, tables stay with their module, render under each locale. See change: add-agent-teams-ui. |
+| `i18n.test.ts` | Catalog parity (S132) + eager catalog = badge keys only (S101); client barrel exports `catalog`, `TeamBadge`, `isTeamSession` only. See change: add-agent-teams-core, add-agent-teams-ui. Also: key + placeholder parity of `START_TABLES` / `APPROVAL_TABLES` (F8). See change: add-agent-teams-templates-hooks. |
+| `i18n.test.tsx` | S101: 3 locales × 3 lazy tables (key sets, placeholders, translated), fallback to `en`, referenced keys exist, tables stay with their module, render under each locale. See change: add-agent-teams-ui. Also: the two templates-hooks tables (3 locales). See change: add-agent-teams-templates-hooks. |
 | `lazy-cards.test.tsx` | S84 / S86 in the real `CustomEntryRow`: 7 s chunk delay → generic card then swap (one row, never blank); throwing card → host fallback, other rows fine. See change: add-agent-teams-ui. |
 | `mail-card-notice-contract.test.tsx` | S63: core's REAL notice builder → reducer → card keeps peer fake items inside their item; asserted marker fallback. See change: add-agent-teams-ui. |
 | `mail-card.fuzz.test.tsx` | S74: 10 000 random bodies never throw / always render text / never build elements; parse op count ≤ 4× length and linear. See change: add-agent-teams-ui. |
@@ -39,3 +39,6 @@ Files in this directory. One row per source file.
 | `teams-store.test.ts` | S31–S34, S39, S47, S54, S58, S75, S81, S107, S108 + 404 + lifecycle + control POST timeout. Fake timers, scripted fetch. See change: add-agent-teams-ui. |
 | `tool-renderers.test.tsx` | S10, S60: 11 tools × details classes never blank, error sentences / verbatim unknown code, 50-task list, inert text, single encoded link. See change: add-agent-teams-ui. |
 | `view-fixtures.tsx` | Builders `member`, `task`, `mail`, `snap` and `renderHost` (real primitive provider + fake `ui:confirm-dialog`). See change: add-agent-teams-ui. |
+| `cards.test.tsx` | Approval + playbook cards (#S9, #F6, #F7): only the server header is parsed, posted `planId` is the header's, peer text never becomes controls/markup, non-control cards, collapsed playbook. See change: add-agent-teams-templates-hooks. |
+| `folder-section.test.tsx` | #F10: ONE Start item per folder, sidebar placement only; dialog posts the folder cwd. See change: add-agent-teams-templates-hooks. |
+| `start-dialog.test.tsx` | StartTeamDialog (#F1–#F3, #F8, S15): list states, hook confirmation with shown hash, one POST in flight, error + retry, Esc/✕, commands as literal text, no raw key. See change: add-agent-teams-templates-hooks. |
