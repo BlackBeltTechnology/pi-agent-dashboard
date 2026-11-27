@@ -2024,13 +2024,13 @@ agent-browser snapshot @e9
 
 ```
 @e1 [tag type="value"] "text content" placeholder="hint"
-│    │   │             │               │
-│    │   │             │               └─ Additional attributes
-│    │   │             └─ Visible text
-│    │   └─ Key attributes shown
-│    └─ HTML tag name
-└─ Unique ref ID
 ```
+
+- `@e1` — unique ref ID
+- `tag` — HTML tag name
+- `type="value"` — key attributes shown
+- `"text content"` — visible text
+- `placeholder="hint"` — additional attributes
 
 ### Common Patterns
 
