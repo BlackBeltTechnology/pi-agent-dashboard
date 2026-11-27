@@ -1,5 +1,7 @@
 /**
- * Create/Edit automation editor.
+ * Inline create/edit automation editor, rendered inside a board card (edit)
+ * or the board's draft card (create). No modal shell: the board owns which
+ * editor is open and the unsaved-changes guard (change: inline-automation-editor).
  *
  * Redesigned (change: redesign-automation-editor-and-board) into grouped
  * sections — Identity, Trigger, Action, and a collapsed Advanced group — with
@@ -8,14 +10,26 @@
  * instead of a free-text model field, inline help on Advanced fields, and
  * worktree gating on git capability.
  *
- * Edit mode: pass `initialConfig` (+ `initialName`, `initialPromptBody`). The
- * name field is disabled on edit to avoid orphaning; Save routes through the
- * update path (overwrite in place) instead of create.
+ * Edit mode: pass `initialConfig` (+ `initialName`, `initialPromptBody`). Name
+ * and scope are not editable (they show in the card header); Save routes
+ * through the update path (overwrite in place) and keeps every config key the
+ * form does not own (`disabled`, `maxConcurrentSpawns`, …).
  *
- * See change: add-automation-plugin, redesign-automation-editor-and-board.
+ * The form stays disabled until the git probe settled and the `worktree →
+ * local` correction applied; then the unsaved-change baseline freezes, so an
+ * untouched editor reports 0 changes.
+ *
+ * See change: add-automation-plugin, redesign-automation-editor-and-board,
+ * inline-automation-editor.
  */
 
-import { AutomationActionEditorSlot, usePluginConfigOf, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  AutomationActionEditorSlot,
+  SettingsNotice,
+  usePluginConfigOf,
+  useT,
+  useUiPrimitive,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import {
@@ -26,7 +40,7 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   ActionDescriptor,
   ActionPayloadField,
@@ -89,11 +103,24 @@ function defaultsForSchema(schema: ActionPayloadField[]): Record<string, string>
   return out;
 }
 
-export interface CreateAutomationDialogProps {
+/** What a successful save continues with: stay on the board (`save`) or apply the guarded request (`switch`). */
+export type EditorSaveOutcome = "save" | "switch";
+
+export interface AutomationEditorProps {
   /** Repo cwd used for folder-scope writes. */
   cwd?: string;
+  /** Close request (Cancel). The board decides whether to guard it. */
   onClose: () => void;
-  onCreated?: () => void;
+  /** Fired after a successful create/update. */
+  onSaved?: (outcome: EditorSaveOutcome, name: string) => void;
+  /** Unsaved-change count, reported whenever it changes. */
+  onDirtyChange?: (count: number) => void;
+  /** Unsaved-changes guard raised by the board; rendered in the save bar. */
+  guard?: { count: number; closing: boolean } | null;
+  /** Guard: continue without saving. */
+  onDiscard?: () => void;
+  /** Bump to re-focus `initialSection` on an already-open editor. */
+  focusSeq?: number;
   /** Edit mode: existing config to pre-load. When set, Save updates in place. */
   initialConfig?: AutomationConfig;
   /** Edit mode: existing automation name (field disabled on edit). */
@@ -110,7 +137,7 @@ export interface CreateAutomationDialogProps {
   initialSection?: EditorSection;
 }
 
-export type EditorSection = "identity" | "trigger" | "action" | "advanced";
+export type EditorSection = "identity" | "trigger" | "runs" | "action" | "advanced";
 
 type VisibilityChoice = "default" | Visibility;
 
@@ -190,16 +217,20 @@ function buildCron(freq: string, time: string, dow: string): string {
   }
 }
 
-export function CreateAutomationDialog({
+export function AutomationEditor({
   cwd,
   onClose,
-  onCreated,
+  onSaved,
+  onDirtyChange,
+  guard,
+  onDiscard,
+  focusSeq,
   initialConfig,
   initialName,
   initialScope,
   initialPromptBody,
   initialSection,
-}: CreateAutomationDialogProps): React.ReactElement {
+}: AutomationEditorProps): React.ReactElement {
   const t = useT();
   const editing = !!initialConfig;
   const ModelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
@@ -356,9 +387,15 @@ export function CreateAutomationDialog({
 
   const worktreeAvailable = scope === "folder" && gitCapable === true;
   const gitProbePending = gitCapable === null;
-  // Force `local` once worktree is known to be unavailable (never while the probe is pending).
+  // Force `local` once worktree is known to be unavailable (never while the
+  // probe is pending). The first settled probe also releases the form: the
+  // correction and `baselineReady` land in the same render, so the frozen
+  // baseline already holds the corrected mode.
+  const [baselineReady, setBaselineReady] = useState(false);
   useEffect(() => {
-    if (!gitProbePending && !worktreeAvailable && mode === "worktree") setMode("local");
+    if (gitProbePending) return;
+    if (!worktreeAvailable && mode === "worktree") setMode("local");
+    setBaselineReady(true);
   }, [gitProbePending, worktreeAvailable, mode]);
 
   const activeCategory = useMemo(
@@ -376,8 +413,14 @@ export function CreateAutomationDialog({
     promptBody, skill, modelValue, modelLevel ?? "", agentId, mode, sandbox, concurrency, visibility,
   ];
   const initialDraft = useRef<string[] | null>(null);
-  initialDraft.current ??= draftFields;
-  const dirtyCount = draftFields.filter((v, i) => v !== initialDraft.current![i]).length;
+  if (baselineReady) initialDraft.current ??= draftFields;
+  const baseline = initialDraft.current;
+  const dirtyCount = baseline ? draftFields.filter((v, i) => v !== baseline[i]).length : 0;
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+  useEffect(() => {
+    onDirtyChangeRef.current?.(dirtyCount);
+  }, [dirtyCount]);
 
   // Open on the requested section: scroll it into view, focus its first field.
   const sectionRefs = useRef(new Map<EditorSection, HTMLElement>());
@@ -385,8 +428,9 @@ export function CreateAutomationDialog({
     if (el) sectionRefs.current.set(section, el);
     else sectionRefs.current.delete(section);
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `focusSeq` is the trigger — the board bumps it to re-focus an already-open editor
   useEffect(() => {
-    if (!initialSection) return;
+    if (!initialSection || !baselineReady) return;
     const el = sectionRefs.current.get(initialSection);
     if (!el) return;
     el.scrollIntoView?.({ block: "nearest" });
@@ -395,7 +439,7 @@ export function CreateAutomationDialog({
       "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
     );
     (field ?? el).focus();
-  }, [initialSection]);
+  }, [initialSection, baselineReady, focusSeq]);
   const nextRun = useMemo(() => {
     const next = nextFire(effectiveCron, new Date());
     return next ? relativeFuture(next) : null;
@@ -421,7 +465,7 @@ export function CreateAutomationDialog({
     );
   }
 
-  async function submit(): Promise<void> {
+  async function submit(outcome: EditorSaveOutcome = "save"): Promise<void> {
     setError(null);
     if (!name.trim()) {
       setError(t("nameRequired", undefined, "Name is required."));
@@ -450,11 +494,17 @@ export function CreateAutomationDialog({
       inputs: actionInputs,
       count: primaryCount,
     });
+    // Start from the saved config so keys the form does not own (`disabled`,
+    // `maxConcurrentSpawns`, …) survive Save; drop the keys the form decides.
+    // See change: inline-automation-editor (design D1).
+    const { action: _action, actions: _actions, agent: _agent, visibility: _visibility, ...kept } =
+      initialConfig ?? ({} as Partial<AutomationConfig>);
     // Single entry → `action:`; more than one → `actions:` (fan-out).
     // See change: add-automation-concurrent-spawn.
     const config: AutomationConfig =
       extraEntries.length === 0
         ? {
+            ...kept,
             on: onBlock,
             action: primaryBlock,
             ...(agentId ? { agent: agentId } : {}),
@@ -465,6 +515,7 @@ export function CreateAutomationDialog({
             ...(visibility !== "default" ? { visibility } : {}),
           }
         : {
+            ...kept,
             on: onBlock,
             actions: [
               primaryBlock,
@@ -490,396 +541,239 @@ export function CreateAutomationDialog({
     const res = editing ? await updateAutomation(body) : await createAutomation(body);
     setBusy(false);
     if (res.ok) {
-      onCreated?.();
-      onClose();
+      onSaved?.(outcome, name.trim());
     } else {
       setError(res.error ?? t("saveFailed", undefined, "Failed to save automation."));
     }
   }
 
+  const writeDir = `.pi/automation/${name.trim() || "<name>"}/`;
+  const writePath =
+    scope === "global" ? `global · ~/${writeDir}` : `folder · ${cwd ? `${cwd.replace(/[/\\]+$/, "")}/` : ""}${writeDir}`;
+  const plannedCount = categories.filter((c) => c.status === "planned").length;
+  const editorKey = editing ? `${initialScope ?? "folder"}:${initialName ?? ""}` : "new";
+  // Edit: nothing to save until something changed. Create: always savable once valid.
+  const saveDisabled = !baselineReady || submitDisabled || (editing && dirtyCount === 0);
+  const saveBtn =
+    "focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:hover:brightness-100 disabled:cursor-not-allowed";
+  const plainBtn =
+    "focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
+
   return (
-    <div
-      data-testid="create-automation-dialog"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg max-h-[90vh] overflow-auto rounded-lg bg-[var(--bg-primary)] p-4 space-y-4 text-sm"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex flex-col">
-            <h2 className="text-base font-semibold">{editing ? t("editAutomation", undefined, "Edit Automation") : t("createAutomationTitle", undefined, "Create Automation")}</h2>
-            <p className="text-[12px] text-[var(--text-secondary)] font-mono" data-testid="editor-subtitle">
-              {scope === "global" ? "global · ~/.pi/automation" : `folder · ${cwd ?? t("thisRepo", undefined, "(this repo)")}`}
-            </p>
-          </div>
-          {!submitDisabled && (
-            <span
-              data-testid="armed-chip"
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--tint-green-border)] px-2 py-0.5 text-[12px] font-semibold bg-[var(--tint-green-bg)] text-[var(--tint-green-fg)]"
-            >
-              <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--tint-green-fg)] animate-pulse motion-reduce:animate-none" />
-              {t("armedOnSave", undefined, "armed on save")}
-            </span>
-          )}
-        </div>
-
-        {/* ── IDENTITY ─────────────────────────────────────────── */}
-        <Group title="Identity" label={t("groupIdentity", undefined, "Identity")} sectionRef={setSectionRef("identity")} open={initialSection === "identity"}>
-          <Field label={t("fieldName", undefined, "Name")}>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("namePlaceholder", undefined, "weekly-brief")}
-              data-testid="create-name"
-              disabled={editing}
-              className="input font-mono disabled:opacity-60"
-            />
-          </Field>
-          {editing && (
-            <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-name-locked">
-              {t("nameLocked", undefined, "Name is locked while editing to avoid orphaning the automation.")}
-            </p>
-          )}
-          <Field label={t("fieldScope", undefined, "Scope")}>
-            <Segmented
-              testid="create-scope"
-              value={scope}
-              disabled={editing}
-              onChange={(v) => setScope(v as AutomationScope)}
-              options={[
-                { value: "folder", label: t("scopeFolderOption", undefined, "folder (this repo)") },
-                { value: "global", label: t("scopeGlobalOption", undefined, "global (~/.pi/automation)") },
-              ]}
-            />
-          </Field>
-        </Group>
-
-        {/* ── TRIGGER ──────────────────────────────────────────── */}
-        <Group title="Trigger" label={t("groupTrigger", undefined, "Trigger")} sectionRef={setSectionRef("trigger")} open={initialSection === "trigger"}>
-          <div className="flex flex-wrap gap-1" data-testid="trigger-categories">
-            {categories.map((c) => {
-              const selected = c.category === category;
-              const planned = c.status === "planned";
-              return (
-                <button
-                  key={c.category}
-                  type="button"
-                  data-testid={`trigger-cat-${c.category}`}
-                  disabled={planned}
-                  onClick={() => setCategory(c.category)}
-                  className={`focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] rounded-full border ${
-                    selected
-                      ? "border-[var(--accent)] text-[var(--accent-text)] bg-[var(--accent-soft)]"
-                      : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
-                  } ${planned ? "opacity-40 cursor-not-allowed" : ""}`}
-                  title={planned ? t("comingSoon", undefined, "Coming soon") : c.label}
-                >
-                  <Icon path={CATEGORY_ICON[c.category] ?? mdiFlashOutline} size={0.55} />
-                  {c.label}
-                  {planned && <span className="ml-1 text-[11px]">{t("soon", undefined, "soon")}</span>}
-                </button>
-              );
-            })}
-          </div>
-
-          {categoryPlanned ? (
-            <p className="text-xs text-[var(--text-secondary)]" data-testid="trigger-planned-note">
-              {t("categoryComingSoonNote", undefined, "This trigger category is coming soon and cannot be saved yet.")}
-            </p>
-          ) : isScheduled ? (
-            <div className="space-y-2">
-              {!rawCronMode ? (
-                <div className="grid grid-cols-3 gap-2">
-                  <Field label={t("fieldFrequency", undefined, "Frequency")}>
-                    <select
-                      value={freq}
-                      onChange={(e) => setFreq(e.target.value)}
-                      data-testid="create-cron-freq"
-                      className="input"
-                    >
-                      <option value="hourly">hourly</option>
-                      <option value="daily">daily</option>
-                      <option value="weekly">weekly</option>
-                    </select>
-                  </Field>
-                  {freq !== "hourly" && (
-                    <Field label={t("fieldTime", undefined, "Time")}>
-                      <input
-                        type="time"
-                        value={time}
-                        onChange={(e) => setTime(e.target.value)}
-                        data-testid="create-cron-time"
-                        className="input"
-                      />
-                    </Field>
-                  )}
-                  {freq === "weekly" && (
-                    <Field label={t("fieldDay", undefined, "Day")}>
-                      <select
-                        value={dow}
-                        onChange={(e) => setDow(e.target.value)}
-                        data-testid="create-cron-dow"
-                        className="input"
-                      >
-                        <option value="1">Mon</option>
-                        <option value="2">Tue</option>
-                        <option value="3">Wed</option>
-                        <option value="4">Thu</option>
-                        <option value="5">Fri</option>
-                        <option value="6">Sat</option>
-                        <option value="0">Sun</option>
-                      </select>
-                    </Field>
-                  )}
-                </div>
-              ) : (
-                <Field label={t("fieldCron", undefined, "Cron expression")}>
-                  <input
-                    type="text"
-                    value={cron}
-                    onChange={(e) => setCron(e.target.value)}
-                    data-testid="create-cron"
-                    className="input font-mono"
-                  />
-                </Field>
-              )}
-              <button
-                type="button"
-                data-testid="create-cron-raw-toggle"
-                onClick={() => {
-                  if (!rawCronMode) setCron(buildCron(freq, time, dow));
-                  setRawCronMode((v) => !v);
-                }}
-                className="focus-ring inline-flex items-center tap-target text-[12px] text-[var(--text-secondary)] underline"
-              >
-                {rawCronMode ? t("useScheduleHelper", undefined, "use schedule helper") : t("editRawCron", undefined, "edit raw cron")}
-              </button>
-              <p className="flex items-center gap-1 text-[12px] text-[var(--text-secondary)]" data-testid="create-next-run">
-                {nextRun ? (
-                  <>
-                    <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--severity-success-fg)] animate-pulse motion-reduce:animate-none" />
-                    {t("nextRunLabel", undefined, "Next run:")} {nextRun}
-                  </>
-                ) : (
-                  t("invalidCron", undefined, "Invalid cron expression")
-                )}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1" data-testid="trigger-events">
-              {isFile && (
-                <Field label={t("fieldFolderToWatch", undefined, "Folder to watch")}>
-                  <input
-                    type="text"
-                    value={filePath}
-                    onChange={(e) => setFilePath(e.target.value)}
-                    placeholder={t("filePathPlaceholder", undefined, "/spool/invoices")}
-                    data-testid="create-file-path"
-                    className="input font-mono"
-                  />
-                  <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-file-path-help">
-                    {t("filePathHelp", undefined, "Fires once per new file that arrives here (settle: rename-only).")}
-                  </p>
-                  {filePathMissing && (
-                    <p className="text-[12px] text-[var(--severity-error-fg)]" data-testid="file-path-missing">
-                      {t("filePathRequired", undefined, "Folder to watch is required.")}
-                    </p>
-                  )}
-                </Field>
-              )}
-              <p className="text-[12px] text-[var(--text-secondary)]">{t("selectEventTypes", undefined, "Select one or more event types:")}</p>
-              <div className="grid grid-cols-2 gap-1">
-              {activeCategory?.events.map((ev) => {
-                const planned = ev.status === "planned";
-                return (
-                  <label
-                    key={ev.event}
-                    className={`flex items-center gap-2 text-xs rounded border border-[var(--border-secondary)] px-1.5 py-1 ${planned ? "opacity-40" : ""}`}
-                  >
-                    <input
-                      type="checkbox"
-                      data-testid={`create-event-${ev.event}`}
-                      disabled={planned}
-                      checked={selectedEvents.includes(ev.event)}
-                      onChange={() => toggleEvent(ev.event)}
-                    />
-                    <span className="font-mono">{ev.event}</span>
-                    <span className="text-[var(--text-secondary)]">{ev.label}</span>
-                    {planned && <span className="text-[11px]">{t("soon", undefined, "soon")}</span>}
-                  </label>
-                );
-              })}
-              </div>
-              {eventsMissing && (
-                <p className="text-[12px] text-[var(--severity-error-fg)]" data-testid="events-missing">
-                  {t("eventsMissing", undefined, "Select at least one event type.")}
-                </p>
-              )}
-            </div>
-          )}
-        </Group>
-
-        {/* ── ACTION ───────────────────────────────────────────── */}
-        <Group title="Action" label={t("groupAction", undefined, "Action")} sectionRef={setSectionRef("action")} open={initialSection === "action"}>
-          <ActionPicker
-            actions={
-              agentId
-                ? actions.map((a) =>
-                    a.id === "core.prompt"
-                      ? a
-                      : { ...a, available: false, unavailableReason: t("skillNeedsPi", undefined, "Skill actions need pi") },
-                  )
-                : actions
-            }
-            selectedId={actionId}
-            search={actionSearch}
-            openSources={openSources}
-            onSearch={setActionSearch}
-            onToggleSource={(s) => setOpenSources((p) => ({ ...p, [s]: !p[s] }))}
-            onSelect={(desc) => {
-              setActionId(desc.id);
-              if (desc.id !== "core.prompt" && desc.id !== "core.skill") {
-                setActionPayload(defaultsForSchema(desc.payloadSchema));
-                // Reset wired inputs when switching actions; a contributed
-                // editor re-populates from the new action's own schema.
-                setActionInputs({});
-              }
-            }}
-          />
-          {actionId === "core.prompt" && (
-            <Field label={t("fieldPrompt", undefined, "Prompt (durable, saved to prompt.md)")}>
-              <textarea
-                value={promptBody}
-                onChange={(e) => setPromptBody(e.target.value)}
-                rows={4}
-                data-testid="create-prompt"
-                className="input"
-              />
-            </Field>
-          )}
-          {actionId === "core.skill" && (
-            <Field label={t("fieldSkill", undefined, "Skill ($skill-name)")}>
-              <input
-                type="text"
-                value={skill}
-                onChange={(e) => setSkill(e.target.value)}
-                placeholder={t("skillPlaceholder", undefined, "$recent-code-bugfix")}
-                data-testid="create-skill"
-                className="input font-mono"
-              />
-            </Field>
-          )}
-          {actionId !== "core.prompt" && actionId !== "core.skill" && (
-            <>
-              <ActionPayloadForm
-                schema={actions.find((a) => a.id === actionId)?.payloadSchema ?? []}
-                values={actionPayload}
-                onChange={(k, v) => setActionPayload((p) => ({ ...p, [k]: v }))}
-              />
-              {/* Contributed payload editor for this action id (e.g. flows-plugin's
-                  input wiring), rendered additively below the generic form. Renders
-                  nothing when no plugin claims the action id. See change:
-                  wire-flow-inputs-in-automation. */}
-              <AutomationActionEditorSlot
-                actionId={actionId}
-                payload={{
-                  ...actionPayload,
-                  ...(Object.keys(actionInputs).length > 0 ? { inputs: actionInputs } : {}),
-                }}
-                onChange={(p) => setActionInputs(extractInputs(p))}
-                cwd={cwd}
-              />
-            </>
-          )}
-          <Field label={t("fieldCount", undefined, "Sessions per run")}>
-            <input
-              type="number"
-              min={1}
-              value={primaryCount}
-              onChange={(e) => setPrimaryCount(Math.max(1, Number(e.target.value) || 1))}
-              data-testid="create-action-count"
-              className="input w-24"
-            />
-          </Field>
-
-          {/* Additional fan-out action entries (writes `actions:` when present). */}
-          <div className="space-y-2" data-testid="extra-actions">
-            {extraEntries.map((entry, i) => (
-              <div key={i} data-testid={`extra-action-${i}`} className="rounded border border-[var(--border-secondary)] p-2 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
-                    {t("actionEntry", { n: i + 2 }, `Action ${i + 2}`)}
-                  </span>
-                  <button
-                    type="button"
-                    data-testid={`remove-action-entry-${i}`}
-                    onClick={() => setExtraEntries((prev) => prev.filter((_, j) => j !== i))}
-                    className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border tint-action-red"
-                  >
-                    {t("remove", undefined, "Remove")}
-                  </button>
-                </div>
-                <Field label={t("fieldAction", undefined, "Action")}>
-                  <select
-                    value={entry.actionId}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, actionId: v } : x)));
-                    }}
-                    data-testid={`entry-action-${i}`}
-                    className="input font-mono"
-                  >
-                    {actions.map((a) => (
-                      <option key={a.id} value={a.id} disabled={!a.available}>
-                        {a.id}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                {entry.actionId === "core.skill" && (
-                  <Field label={t("fieldSkill", undefined, "Skill ($skill-name)")}>
+    <div data-testid={`automation-editor-${editorKey}`} className="@container min-w-0 text-sm">
+      {/* Disabled until the git probe settled and the baseline froze (design D1). */}
+      <fieldset disabled={!baselineReady} aria-busy={!baselineReady || undefined} className="m-0 min-w-0 border-0 p-0">
+        {!baselineReady && (
+          <p role="status" data-testid="editor-loading" className="mb-2 text-[12px] text-[var(--text-secondary)]">
+            {t("editorLoading", undefined, "Loading editor…")}
+          </p>
+        )}
+        {/* Container query: two columns only when the editor itself is wide (design D4). */}
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+          {!editing && (
+            <div className="min-w-0 @3xl:col-span-2">
+                {/* ── IDENTITY ─────────────────────────────────────────── */}
+                <Group title="Identity" label={t("groupIdentity", undefined, "Identity")} sectionRef={setSectionRef("identity")} open={initialSection === "identity"}>
+                  <Field label={t("fieldName", undefined, "Name")}>
                     <input
                       type="text"
-                      value={entry.skill}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, skill: v } : x)));
-                      }}
-                      data-testid={`entry-skill-${i}`}
-                      className="input font-mono"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder={t("namePlaceholder", undefined, "weekly-brief")}
+                      data-testid="create-name"
+                      className="input w-full font-mono"
+                    />
+                  </Field>
+                  <Field label={t("fieldScope", undefined, "Scope")}>
+                    <Segmented
+                      testid="create-scope"
+                      value={scope}
+                      onChange={(v) => setScope(v as AutomationScope)}
+                      options={[
+                        { value: "folder", label: t("scopeFolderOption", undefined, "folder (this repo)") },
+                        { value: "global", label: t("scopeGlobalOption", undefined, "global (~/.pi/automation)") },
+                      ]}
+                    />
+                  </Field>
+                </Group>
+            </div>
+          )}
+          <div className="min-w-0 space-y-3">
+          {/* ── TRIGGER ──────────────────────────────────────────── */}
+          <Group title="Trigger" label={t("groupTrigger", undefined, "Trigger")} sectionRef={setSectionRef("trigger")} open={initialSection === "trigger"}>
+            <div className="flex flex-wrap gap-1" data-testid="trigger-categories">
+              {categories.map((c) => {
+                const selected = c.category === category;
+                const planned = c.status === "planned";
+                return (
+                  <button
+                    key={c.category}
+                    type="button"
+                    data-testid={`trigger-cat-${c.category}`}
+                    disabled={planned}
+                    onClick={() => setCategory(c.category)}
+                    className={`focus-ring ${planned ? "hidden sm:inline-flex" : "inline-flex"} items-center gap-1 px-2.5 tap-target text-[12px] rounded-full border ${
+                      selected
+                        ? "border-[var(--accent)] text-[var(--accent-text)] bg-[var(--accent-soft)]"
+                        : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
+                    } ${planned ? "opacity-40 cursor-not-allowed" : ""}`}
+                    title={planned ? t("comingSoon", undefined, "Coming soon") : c.label}
+                  >
+                    <Icon path={CATEGORY_ICON[c.category] ?? mdiFlashOutline} size={0.55} />
+                    {c.label}
+                    {planned && <span className="ml-1 text-[11px]">{t("soon", undefined, "soon")}</span>}
+                  </button>
+                );
+              })}
+              {plannedCount > 0 && (
+                <span
+                  data-testid="trigger-coming-soon"
+                  className="sm:hidden inline-flex items-center tap-target rounded-full border border-dashed border-[var(--border-secondary)] px-2.5 text-[12px] text-[var(--text-secondary)]"
+                >
+                  {t("comingSoonCount", { count: plannedCount }, `+${plannedCount} coming soon`)}
+                </span>
+              )}
+            </div>
+
+            {categoryPlanned ? (
+              <p className="text-xs text-[var(--text-secondary)]" data-testid="trigger-planned-note">
+                {t("categoryComingSoonNote", undefined, "This trigger category is coming soon and cannot be saved yet.")}
+              </p>
+            ) : isScheduled ? (
+              <div className="space-y-2">
+                {!rawCronMode ? (
+                  <div className="grid grid-cols-1 gap-2 @sm:grid-cols-3">
+                    <Field label={t("fieldFrequency", undefined, "Frequency")}>
+                      <select
+                        value={freq}
+                        onChange={(e) => setFreq(e.target.value)}
+                        data-testid="create-cron-freq"
+                        className="input"
+                      >
+                        <option value="hourly">hourly</option>
+                        <option value="daily">daily</option>
+                        <option value="weekly">weekly</option>
+                      </select>
+                    </Field>
+                    {freq !== "hourly" && (
+                      <Field label={t("fieldTime", undefined, "Time")}>
+                        <input
+                          type="time"
+                          value={time}
+                          onChange={(e) => setTime(e.target.value)}
+                          data-testid="create-cron-time"
+                          className="input"
+                        />
+                      </Field>
+                    )}
+                    {freq === "weekly" && (
+                      <Field label={t("fieldDay", undefined, "Day")}>
+                        <select
+                          value={dow}
+                          onChange={(e) => setDow(e.target.value)}
+                          data-testid="create-cron-dow"
+                          className="input"
+                        >
+                          <option value="1">Mon</option>
+                          <option value="2">Tue</option>
+                          <option value="3">Wed</option>
+                          <option value="4">Thu</option>
+                          <option value="5">Fri</option>
+                          <option value="6">Sat</option>
+                          <option value="0">Sun</option>
+                        </select>
+                      </Field>
+                    )}
+                  </div>
+                ) : (
+                  <Field label={t("fieldCron", undefined, "Cron expression")}>
+                    <input
+                      type="text"
+                      value={cron}
+                      onChange={(e) => setCron(e.target.value)}
+                      data-testid="create-cron"
+                      className="input w-full font-mono"
                     />
                   </Field>
                 )}
-                <Field label={t("fieldCount", undefined, "Sessions per run")}>
-                  <input
-                    type="number"
-                    min={1}
-                    value={entry.count}
-                    onChange={(e) => {
-                      const v = Math.max(1, Number(e.target.value) || 1);
-                      setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, count: v } : x)));
-                    }}
-                    data-testid={`entry-count-${i}`}
-                    className="input w-24"
-                  />
-                </Field>
+                <button
+                  type="button"
+                  data-testid="create-cron-raw-toggle"
+                  onClick={() => {
+                    if (!rawCronMode) setCron(buildCron(freq, time, dow));
+                    setRawCronMode((v) => !v);
+                  }}
+                  className="focus-ring inline-flex items-center tap-target text-[12px] text-[var(--text-secondary)] underline"
+                >
+                  {rawCronMode ? t("useScheduleHelper", undefined, "use schedule helper") : t("editRawCron", undefined, "edit raw cron")}
+                </button>
+                <p className="flex items-center gap-1 text-[12px] text-[var(--text-secondary)]" data-testid="create-next-run">
+                  {nextRun ? (
+                    <>
+                      <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--severity-success-fg)] animate-pulse motion-reduce:animate-none" />
+                      {t("nextRunLabel", undefined, "Next run:")} {nextRun}
+                    </>
+                  ) : (
+                    t("invalidCron", undefined, "Invalid cron expression")
+                  )}
+                </p>
               </div>
-            ))}
-            <button
-              type="button"
-              data-testid="add-action-entry"
-              onClick={() =>
-                setExtraEntries((prev) => [...prev, { actionId: "core.skill", count: 1, skill: "", payload: {} }])
-              }
-              className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            >
-              {t("addAction", undefined, "+ Add action")}
-            </button>
-          </div>
+            ) : (
+              <div className="space-y-1" data-testid="trigger-events">
+                {isFile && (
+                  <Field label={t("fieldFolderToWatch", undefined, "Folder to watch")}>
+                    <input
+                      type="text"
+                      value={filePath}
+                      onChange={(e) => setFilePath(e.target.value)}
+                      placeholder={t("filePathPlaceholder", undefined, "/spool/invoices")}
+                      data-testid="create-file-path"
+                      className="input w-full font-mono"
+                    />
+                    <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-file-path-help">
+                      {t("filePathHelp", undefined, "Fires once per new file that arrives here (settle: rename-only).")}
+                    </p>
+                    {filePathMissing && (
+                      <p className="text-[12px] text-[var(--severity-error-fg)]" data-testid="file-path-missing">
+                        {t("filePathRequired", undefined, "Folder to watch is required.")}
+                      </p>
+                    )}
+                  </Field>
+                )}
+                <p className="text-[12px] text-[var(--text-secondary)]">{t("selectEventTypes", undefined, "Select one or more event types:")}</p>
+                <div className="grid grid-cols-1 gap-1 @md:grid-cols-2">
+                {activeCategory?.events.map((ev) => {
+                  const planned = ev.status === "planned";
+                  return (
+                    <label
+                      key={ev.event}
+                      className={`flex min-w-0 flex-wrap items-center gap-x-2 text-xs [overflow-wrap:anywhere] rounded border border-[var(--border-secondary)] px-1.5 py-1 ${planned ? "opacity-40" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        data-testid={`create-event-${ev.event}`}
+                        disabled={planned}
+                        checked={selectedEvents.includes(ev.event)}
+                        onChange={() => toggleEvent(ev.event)}
+                      />
+                      <span className="font-mono">{ev.event}</span>
+                      <span className="text-[var(--text-secondary)]">{ev.label}</span>
+                      {planned && <span className="text-[11px]">{t("soon", undefined, "soon")}</span>}
+                    </label>
+                  );
+                })}
+                </div>
+                {eventsMissing && (
+                  <p className="text-[12px] text-[var(--severity-error-fg)]" data-testid="events-missing">
+                    {t("eventsMissing", undefined, "Select at least one event type.")}
+                  </p>
+                )}
+              </div>
+            )}
+          </Group>
 
+        {/* ── RUNS AS ──────────────────────────────────────────── */}
+        <Group title="Runs-as" label={t("groupRunsAs", undefined, "Runs as")} sectionRef={setSectionRef("runs")} open={initialSection === "runs"}>
           {acpAgents.length > 0 && (
             <Field label={t("fieldAgent", undefined, "Agent")}>
               <select
@@ -977,117 +871,348 @@ export function CreateAutomationDialog({
           )}
         </Group>
 
-        {/* ── ADVANCED (collapsed) ─────────────────────────────── */}
-        <div className="border-t border-[var(--border-secondary)] pt-2">
-          <button
-            type="button"
-            data-testid="create-advanced-toggle"
-            onClick={() => setAdvancedOpen((v) => !v)}
-            aria-expanded={advancedOpen}
-            className="focus-ring inline-flex items-center gap-1 tap-target text-[12px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          >
-            <span aria-hidden="true">{advancedOpen ? "▾" : "▸"}</span> {t("advanced", undefined, "Advanced")}
-          </button>
-          {advancedOpen && (
-            <div className="space-y-2 pt-2" data-testid="create-advanced" ref={setSectionRef("advanced")}>
-              <div className="grid grid-cols-2 gap-2">
-                <Field label={t("fieldMode", undefined, "Mode")}>
+          {/* ── ADVANCED (collapsed) ─────────────────────────────── */}
+          <div className="rounded-lg border border-[var(--border-secondary)] px-3 py-1">
+            <button
+              type="button"
+              data-testid="create-advanced-toggle"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              aria-expanded={advancedOpen}
+              className="focus-ring inline-flex items-center gap-1 tap-target text-[12px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              <span aria-hidden="true">{advancedOpen ? "▾" : "▸"}</span> {t("advanced", undefined, "Advanced")}
+              <span className="font-normal" data-testid="create-advanced-summary">
+                · {mode} · {concurrency} · {sandbox}
+              </span>
+            </button>
+            {advancedOpen && (
+              <div className="space-y-2 pb-2" data-testid="create-advanced" ref={setSectionRef("advanced")}>
+                <div className="grid grid-cols-1 gap-2 @md:grid-cols-2">
+                  <Field label={t("fieldMode", undefined, "Mode")}>
+                    <select
+                      value={mode}
+                      onChange={(e) => setMode(e.target.value as RunMode)}
+                      data-testid="create-mode"
+                      className="input"
+                    >
+                      <option value="local">local</option>
+                      <option value="worktree" disabled={!worktreeAvailable}>
+                        worktree{!worktreeAvailable ? t("needsGit", undefined, " (needs git)") : ""}
+                      </option>
+                    </select>
+                    {!worktreeAvailable && (
+                      <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-worktree-hint">
+                        {t("worktreeHint", undefined, "Worktree requires a git repository — falling back to local.")}
+                      </p>
+                    )}
+                  </Field>
+                  <Field label={t("fieldConcurrency", undefined, "Concurrency")}>
+                    <select
+                      value={concurrency}
+                      onChange={(e) => setConcurrency(e.target.value as Concurrency)}
+                      data-testid="create-concurrency"
+                      className="input"
+                    >
+                      <option value="skip">skip</option>
+                      <option value="queue">queue</option>
+                      <option value="parallel">parallel</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field label={t("fieldSandbox", undefined, "Sandbox")}>
                   <select
-                    value={mode}
-                    onChange={(e) => setMode(e.target.value as RunMode)}
-                    data-testid="create-mode"
+                    value={sandbox}
+                    onChange={(e) => setSandbox(e.target.value as Sandbox)}
+                    data-testid="create-sandbox"
                     className="input"
                   >
-                    <option value="local">local</option>
-                    <option value="worktree" disabled={!worktreeAvailable}>
-                      worktree{!worktreeAvailable ? t("needsGit", undefined, " (needs git)") : ""}
-                    </option>
+                    <option value="read-only">read-only</option>
+                    <option value="workspace-write">workspace-write</option>
+                    <option value="full-access">full-access</option>
                   </select>
-                  {!worktreeAvailable && (
-                    <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-worktree-hint">
-                      {t("worktreeHint", undefined, "Worktree requires a git repository — falling back to local.")}
-                    </p>
-                  )}
+                  <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-sandbox-help">
+                    {SANDBOX_HELP[sandbox]}
+                  </p>
                 </Field>
-                <Field label={t("fieldConcurrency", undefined, "Concurrency")}>
+                <Field label={t("fieldVisibility", undefined, "Board visibility override")}>
                   <select
-                    value={concurrency}
-                    onChange={(e) => setConcurrency(e.target.value as Concurrency)}
-                    data-testid="create-concurrency"
+                    value={visibility}
+                    onChange={(e) => setVisibility(e.target.value as VisibilityChoice)}
+                    data-testid="create-visibility"
                     className="input"
                   >
-                    <option value="skip">skip</option>
-                    <option value="queue">queue</option>
-                    <option value="parallel">parallel</option>
+                    <option value="default">{t("visibilityDefaultOption", undefined, "use settings default")}</option>
+                    <option value="hidden">hidden</option>
+                    <option value="shown">shown</option>
                   </select>
                 </Field>
               </div>
-              <Field label={t("fieldSandbox", undefined, "Sandbox")}>
-                <select
-                  value={sandbox}
-                  onChange={(e) => setSandbox(e.target.value as Sandbox)}
-                  data-testid="create-sandbox"
-                  className="input"
-                >
-                  <option value="read-only">read-only</option>
-                  <option value="workspace-write">workspace-write</option>
-                  <option value="full-access">full-access</option>
-                </select>
-                <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-sandbox-help">
-                  {SANDBOX_HELP[sandbox]}
-                </p>
+            )}
+          </div>
+          </div>
+          <div className="min-w-0">
+          {/* ── ACTION ───────────────────────────────────────────── */}
+          <Group title="Action" label={t("groupAction", undefined, "Action")} sectionRef={setSectionRef("action")} open={initialSection === "action"}>
+            <ActionPicker
+              actions={
+                agentId
+                  ? actions.map((a) =>
+                      a.id === "core.prompt"
+                        ? a
+                        : { ...a, available: false, unavailableReason: t("skillNeedsPi", undefined, "Skill actions need pi") },
+                    )
+                  : actions
+              }
+              selectedId={actionId}
+              search={actionSearch}
+              openSources={openSources}
+              onSearch={setActionSearch}
+              onToggleSource={(s) => setOpenSources((p) => ({ ...p, [s]: !p[s] }))}
+              onSelect={(desc) => {
+                setActionId(desc.id);
+                if (desc.id !== "core.prompt" && desc.id !== "core.skill") {
+                  setActionPayload(defaultsForSchema(desc.payloadSchema));
+                  // Reset wired inputs when switching actions; a contributed
+                  // editor re-populates from the new action's own schema.
+                  setActionInputs({});
+                }
+              }}
+            />
+            {actionId === "core.prompt" && (
+              <Field label={t("fieldPrompt", undefined, "Prompt (durable, saved to prompt.md)")}>
+                <GrowTextarea
+                  value={promptBody}
+                  onChange={(e) => setPromptBody(e.target.value)}
+                  rows={6}
+                  data-testid="create-prompt"
+                  className="input w-full font-mono"
+                />
               </Field>
-              <Field label={t("fieldVisibility", undefined, "Board visibility override")}>
-                <select
-                  value={visibility}
-                  onChange={(e) => setVisibility(e.target.value as VisibilityChoice)}
-                  data-testid="create-visibility"
-                  className="input"
-                >
-                  <option value="default">{t("visibilityDefaultOption", undefined, "use settings default")}</option>
-                  <option value="hidden">hidden</option>
-                  <option value="shown">shown</option>
-                </select>
+            )}
+            {actionId === "core.skill" && (
+              <Field label={t("fieldSkill", undefined, "Skill ($skill-name)")}>
+                <input
+                  type="text"
+                  value={skill}
+                  onChange={(e) => setSkill(e.target.value)}
+                  placeholder={t("skillPlaceholder", undefined, "$recent-code-bugfix")}
+                  data-testid="create-skill"
+                  className="input w-full font-mono"
+                />
               </Field>
-            </div>
-          )}
-        </div>
+            )}
+            {actionId !== "core.prompt" && actionId !== "core.skill" && (
+              <>
+                <ActionPayloadForm
+                  schema={actions.find((a) => a.id === actionId)?.payloadSchema ?? []}
+                  values={actionPayload}
+                  onChange={(k, v) => setActionPayload((p) => ({ ...p, [k]: v }))}
+                />
+                {/* Contributed payload editor for this action id (e.g. flows-plugin's
+                    input wiring), rendered additively below the generic form. Renders
+                    nothing when no plugin claims the action id. See change:
+                    wire-flow-inputs-in-automation. */}
+                <AutomationActionEditorSlot
+                  actionId={actionId}
+                  payload={{
+                    ...actionPayload,
+                    ...(Object.keys(actionInputs).length > 0 ? { inputs: actionInputs } : {}),
+                  }}
+                  onChange={(p) => setActionInputs(extractInputs(p))}
+                  cwd={cwd}
+                />
+              </>
+            )}
+            <Field label={t("fieldCount", undefined, "Sessions per run")}>
+              <input
+                type="number"
+                min={1}
+                value={primaryCount}
+                onChange={(e) => setPrimaryCount(Math.max(1, Number(e.target.value) || 1))}
+                data-testid="create-action-count"
+                className="input w-24"
+              />
+            </Field>
 
+            {/* Additional fan-out action entries (writes `actions:` when present). */}
+            <div className="space-y-2" data-testid="extra-actions">
+              {extraEntries.map((entry, i) => (
+                <div key={i} data-testid={`extra-action-${i}`} className="rounded border border-[var(--border-secondary)] p-2 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
+                      {t("actionEntry", { n: i + 2 }, `Action ${i + 2}`)}
+                    </span>
+                    <button
+                      type="button"
+                      data-testid={`remove-action-entry-${i}`}
+                      onClick={() => setExtraEntries((prev) => prev.filter((_, j) => j !== i))}
+                      className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border tint-action-red"
+                    >
+                      {t("remove", undefined, "Remove")}
+                    </button>
+                  </div>
+                  <Field label={t("fieldAction", undefined, "Action")}>
+                    <select
+                      value={entry.actionId}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, actionId: v } : x)));
+                      }}
+                      data-testid={`entry-action-${i}`}
+                      className="input font-mono"
+                    >
+                      {actions.map((a) => (
+                        <option key={a.id} value={a.id} disabled={!a.available}>
+                          {a.id}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  {entry.actionId === "core.skill" && (
+                    <Field label={t("fieldSkill", undefined, "Skill ($skill-name)")}>
+                      <input
+                        type="text"
+                        value={entry.skill}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, skill: v } : x)));
+                        }}
+                        data-testid={`entry-skill-${i}`}
+                        className="input font-mono"
+                      />
+                    </Field>
+                  )}
+                  <Field label={t("fieldCount", undefined, "Sessions per run")}>
+                    <input
+                      type="number"
+                      min={1}
+                      value={entry.count}
+                      onChange={(e) => {
+                        const v = Math.max(1, Number(e.target.value) || 1);
+                        setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, count: v } : x)));
+                      }}
+                      data-testid={`entry-count-${i}`}
+                      className="input w-24"
+                    />
+                  </Field>
+                </div>
+              ))}
+              <button
+                type="button"
+                data-testid="add-action-entry"
+                onClick={() =>
+                  setExtraEntries((prev) => [...prev, { actionId: "core.skill", count: 1, skill: "", payload: {} }])
+                }
+                className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              >
+                {t("addAction", undefined, "+ Add action")}
+              </button>
+            </div>
+          </Group>
+          </div>
+        </div>
+      </fieldset>
+
+      {/* ── SAVE BAR: sticky to the board scroller (design D7) ─────────── */}
+      <div
+        data-testid="editor-save-bar"
+        className="sticky bottom-0 z-[5] mt-3 flex flex-col gap-2 border-t border-[var(--border-secondary)] bg-[var(--bg-secondary)] py-2"
+      >
+        {guard && (
+          <SettingsNotice tone="warning" testId="editor-guard">
+            {guard.count === 1
+              ? t("unsavedChangeOne", undefined, "1 unsaved change")
+              : t("unsavedChangeMany", { count: guard.count }, `${guard.count} unsaved changes`)}
+            {". "}
+            {guard.closing
+              ? t("guardClosing", undefined, "Save or discard them before closing the editor.")
+              : t("guardSwitching", undefined, "Save or discard them before opening another editor.")}
+          </SettingsNotice>
+        )}
         {error && (
           <p className="text-xs text-[var(--severity-error-fg)]" data-testid="create-error">
             {error}
           </p>
         )}
-
-        <p className="text-[11px] text-[var(--text-secondary)] font-mono" data-testid="editor-footer-caption">
-          {t("writes", undefined, "Writes")} .pi/automation/{name.trim() || "<name>"}/automation.yaml
-          {actionId === "core.prompt" ? " + prompt.md" : ""}
-        </p>
-
-        <div className="flex items-center justify-end gap-2 pt-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span
+            data-testid="editor-write-path"
+            className="w-full min-w-0 font-mono text-[12px] text-[var(--text-secondary)] [overflow-wrap:anywhere] sm:mr-auto sm:w-auto sm:flex-1"
+          >
+            {t("writes", undefined, "Writes")} {writePath}automation.yaml{actionId === "core.prompt" ? " + prompt.md" : ""}
+          </span>
           {dirtyCount > 0 && (
-            <span className="mr-auto text-[12px] text-[var(--text-secondary)]" data-testid="editor-dirty-count" aria-live="polite">
+            <span className="text-[12px] text-[var(--text-secondary)]" data-testid="editor-dirty-count" aria-live="polite">
               {dirtyCount === 1
                 ? t("unsavedChangeOne", undefined, "1 unsaved change")
                 : t("unsavedChangeMany", { count: dirtyCount }, `${dirtyCount} unsaved changes`)}
             </span>
           )}
-          <button type="button" onClick={onClose} className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
-            {t("cancel", undefined, "Cancel")}
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={submitDisabled}
-            data-testid="create-submit"
-            className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:hover:brightness-100 disabled:cursor-not-allowed"
-          >
-            {busy ? t("saving", undefined, "Saving…") : editing ? t("save", undefined, "Save") : t("create", undefined, "Create")}
-          </button>
+          {!editing && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[var(--text-secondary)]" data-testid="editor-arms">
+              {isScheduled && nextRun && (
+                <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--severity-success-fg)] animate-pulse motion-reduce:animate-none" />
+              )}
+              {isScheduled && nextRun
+                ? t("armsOnCreateNext", { next: nextRun }, `Arms on create · next run ${nextRun}`)
+                : t("armsOnCreate", undefined, "Arms on create")}
+            </span>
+          )}
+          {guard ? (
+            <>
+              <button type="button" data-testid="editor-guard-discard" onClick={onDiscard} className={plainBtn}>
+                {t("discard", undefined, "Discard")}
+              </button>
+              <button
+                type="button"
+                data-testid="editor-guard-save"
+                onClick={() => void submit("switch")}
+                disabled={saveDisabled}
+                className={saveBtn}
+              >
+                {busy
+                  ? t("saving", undefined, "Saving…")
+                  : guard.closing
+                    ? t("saveAndClose", undefined, "Save & close")
+                    : t("saveAndSwitch", undefined, "Save & switch")}
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" data-testid="editor-cancel" onClick={onClose} className={plainBtn}>
+                {t("cancel", undefined, "Cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void submit()}
+                disabled={saveDisabled}
+                data-testid="create-submit"
+                className={saveBtn}
+              >
+                {busy ? t("saving", undefined, "Saving…") : editing ? t("save", undefined, "Save") : t("create", undefined, "Create")}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+/**
+ * Textarea that grows with its content (`overflow-y: hidden`), so the board
+ * root stays the only vertical scroller with an editor open (design D4).
+ */
+function GrowTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>): React.ReactElement {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `props.value` is the trigger — re-measure whenever the content changes
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [props.value]);
+  return <textarea {...props} ref={ref} className={`${props.className ?? ""} resize-none overflow-y-hidden`} />;
 }
 
 /** Build one `AutomationAction` from an editor entry's draft state. */
@@ -1152,13 +1277,11 @@ function Segmented<T extends string>({
   value,
   options,
   onChange,
-  disabled,
 }: {
   testid: string;
   value: T;
   options: Array<{ value: T; label: string }>;
   onChange: (v: T) => void;
-  disabled?: boolean;
 }): React.ReactElement {
   return (
     <div data-testid={testid} className="inline-flex rounded border border-[var(--border-secondary)] p-0.5">
@@ -1169,13 +1292,12 @@ function Segmented<T extends string>({
             key={o.value}
             type="button"
             data-testid={`${testid}-${o.value}`}
-            disabled={disabled}
             onClick={() => onChange(o.value)}
             className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] rounded ${
               selected
                 ? "bg-[var(--accent-solid)] text-white"
                 : "text-[var(--text-secondary)]"
-            } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+            }`}
           >
             {o.label}
           </button>
@@ -1241,7 +1363,7 @@ function ActionPicker({
         placeholder={t("filterActions", { count: actions.length }, `Filter ${actions.length} actions…`)}
         aria-label={t("filterActionsAria", undefined, "Filter actions")}
         data-testid="create-action-search"
-        className="input mb-2"
+        className="input mb-2 w-full"
       />
       {matched.length === 0 ? (
         <p className="text-[12px] text-[var(--text-secondary)] px-1 py-2" data-testid="create-action-zero">
@@ -1269,7 +1391,7 @@ function ActionPicker({
                   </span>
                 </button>
                 {open && (
-                  <div className="px-2 pb-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  <div className="px-2 pb-2 grid grid-cols-1 @xl:grid-cols-2 gap-1.5">
                     {items.map((a) => {
                       const selected = a.id === selectedId;
                       return (
@@ -1281,18 +1403,18 @@ function ActionPicker({
                           onClick={() => onSelect(a)}
                           aria-pressed={selected}
                           data-testid={`create-action-${a.id}`}
-                          className={`focus-ring flex items-center gap-2 rounded border px-2 py-1.5 tap-target text-left text-[12px] ${
+                          className={`focus-ring flex min-w-0 flex-col items-start gap-0.5 rounded border px-2 py-1.5 tap-target text-left text-[12px] [overflow-wrap:anywhere] ${
                             selected
                               ? "border-[var(--accent)] bg-[var(--accent)]/10"
                               : "border-[var(--border-secondary)]"
                           } ${a.available ? "" : "opacity-50 cursor-not-allowed"}`}
                         >
-                          <span className="font-mono">
+                          <span className="max-w-full font-mono">
                             <span className="text-[var(--text-secondary)]">{a.source}.</span>
                             {a.id.slice(a.source.length + 1)}
                           </span>
                           {a.description && (
-                            <span className="ml-auto text-[12px] text-[var(--text-secondary)] truncate">{a.description}</span>
+                            <span className="max-w-full text-[12px] text-[var(--text-secondary)]">{a.description}</span>
                           )}
                         </button>
                       );
@@ -1344,12 +1466,12 @@ function ActionPayloadForm({
               ))}
             </select>
           ) : f.type === "multiline" ? (
-            <textarea
+            <GrowTextarea
               value={values[f.key] ?? ""}
               onChange={(e) => onChange(f.key, e.target.value)}
               rows={3}
               data-testid={`action-payload-${f.key}`}
-              className="input"
+              className="input w-full"
             />
           ) : (
             // string | text | any UNKNOWN type → plain text input (forward-compat
@@ -1359,7 +1481,7 @@ function ActionPayloadForm({
               value={values[f.key] ?? ""}
               onChange={(e) => onChange(f.key, e.target.value)}
               data-testid={`action-payload-${f.key}`}
-              className="input"
+              className="input w-full"
             />
           )}
           {f.help && <span className="block mt-0.5 text-[12px] text-[var(--text-secondary)]">{f.help}</span>}

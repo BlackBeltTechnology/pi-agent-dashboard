@@ -14,6 +14,13 @@ import { describe, expect, it } from "vitest";
 import { API_PREFIX } from "../routes.js";
 
 const POSTS = ["/api/plugins/agent-teams/teams/:id/members/:name/stop", "/api/plugins/agent-teams/teams/:id/shutdown"];
+const TEMPLATES_HOOKS_ROUTES = [
+  "/api/plugins/agent-teams/templates",
+  "/api/plugins/agent-teams/teams/start",
+  "/api/plugins/agent-teams/teams/:id/plans",
+  "/api/plugins/agent-teams/teams/:id/members/:name/plan-decision",
+  "/api/plugins/agent-teams/hook-trust",
+];
 const MCP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../mcp-server-plugin/src/server");
 const read = (rel: string): string => fs.readFileSync(path.join(MCP, rel), "utf8");
 
@@ -25,6 +32,13 @@ describe("MCP denylist (S72)", () => {
   it("the whole prefix is denylisted, so both POST route patterns are", () => {
     expect(patterns()).toContain(`${API_PREFIX}/`);
     for (const p of POSTS) expect(denied(p), p).toBe(true);
+  });
+
+  it("every templates-hooks route (start, templates, plans, plan-decision, hook-trust) is covered by the same prefix entry", () => {
+    for (const p of TEMPLATES_HOOKS_ROUTES) {
+      expect(denied(p), p).toBe(true);
+      for (const f of ["tools.manifest.ts", path.join("generated", "tools.ts")]) expect(read(f), `${f} ${p}`).not.toContain(p);
+    }
   });
 
   it("neither route is bound by a manifest row or a generated tool", () => {

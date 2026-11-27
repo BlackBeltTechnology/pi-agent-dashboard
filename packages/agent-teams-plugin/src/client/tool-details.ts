@@ -7,7 +7,7 @@
  * yields the error code. Pure, no React.
  * See change: add-agent-teams-ui.
  */
-import type { TeamOp } from "../shared/protocol.js";
+import type { CoreTeamOp } from "../shared/protocol.js";
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -40,7 +40,7 @@ export type ToolView =
 export type ParsedDetails = { kind: "ok"; view: ToolView } | { kind: "error"; code: string };
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one flat switch over the closed set of 11 ops, each arm a plain shape check — splitting it only adds indirection
-function viewOf(op: TeamOp, d: Obj): ToolView | undefined {
+function viewOf(op: CoreTeamOp, d: Obj): ToolView | undefined {
   switch (op) {
     case "TeamCreate": {
       const t = d.team;
@@ -92,7 +92,7 @@ function viewOf(op: TeamOp, d: Obj): ToolView | undefined {
 }
 
 /** Validate `details` for `toolName`; `undefined` = missing, foreign (another op) or malformed. */
-export function parseToolDetails(toolName: TeamOp, details: unknown): ParsedDetails | undefined {
+export function parseToolDetails(toolName: CoreTeamOp, details: unknown): ParsedDetails | undefined {
   if (!isObj(details) || details.op !== toolName || typeof details.ok !== "boolean") return undefined;
   if (!details.ok) return str(details.error) && details.error !== "" ? { kind: "error", code: details.error } : undefined;
   const view = viewOf(toolName, details);

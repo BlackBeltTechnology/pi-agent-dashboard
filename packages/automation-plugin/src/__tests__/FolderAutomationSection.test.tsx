@@ -3,9 +3,10 @@
  * count + invalid marker) that navigates to the shell-overlay board
  * `/folder/:encodedCwd/automations`. Creating an automation and reloading the
  * list are folder-actions-menu contributions, not pill buttons.
- * api + CreateAutomationDialog mocked.
+ * api mocked. The CREATE item navigates to the board's inline draft (`?new=1`).
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing,
- * move-slot-actions-to-menu (test-plan #E3, #E20, #E21, #F2).
+ * move-slot-actions-to-menu (test-plan #E3, #E20, #E21, #F2),
+ * inline-automation-editor (test-plan #F9).
  */
 
 import {
@@ -26,10 +27,6 @@ vi.mock("../client/api.js", () => ({ listAutomations }));
 
 const { setLocation } = vi.hoisted(() => ({ setLocation: vi.fn() }));
 vi.mock("wouter", () => ({ useLocation: () => ["/", setLocation] }));
-
-vi.mock("../client/CreateAutomationDialog.js", () => ({
-  CreateAutomationDialog: () => <div data-testid="create-automation-dialog" />,
-}));
 
 import { FolderAutomationSection } from "../client/FolderAutomationSection.js";
 
@@ -115,14 +112,14 @@ describe("FolderAutomationSection", () => {
     expect(setLocation).toHaveBeenCalledWith(`/folder/${encodeFolderPath("/r")}/automations`);
   });
 
-  it("the CREATE item opens the create editor directly without navigating", async () => {
+  // test-plan #F9 (inline-automation-editor): no dialog in the sidebar.
+  it("F9: the CREATE item navigates to the board with the draft open (?new=1)", async () => {
     listAutomations.mockResolvedValueOnce([]);
-    const { store, getByTestId } = renderSection("/r");
+    const { store, getByTestId, queryByTestId } = renderSection("/w/app");
     await waitFor(() => getByTestId("folder-automation-open-board"));
-    act(() => store.getItems("/r")[0]!.onSelect());
-    // The dialog is `lazy()` (change: lazy-plugin-claim-modules) — await its chunk.
-    await waitFor(() => expect(getByTestId("create-automation-dialog")).toBeTruthy());
-    expect(setLocation).not.toHaveBeenCalled();
+    act(() => store.getItems("/w/app")[0]!.onSelect());
+    expect(setLocation).toHaveBeenCalledWith(`/folder/${encodeFolderPath("/w/app")}/automations?new=1`);
+    expect(queryByTestId("create-automation-dialog")).toBeNull();
   });
 });
 

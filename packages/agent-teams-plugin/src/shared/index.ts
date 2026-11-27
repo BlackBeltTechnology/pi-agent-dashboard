@@ -4,6 +4,7 @@
  * types, data-model types). Nothing here may be copied elsewhere.
  * See change: add-agent-teams-core.
  */
+export * from "./approval-mail.js";
 export * from "./clock.js";
 export * from "./constants.js";
 export * from "./mail-format.js";

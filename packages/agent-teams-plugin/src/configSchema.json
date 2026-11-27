@@ -115,6 +115,38 @@
       "minimum": 0,
       "maximum": 14000
     },
+    "maxTemplateBytes": {
+      "type": "integer",
+      "default": 65536,
+      "description": "Maximum size (bytes) of a team template file; larger files are listed invalid (template_too_large).",
+      "minimum": 1
+    },
+    "hookTimeoutMs": {
+      "type": "integer",
+      "default": 10000,
+      "description": "Default per-command hook timeout; always capped by the remaining op-gate budget (opGateBudgetMs). Invalid values fall back to the default.",
+      "minimum": 1
+    },
+    "hookMaxRetries": {
+      "type": "integer",
+      "default": 3,
+      "description": "Consecutive TeammateIdle hook blocks per member before the idle is accepted and the lead is notified. 0 means idle hooks never block. Invalid values fall back to the default.",
+      "minimum": 0
+    },
+    "planMaxChars": {
+      "type": "integer",
+      "default": 6000,
+      "description": "Maximum characters of a submitted plan (also bounds a plan decision's feedback). The effective cap is min(planMaxChars, maxMessageChars - 500) and 120 lines. Invalid values fall back to the default.",
+      "minimum": 1
+    },
+    "planModeTools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": ["read", "grep", "find", "ls"],
+      "description": "Tools a member keeps while its plan is awaiting approval (read-only set). bash, edit, write and unknown names are dropped with a startup warning."
+    },
     "autoDispatch": {
       "type": "boolean",
       "default": true,

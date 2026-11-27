@@ -1,9 +1,11 @@
 /**
- * CreateAutomationDialog (redesigned): grouped sections + Advanced disclosure,
- * two-level trigger picker, cron helper + next-run preview, ModelSelector /
- * @role model field, worktree git gating, and edit mode (update in place).
+ * AutomationEditor (inline board editor): grouped sections +
+ * Advanced disclosure, two-level trigger picker, cron helper + next-run
+ * preview, ModelSelector / @role model field, worktree git gating, edit mode
+ * (update in place, keeps keys the form does not own) and the save bar.
  *
- * api + ui-primitive mocked. See change: redesign-automation-editor-and-board.
+ * api + ui-primitive mocked. See change: redesign-automation-editor-and-board,
+ * inline-automation-editor.
  */
 
 import { applyPluginConfigUpdate, CurrentPluginLayer, createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
@@ -26,7 +28,11 @@ const { createAutomation, updateAutomation, listTriggerKinds, isGitCapable, list
 }));
 vi.mock("../client/api.js", () => ({ createAutomation, updateAutomation, listTriggerKinds, isGitCapable, listActions }));
 
-import { CreateAutomationDialog } from "../client/CreateAutomationDialog.js";
+import { AutomationEditor } from "../client/AutomationEditor.js";
+
+/** The form is disabled until the git probe settles and the baseline freezes. */
+const editorReady = () =>
+  waitFor(() => expect(document.querySelector('[data-testid="editor-loading"]')).toBeNull());
 
 const CATEGORIES: TriggerCategoryDescriptor[] = [
   { category: "scheduled", label: "Scheduled", status: "enabled", events: [] },
@@ -118,9 +124,10 @@ beforeEach(() => {
   seedRoles();
 });
 
-describe("CreateAutomationDialog (redesign)", () => {
+describe("AutomationEditor (redesign)", () => {
   it("renders grouped sections with Advanced collapsed by default", async () => {
-    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId, queryByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     expect(getByTestId("group-identity")).toBeTruthy();
     expect(getByTestId("group-trigger")).toBeTruthy();
     expect(getByTestId("group-action")).toBeTruthy();
@@ -130,7 +137,8 @@ describe("CreateAutomationDialog (redesign)", () => {
   });
 
   it("writes the chosen @role to config", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "weekly-brief" } });
     fireEvent.click(getByTestId("role-opt-coding"));
     fireEvent.click(getByTestId("create-submit"));
@@ -139,7 +147,8 @@ describe("CreateAutomationDialog (redesign)", () => {
   });
 
   it("writes a specific model id chosen via the ModelSelector", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "m" } });
     fireEvent.click(getByTestId("model-opt-anthropic/claude-sonnet-4-5"));
     fireEvent.click(getByTestId("create-submit"));
@@ -148,7 +157,8 @@ describe("CreateAutomationDialog (redesign)", () => {
   });
 
   it("scheduled category shows a next-run preview and writes raw cron", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     expect(getByTestId("create-next-run").textContent).toContain("Next run:");
     fireEvent.change(getByTestId("create-name"), { target: { value: "sched" } });
     fireEvent.click(getByTestId("create-cron-raw-toggle"));
@@ -159,7 +169,8 @@ describe("CreateAutomationDialog (redesign)", () => {
   });
 
   it("openspec category lists events, disables planned ones, and writes on.events", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     await waitFor(() => expect(getByTestId("trigger-cat-openspec")).toBeTruthy());
     fireEvent.click(getByTestId("trigger-cat-openspec"));
     expect((getByTestId("create-event-proposal.added") as HTMLInputElement).disabled).toBe(true);
@@ -174,14 +185,16 @@ describe("CreateAutomationDialog (redesign)", () => {
   });
 
   it("blocks submission for a planned category", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     await waitFor(() => expect(getByTestId("trigger-cat-git")).toBeTruthy());
     // planned tab is disabled; the create button stays disabled if forced selected.
     expect((getByTestId("trigger-cat-git") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("action picker selects the built-in skill action and writes its kind", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "sk" } });
     fireEvent.click(getByTestId("create-action-core.skill"));
     fireEvent.change(getByTestId("create-skill"), { target: { value: "$recent-code-bugfix" } });
@@ -194,7 +207,8 @@ describe("CreateAutomationDialog (redesign)", () => {
   });
 
   it("blocks core.skill submission when the skill field is empty (no `$` skill)", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "sk" } });
     fireEvent.click(getByTestId("create-action-core.skill"));
     fireEvent.click(getByTestId("create-submit"));
@@ -217,7 +231,8 @@ describe("CreateAutomationDialog (redesign)", () => {
         ],
       },
     ]);
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "nightly" } });
     await waitFor(() => expect(getByTestId("action-group-flows")).toBeTruthy());
     fireEvent.click(getByTestId("action-group-flows"));
@@ -244,7 +259,8 @@ describe("CreateAutomationDialog (redesign)", () => {
         payloadSchema: [{ key: "weird", label: "Weird", type: "totally-new-type" }],
       },
     ]);
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "fut" } });
     await waitFor(() => expect(getByTestId("action-group-future")).toBeTruthy());
     fireEvent.click(getByTestId("action-group-future"));
@@ -261,37 +277,37 @@ describe("CreateAutomationDialog (redesign)", () => {
   });
 
   it("renders next-run as a relative duration and writes raw cron", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     expect(getByTestId("create-next-run").textContent).toMatch(/in \d/);
   });
 
-  it("renders the header subtitle, armed chip, and footer caption", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
-    expect(getByTestId("editor-subtitle").textContent).toContain("/repo");
+  it("save bar names the write path and arms on create with the next run (no modal chrome)", async () => {
+    const { getByTestId, queryByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
+    expect(queryByTestId("create-automation-dialog")).toBeNull();
+    expect(queryByTestId("editor-subtitle")).toBeNull();
+    expect(queryByTestId("armed-chip")).toBeNull();
     fireEvent.change(getByTestId("create-name"), { target: { value: "weekly-brief" } });
-    await waitFor(() => expect(getByTestId("armed-chip")).toBeTruthy());
-    expect(getByTestId("editor-footer-caption").textContent).toContain("weekly-brief/automation.yaml");
-    expect(getByTestId("editor-footer-caption").textContent).toContain("prompt.md");
+    expect(getByTestId("editor-write-path").textContent).toContain("/repo/.pi/automation/weekly-brief/automation.yaml");
+    expect(getByTestId("editor-write-path").textContent).toContain("prompt.md");
+    expect(getByTestId("editor-arms").textContent).toMatch(/Arms on create · next run in \d/);
+    expect(getByTestId("editor-save-bar").contains(getByTestId("create-submit"))).toBe(true);
   });
 
-  // E9 (fieldCount) + F6 badge: the count field says "Sessions per run",
-  // never "Spawn count", and the armed badge uses the green identity tint
-  // instead of the hard-coded #6ee7b7 / rgba(52,211,153,…) literal.
-  // See change: align-ui-with-theme-tokens (design D9, tasks 2.7, 5.20).
-  it("labels the count field 'Sessions per run' and tints the armed chip with --tint-green-*", async () => {
-    const { getByTestId, getByText } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+  // E9 (fieldCount): the count field says "Sessions per run", never "Spawn count".
+  // See change: align-ui-with-theme-tokens (design D9, tasks 2.7).
+  it("labels the count field 'Sessions per run'", async () => {
+    const { getByTestId, getByText } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     const count = getByTestId("create-action-count");
     expect(count.closest("label")?.textContent).toContain("Sessions per run");
     expect(() => getByText("Spawn count")).toThrow();
-    fireEvent.change(getByTestId("create-name"), { target: { value: "weekly-brief" } });
-    const chip = await waitFor(() => getByTestId("armed-chip"));
-    expect(chip.className).toContain("bg-[var(--tint-green-bg)]");
-    expect(chip.className).toContain("text-[var(--tint-green-fg)]");
-    expect(chip.className).not.toMatch(/#6ee7b7|rgba\(/);
   });
 
   it("shows inline sandbox help in Advanced", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.click(getByTestId("create-advanced-toggle"));
     expect(getByTestId("create-sandbox-help").textContent).toContain("Write inside the workspace");
     fireEvent.change(getByTestId("create-sandbox"), { target: { value: "read-only" } });
@@ -300,7 +316,8 @@ describe("CreateAutomationDialog (redesign)", () => {
 
   it("disables worktree for a non-git folder and enables it for a git folder", async () => {
     isGitCapable.mockResolvedValue(false);
-    const { getByTestId, rerender } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId, rerender } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.click(getByTestId("create-advanced-toggle"));
     await waitFor(() => expect(getByTestId("create-worktree-hint")).toBeTruthy());
     const wtOption = () =>
@@ -309,7 +326,8 @@ describe("CreateAutomationDialog (redesign)", () => {
 
     cleanup();
     isGitCapable.mockResolvedValue(true);
-    const r2 = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const r2 = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.click(r2.getByTestId("create-advanced-toggle"));
     await waitFor(() => {
       const opt = Array.from((r2.getByTestId("create-mode") as HTMLSelectElement).options).find((o) => o.value === "worktree")!;
@@ -317,7 +335,7 @@ describe("CreateAutomationDialog (redesign)", () => {
     });
   });
 
-  it("edit mode pre-loads config, locks the name, and saves via update", async () => {
+  it("edit mode pre-loads config and saves a change via update", async () => {
     const initialConfig: AutomationConfig = {
       on: { kind: "schedule", cron: "0 6 * * *" },
       action: { kind: "prompt", prompt: "./prompt.md" },
@@ -329,7 +347,7 @@ describe("CreateAutomationDialog (redesign)", () => {
     };
     const { getByTestId } = render(
       wrap(
-        <CreateAutomationDialog
+        <AutomationEditor
           cwd="/repo"
           onClose={() => {}}
           initialName="existing"
@@ -339,16 +357,17 @@ describe("CreateAutomationDialog (redesign)", () => {
         />,
       ),
     );
-    expect((getByTestId("create-name") as HTMLInputElement).value).toBe("existing");
-    expect((getByTestId("create-name") as HTMLInputElement).disabled).toBe(true);
+    await editorReady();
     expect(getByTestId("mock-model-selector").getAttribute("data-current")).toBe("@coding");
     expect((getByTestId("create-prompt") as HTMLTextAreaElement).value).toBe("do the thing");
+    fireEvent.change(getByTestId("create-prompt"), { target: { value: "do the other thing" } });
     fireEvent.click(getByTestId("create-submit"));
     await waitFor(() => expect(updateAutomation).toHaveBeenCalled());
     expect(createAutomation).not.toHaveBeenCalled();
     const body = updateAutomation.mock.calls[0]![0]!;
     expect(body.name).toBe("existing");
     expect(body.config.on).toEqual({ kind: "schedule", cron: "0 6 * * *" });
+    expect(body.promptBody).toBe("do the other thing");
   });
 });
 
@@ -357,10 +376,11 @@ describe("CreateAutomationDialog (redesign)", () => {
  * suffix on the existing `model` field, no schema change.
  * See change: add-default-thinking-level (tasks 5.x / test-plan A1-A2).
  */
-describe("CreateAutomationDialog — thinking level", () => {
+describe("AutomationEditor — thinking level", () => {
   // A1
   it("writes the level as a suffix on the model field", async () => {
-    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.change(getByTestId("create-name"), { target: { value: "m" } });
     fireEvent.click(getByTestId("model-opt-anthropic/claude-sonnet-4-5"));
     fireEvent.click(getByTestId("level-opt-high"));
@@ -369,8 +389,9 @@ describe("CreateAutomationDialog — thinking level", () => {
     expect(createAutomation.mock.calls[0]![0]!.config.model).toBe("anthropic/claude-sonnet-4-5:high");
   });
 
-  it("offers only the picked model's supported levels", () => {
-    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+  it("offers only the picked model's supported levels", async () => {
+    const { getByTestId, queryByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.click(getByTestId("model-opt-anthropic/claude-sonnet-4-5"));
     expect(getByTestId("level-opt-high")).toBeTruthy();
     expect(queryByTestId("level-opt-low")).toBeNull();
@@ -378,7 +399,8 @@ describe("CreateAutomationDialog — thinking level", () => {
 
   // A2
   it("renders NO level control on the @role branch and writes the bare token", async () => {
-    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId, queryByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     expect(queryByTestId("mock-thinking-level")).toBeNull();
     expect(getByTestId("create-model-role-level-hint")).toBeTruthy();
     fireEvent.change(getByTestId("create-name"), { target: { value: "r" } });
@@ -389,7 +411,7 @@ describe("CreateAutomationDialog — thinking level", () => {
   });
 
   // 5.3 — edit path parity
-  it("splits an existing suffixed model when seeding the edit form", () => {
+  it("splits an existing suffixed model when seeding the edit form", async () => {
     const initial = {
       name: "x",
       on: { kind: "schedule", cron: "0 9 * * *" },
@@ -397,8 +419,9 @@ describe("CreateAutomationDialog — thinking level", () => {
       action: { kind: "prompt", prompt: "hi" },
     } as unknown as AutomationConfig;
     const { getByTestId } = render(
-      wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} initialConfig={initial} initialName="x" />),
+      wrap(<AutomationEditor cwd="/repo" onClose={() => {}} initialConfig={initial} initialName="x" />),
     );
+    await editorReady();
     // Level lands in the level control; the echo below the pair shows the
     // rejoined ref that will be written.
     expect(getByTestId("mock-thinking-level").getAttribute("data-current")).toBe("high");
@@ -409,9 +432,10 @@ describe("CreateAutomationDialog — thinking level", () => {
 });
 
 // E25 — custom role selectable via the primitive's Role tab; no level control.
-describe("CreateAutomationDialog — role-aware model field", () => {
+describe("AutomationEditor — role-aware model field", () => {
   it("custom role `nightly` selectable → stores `@nightly`, no thinking-level control", async () => {
-    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId, queryByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     expect(getByTestId("mock-model-selector").getAttribute("data-allow-roles")).toBe("true");
     expect(queryByTestId("create-model-role")).toBeNull();
     fireEvent.change(getByTestId("create-name"), { target: { value: "n" } });
@@ -430,15 +454,18 @@ describe("CreateAutomationDialog — role-aware model field", () => {
       action: { kind: "prompt", prompt: "hi" },
     } as unknown as AutomationConfig;
     const { getByTestId } = render(
-      wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} initialConfig={initial} initialName="x" />),
+      wrap(<AutomationEditor cwd="/repo" onClose={() => {}} initialConfig={initial} initialName="x" />),
     );
+    await editorReady();
+    fireEvent.change(getByTestId("create-prompt"), { target: { value: "changed" } });
     fireEvent.click(getByTestId("create-submit"));
     await waitFor(() => expect(updateAutomation).toHaveBeenCalled());
     expect(updateAutomation.mock.calls[0]![0]!.config.model).toBe("@fast:high");
   });
 
-  it("E19: the role hint names the role and says model and thinking level follow it; no level control", () => {
-    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+  it("E19: the role hint names the role and says model and thinking level follow it; no level control", async () => {
+    const { getByTestId, queryByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     fireEvent.click(getByTestId("role-opt-coding"));
     const hint = getByTestId("create-model-role-level-hint");
     expect(hint.textContent).toContain("Follows @coding");
@@ -449,14 +476,15 @@ describe("CreateAutomationDialog — role-aware model field", () => {
 });
 
 // test-plan #E59 (add-acp-session-driver): the editor's agent picker.
-describe("CreateAutomationDialog agent picker (add-acp-session-driver)", () => {
+describe("AutomationEditor agent picker (add-acp-session-driver)", () => {
   const agentsFetch = (agents: Array<{ id: string; name: string }>) =>
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ success: true, data: agents }) })));
   afterEach(() => vi.unstubAllGlobals());
 
   it("no agents configured → no agent select; model selector unchanged", async () => {
     agentsFetch([]);
-    const { queryByTestId, getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { queryByTestId, getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     await Promise.resolve();
     expect(queryByTestId("create-agent-select")).toBeNull();
     expect(getByTestId("create-model-selector")).toBeTruthy();
@@ -465,7 +493,8 @@ describe("CreateAutomationDialog agent picker (add-acp-session-driver)", () => {
   it("choosing an agent hides the model selector, disables the skill action and writes agent (no model)", async () => {
     agentsFetch([{ id: "qmt", name: "querymt" }]);
     listActions.mockResolvedValue([]); // built-in actions only (earlier tests leave a plugin action list behind)
-    const { getByTestId, queryByTestId, findByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const { getByTestId, queryByTestId, findByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
     const select = (await findByTestId("create-agent-select")) as HTMLSelectElement;
     fireEvent.change(getByTestId("create-name"), { target: { value: "acp-run" } });
     fireEvent.change(select, { target: { value: "qmt" } });
@@ -485,11 +514,12 @@ describe("CreateAutomationDialog agent picker (add-acp-session-driver)", () => {
 
 // test-plan #E21 — the editor opens on the section the user clicked and counts
 // unsaved changes in its footer. See change: polish-automation-board (design D11).
-describe("CreateAutomationDialog initialSection + dirty count", () => {
+describe("AutomationEditor initialSection + dirty count", () => {
   it("E21: opens on Trigger with its first field focused; one edit reads '1 unsaved change'", async () => {
     const { getByTestId, queryByTestId } = render(
-      wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} initialSection="trigger" />),
+      wrap(<AutomationEditor cwd="/repo" onClose={() => {}} initialSection="trigger" />),
     );
+    await editorReady();
     await waitFor(() => expect(getByTestId("group-trigger").contains(document.activeElement)).toBe(true));
     expect(getByTestId("group-trigger").getAttribute("data-open")).toBe("true");
     expect(document.activeElement).toBe(getByTestId("group-trigger").querySelector("button, input, select, textarea"));
@@ -500,7 +530,7 @@ describe("CreateAutomationDialog initialSection + dirty count", () => {
     expect(getByTestId("editor-dirty-count").textContent).toBe("2 unsaved changes");
   });
 
-  it("editing a worktree automation keeps worktree while the git probe is pending; save waits for it", async () => {
+  it("editing a worktree automation: the form waits for the git probe; worktree survives a git folder", async () => {
     let resolveProbe!: (ok: boolean) => void;
     isGitCapable.mockImplementationOnce(() => new Promise<boolean>((r) => { resolveProbe = r; }));
     const initialConfig: AutomationConfig = {
@@ -514,20 +544,24 @@ describe("CreateAutomationDialog initialSection + dirty count", () => {
     };
     const { getByTestId, queryByTestId } = render(
       wrap(
-        <CreateAutomationDialog cwd="/repo" onClose={() => {}} initialName="wt" initialScope="folder" initialConfig={initialConfig} initialPromptBody="x" />,
+        <AutomationEditor cwd="/repo" onClose={() => {}} initialName="wt" initialScope="folder" initialConfig={initialConfig} initialPromptBody="x" />,
       ),
     );
-    expect(queryByTestId("editor-dirty-count")).toBe(null);
+    // Probe pending: the whole form is disabled and Save is unreachable.
+    expect(getByTestId("editor-loading")).toBeTruthy();
+    expect((getByTestId("create-prompt") as HTMLTextAreaElement).closest("fieldset")?.disabled).toBe(true);
     expect((getByTestId("create-submit") as HTMLButtonElement).disabled).toBe(true);
     resolveProbe(true);
-    await waitFor(() => expect((getByTestId("create-submit") as HTMLButtonElement).disabled).toBe(false));
+    await editorReady();
     expect(queryByTestId("editor-dirty-count")).toBe(null);
+    fireEvent.change(getByTestId("create-prompt"), { target: { value: "y" } });
+    await waitFor(() => expect((getByTestId("create-submit") as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(getByTestId("create-submit"));
     await waitFor(() => expect(updateAutomation).toHaveBeenCalled());
     expect(updateAutomation.mock.calls.at(-1)![0]!.config.mode).toBe("worktree");
   });
 
-  it("edit mode with initialSection identity focuses the Identity section (its fields are locked)", async () => {
+  it("edit mode opened on Trigger focuses its first control", async () => {
     const initialConfig: AutomationConfig = {
       on: { kind: "schedule", cron: "0 6 * * *" },
       action: { kind: "prompt", prompt: "./prompt.md" },
@@ -539,16 +573,179 @@ describe("CreateAutomationDialog initialSection + dirty count", () => {
     };
     const { getByTestId } = render(
       wrap(
-        <CreateAutomationDialog cwd="/repo" onClose={() => {}} initialName="e" initialScope="folder" initialConfig={initialConfig} initialPromptBody="x" initialSection="identity" />,
+        <AutomationEditor cwd="/repo" onClose={() => {}} initialName="e" initialScope="folder" initialConfig={initialConfig} initialPromptBody="x" initialSection="trigger" />,
       ),
     );
-    await waitFor(() => expect(document.activeElement).toBe(getByTestId("group-identity")));
+    await waitFor(() => expect(getByTestId("group-trigger").contains(document.activeElement)).toBe(true));
   });
 
   it("initialSection advanced expands the collapsed Advanced group", async () => {
     const { getByTestId } = render(
-      wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} initialSection="advanced" />),
+      wrap(<AutomationEditor cwd="/repo" onClose={() => {}} initialSection="advanced" />),
     );
+    await editorReady();
     await waitFor(() => expect(getByTestId("create-advanced").contains(document.activeElement)).toBe(true));
+  });
+});
+
+// inline-automation-editor: config round-trip, baseline, save bar, identity.
+describe("AutomationEditor — inline editor (inline-automation-editor)", () => {
+  const daily: AutomationConfig = {
+    on: { kind: "schedule", cron: "0 10 * * *" },
+    action: { kind: "prompt", prompt: "./prompt.md" },
+    model: "@fast",
+    mode: "local",
+    sandbox: "workspace-write",
+    concurrency: "skip",
+  };
+  const editDaily = (over: Partial<AutomationConfig> = {}, cwd = "/w/app") =>
+    render(
+      wrap(
+        <AutomationEditor
+          cwd={cwd}
+          onClose={() => {}}
+          initialName="daily-continuity"
+          initialScope="folder"
+          initialConfig={{ ...daily, ...over }}
+          initialPromptBody="Summarise yesterday."
+          initialSection="trigger"
+        />,
+      ),
+    );
+
+  // test-plan #E1
+  it("E1: saving keeps keys the form does not own (disabled, maxConcurrentSpawns)", async () => {
+    const { getByTestId } = editDaily({ disabled: true, maxConcurrentSpawns: 3 });
+    await editorReady();
+    fireEvent.change(getByTestId("create-prompt"), { target: { value: "Summarise today." } });
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(updateAutomation).toHaveBeenCalled());
+    const body = updateAutomation.mock.calls[0]![0]!;
+    expect(body.config.disabled).toBe(true);
+    expect(body.config.maxConcurrentSpawns).toBe(3);
+    expect(body.promptBody).toBe("Summarise today.");
+  });
+
+  // test-plan #E2
+  it("E2: untouched worktree automation in a non-git folder reports no change; mode reads local", async () => {
+    isGitCapable.mockResolvedValue(false);
+    const { getByTestId, queryByTestId } = editDaily({ mode: "worktree" });
+    await editorReady();
+    expect(queryByTestId("editor-dirty-count")).toBeNull();
+    expect((getByTestId("create-submit") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(getByTestId("create-advanced-toggle"));
+    expect((getByTestId("create-mode") as HTMLSelectElement).value).toBe("local");
+  });
+
+  // test-plan #E3
+  it("E3: changing the raw cron reads '1 unsaved change' and enables Save", async () => {
+    const { getByTestId } = editDaily();
+    await editorReady();
+    expect((getByTestId("create-cron") as HTMLInputElement).value).toBe("0 10 * * *");
+    fireEvent.change(getByTestId("create-cron"), { target: { value: "30 9 * * *" } });
+    expect(getByTestId("editor-dirty-count").textContent).toBe("1 unsaved change");
+    expect((getByTestId("create-submit") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // test-plan #E4
+  it("E4: sessions per run never drops below 1", async () => {
+    const { getByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
+    const count = getByTestId("create-action-count") as HTMLInputElement;
+    for (const v of ["0", "-2", ""]) {
+      fireEvent.change(count, { target: { value: v } });
+      expect(count.value).toBe("1");
+    }
+    fireEvent.change(getByTestId("create-name"), { target: { value: "n" } });
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    expect(createAutomation.mock.calls[0]![0]!.config.action.count).toBeUndefined();
+  });
+
+  // test-plan #E5
+  it("E5: the save bar names where it writes (global, folder, unnamed draft)", async () => {
+    const global = render(
+      wrap(<AutomationEditor cwd="/w/app" onClose={() => {}} initialName="pr-triage" initialScope="global" initialConfig={daily} />),
+    );
+    await editorReady();
+    expect(global.getByTestId("editor-write-path").textContent).toContain("~/.pi/automation/pr-triage/");
+    cleanup();
+    const folder = editDaily();
+    await editorReady();
+    expect(folder.getByTestId("editor-write-path").textContent).toContain("/w/app/.pi/automation/daily-continuity/");
+    cleanup();
+    const draft = render(wrap(<AutomationEditor onClose={() => {}} />));
+    await editorReady();
+    expect(draft.getByTestId("editor-write-path").textContent).toContain(".pi/automation/<name>/");
+  });
+
+  // test-plan #E8
+  it("E8: edit hides identity; the create draft keeps Name + Scope", async () => {
+    const edit = editDaily();
+    await editorReady();
+    for (const id of ["create-name", "create-scope", "create-name-locked", "group-identity"]) {
+      expect(edit.queryByTestId(id)).toBeNull();
+    }
+    cleanup();
+    const create = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+    await editorReady();
+    expect((create.getByTestId("create-name") as HTMLInputElement).disabled).toBe(false);
+    expect((create.getByTestId("create-scope-global") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // test-plan #E10
+  it("E10: an agent hides model + level; pi with a direct model writes the level suffix", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ data: [{ id: "claude-code", name: "claude-code" }] }) })),
+    );
+    try {
+      const { getByTestId, queryByTestId, findByTestId } = render(wrap(<AutomationEditor cwd="/repo" onClose={() => {}} />));
+      await editorReady();
+      const agent = (await findByTestId("create-agent-select")) as HTMLSelectElement;
+      expect(getByTestId("group-runs-as").contains(agent)).toBe(true);
+      fireEvent.change(agent, { target: { value: "claude-code" } });
+      expect(getByTestId("create-model-by-agent")).toBeTruthy();
+      expect(queryByTestId("create-model-selector")).toBeNull();
+      expect(queryByTestId("mock-thinking-level")).toBeNull();
+      fireEvent.change(agent, { target: { value: "" } });
+      fireEvent.click(getByTestId("model-opt-anthropic/claude-sonnet-4-5"));
+      fireEvent.click(getByTestId("level-opt-high"));
+      fireEvent.change(getByTestId("create-name"), { target: { value: "m" } });
+      fireEvent.click(getByTestId("create-submit"));
+      await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+      expect(createAutomation.mock.calls[0]![0]!.config.model).toBe("anthropic/claude-sonnet-4-5:high");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("guard: renders the count with Discard / Save & close and saves with outcome 'switch'", async () => {
+    const onDiscard = vi.fn();
+    const onSaved = vi.fn();
+    const { getByTestId, queryByTestId } = render(
+      wrap(
+        <AutomationEditor
+          cwd="/w/app"
+          onClose={() => {}}
+          onSaved={onSaved}
+          onDiscard={onDiscard}
+          guard={{ count: 2, closing: true }}
+          initialName="daily-continuity"
+          initialScope="folder"
+          initialConfig={daily}
+          initialPromptBody="x"
+        />,
+      ),
+    );
+    await editorReady();
+    expect(getByTestId("editor-guard").textContent).toContain("2 unsaved changes");
+    expect(getByTestId("editor-guard-save").textContent).toBe("Save & close");
+    expect(queryByTestId("create-submit")).toBeNull();
+    fireEvent.click(getByTestId("editor-guard-discard"));
+    expect(onDiscard).toHaveBeenCalledTimes(1);
+    fireEvent.change(getByTestId("create-prompt"), { target: { value: "y" } });
+    fireEvent.click(getByTestId("editor-guard-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith("switch", "daily-continuity"));
   });
 });

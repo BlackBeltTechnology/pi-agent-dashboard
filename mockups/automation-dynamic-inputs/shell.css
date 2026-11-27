@@ -1,5 +1,5 @@
 /* Shared mockup styling — mirrors the real dialog tokens
-   (CreateAutomationDialog.tsx uses var(--bg-primary), var(--accent,#6366f1),
+   (the automation editor, now AutomationEditor.tsx, used var(--bg-primary), var(--accent,#6366f1),
    var(--border-secondary), var(--text-muted), etc.). */
 :root{
   --bg:#0f1115;--bg-primary:#171a21;--panel-2:#1d212b;--panel-3:#131722;

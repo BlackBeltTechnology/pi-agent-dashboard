@@ -3,15 +3,15 @@
  * `TeamToolRenderers` module (design D9, task 8.3): eleven team tools map to four
  * component families. It is the single source for the manifest's eleven
  * `tool-renderer` claims — `__tests__/manifest.test.ts` asserts table ≡ manifest.
- * Pure data (no React, no icon import); keyed by core's `TeamOp` so a new core
+ * Pure data (no React, no icon import); keyed by core's `CoreTeamOp` so a new core
  * tool fails the type-check until it is placed in a family.
  * See change: add-agent-teams-ui.
  */
-import type { TeamOp } from "../shared/protocol.js";
+import type { CoreTeamOp } from "../shared/protocol.js";
 
 export type ToolFamily = "lifecycle" | "send" | "task" | "shutdown";
 
-export const TOOL_FAMILIES: Readonly<Record<TeamOp, ToolFamily>> = {
+export const TOOL_FAMILIES: Readonly<Record<CoreTeamOp, ToolFamily>> = {
   TeamCreate: "lifecycle",
   TeammateSpawn: "lifecycle",
   TeamStatus: "lifecycle",

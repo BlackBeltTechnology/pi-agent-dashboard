@@ -4,7 +4,7 @@
  * delete-with-confirmation wired to the DELETE route. api mocked.
  *
  * See change: add-automation-plugin, redesign-automation-editor-and-board,
- * use-selector-style-for-automation-selection.
+ * use-selector-style-for-automation-selection, inline-automation-editor.
  */
 
 import { encodeFolderPath, HOST_FX_CLASSES } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
@@ -12,9 +12,11 @@ import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import type { AutomationConfig, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 
 const nightlyConfig: AutomationConfig = {
@@ -53,7 +55,7 @@ vi.mock("../client/api.js", () => ({
 }));
 
 import { AutomationBoard } from "../client/AutomationBoard.js";
-import { fetchAutomations, listRuns as listRunsMock } from "../client/api.js";
+import { fetchAutomations, getAutomationDefinition, listRuns as listRunsMock, updateAutomation } from "../client/api.js";
 
 // Result / Log render as markdown inside `ui:dialog` (polish-automation-board D7).
 function MockMarkdown({ content }: { content: string }) {
@@ -64,9 +66,8 @@ function MockMarkdown({ content }: { content: string }) {
 // Provide the real Popover so its content mounts + dismisses like production;
 // menu content lands in document.body, so query it via `screen`, not the
 // container-scoped queries returned by render().
-function renderBoard(props: React.ComponentProps<typeof AutomationBoard>) {
-  return render(
-    withUiPrimitiveProvider(
+function boardTree(props: React.ComponentProps<typeof AutomationBoard>) {
+  return withUiPrimitiveProvider(
       {
         [UI_PRIMITIVE_KEYS.popover]: Popover,
         [UI_PRIMITIVE_KEYS.dialog]: Dialog as never,
@@ -76,8 +77,11 @@ function renderBoard(props: React.ComponentProps<typeof AutomationBoard>) {
         [UI_PRIMITIVE_KEYS.thinkingLevelSelector]: (() => null) as never,
       },
       <AutomationBoard cwd="/r" {...props} />,
-    ),
   );
+}
+function renderBoard(props: React.ComponentProps<typeof AutomationBoard>, hook?: ReturnType<typeof memoryLocation>) {
+  const tree = boardTree(props);
+  return render(hook ? <Router hook={hook.hook} searchHook={hook.searchHook}>{tree}</Router> : tree);
 }
 
 afterEach(cleanup);
@@ -433,7 +437,9 @@ describe("AutomationBoard run history + navigation", () => {
     const { getByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("edit-nightly").textContent).toBe("Edit"));
     fireEvent.click(getByTestId("automation-name-nightly"));
-    await waitFor(() => expect(screen.getByTestId("create-automation-dialog")).toBeTruthy());
+    await waitFor(() =>
+      expect(getByTestId("automation-def-nightly").contains(getByTestId("automation-editor-folder:nightly"))).toBe(true),
+    );
     fireEvent.click(getByTestId("overflow-nightly"));
     const items = screen.getByTestId("overflow-menu-nightly").querySelectorAll("button");
     expect([...items].map((b) => b.getAttribute("data-testid"))).toEqual(["delete-nightly"]);
@@ -443,12 +449,11 @@ describe("AutomationBoard run history + navigation", () => {
     const { getByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("edit-nightly")).toBeTruthy());
     const edit = getByTestId("edit-nightly");
-    edit.focus();
     fireEvent.click(edit);
-    const dialog = await waitFor(() => screen.getByTestId("create-automation-dialog"));
-    const cancel = [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Cancel")!;
-    fireEvent.click(cancel);
-    await waitFor(() => expect(screen.queryByTestId("create-automation-dialog")).toBe(null));
+    await waitFor(() => expect(getByTestId("editor-cancel")).toBeTruthy());
+    await waitFor(() => expect(screen.queryByTestId("editor-loading")).toBe(null));
+    fireEvent.click(getByTestId("editor-cancel"));
+    await waitFor(() => expect(screen.queryByTestId("automation-editor-folder:nightly")).toBe(null));
     expect(document.activeElement).toBe(edit);
   });
 
@@ -679,12 +684,13 @@ describe("AutomationBoard selection style", () => {
   });
 
   // test-plan #F2
-  it("F2: clicking another card's name opens the editor without moving selection", async () => {
+  // inline-automation-editor (design D3): the editing card is the selected card.
+  it("F2: clicking another card's name opens that card's editor and selects it", async () => {
     const { getByTestId } = await mountBoard([def("a"), def("b")]);
     fireEvent.click(getByTestId("automation-def-a"));
     fireEvent.click(getByTestId("automation-name-b"));
-    expect(getByTestId("automation-def-a").getAttribute("aria-current")).toBe("true");
-    expect(getByTestId("automation-def-b").hasAttribute("aria-current")).toBe(false);
+    expect(getByTestId("automation-def-b").getAttribute("aria-current")).toBe("true");
+    expect(getByTestId("automation-def-a").hasAttribute("aria-current")).toBe(false);
   });
 });
 
@@ -818,5 +824,233 @@ describe("AutomationBoard load states", () => {
     expect(view.queryByTestId("automation-def-only-in-a")).toBeNull();
     expect(view.getByTestId("automation-def-only-in-b")).toBeTruthy();
     expect(view.queryByTestId("automation-error")).toBeNull();
+  });
+});
+
+// One inline editor per board with an unsaved-changes guard, the draft card and
+// `?new=1`. See change: inline-automation-editor (test-plan #E6-#E9, #F1-#F8, #X1-#X6).
+describe("AutomationBoard inline editor", () => {
+  const card = (name: string): DiscoveredAutomation => ({
+    name, scope: "folder", dir: `/r/.pi/automation/${name}`, valid: true, config: nightlyConfig,
+  });
+  const doneRun = (name: string): RunRecord => ({ runId: `r-${name}`, name, status: "done", dir: `/d/${name}`, startedAt: 1, endedAt: 2 });
+  const boardPath = `/folder/${encodeFolderPath("/r")}/automations`;
+  const editorOf = (name: string) => `automation-editor-folder:${name}`;
+  const openEditors = () => [...document.querySelectorAll('[data-testid^="automation-editor-"]')].map((e) => e.getAttribute("data-testid"));
+
+  afterEach(() => {
+    vi.mocked(fetchAutomations).mockImplementation(async () => ({ ok: true, automations }));
+    vi.mocked(getAutomationDefinition).mockImplementation(async () => ({ config: nightlyConfig, promptBody: "x" }));
+    vi.mocked(updateAutomation).mockImplementation(async () => ({ ok: true }));
+  });
+
+  async function mount(list = [card("a"), card("b")], runRows: RunRecord[] = [], extra: Partial<React.ComponentProps<typeof AutomationBoard>> = {}) {
+    vi.mocked(fetchAutomations).mockImplementation(async () => ({ ok: true, automations: list }));
+    vi.mocked(listRunsMock).mockImplementation(async (scope: string) => (scope === "folder" ? runRows : []));
+    const view = renderBoard({ params, ...extra });
+    await waitFor(() => expect(view.getByTestId(`automation-def-${list[0]!.name}`)).toBeTruthy());
+    return view;
+  }
+  async function openEditor(view: ReturnType<typeof renderBoard>, name: string) {
+    fireEvent.click(view.getByTestId(`edit-${name}`));
+    await waitFor(() => expect(view.getByTestId(editorOf(name))).toBeTruthy());
+    await waitFor(() => expect(view.queryByTestId("editor-loading")).toBeNull());
+  }
+  /** 1 change = prompt; 2 = prompt + raw cron. */
+  async function makeDirty(view: ReturnType<typeof renderBoard>, n: 1 | 2) {
+    fireEvent.change(view.getByTestId("create-prompt"), { target: { value: "changed" } });
+    if (n === 2) fireEvent.change(view.getByTestId("create-cron"), { target: { value: "30 9 * * *" } });
+    await waitFor(() => expect(view.getByTestId("editor-dirty-count").textContent).toBe(n === 1 ? "1 unsaved change" : "2 unsaved changes"));
+  }
+
+  it("E6: re-requesting the open editor only focuses the section", async () => {
+    const view = await mount();
+    await openEditor(view, "a");
+    await makeDirty(view, 1);
+    fireEvent.click(view.getByTestId("automation-name-a"));
+    fireEvent.click(view.getByTestId("automation-summary-a"));
+    await waitFor(() => expect(view.getByTestId("group-trigger").contains(document.activeElement)).toBe(true));
+    expect(view.queryByTestId("editor-guard")).toBeNull();
+    expect(view.getByTestId("editor-dirty-count").textContent).toBe("1 unsaved change");
+  });
+
+  it("E7: ?new=1 on an empty folder keeps the explainer and shows the draft after it", async () => {
+    vi.mocked(fetchAutomations).mockImplementation(async () => ({ ok: true, automations: [] }));
+    const loc = memoryLocation({ path: `${boardPath}?new=1`, record: true });
+    const view = renderBoard({ params }, loc);
+    const draft = await waitFor(() => view.getByTestId("automation-draft"));
+    const empty = view.getByTestId("automation-empty");
+    expect(empty.compareDocumentPosition(draft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(view.queryByTestId("create-automation-dialog")).toBeNull();
+  });
+
+  it("E9: an editing card hides Run now, Disable and the last run; Stop stays", async () => {
+    const running: RunRecord = { runId: "r-b", name: "b", status: "running", dir: "/d/b", startedAt: 3 };
+    const view = await mount([card("a"), card("b")], [doneRun("a"), running]);
+    await openEditor(view, "a");
+    for (const id of ["run-now-a", "toggle-a", "automation-last-run-a"]) expect(view.queryByTestId(id)).toBeNull();
+    fireEvent.click(view.getByTestId("edit-a"));
+    await waitFor(() => expect(view.queryByTestId(editorOf("a"))).toBeNull());
+    for (const id of ["run-now-a", "toggle-a", "automation-last-run-a"]) expect(view.getByTestId(id)).toBeTruthy();
+    await openEditor(view, "b");
+    expect(view.getByTestId("stop-b")).toBeTruthy();
+  });
+
+  it("F1: a clean editor switches immediately; one editor at a time", async () => {
+    const view = await mount();
+    await openEditor(view, "a");
+    await openEditor(view, "b");
+    expect(openEditors()).toEqual([editorOf("b")]);
+    expect(view.getByTestId("edit-a").textContent).toBe("Edit");
+    expect(view.getByTestId("edit-a").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("F2 + F3: a dirty editor warns before switching; Discard continues without saving", async () => {
+    const view = await mount();
+    await openEditor(view, "a");
+    await makeDirty(view, 2);
+    fireEvent.click(view.getByTestId("edit-b"));
+    const guard = view.getByTestId("editor-guard");
+    expect(view.getByTestId(editorOf("a")).contains(guard)).toBe(true);
+    expect(guard.textContent).toContain("2 unsaved changes");
+    expect(view.queryByTestId(editorOf("b"))).toBeNull();
+    fireEvent.click(view.getByTestId("editor-guard-discard"));
+    await waitFor(() => expect(view.getByTestId(editorOf("b"))).toBeTruthy());
+    expect(view.queryByTestId(editorOf("a"))).toBeNull();
+    expect(vi.mocked(updateAutomation)).not.toHaveBeenCalled();
+  });
+
+  it("F4: Close editor and Cancel on a dirty editor both warn with Save & close", async () => {
+    for (const trigger of ["edit-a", "editor-cancel"]) {
+      const view = await mount();
+      await openEditor(view, "a");
+      await makeDirty(view, 1);
+      fireEvent.click(view.getByTestId(trigger));
+      expect(view.getByTestId("editor-guard")).toBeTruthy();
+      expect(view.getByTestId("editor-guard-save").textContent).toBe("Save & close");
+      expect(view.getByTestId(editorOf("a"))).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it("F5 + F6: Edit expands the card in place, focuses Trigger; Close editor restores card and focus", async () => {
+    const list = [card("daily-continuity"), card("x"), card("y")];
+    const view = await mount(list, [doneRun("daily-continuity")]);
+    await openEditor(view, "daily-continuity");
+    const edit = view.getByTestId("edit-daily-continuity");
+    expect(view.getByTestId("automation-def-daily-continuity").contains(view.getByTestId(editorOf("daily-continuity")))).toBe(true);
+    expect(edit.textContent).toBe("Close editor");
+    expect(edit.getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => expect(view.getByTestId("group-trigger").contains(document.activeElement)).toBe(true));
+    fireEvent.click(edit);
+    await waitFor(() => expect(view.queryByTestId(editorOf("daily-continuity"))).toBeNull());
+    expect(view.getByTestId("automation-last-run-daily-continuity")).toBeTruthy();
+    expect(document.activeElement).toBe(view.getByTestId("edit-daily-continuity"));
+  });
+
+  it("F7: clicks inside the editor do not re-select", async () => {
+    const view = await mount();
+    fireEvent.click(view.getByTestId("automation-def-b"));
+    await openEditor(view, "a");
+    expect(view.getByTestId("automation-def-a").getAttribute("aria-current")).toBe("true");
+    fireEvent.click(view.getByTestId("create-prompt"));
+    expect(view.getByTestId("automation-def-a").getAttribute("aria-current")).toBe("true");
+    expect(view.getByTestId("automation-def-b").hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("F8: ?new=1 waits for the list, opens the draft and is consumed with replace", async () => {
+    vi.mocked(fetchAutomations).mockImplementation(
+      () => new Promise((r) => setTimeout(() => r({ ok: true, automations }), 50)),
+    );
+    const loc = memoryLocation({ path: `${boardPath}?new=1`, record: true });
+    const view = renderBoard({ params }, loc);
+    expect(view.getByTestId("automation-loading")).toBeTruthy();
+    expect(view.queryByTestId("automation-draft")).toBeNull();
+    await waitFor(() => expect(view.getByTestId("automation-draft")).toBeTruthy());
+    // Consumed with `replace`: history holds the bare board path only.
+    expect(loc.history).toEqual([boardPath]);
+  });
+
+  it("X1: a failed Save & switch keeps the edits and the error; B does not open", async () => {
+    vi.mocked(updateAutomation).mockImplementation(async () => ({ ok: false, error: "disk full" }));
+    const view = await mount();
+    await openEditor(view, "a");
+    await makeDirty(view, 2);
+    fireEvent.click(view.getByTestId("edit-b"));
+    fireEvent.click(view.getByTestId("editor-guard-save"));
+    await waitFor(() => expect(view.getByTestId("create-error").textContent).toBe("disk full"));
+    expect(view.getByTestId(editorOf("a"))).toBeTruthy();
+    expect((view.getByTestId("create-prompt") as HTMLTextAreaElement).value).toBe("changed");
+    expect(view.queryByTestId(editorOf("b"))).toBeNull();
+  });
+
+  it("X2: a failed definition fetch shows Retry + Close in the card; Retry opens the editor", async () => {
+    vi.mocked(getAutomationDefinition).mockImplementationOnce(async () => null);
+    const view = await mount();
+    fireEvent.click(view.getByTestId("edit-a"));
+    await waitFor(() => expect(view.getByTestId("card-editor-error-a")).toBeTruthy());
+    expect(view.getByTestId("card-editor-close-a")).toBeTruthy();
+    expect(view.queryByTestId("create-prompt")).toBeNull();
+    fireEvent.click(view.getByTestId("card-editor-retry-a"));
+    await waitFor(() => expect(view.getByTestId(editorOf("a"))).toBeTruthy());
+  });
+
+  it("X3: a slow definition is superseded by a later request", async () => {
+    vi.mocked(getAutomationDefinition).mockImplementation(async (_s, _c, name) => {
+      if (name === "a") await new Promise((r) => setTimeout(r, 300));
+      return { config: nightlyConfig, promptBody: name };
+    });
+    const view = await mount();
+    fireEvent.click(view.getByTestId("edit-a"));
+    fireEvent.click(view.getByTestId("edit-b"));
+    await waitFor(() => expect(view.getByTestId(editorOf("b"))).toBeTruthy());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 350));
+    });
+    expect(openEditors()).toEqual([editorOf("b")]);
+  });
+
+  it("X4: a failed load with ?new=1 shows the error, no draft, and strips the param", async () => {
+    vi.mocked(fetchAutomations).mockImplementation(async () => ({ ok: false as const, error: "HTTP 503" }));
+    const loc = memoryLocation({ path: `${boardPath}?new=1`, record: true });
+    const view = renderBoard({ params }, loc);
+    await waitFor(() => expect(view.getByTestId("automation-error")).toBeTruthy());
+    expect(view.getByTestId("automation-retry")).toBeTruthy();
+    await waitFor(() => expect(loc.history).toEqual([boardPath]));
+    expect(view.queryByTestId("automation-draft")).toBeNull();
+  });
+
+  it("X5: a folder switch drops the open editor without saving", async () => {
+    const view = await mount([card("foo")], [], { cwd: "/w/a" });
+    await openEditor(view, "foo");
+    await makeDirty(view, 1);
+    view.rerender(boardTree({ params, cwd: "/w/b" }));
+    await waitFor(() => expect(vi.mocked(fetchAutomations)).toHaveBeenCalledWith("/w/b"));
+    await waitFor(() => expect(view.getByTestId("automation-def-foo")).toBeTruthy());
+    expect(openEditors()).toEqual([]);
+    expect(vi.mocked(updateAutomation)).not.toHaveBeenCalled();
+  });
+
+  it("X6: Back is not intercepted by a dirty editor", async () => {
+    const onBack = vi.fn();
+    const view = await mount([card("a"), card("b")], [], { onBack });
+    await openEditor(view, "a");
+    await makeDirty(view, 1);
+    fireEvent.click(view.getByTestId("automation-board-back"));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(view.queryByTestId("editor-guard")).toBeNull();
+  });
+
+  it("+ Create opens the draft above the list; Create removes it and focuses the new card's Edit", async () => {
+    const view = await mount();
+    fireEvent.click(view.getByTestId("automation-create-btn"));
+    const draft = await waitFor(() => view.getByTestId("automation-draft"));
+    expect(draft.compareDocumentPosition(view.getByTestId("automation-list")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await waitFor(() => expect(view.queryByTestId("editor-loading")).toBeNull());
+    vi.mocked(fetchAutomations).mockImplementation(async () => ({ ok: true, automations: [card("a"), card("b"), card("fresh")] }));
+    fireEvent.change(view.getByTestId("create-name"), { target: { value: "fresh" } });
+    fireEvent.click(view.getByTestId("create-submit"));
+    await waitFor(() => expect(view.queryByTestId("automation-draft")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(view.getByTestId("edit-fresh")));
   });
 });

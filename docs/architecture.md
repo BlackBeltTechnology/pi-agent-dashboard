@@ -1876,6 +1876,31 @@ Access + controls:
 - Limits: read 8/s burst 16; POST writes 2/s burst 5. 429 ⇒ `rate_limited`.
 - See change: add-agent-teams-ui.
 
+### Agent Teams templates, hooks, plan approval (`add-agent-teams-templates-hooks`)
+
+Same plugin `agent-teams`. Additive over core seams (`registerOpGate`, `registerDispatchEligibility`, `registerSpawnContributor`, `registerMailKind`, `Team.overrides`, `Member.hold`). Full guide: [`agent-teams.md`](agent-teams.md). Security: [`security/agent-teams-hooks-and-plans.md`](security/agent-teams-hooks-and-plans.md).
+
+```mermaid
+flowchart LR
+  T["templates.ts<br/>user + project(trusted)"] --> S["start.ts team.start"]
+  C["bridge /agent-team"] -->|lane| S
+  D["Start team dialog"] -->|"POST teams/start"| S
+  A["agents.ts .pi/agents"] --> R["spawn-resolve.ts"]
+  S --> CORE["core createTeam · bindLead · spawnMember"]
+  R --> CORE
+  H["hooks.ts"] -->|registerOpGate| CORE
+  P["plans.ts"] -->|eligibility · mail kinds| CORE
+```
+
+- Template = markdown + YAML frontmatter. Sources `user` (`<piAgentDir>/teams/`), `project` (`<cwd>/.pi/teams/`, needs `host.isProjectTrusted`). Vars `{{goal}}`, `{{cwd}}` only.
+- Start: `/agent-team start|templates` (bridge, current session becomes lead) or `POST /api/plugins/agent-teams/teams/start` (server spawns lead, deadline `leadBindDeadline`, `closeReason: lead_spawn_failed`). Template snapshot persisted on team; frozen.
+- Teammate types: `.pi/agents/<Name>.md` re-implemented reader (`agents.ts`). Precedence + ceiling + plan floor in `spawn-resolve.ts`.
+- Hooks `TeammateIdle|TaskCreated|TaskCompleted`: op gates, exit 0 allow / 2 block / other allow (fail-open), one `opGateBudgetMs` (12 s) deadline, concurrency 2/team 4/global, `hookMaxRetries` 3. TOFU `<dataDir>/hook-trust.json` keyed `realpath(cwd)`+sha256. Frozen at start.
+- Plan approval: `planning → pending → approved`. `PlanSubmit` / `PlanDecision` tools + `plan-decision` route. Layers: spawn tool list, `setActiveTools` narrowing, `tool_call` backstop (`bridge/plan-mode.ts`).
+- Config: `maxTemplateBytes`, `hookTimeoutMs`, `hookMaxRetries`, `planMaxChars`, `planModeTools`.
+- Routes: GET `templates`, GET `teams/:id/plans` (observe); POST `teams/start`, POST `…/members/:name/plan-decision`, POST/DELETE `hook-trust` (operate).
+- See change: add-agent-teams-templates-hooks.
+
 ### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
 
 `ServerPluginContext.spawnSession` accepts `PluginSpawnOptions.lifecycle: PluginSessionLifecycle` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`). Owning plugin declares per-session lifecycle decisions; core reads the flags, never the plugin name.
@@ -2716,7 +2741,7 @@ Run-configuring surfaces, all five now paired:
 - Settings → Sessions → Default Model — `packages/client/src/components/settings/SettingsPanel.tsx`, persists `config.defaultThinkingLevel`
 - OpenSpec run-config row — `packages/client/src/components/openspec/useOpenSpecRunConfigRow.tsx`
 - Roles → assign model to `@role` — `packages/roles-plugin/src/RolesSettingsSection.tsx`
-- Automation → Create, direct-model branch — `packages/automation-plugin/src/client/CreateAutomationDialog.tsx`
+- Automation → Create/edit, direct-model branch ("Runs as" group) — `packages/automation-plugin/src/client/AutomationEditor.tsx`, rendered inline by `AutomationBoard.tsx` (editing card or `automation-draft` card)
 
 Reference-listing surfaces, deliberately excluded: Model Proxy preferred-models list and Model Proxy alias→model table, both in `packages/client/src/components/settings/ModelProxySection.tsx`.
 
@@ -6604,6 +6629,13 @@ Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Default and o
 Per-session keeper process owns pi's stdin pipe. Keeper forwards verbatim to pi's stdin. Server no longer writes extension-slash RPC lines to the keeper (`keeperManager.writeRpc`, `keeperManager.writeRpcToSockPath`, `headlessPidRegistry.writeRpc` removed; `dispatch-router.ts` deleted).
 
 Keeper outlives dashboard server restarts. Replaced Unix `tail -f /dev/null | pi` wrapper and Windows direct-stdin pipe. Uniform durability across Unix and Windows.
+
+Keeper logging off by default. Settings > Developer toggle `keeperLog.capturePiOutput` (default `false`) gates ALL keeper log output.
+- Off: no `keeper-<id>.log`, no `keeper-launch-<id>.log`. `log()` no-op. Rotation not armed. PID sidecars (`.pid`, `.pi-pid`) still written.
+- On: lifecycle lines + pi stdout/stderr → `keeper-<id>.log` (in-place rotation at `keeperLog.maxBytes`); keeper startup stderr → `keeper-launch-<id>.log`.
+- Server sets `PI_KEEPER_CAPTURE_PI_OUTPUT=1` from config only. Deletes inherited value (case-insensitive) when off. Inherited env cannot enable.
+- Read at spawn: applies to new sessions only. Running keepers keep prior behavior.
+- Server closes launch-log fd after spawn.
 
 Three-process topology + dual-channel boundary:
 

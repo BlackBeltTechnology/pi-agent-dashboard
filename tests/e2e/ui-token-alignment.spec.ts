@@ -395,11 +395,11 @@ test.describe("select / confirm prompt (F5)", () => {
   });
 });
 
-// ── F6 / X1 — automation dialog ───────────────────────────────────────────
+// ── F6 / X1 — automation editor (inline; change: inline-automation-editor) ───────────────────────────────────────────
 test.describe("automation dialog help + error (F6, X1)", () => {
   test.setTimeout(180_000);
 
-  test("help ≥ 12 px --text-secondary, error --severity-error-fg, armed badge --tint-green-* — dark + light", async ({ page }) => {
+  test("help ≥ 12 px --text-secondary, error --severity-error-fg, inline editor (no modal) — dark + light", async ({ page }) => {
     const name = "e2e-inbox-watch";
     const config = {
       on: { kind: "file", events: ["created"] },
@@ -438,13 +438,15 @@ test.describe("automation dialog help + error (F6, X1)", () => {
     for (const mode of MODES) {
       await page.goto(`/folder/${encodeFolder(FIXTURE_GIT)}/automations`);
       await setThemeMode(page, mode);
-      await page.getByTestId(`overflow-${name}`).click({ timeout: 30_000 });
-      await page.getByTestId(`edit-${name}`).click();
-      const subtitle = page.getByTestId("editor-subtitle");
-      await expect(subtitle).toBeVisible();
-      const dialog = subtitle.locator("xpath=ancestor::div[contains(@class,'max-w-lg')][1]");
+      await page.getByTestId(`edit-${name}`).click({ timeout: 30_000 });
+      // Inline editor (change: inline-automation-editor): inside the card, no modal ancestor.
+      const editor = page.getByTestId(`automation-editor-folder:${name}`);
+      await expect(editor).toBeVisible();
+      await expect(page.getByTestId("editor-loading")).toHaveCount(0);
+      expect(await editor.evaluate((el) => !!el.closest(".max-w-lg"))).toBe(false);
+      expect(await page.getByTestId(`automation-def-${name}`).evaluate((card, ed) => card.contains(ed), await editor.elementHandle())).toBe(true);
 
-      for (const id of ["editor-subtitle", "create-name-locked", "create-file-path-help"]) {
+      for (const id of ["editor-write-path", "create-file-path-help"]) {
         await readable(page.getByTestId(id));
       }
       const missing = page.getByTestId("file-path-missing");
@@ -454,19 +456,70 @@ test.describe("automation dialog help + error (F6, X1)", () => {
       const errWant = await resolveColor(page, "var(--severity-error-fg)");
       expect(colorDistance(await resolveColor(page, err), errWant), `${mode}: missing-path colour`).toBeLessThanOrEqual(1);
 
-      // A path arms the automation → the enabled badge is the green identity tint.
+      // A path makes the automation savable.
       await page.getByTestId("create-file-path").fill("/spool/inbox");
-      const chip = page.getByTestId("armed-chip");
-      await expect(chip).toBeVisible();
-      await expectTint(page, chip, "green");
-      await readable(chip);
+      await expect(page.getByTestId("create-submit")).toBeEnabled();
 
       // Scheduled → next-run help.
       await page.getByTestId("trigger-cat-scheduled").click();
       await readable(page.getByTestId("create-next-run"));
 
-      expect(await buttonsWithoutFocusIndicator(page, dialog), `${mode}: no focus indicator`).toEqual([]);
-      await page.keyboard.press("Escape");
+      expect(await buttonsWithoutFocusIndicator(page, editor), `${mode}: no focus indicator`).toEqual([]);
+    }
+  });
+
+  // test-plan #F13 (inline-automation-editor): 44/32 px targets + readable save-bar text.
+  test("F13: editor targets ≥ 44 px at 375 and ≥ 32 px at 1280; caption, guard and chip readable — dark + light", async ({ page }) => {
+    const name = "e2e-target-size";
+    const config = {
+      on: { kind: "schedule", cron: "0 10 * * *" },
+      action: { kind: "prompt", prompt: "./prompt.md" },
+      model: "@fast",
+      mode: "local",
+      sandbox: "workspace-write",
+      concurrency: "skip",
+    };
+    await page.route("**/api/plugins/automation/list**", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ automations: [{ name, scope: "folder", dir: `${FIXTURE_GIT}/.pi/automation/${name}`, valid: true, config }] }),
+      }),
+    );
+    await page.route("**/api/plugins/automation/definition**", (route) =>
+      route.fulfill({ contentType: "application/json", body: JSON.stringify({ config, promptBody: "Summarise." }) }),
+    );
+    await page.route("**/api/plugins/automation/runs**", (route) =>
+      route.fulfill({ contentType: "application/json", body: JSON.stringify({ runs: [] }) }),
+    );
+    await ensureGitSession(page);
+
+    for (const mode of MODES) {
+      for (const size of [{ width: 375, height: 812, min: 44 }, { width: 1280, height: 900, min: 32 }]) {
+        await page.setViewportSize({ width: size.width, height: size.height });
+        await page.goto(`/folder/${encodeFolder(FIXTURE_GIT)}/automations`);
+        await setThemeMode(page, mode);
+        await page.getByTestId(`edit-${name}`).click({ timeout: 30_000 });
+        const editor = page.getByTestId(`automation-editor-folder:${name}`);
+        await expect(editor).toBeVisible();
+        await expect(page.getByTestId("editor-loading")).toHaveCount(0);
+        // Dirty, then Close editor → the inline guard.
+        await page.getByTestId("create-prompt").fill("Summarise twice.");
+        await page.getByTestId(`edit-${name}`).click();
+        await expect(page.getByTestId("editor-guard")).toBeVisible();
+
+        const small = (await buttonBoxes(editor)).filter((b) => b.h < size.min);
+        expect(small, `${mode} @${size.width}: editor buttons under ${size.min} px`).toEqual([]);
+        const close = await page.getByTestId(`edit-${name}`).boundingBox();
+        expect(close!.height, `${mode} @${size.width}: Close editor`).toBeGreaterThanOrEqual(size.min);
+
+        await readable(page.getByTestId("editor-write-path"));
+        await readable(page.getByTestId("editor-guard"));
+        if (size.width < 640) {
+          const chip = page.getByTestId("trigger-coming-soon");
+          if ((await chip.count()) > 0) await readable(chip);
+        }
+        await page.getByTestId("editor-guard-discard").click();
+      }
     }
   });
 });

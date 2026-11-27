@@ -13,7 +13,7 @@
 import { SettingsNotice } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ReactElement, ReactNode } from "react";
 import { Link } from "wouter";
-import type { TeamOp } from "../shared/protocol.js";
+import type { CoreTeamOp } from "../shared/protocol.js";
 import { useLazyT } from "./lazy-i18n.js";
 import { PillView } from "./pill.js";
 import { LINKBTN } from "./recipes.js";
@@ -35,7 +35,7 @@ export interface TeamToolProps {
   toolDetails?: Record<string, unknown>;
 }
 
-const isTeamOp = (name: string): name is TeamOp => Object.hasOwn(TOOL_FAMILIES, name);
+const isTeamOp = (name: string): name is CoreTeamOp => Object.hasOwn(TOOL_FAMILIES, name);
 
 function Fact({ k, children }: { k: string; children: ReactNode }): ReactElement {
   return (

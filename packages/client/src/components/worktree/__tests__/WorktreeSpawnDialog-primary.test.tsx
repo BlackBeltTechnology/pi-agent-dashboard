@@ -7,7 +7,7 @@
  * E9 — the D9 labels render their "new" copy exactly. The goal-plugin
  *   (`autoRespawnLabel`) and automation-plugin (`fieldCount`) rows are pinned
  *   in their own packages' suites (GoalForm.test.tsx,
- *   CreateAutomationDialog.test.tsx), whose harnesses already render them.
+ *   AutomationEditor.test.tsx), whose harnesses already render them.
  *
  * Harness glue copied from components/__tests__/WorktreeSpawnDialog.test.tsx
  * and OpenSpecBoardView.test.tsx.

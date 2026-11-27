@@ -14,7 +14,7 @@
  * `rpc-keeper/__tests__/keeper.test.ts`; this file stays at unit-level.
  */
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, fstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type {
   SpawnDetachedOptions,
@@ -85,6 +85,72 @@ function baseOpts(extra: Partial<KeeperManagerOptions> = {}): KeeperManagerOptio
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
+
+/** True when `fd` is no longer an open descriptor in this process. */
+function isClosedFd(fd: number): boolean {
+  try {
+    fstatSync(fd);
+    return false;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EBADF";
+  }
+}
+
+// The launch log follows PI_KEEPER_CAPTURE_PI_OUTPUT, and the parent's fd is
+// always closed after spawn. See change: keeper-log-toggle-gates-all-output.
+describe("KeeperManager.spawnKeeperFor — launch log gating", () => {
+  const CAPTURE = { PI_KEEPER_CAPTURE_PI_OUTPUT: "1" };
+
+  it("E6: capture off creates no launch log and passes logFd undefined", async () => {
+    const { spawn, calls } = makeFakeSpawnDetached({ pid: 4242 });
+    const km = createKeeperManager(baseOpts({ spawnDetached: spawn }));
+    const result = await km.spawnKeeperFor("sess-off", "/cwd", { FOO: "bar" });
+    expect(result.success).toBe(true);
+    expect(calls[0].logFd).toBeUndefined();
+    const entries = existsSync(sessionsDir) ? readdirSync(sessionsDir) : [];
+    expect(entries.filter((n) => n.startsWith("keeper-launch-"))).toEqual([]);
+  });
+
+  it("E7: capture on creates the launch log and closes the parent fd after spawn", async () => {
+    const { spawn, calls } = makeFakeSpawnDetached({ pid: 4243 });
+    const km = createKeeperManager(baseOpts({ spawnDetached: spawn }));
+    const result = await km.spawnKeeperFor("sess-on", "/cwd", CAPTURE);
+    expect(result.success).toBe(true);
+    expect(existsSync(path.join(sessionsDir, "keeper-launch-sess-on.log"))).toBe(true);
+    expect(typeof calls[0].logFd).toBe("number");
+    expect(isClosedFd(calls[0].logFd as number)).toBe(true);
+  });
+
+  it("X3: the fd is closed when spawn reports failure", async () => {
+    const { spawn, calls } = makeFakeSpawnDetached({ ok: false, error: "boom" });
+    const km = createKeeperManager(baseOpts({ spawnDetached: spawn }));
+    const result = await km.spawnKeeperFor("sess-fail", "/cwd", CAPTURE);
+    expect(result.success).toBe(false);
+    expect(typeof calls[0].logFd).toBe("number");
+    expect(isClosedFd(calls[0].logFd as number)).toBe(true);
+  });
+
+  it("X4: the fd is closed when spawn throws", async () => {
+    const calls: SpawnDetachedOptions[] = [];
+    const spawn = async (o: SpawnDetachedOptions): Promise<SpawnDetachedResult> => {
+      calls.push(o);
+      throw new Error("boom");
+    };
+    const km = createKeeperManager(baseOpts({ spawnDetached: spawn }));
+    await expect(km.spawnKeeperFor("sess-throw", "/cwd", CAPTURE)).rejects.toThrow("boom");
+    expect(typeof calls[0].logFd).toBe("number");
+    expect(isClosedFd(calls[0].logFd as number)).toBe(true);
+  });
+
+  it("X5: a launch-log open failure is not fatal", async () => {
+    mkdirSync(path.join(sessionsDir, "keeper-launch-sess-dir.log"), { recursive: true });
+    const { spawn, calls } = makeFakeSpawnDetached({ pid: 4244 });
+    const km = createKeeperManager(baseOpts({ spawnDetached: spawn }));
+    const result = await km.spawnKeeperFor("sess-dir", "/cwd", CAPTURE);
+    expect(result.success).toBe(true);
+    expect(calls[0].logFd).toBeUndefined();
+  });
+});
 
 describe("KeeperManager.spawnKeeperFor", () => {
   it("delegates to spawnDetached with `node <keeper.cjs> <sessionId>`", async () => {

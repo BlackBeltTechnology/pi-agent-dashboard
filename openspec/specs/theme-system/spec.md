@@ -279,7 +279,7 @@ On the surfaces listed in `message-severity-tokens` "No raw colour literals on a
 - **THEN** "Existing worktrees of this repo" and "Create a new worktree" SHALL measure at least 4.5:1 and render at least 12 px
 
 #### Scenario: Automation help text readable
-- **WHEN** the automation dialog shows next-run, file-path help or locked-name text
+- **WHEN** the automation editor shows next-run, file-path help or its save-bar write-path caption
 - **THEN** the text SHALL use `--text-secondary`, render at least 12 px and measure at least 4.5:1 in the default dark and light themes
 
 ### Requirement: Status colour on shape, not text

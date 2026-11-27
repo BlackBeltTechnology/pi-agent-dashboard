@@ -7,7 +7,7 @@
  * See change: add-agent-teams-core (D13, runtime spec "Limits are clamped").
  */
 import fs from "node:fs";
-import { MAX_TEAMMATES_RANGE } from "../shared/constants.js";
+import { MAX_TEAMMATES_RANGE, PLAN_MAX_LINES } from "../shared/constants.js";
 import type { Logger } from "./types.js";
 
 export interface TeamsConfig {
@@ -37,6 +37,42 @@ export interface TeamsConfig {
   extraCwdRoots: string[];
   /** Unset resolves to `session`. */
   teammateMode?: string;
+  /** Template file size cap in bytes (templates-hooks change). */
+  maxTemplateBytes: number;
+  /** Default per-command hook timeout (use `effectiveHookTimeoutMs` for the budget-capped value). */
+  hookTimeoutMs: number;
+  /** Consecutive idle-hook blocks before the idle is accepted; 0 = idle hooks never block. */
+  hookMaxRetries: number;
+  /** Configured plan cap (use `effectivePlanMaxChars` for the enforced value). */
+  planMaxChars: number;
+  /** Sanitised read-only tool names kept while a plan is pending (never bash/edit/write/unknown). */
+  planModeTools: string[];
+}
+
+/** Mail text headroom kept free when a plan or playbook rides one core mail (design D3/D8). */
+const PLAN_MAIL_HEADROOM_CHARS = 500;
+
+/** Built-in tools a plan-mode member may keep; every other entry is dropped. */
+export const PLAN_MODE_ALLOWED_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];
+/** Built-in tools that are never read-only; named separately only for the warning text. */
+const PLAN_MODE_DENIED_TOOLS: readonly string[] = ["bash", "edit", "write"];
+
+/** Enforced plan / decision-feedback character cap: `min(planMaxChars, maxMessageChars − 500)`, at least 1. */
+export function effectivePlanMaxChars(cfg: Pick<TeamsConfig, "planMaxChars" | "maxMessageChars">): number {
+  return Math.max(1, Math.min(cfg.planMaxChars, cfg.maxMessageChars - PLAN_MAIL_HEADROOM_CHARS));
+}
+
+/** The lead-notice coalescing window of a team (`overrides.notifyCoalesceMs`, else config `notifyCoalesceMs`). */
+export function effectiveCoalesceWindowMs(team: { overrides?: { notifyCoalesceMs?: number } }, cfg: Pick<TeamsConfig, "notifyCoalesceMs">): number {
+  return team.overrides?.notifyCoalesceMs ?? cfg.notifyCoalesceMs;
+}
+
+/** Enforced plan / playbook line cap (shared with core's mail framing). */
+export const effectivePlanMaxLines = (): number => PLAN_MAX_LINES;
+
+/** Per-command hook timeout default, never above the core op-gate budget. */
+export function effectiveHookTimeoutMs(cfg: Pick<TeamsConfig, "hookTimeoutMs" | "opGateBudgetMs">): number {
+  return Math.max(1, Math.min(cfg.hookTimeoutMs, cfg.opGateBudgetMs));
 }
 
 let schemaDefaults: Record<string, unknown> | undefined;
@@ -77,6 +113,9 @@ const NUMBER_KEYS = [
   "opGateBudgetMs",
 ] as const;
 
+/** Integer knobs of this change: key → inclusive minimum; an invalid value falls back to the default with one warning. */
+const STRICT_INT_KEYS = { maxTemplateBytes: 1, hookTimeoutMs: 1, hookMaxRetries: 0, planMaxChars: 1 } as const;
+
 export type ConfigReader = () => TeamsConfig;
 
 export function createConfigReader(
@@ -84,6 +123,12 @@ export function createConfigReader(
   logger: Logger,
 ): ConfigReader {
   const clampLogged = new Set<number>();
+  const warned = new Set<string>();
+  const warnOnce = (key: string, message: string) => {
+    if (warned.has(key)) return;
+    warned.add(key);
+    logger.warn(`agent-teams: ${message}`);
+  };
   return () => {
     const raw = getRaw() ?? {};
     const defaults = schemaConfigDefaults();
@@ -107,10 +152,42 @@ export function createConfigReader(
       logger.warn(`agent-teams: maxTeammates ${requested} is outside ${MAX_TEAMMATES_RANGE.min}-${MAX_TEAMMATES_RANGE.max}; using ${clamped}`);
     }
     merged.maxTeammates = clamped;
+    for (const [key, min] of Object.entries(STRICT_INT_KEYS)) {
+      const v = raw[key];
+      if (v === undefined) continue;
+      if (typeof v === "number" && Number.isInteger(v) && v >= min) merged[key] = v;
+      else {
+        merged[key] = defaults[key];
+        warnOnce(`${key}=${String(v)}`, `${key} ${JSON.stringify(v)} is not an integer ≥ ${min}; using ${String(defaults[key])}`);
+      }
+    }
+    merged.planModeTools = sanitizePlanModeTools(raw.planModeTools, defaults.planModeTools as string[], warnOnce);
     // Positive-only knobs: 0 would disable the limit it guards.
     for (const key of ["maxActiveTeams", "maxTasks", "maxMessageChars", "maxResultChars", "maxFinalTextChars", "mailRatePerMin", "pairExchangeLimit"] as const) {
       if ((merged[key] as number) < 1) merged[key] = defaults[key];
     }
     return merged as unknown as TeamsConfig;
   };
+}
+
+/** Keep only read-only built-ins; every dropped entry is named in one warning per distinct raw value. */
+function sanitizePlanModeTools(
+  raw: unknown,
+  fallback: string[],
+  warnOnce: (key: string, message: string) => void,
+): string[] {
+  if (raw === undefined) return [...fallback];
+  if (!Array.isArray(raw)) {
+    warnOnce(`planModeTools=${JSON.stringify(raw)}`, "planModeTools is not an array; using the default");
+    return [...fallback];
+  }
+  const names = raw.map((entry) => (typeof entry === "string" ? entry : JSON.stringify(entry)));
+  const kept = [...new Set(raw.filter((e): e is string => typeof e === "string" && PLAN_MODE_ALLOWED_TOOLS.includes(e)))];
+  const dropped = names.filter((n) => !PLAN_MODE_ALLOWED_TOOLS.includes(n));
+  if (dropped.length > 0) {
+    const denied = dropped.filter((d) => PLAN_MODE_DENIED_TOOLS.includes(d));
+    const why = denied.length > 0 ? ` (${denied.join(", ")} can change state)` : "";
+    warnOnce(`planModeTools=${JSON.stringify(raw)}`, `planModeTools drops ${dropped.join(", ")}${why}; allowed: ${PLAN_MODE_ALLOWED_TOOLS.join(", ")}`);
+  }
+  return kept;
 }

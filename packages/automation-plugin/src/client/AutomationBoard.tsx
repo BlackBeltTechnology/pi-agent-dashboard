@@ -20,9 +20,16 @@
  *
  * Result / Log render as markdown in the `ui:dialog` primitive.
  *
+ * Editing is inline: Edit / the name / the trigger summary expand that card
+ * into `AutomationEditor`; + Create (and `?new=1` from the folder menu) opens a
+ * draft card above the list. One editor at a time: every open / switch / close
+ * goes through `requestEditor`, which raises the editor's unsaved-changes guard
+ * when it is dirty. Leaving the board is not guarded.
+ *
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing,
  * redesign-automation-editor-and-board, automation-ui-mockup-parity,
- * polish-automation-board, use-selector-style-for-automation-selection.
+ * polish-automation-board, use-selector-style-for-automation-selection,
+ * inline-automation-editor.
  */
 
 import { SettingsNotice, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -31,7 +38,7 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import type { AutomationConfig, AutomationScope, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 import { nextFire } from "../shared/cron.js";
 import {
@@ -57,7 +64,7 @@ import {
   runPillClass,
   stripeFxClass,
 } from "./automation-card-visuals.js";
-import { CreateAutomationDialog, type EditorSection } from "./CreateAutomationDialog.js";
+import { AutomationEditor, type EditorSaveOutcome, type EditorSection } from "./AutomationEditor.js";
 import { humanizeCron, relativeFire, runDuration, runStartLabel, sessionHref } from "./schedule-format.js";
 
 export interface AutomationBoardProps {
@@ -70,12 +77,27 @@ export interface AutomationBoardProps {
 /** Runs shown per card before "Show all". */
 const HISTORY_PREVIEW = 3;
 
-interface EditTarget {
-  name: string;
-  scope: DiscoveredAutomation["scope"];
-  config: AutomationConfig;
-  promptBody?: string;
+/** Editor key of the new-automation draft (cards use `scope:name`). */
+const DRAFT_KEY = "new";
+
+/** An in-board request to open an editor (`null` = close the open one). */
+interface EditorRequest {
+  key: string;
   section: EditorSection;
+}
+
+/** The single open editor. See change: inline-automation-editor (design D2). */
+interface EditorState extends EditorRequest {
+  status: "loading" | "ready" | "error";
+  /** Loaded definition (cards only). */
+  def?: { config: AutomationConfig; promptBody?: string };
+  dirty: number;
+  /** Bumped when the open editor is re-requested: re-focus `section`, nothing else. */
+  focusSeq: number;
+  /** The control that opened this editor; focus returns there on close. */
+  opener: HTMLElement | null;
+  /** Pending request held by the unsaved-changes guard (`null` = close). */
+  guard?: { next: EditorRequest | null; opener: HTMLElement | null };
 }
 
 /** A run's visible status: the listing's `orphaned` flag wins over `running`. */
@@ -101,7 +123,7 @@ export function sessionBearer(run: RunRecord): RunRecord {
 
 export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): React.ReactElement {
   const t = useT();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
   // The host decodes the folder segment; a route that carries one but yields no `cwd` is malformed.
@@ -112,19 +134,14 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
   const [loadState, setLoadState] = useState<"loading" | "error" | "ready">("loading");
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [showArchived, setShowArchived] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
-  // The control that opened the editor; focus returns there on close (or to + Create when it is gone).
-  const editorOpener = useRef<HTMLElement | null>(null);
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
+  // Last-request-wins for definition loads.
+  const editorLoadSeq = useRef(0);
+  // Focus to restore once the closing render lands: an element (opener) or a new card's Edit.
+  const pendingFocus = useRef<{ el?: HTMLElement | null; editOf?: string } | null>(null);
   const createBtnRef = useRef<HTMLButtonElement>(null);
-  function rememberOpener(): void {
-    editorOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  }
-  function restoreOpenerFocus(): void {
-    const el = editorOpener.current;
-    editorOpener.current = null;
-    (el?.isConnected ? el : createBtnRef.current)?.focus();
-  }
   const [selected, setSelected] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [openResult, setOpenResult] = useState<{ title: string; text: string } | null>(null);
@@ -137,6 +154,7 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
     setAutomations([]);
     setRuns([]);
     setLoadState("loading");
+    setEditor(null);
   }
 
   useEffect(() => {
@@ -185,18 +203,102 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
     return m;
   }, [runs]);
 
-  async function openEditor(a: DiscoveredAutomation, section: EditorSection): Promise<void> {
-    rememberOpener();
-    const def = await getAutomationDefinition(a.scope, a.scope === "folder" ? cwd : undefined, a.name);
-    if (!def) return;
-    setEditTarget({
-      name: a.name,
-      scope: a.scope,
-      config: def.config,
-      section,
-      ...(def.promptBody !== undefined ? { promptBody: def.promptBody } : {}),
+  /** Load a card's definition into the open editor (ignored once superseded). */
+  async function loadDefinition(key: string): Promise<void> {
+    const seq = ++editorLoadSeq.current;
+    const a = automations.find((x) => keyOf(x.scope, x.name) === key);
+    const def = a
+      ? await getAutomationDefinition(a.scope, a.scope === "folder" ? cwd : undefined, a.name).catch(() => null)
+      : null;
+    if (seq !== editorLoadSeq.current) return;
+    setEditor((cur) => {
+      if (!cur || cur.key !== key) return cur;
+      return def ? { ...cur, status: "ready", def } : { ...cur, status: "error" };
     });
   }
+
+  /** Open / switch / close without asking (clean editor, Discard, or after a save). */
+  function applyEditor(next: EditorRequest | null, opener: HTMLElement | null): void {
+    const cur = editorRef.current;
+    editorLoadSeq.current++;
+    if (!next) {
+      pendingFocus.current = { el: cur?.opener ?? null };
+      setEditor(null);
+      return;
+    }
+    const isDraft = next.key === DRAFT_KEY;
+    // The editing card is the selected card (design D3).
+    if (!isDraft) setSelected(next.key);
+    setEditor({ ...next, status: isDraft ? "ready" : "loading", dirty: 0, focusSeq: 0, opener });
+    if (!isDraft) void loadDefinition(next.key);
+  }
+
+  /** Every in-board open / switch / close goes through here (design D2). */
+  function requestEditor(next: EditorRequest | null, opener?: HTMLElement | null): void {
+    const cur = editorRef.current;
+    const from = opener !== undefined ? opener : document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (cur && next && next.key === cur.key) {
+      // Already open: only move focus to the requested section.
+      setEditor({ ...cur, section: next.section, focusSeq: cur.focusSeq + 1 });
+      return;
+    }
+    if (!cur && !next) return;
+    if (cur && cur.status === "ready" && cur.dirty > 0) {
+      setEditor({ ...cur, guard: { next, opener: from } });
+      return;
+    }
+    applyEditor(next, from);
+  }
+
+  function onEditorSaved(outcome: EditorSaveOutcome, savedName: string): void {
+    const cur = editorRef.current;
+    if (outcome === "switch" && cur?.guard) {
+      applyEditor(cur.guard.next, cur.guard.opener);
+    } else {
+      applyEditor(null, null);
+      // A created automation: focus its card's Edit once the refresh lists it.
+      if (cur?.key === DRAFT_KEY) pendingFocus.current = { editOf: savedName };
+    }
+    refresh();
+  }
+
+  // Restore focus after the editor closed (opener, a created card's Edit, or + Create).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `automations` is the trigger — a created card's Edit exists only after the refresh lists it
+  useEffect(() => {
+    const p = pendingFocus.current;
+    if (!p || editor) return;
+    if (p.editOf) {
+      const testId = `edit-${p.editOf}`;
+      const btn = [...document.querySelectorAll<HTMLElement>('[data-testid^="edit-"]')].find((el) => el.dataset.testid === testId);
+      if (!btn) return; // wait for the refresh to list it
+      pendingFocus.current = null;
+      btn.focus();
+      return;
+    }
+    pendingFocus.current = null;
+    (p.el?.isConnected ? p.el : createBtnRef.current)?.focus();
+  }, [editor, automations]);
+
+  // Close a card editor whose card is gone (deleted, no longer listed, or a failed refresh cleared the list).
+  useEffect(() => {
+    if (!editor || editor.key === DRAFT_KEY || loadState === "loading") return;
+    if (loadState === "error" || !automations.some((a) => keyOf(a.scope, a.name) === editor.key)) {
+      editorLoadSeq.current++;
+      setEditor(null);
+    }
+  }, [editor, automations, loadState]);
+
+  // `?new=1` (folder menu "New automation"): open the draft once the list is
+  // ready, and strip the param in the same tick (replace) so history never
+  // reopens it. Waits while loading; stripped on error. See design D5.
+  const search = useSearch();
+  const wantsDraft = new URLSearchParams(search).get("new") === "1";
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs on the param / load-state transition only; `requestEditor` and `location` are read at that moment
+  useEffect(() => {
+    if (!wantsDraft || invalidRoute || loadState === "loading") return;
+    if (loadState === "ready") requestEditor({ key: DRAFT_KEY, section: "identity" }, createBtnRef.current);
+    setLocation(location, { replace: true });
+  }, [wantsDraft, invalidRoute, loadState]);
 
   async function onDelete(a: DiscoveredAutomation): Promise<void> {
     const ok = typeof window !== "undefined" ? window.confirm(t("deleteConfirm", { name: a.name }, `Delete automation "${a.name}"?`)) : true;
@@ -257,6 +359,78 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
     result: (r: RunRecord) => void onViewResult(r),
   };
 
+  /** Props every open editor shares (create draft and card). */
+  function editorProps(key: string) {
+    return {
+      cwd,
+      ...(editor ? { initialSection: editor.section, focusSeq: editor.focusSeq } : {}),
+      guard: editor?.guard ? { count: editor.dirty, closing: editor.guard.next === null } : null,
+      onClose: () => requestEditor(null),
+      onSaved: onEditorSaved,
+      onDiscard: () => {
+        const g = editorRef.current?.guard;
+        if (g) applyEditor(g.next, g.opener);
+      },
+      onDirtyChange: (n: number) =>
+        setEditor((cur) => (cur && cur.key === key && cur.dirty !== n ? { ...cur, dirty: n } : cur)),
+    };
+  }
+
+  /** A card's editor area: loading line, fetch error (Retry / Close) or the editor. */
+  function cardEditor(a: DiscoveredAutomation): React.ReactNode {
+    if (!editor) return null;
+    if (editor.status === "loading") {
+      return (
+        <p role="status" data-testid={`card-editor-loading-${a.name}`} className="text-xs text-[var(--text-secondary)]">
+          {t("editorLoadingDefinition", undefined, "Loading the automation…")}
+        </p>
+      );
+    }
+    if (editor.status === "error" || !editor.def) {
+      return (
+        <div role="alert" data-testid={`card-editor-error-${a.name}`} className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-[var(--severity-error-fg)]">{t("editorLoadFailed", undefined, "Could not load this automation.")}</p>
+          <button
+            type="button"
+            data-testid={`card-editor-retry-${a.name}`}
+            onClick={() => {
+              setEditor((cur) => (cur && cur.key === editor.key ? { ...cur, status: "loading" } : cur));
+              void loadDefinition(editor.key);
+            }}
+            className={cardButtonClass("primary")}
+          >
+            {t("retry", undefined, "Retry")}
+          </button>
+          <button type="button" data-testid={`card-editor-close-${a.name}`} onClick={() => requestEditor(null)} className={cardButtonClass()}>
+            {t("close", undefined, "Close")}
+          </button>
+        </div>
+      );
+    }
+    return (
+      <AutomationEditor
+        key={`${cwd ?? ""}:${editor.key}`}
+        {...editorProps(editor.key)}
+        initialName={a.name}
+        initialScope={a.scope}
+        initialConfig={editor.def.config}
+        {...(editor.def.promptBody !== undefined ? { initialPromptBody: editor.def.promptBody } : {})}
+      />
+    );
+  }
+
+  const draftOpen = editor?.key === DRAFT_KEY;
+  const emptyReady = loadState === "ready" && automations.length === 0;
+  const draftCard = draftOpen ? (
+    <div
+      data-testid="automation-draft"
+      className="rounded-xl border border-dashed border-[var(--accent)] bg-[var(--bg-secondary)] px-3 pt-3"
+    >
+      <h3 className="mb-2 text-[13px] font-semibold text-[var(--text-primary)]">{t("newAutomation", undefined, "New automation")}</h3>
+      <AutomationEditor key={`${cwd ?? ""}:${DRAFT_KEY}`} {...editorProps(DRAFT_KEY)} />
+    </div>
+  ) : null;
+
   if (invalidRoute) {
     return (
       <div data-testid="automation-board" className="flex flex-col flex-1 min-h-0 overflow-y-auto gap-3 p-3 text-sm">
@@ -291,7 +465,7 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
           )}
         </div>
         <div className="flex items-center gap-3">
-          <button type="button" ref={createBtnRef} data-testid="automation-create-btn" onClick={() => { rememberOpener(); setCreating(true); }} className={cardButtonClass("primary")}>
+          <button type="button" ref={createBtnRef} data-testid="automation-create-btn" onClick={(e) => requestEditor({ key: DRAFT_KEY, section: "identity" }, e.currentTarget)} className={cardButtonClass("primary")}>
             {t("createAutomation", undefined, "+ Create Automation")}
           </button>
           <label className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
@@ -302,21 +476,9 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
       </div>
 
       <div className="flex flex-col gap-3 p-3">
-        {creating && (
-          <CreateAutomationDialog cwd={cwd} onClose={() => { setCreating(false); restoreOpenerFocus(); }} onCreated={refresh} />
-        )}
-        {editTarget && (
-          <CreateAutomationDialog
-            cwd={cwd}
-            onClose={() => { setEditTarget(null); restoreOpenerFocus(); }}
-            onCreated={refresh}
-            initialName={editTarget.name}
-            initialScope={editTarget.scope}
-            initialConfig={editTarget.config}
-            initialSection={editTarget.section}
-            {...(editTarget.promptBody !== undefined ? { initialPromptBody: editTarget.promptBody } : {})}
-          />
-        )}
+        {/* The draft renders above the list, outside its loading/error swap;
+            on an empty folder it sits below the explainer instead. */}
+        {draftOpen && !emptyReady && draftCard}
 
         <section data-testid="automation-list">
           <h3 className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">{t("definitions", undefined, "Definitions")}</h3>
@@ -333,6 +495,7 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
             </div>
           ) : automations.length === 0 ? (
             loadState === "ready" && (
+              <>
               <div data-testid="automation-empty" className="flex flex-col items-start gap-2 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-4">
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{t("noAutomations", undefined, "No automations in this folder.")}</p>
                 <p className="text-xs text-[var(--text-secondary)]">
@@ -342,10 +505,12 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
                     "An automation runs a prompt, skill or flow in its own session on a schedule. Each run keeps its result here, one click from its session.",
                   )}
                 </p>
-                <button type="button" data-testid="automation-empty-create" onClick={() => { rememberOpener(); setCreating(true); }} className={cardButtonClass("primary")}>
+                <button type="button" data-testid="automation-empty-create" onClick={(e) => requestEditor({ key: DRAFT_KEY, section: "identity" }, e.currentTarget)} className={cardButtonClass("primary")}>
                   {t("createAutomation", undefined, "+ Create Automation")}
                 </button>
               </div>
+              {draftOpen && draftCard}
+              </>
             )
           ) : (
             <ul className="space-y-2">
@@ -361,7 +526,10 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
                     onSelect={() => setSelected(key)}
                     onRunNow={() => void onRunNow(a)}
                     onStop={(run) => onStop(a, run)}
-                    onEdit={(section) => void openEditor(a, section)}
+                    onEdit={(section, opener) => requestEditor({ key, section }, opener)}
+                    onCloseEditor={(opener) => requestEditor(null, opener)}
+                    editing={editor?.key === key}
+                    editorContent={editor?.key === key ? cardEditor(a) : null}
                     onToggle={() => void onToggleEnabled(a)}
                     onDelete={() => void onDelete(a)}
                     nav={nav}
@@ -414,6 +582,9 @@ function AutomationCard({
   onRunNow,
   onStop,
   onEdit,
+  onCloseEditor,
+  editing,
+  editorContent,
   onToggle,
   onDelete,
   nav,
@@ -425,7 +596,12 @@ function AutomationCard({
   onSelect: () => void;
   onRunNow: () => void;
   onStop: (run: RunRecord) => Promise<StopRunResult>;
-  onEdit: (section: EditorSection) => void;
+  onEdit: (section: EditorSection, opener: HTMLElement) => void;
+  onCloseEditor: (opener: HTMLElement) => void;
+  /** This card's inline editor is open (design D3). */
+  editing: boolean;
+  /** The editor area rendered below the summary while `editing`. */
+  editorContent: React.ReactNode;
   onToggle: () => void;
   onDelete: () => void;
   nav: RunNav;
@@ -468,7 +644,7 @@ function AutomationCard({
       data-testid={`automation-def-${a.name}`}
       onClick={onSelect}
       aria-current={selected ? "true" : undefined}
-      className={`relative isolate flex overflow-hidden rounded-xl border bg-[var(--bg-secondary)] ${
+      className={`relative isolate flex overflow-clip rounded-xl border bg-[var(--bg-secondary)] ${
         selected ? "border-[var(--accent)]" : "border-[var(--border-secondary)]"
       }`}
     >
@@ -492,7 +668,7 @@ function AutomationCard({
             data-testid={`automation-name-${a.name}`}
             onClick={(e) => {
               e.stopPropagation();
-              onEdit("identity");
+              onEdit("trigger", e.currentTarget);
             }}
             className={`focus-ring max-w-full truncate rounded font-mono text-[13px] ${selected ? "font-bold" : "font-semibold"} text-[var(--text-primary)] hover:underline`}
             title={t("editName", { name: a.name }, `Edit ${a.name}`)}
@@ -518,7 +694,8 @@ function AutomationCard({
                 {stopPending ? t("stopping", undefined, "Stopping…") : t("stop", undefined, "⏹ Stop")}
               </button>
             ) : (
-              <>
+              // Hidden while editing: avoids a Disable-then-Save race on the same config (design D3).
+              !editing && <>
                 <button type="button" data-testid={`run-now-${a.name}`} onClick={onRunNow} className={cardButtonClass()}>
                   {t("runNow", undefined, "▶ Run now")}
                 </button>
@@ -527,8 +704,14 @@ function AutomationCard({
                 </button>
               </>
             ))}
-            <button type="button" data-testid={`edit-${a.name}`} onClick={() => onEdit("identity")} className={cardButtonClass()}>
-              {t("edit", undefined, "Edit")}
+            <button
+              type="button"
+              data-testid={`edit-${a.name}`}
+              aria-expanded={editing}
+              onClick={(e) => (editing ? onCloseEditor(e.currentTarget) : onEdit("trigger", e.currentTarget))}
+              className={cardButtonClass()}
+            >
+              {editing ? t("closeEditor", undefined, "Close editor") : t("edit", undefined, "Edit")}
             </button>
             <button
               ref={overflowRef}
@@ -600,7 +783,7 @@ function AutomationCard({
               title={cron ?? undefined}
               onClick={(e) => {
                 e.stopPropagation();
-                onEdit("trigger");
+                onEdit("trigger", e.currentTarget);
               }}
               className="focus-ring rounded font-semibold text-[var(--text-primary)] hover:underline"
             >
@@ -651,7 +834,14 @@ function AutomationCard({
           </div>
         )}
 
-        {lastRun && (
+        {editing && (
+          // Clicks inside the editor never re-select the card (design D3).
+          <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
+            {editorContent}
+          </div>
+        )}
+
+        {!editing && lastRun && (
           <div
             className="flex flex-wrap items-center gap-2 rounded-md bg-[var(--bg-tertiary)] px-2 py-1 text-xs text-[var(--text-secondary)]"
             data-testid={`automation-last-run-${a.name}`}
@@ -666,7 +856,7 @@ function AutomationCard({
           </div>
         )}
 
-        {runs.length > 0 && (
+        {!editing && runs.length > 0 && (
           <div onClick={(e) => e.stopPropagation()}>
             <button
               type="button"

@@ -1550,7 +1550,7 @@ export const zhCNCatalog: Record<string, string> = {
   "settings.debugEvents": "调试事件",
   "settings.defaultModel": "默认模型",
   "settings.capturePiOutput": "捕获 pi 会话输出（调试）",
-  "settings.capturePiOutputHint": "将每个会话的完整 pi stdout/stderr 归档到 keeper-<id>.log 以便调试。长会话会占用大量磁盘空间——除非正在诊断会话，否则请关闭。仅对新生成的会话生效。",
+  "settings.capturePiOutputHint": "为新会话写入 keeper 日志：生命周期记录和会话的完整 pi stdout/stderr 写入 keeper-<id>.log，启动错误写入 keeper-launch-<id>.log。长会话会占用大量磁盘空间——除非正在诊断会话，否则请关闭。关闭时，新会话不会写入任何 keeper 日志文件。",
   "settings.showPluginInternals": "显示插件内部信息",
   "settings.showPluginInternalsHint": "在插件设置页上显示该插件贡献了哪些界面插槽。立即生效，仅限此浏览器。",
   "settings.devBuildOnReload": "重新加载时开发构建",

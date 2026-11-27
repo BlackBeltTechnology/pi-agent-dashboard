@@ -20,6 +20,8 @@ export const ENV_TEAM_ID = "PI_EXT_AGENT_TEAMS_TEAM_ID";
 export const ENV_MEMBER = "PI_EXT_AGENT_TEAMS_MEMBER";
 export const ENV_POLICY = "PI_EXT_AGENT_TEAMS_POLICY";
 export const ENV_COMMITTER = "PI_EXT_AGENT_TEAMS_COMMITTER";
+/** `=1` while a member is in plan mode: the bridge narrows its tools before `hello` (fail-safe; the `hello` reply is authoritative). */
+export const ENV_PLAN_MODE = "PI_EXT_AGENT_TEAMS_PLAN_MODE";
 
 /** Env of OTHER plugins that confine a session: such a session registers no team tools (no capability escalation). */
 export const CONFINING_ENV_KEYS: readonly string[] = ["PI_EXT_TEAM_TOOLS", "PI_EXT_CHAT_GATEWAY_GUARD_POLICY"];

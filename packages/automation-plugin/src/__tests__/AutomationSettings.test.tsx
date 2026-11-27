@@ -3,7 +3,7 @@
  * picker (`ui:model-selector`) over the roles plugin's catalogue, replacing the
  * old free-text `provider/model-id` input.
  *
- * Harness mirrors `CreateAutomationDialog.wiring.test.tsx`: `PluginContextProvider`
+ * Harness mirrors `AutomationEditor.wiring.test.tsx`: `PluginContextProvider`
  * + `CurrentPluginLayer pluginId="automation"` + a stubbed `ui:model-selector`,
  * plus a `SettingsDraftProvider` so the host Save Bar can drive `commit`.
  * See change: model-picker-everywhere-favorites (test-plan E8–E12, F4, F5, X1, X2).
