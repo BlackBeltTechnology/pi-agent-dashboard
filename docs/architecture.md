@@ -6630,6 +6630,13 @@ Per-session keeper process owns pi's stdin pipe. Keeper forwards verbatim to pi'
 
 Keeper outlives dashboard server restarts. Replaced Unix `tail -f /dev/null | pi` wrapper and Windows direct-stdin pipe. Uniform durability across Unix and Windows.
 
+Keeper logging off by default. Settings > Developer toggle `keeperLog.capturePiOutput` (default `false`) gates ALL keeper log output.
+- Off: no `keeper-<id>.log`, no `keeper-launch-<id>.log`. `log()` no-op. Rotation not armed. PID sidecars (`.pid`, `.pi-pid`) still written.
+- On: lifecycle lines + pi stdout/stderr → `keeper-<id>.log` (in-place rotation at `keeperLog.maxBytes`); keeper startup stderr → `keeper-launch-<id>.log`.
+- Server sets `PI_KEEPER_CAPTURE_PI_OUTPUT=1` from config only. Deletes inherited value (case-insensitive) when off. Inherited env cannot enable.
+- Read at spawn: applies to new sessions only. Running keepers keep prior behavior.
+- Server closes launch-log fd after spawn.
+
 Three-process topology + dual-channel boundary:
 
 ```mermaid
