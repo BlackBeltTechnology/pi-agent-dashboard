@@ -61,7 +61,7 @@ describe("each git fault is a typed failure (8.11 #X4)", () => {
     const res = await ensureWorktree(withInject(inject), { repo, change: "fix-x", base: "develop" });
     expect(res).toMatchObject({ ok: true, path: path.join(repo, ".worktrees", "os-fix-x") });
     expect(log.calls.map((c) => c.url)).toEqual(["/api/git/worktree", "/api/git/worktree/orphan-cleanup", "/api/git/worktree", "/api/git/worktree/init"]);
-    expect((log.calls[1]?.payload as { path: string }).path).toBe(path.join(repo, ".worktrees", "os-fix-x"));
+    expect(log.calls[1]?.payload).toHaveProperty("path", path.join(repo, ".worktrees", "os-fix-x"));
   });
 
   it("path_exists after the cleanup → path_exists, never a second cleanup", async () => {
@@ -227,7 +227,7 @@ describe("git argument injection (8.13 #S4)", () => {
     for (const argv of seen) for (const el of argv) if (el.startsWith("-")) expect(literalFlags.has(el), el).toBe(true);
     const fetch = seen.find((a) => a[0] === "fetch");
     expect(fetch).toEqual(["fetch", "--no-tags", "--", "origin", "os/fix-x"]);
-    expect((log.calls[0]?.payload as { path: string }).path).toBe(path.join(repo, ".worktrees", "os-fix-x"));
+    expect(log.calls[0]?.payload).toHaveProperty("path", path.join(repo, ".worktrees", "os-fix-x"));
     for (const c of log.calls) for (const v of Object.values((c.payload ?? {}) as Record<string, string>)) expect(v.startsWith("-")).toBe(false);
   });
 });

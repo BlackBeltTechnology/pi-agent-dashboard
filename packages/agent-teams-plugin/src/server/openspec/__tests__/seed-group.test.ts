@@ -39,7 +39,7 @@ describe("dependency mapping (7.17 #E7)", () => {
     if (!res.ok) throw new Error(res.error);
     expect(res.plan.tasks.find((t) => t.key === "b")?.blockedBy).toEqual([]);
     expect(res.plan.notes?.join("\n")).toContain("out-of-group change(s): z");
-    expect((res.plan.sidecar?.ext?.group as { outOfGroup: unknown }).outOfGroup).toEqual({ b: ["z"] });
+    expect(res.plan.sidecar?.ext?.group).toHaveProperty("outOfGroup", { b: ["z"] });
   });
 
   it("a blocker with no active directory, or archived, counts as out-of-group: listed, no edge, the dependant still gets a task", async () => {
@@ -48,7 +48,7 @@ describe("dependency mapping (7.17 #E7)", () => {
     const { res } = await planFor(e, { b: blockedBy("a", "gone") }, { b: "g" }, { archive: ["2025-01-01-a"] });
     if (!res.ok) throw new Error(res.error);
     expect(res.plan.tasks.map((t) => [t.key, t.blockedBy])).toEqual([["b", []]]);
-    expect((res.plan.sidecar?.ext?.group as { outOfGroup: Record<string, string[]> }).outOfGroup).toEqual({ b: ["a", "gone"] });
+    expect(res.plan.sidecar?.ext?.group).toHaveProperty("outOfGroup", { b: ["a", "gone"] });
   });
 
   it("a member assigned to the group but archived is skipped and named, and a dependant keeps no edge to it", async () => {
