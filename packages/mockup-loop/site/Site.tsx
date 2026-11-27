@@ -235,6 +235,7 @@ function PaneOnly({ spec }: { spec: string }): ReactElement {
     // Parent asks where a ring sits (deep link to a ring inside this iframe).
     const onMsg = (e: MessageEvent) => {
       if (e.source !== parent || !originOk(e) || typeof e.data?.mkFind !== "string") return;
+      if (document.body.dataset.mkMeasuring) return; // answered after mkStage
       const el = document.getElementById(refId(e.data.mkFind));
       if (!el) return;
       parent.postMessage({ mkFound: e.data.mkFind, top: el.getBoundingClientRect().top + scrollY }, postTarget());
@@ -263,7 +264,12 @@ function PaneOnly({ spec }: { spec: string }): ReactElement {
 }
 
 type Health = { completed: number; failed: number; error?: string };
-/** An isolated pane: same-origin iframe sized to its content; lazy panes mount when scrolled near. */
+type GateView = "playing" | "held" | "busy" | "stopped";
+/**
+ * An isolated pane: same-origin iframe sized to its content; lazy panes mount when scrolled near.
+ * A scripted pane is a fixed stage: covered until its pre-measured `mkStage`, then it only grows.
+ * See change: mock-player-step-controls (design D2, D4).
+ */
 function PaneFrame({ spec, phone = false, width, lazy = false, scripted: isScripted = false }: { spec: string; phone?: boolean; width?: number; lazy?: boolean; scripted?: boolean }): ReactElement {
   // Start at the last height seen this session (else 240) with a loading line: no blank flash, no jump.
   const key = `mk-h:${spec}`;
@@ -272,6 +278,9 @@ function PaneFrame({ spec, phone = false, width, lazy = false, scripted: isScrip
   const [near, setNear] = useState(!lazy);
   const [health, setHealth] = useState<Health | null>(null);
   const [paused, setPaused] = useState(false);
+  const [staged, setStaged] = useState(false);
+  const stagedRef = useRef(false);
+  const [gate, setGate] = useState<GateView>("playing");
   const wrap = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
@@ -281,17 +290,37 @@ function PaneFrame({ spec, phone = false, width, lazy = false, scripted: isScrip
     return () => io.disconnect();
   }, [near]);
   useEffect(() => {
+    const onPane = (ph: number) => {
+      if (!isScripted) { setH(ph); setLoaded(true); writeStore("session", key, String(ph)); }
+      else if (stagedRef.current) setH((p) => Math.max(p, ph)); // fallback growth only, never shrinks
+    };
+    const onStage = (s: number) => {
+      const first = !stagedRef.current;
+      stagedRef.current = true;
+      setH((p) => (first ? s : Math.max(p, s)));
+      setStaged(true); setLoaded(true); writeStore("session", key, String(s));
+    };
+    // (Re)loaded pane: its gate starts playing; the shell's view follows.
+    const onReady = (w: Window) => {
+      paneState.current.paused = false; setPaused(false); setGate("playing");
+      w.postMessage({ mkHidden: !visible.current }, postTarget());
+      w.postMessage({ mkPause: false }, postTarget());
+    };
+    // Pane -> shell messages, each keyed by this pane's spec.
+    const handlers: Record<string, (d: Record<string, unknown>, w: Window) => void> = {
+      mkPane: (d) => onPane(d.h as number),
+      mkStage: (d) => { if (isScripted) onStage(d.h as number); },
+      mkHealth: (d) => setHealth({ completed: d.completed as number, failed: d.failed as number, error: d.error as string | undefined }),
+      mkGate: (d) => setGate(d.state as GateView),
+      mkReady: (_d, w) => onReady(w),
+    };
     const on = (e: MessageEvent) => {
-      if (!originOk(e) || !frame.current || e.source !== frame.current.contentWindow) return;
-      if (e.data?.mkPane === spec) { setH(e.data.h); setLoaded(true); writeStore("session", key, String(e.data.h)); }
-      if (e.data?.mkHealth === spec) setHealth({ completed: e.data.completed, failed: e.data.failed, error: e.data.error });
-      if (e.data?.mkReady === spec) {
-        frame.current.contentWindow?.postMessage({ mkHidden: !visible.current }, postTarget());
-        frame.current.contentWindow?.postMessage({ mkPause: paneState.current.paused }, postTarget());
-      }
+      const w = frame.current?.contentWindow;
+      if (!w || e.source !== w || !originOk(e)) return;
+      for (const [k, fn] of Object.entries(handlers)) if (e.data?.[k] === spec) fn(e.data, w);
     };
     addEventListener("message", on); return () => removeEventListener("message", on);
-  }, [spec, key]);
+  }, [spec, key, isScripted]);
   // Scripted panes run only while on screen: off-screen ones pause (no CPU, no focus/scroll side effects).
   const visible = useRef(true);
   const paneState = useRef({ paused: false });
@@ -305,26 +334,36 @@ function PaneFrame({ spec, phone = false, width, lazy = false, scripted: isScrip
     return () => io.disconnect();
   }, [isScripted, near]);
   const togglePause = () => { const p = !paused; setPaused(p); paneState.current.paused = p; frame.current?.contentWindow?.postMessage({ mkPause: p }, postTarget()); };
+  const busy = gate === "busy";
+  const stepBy = (d: 1 | -1) => { if (!busy) frame.current?.contentWindow?.postMessage({ mkStep: d }, postTarget()); };
+  const stepping = paused && gate !== "stopped";
   return (
     <div className="mk-phone-wrap" ref={wrap}>
-      {near ? <iframe ref={frame} className={`mk-iso${phone ? " mk-phone" : ""}`} data-pane={spec} title={spec} src={`?pane=${encodeURIComponent(spec)}`} style={{ width: phone ? 375 : width ?? 640, height: h }} />
+      {near ? <iframe ref={frame} className={`mk-iso${phone ? " mk-phone" : ""}`} data-pane={spec} data-mk-stage={isScripted ? (staged ? "done" : "measuring") : undefined} title={spec} src={`?pane=${encodeURIComponent(spec)}`} style={{ width: phone ? 375 : width ?? 640, height: h }} />
         : <div className="mk-iso-ph" style={{ width: phone ? 377 : (width ?? 640) + 2, height: h + 2 }} />}
       {loaded ? null : <div className="mk-phone-load">{phone ? "Loading phone view…" : "Loading pane…"}</div>}
       {isScripted ? (
         <div className="mk-health" data-pane-health={spec}>
           <button type="button" className="mk-btn mk-pp" onClick={togglePause}>{paused ? "Play" : "Pause"}</button>
+          <span className="mk-step-ctl" style={stepping ? undefined : { visibility: "hidden" }}>
+            <button type="button" className="mk-btn mk-step-btn" aria-label="Step back" aria-disabled={busy ? "true" : undefined} onClick={() => stepBy(-1)}>◀</button>
+            <button type="button" className="mk-btn mk-step-btn" aria-label="Step forward" aria-disabled={busy ? "true" : undefined} onClick={() => stepBy(1)}>▶</button>
+          </span>
           <span>loops: {health?.completed ?? 0} completed, {health?.failed ?? 0} failed</span>
-          {health?.error ? <span className="mk-health-err">{health.error}</span> : null}
+          {health?.error ? <span className="mk-health-err" title={health.error}>{health.error}</span> : null}
         </div>
       ) : null}
     </div>
   );
 }
 
+/** A scripted pane measures for up to 15 s after it mounts; deep links wait this long for its stage. */
+const STAGE_WAIT_MS = 20_000;
 /** Scroll a ring inside a phone iframe into view (parent <-> iframe handshake). */
 function findInFrame(frame: HTMLIFrameElement, ref: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const t0 = Date.now();
+    const start = Date.now();
+    let t0 = 0; // the 3 s budget starts once a scripted pane's stage arrived
     let timer = 0;
     const done = (ok: boolean) => { clearInterval(timer); removeEventListener("message", on); resolve(ok); };
     const on = (e: MessageEvent) => {
@@ -334,7 +373,12 @@ function findInFrame(frame: HTMLIFrameElement, ref: string): Promise<boolean> {
       done(true);
     };
     addEventListener("message", on);
-    const ask = () => { if (Date.now() - t0 > 3000) return done(false); frame.contentWindow?.postMessage({ mkFind: ref }, postTarget()); };
+    const ask = () => {
+      if (frame.dataset.mkStage === "measuring") { if (Date.now() - start > STAGE_WAIT_MS) done(false); return; }
+      t0 ||= Date.now();
+      if (Date.now() - t0 > 3000) return done(false);
+      frame.contentWindow?.postMessage({ mkFind: ref }, postTarget());
+    };
     ask(); timer = window.setInterval(ask, 150);
   });
 }
